@@ -81,6 +81,54 @@ def classify_intent(user_input):
     return results["labels"][0]
 
 # Extract stage and amount
+MULTIPLIERS = {
+    "k": 1_000,
+    "thousand": 1_000,
+    "million": 1_000_000,
+    "billion": 1_000_000_000
+}
+
+AMOUNT_REGEX = re.compile(
+    r"(?i)"                     # case-insensitive
+    r"(?:\$|usd\s*)?"           # optional $ or 'USD'
+    r"(\d{1,3}(?:,\d{3})*(?:\.\d+)?"  # capture digits with optional commas or decimals
+    r"|\d+(\.\d+)?)"            # or simpler fallback with decimals
+    r"(?:\s*(k|thousand|million|billion))?"  # optional multiplier
+)
+
+def parse_amount_str(text: str) -> float:
+    """
+    Searches the text for a numeric monetary expression and returns it as a float.
+    If multiple matches, returns the first. If none found, returns None.
+    """
+    match = AMOUNT_REGEX.search(text)
+    if not match:
+        return None
+
+    # Groups:
+    # - match.group(1) => the numeric portion with commas, decimals
+    # - match.group(3) => optional multiplier like 'k', 'thousand'
+    numeric_str = match.group(1)  # This is the whole numeric portion
+    multiplier_str = match.group(3)  # k, thousand, million, or billion if present
+
+    # Remove commas
+    numeric_str = numeric_str.replace(",", "")
+
+    # Convert to float
+    try:
+        value = float(numeric_str)
+    except ValueError:
+        return None
+
+    # Apply multiplier if present
+    if multiplier_str:
+        # Lowercase to match dictionary
+        multiplier_str = multiplier_str.lower()
+        multiplier = MULTIPLIERS.get(multiplier_str, 1)
+        value *= multiplier
+
+    return value
+
 # TODO: Modularize for better scalability
 def extract_fields_from_input(user_input):
     """Extract stage and amount using NLP and fallback regex for monetary values."""
@@ -100,19 +148,14 @@ def extract_fields_from_input(user_input):
     stage = stage_results["labels"][0] if stage_results["scores"][0] > 0.5 else None
     
     # Extract the amount using regex
-    amount_match = re.search(r"[\$\s]?([\d,\.]+k?)", user_input, re.IGNORECASE)
-    if amount_match:
-        amount_str = amount_match.group(1).lower().replace(",", "")
-        try:
-            if "k" in amount_str:
-                amount = float(amount_str.replace("k", "")) * 1000
-            else:
-                amount = float(amount_str)
-        except ValueError:
-            amount = None
+    amount = parse_amount_str(user_input)
 
     return stage, amount
-
+    
+def extract_number(input_string):
+    match = re.search(r'\b\d+\b', input_string)
+    return match.group() if match else None
+    
 # Main Logic
 if __name__ == "__main__":
     memory = ConversationBufferMemory(
@@ -150,8 +193,8 @@ if __name__ == "__main__":
                         print("DEBUG: Failed to parse stored context:", msg.content)
 
             # TODO: Leverage user intent once tuned...
-            if user_input.isdigit() and stored_context:
-                selection_index = int(user_input) - 1
+            if user_intent == "selecting from a numbered list" and stored_context:
+                selection_index = int(extract_number(user_input)) - 1
                 stored_matches = stored_context.get("matches")
                 stage = stored_context.get("stage")
                 amount = stored_context.get("amount")
@@ -184,7 +227,7 @@ if __name__ == "__main__":
                 continue
 
             # TODO: Futher expand user intent to include more intents for better routing
-            if user_intent = "updating a record":
+            if user_intent == "updating a record":
                 stage, amount = extract_fields_from_input(user_input)
                 print(f"DEBUG: Extracted stage: {stage}, amount: {amount}")
                 if not stage or not amount:
