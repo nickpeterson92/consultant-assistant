@@ -21,6 +21,13 @@ AZURE_OPENAI_ENDPOINT = os.environ["AZURE_OPENAI_ENDPOINT"]
 AZURE_OPENAI_API_VERSION = os.environ["AZURE_OPENAI_API_VERSION"]
 AZURE_OPENAI_CHAT_DEPLOYMENT_NAME = os.environ["AZURE_OPENAI_CHAT_DEPLOYMENT_NAME"]
 
+# Instantiate zero shot classifier
+classifier = pipeline(
+    "zero-shot-classification", 
+    model="facebook/bart-large-mnli"
+)
+
+# Azure chat creater helper
 def create_azure_openai_chat():
     return AzureChatOpenAI(
         azure_endpoint=AZURE_OPENAI_ENDPOINT,
@@ -30,7 +37,7 @@ def create_azure_openai_chat():
         temperature=0.0,
     )
 
-# Create Agent with Callback
+# Create Agent with memory for callback
 def create_salesforce_agent(memory):
     llm = create_azure_openai_chat()
 
@@ -54,12 +61,8 @@ def create_salesforce_agent(memory):
     )
 
     return agent
-    
-classifier = pipeline(
-    "zero-shot-classification", 
-    model="facebook/bart-large-mnli"
-)
 
+# Classify user intent, to-be used for routing requests, needs tuning
 def classify_intent(user_input):
     # Quick check for "pick \d+"
     if re.search(r"pick\s+option\s*\d+", user_input.lower()):
@@ -75,7 +78,8 @@ def classify_intent(user_input):
     results = classifier(user_input, candidate_labels=user_intents, hypothesis_template=hypothesis_template)
     return results["labels"][0]
 
-# Leverage NLP to extract stage and amount
+# Extract stage and amount
+# TODO: Modularize for better scalability
 def extract_fields_from_input(user_input):
     """Extract stage and amount using NLP and fallback regex for monetary values."""
 
@@ -143,6 +147,7 @@ if __name__ == "__main__":
                     except json.JSONDecodeError:
                         print("DEBUG: Failed to parse stored context:", msg.content)
 
+            # TODO: Leverage user intent once tuned...
             if user_input.isdigit() and stored_context:
                 selection_index = int(user_input) - 1
                 stored_matches = stored_context.get("matches")
@@ -175,7 +180,8 @@ if __name__ == "__main__":
             if not user_input:
                 print("Error: No input provided. Please enter a valid request.")
                 continue
-            
+
+            # TODO: Futher expand user intent to include more intents for better routing
             if "update" in user_input.lower():
                 stage, amount = extract_fields_from_input(user_input)
                 print(f"DEBUG: Extracted stage: {stage}, amount: {amount}")
