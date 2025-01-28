@@ -64,10 +64,6 @@ def create_salesforce_agent(memory):
 
 # Classify user intent, to-be used for routing requests, needs tuning
 def classify_intent(user_input):
-    # Quick check for "pick \d+"
-    if re.search(r"pick\s+option\s*\d+", user_input.lower()):
-        return "select_option"
-
     user_intents = [
         "selecting from a numbered list",
         "creating a record",
