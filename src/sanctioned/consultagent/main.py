@@ -69,12 +69,14 @@ def classify_intent(user_input):
         return "select_option"
 
     user_intents = [
-        "select_option",
-        "new_request"
+        "selecting from a numbered list",
+        "creating a record",
+        "updating a record",
+        "retrieving a record"
     ]
     
     # Then do zero-shot
-    hypothesis_template="A user wants to {}."
+    hypothesis_template="A user is {}."
     results = classifier(user_input, candidate_labels=user_intents, hypothesis_template=hypothesis_template)
     return results["labels"][0]
 
@@ -182,7 +184,7 @@ if __name__ == "__main__":
                 continue
 
             # TODO: Futher expand user intent to include more intents for better routing
-            if "update" in user_input.lower():
+            if user_intent = "updating a record":
                 stage, amount = extract_fields_from_input(user_input)
                 print(f"DEBUG: Extracted stage: {stage}, amount: {amount}")
                 if not stage or not amount:
