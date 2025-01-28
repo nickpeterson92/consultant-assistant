@@ -140,6 +140,11 @@ def extract_fields_from_input(user_input):
         "Negotiation",
         "Id. Decision Makers",
         "Closed Lost",
+        "Prospecting",
+        "Qualification",
+        "Needs Analysis",
+        "Value Proposition",
+        "Perception Analysis"
     ]
 
     # Extract the stage
