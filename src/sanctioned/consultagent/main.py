@@ -71,12 +71,11 @@ def classify_intent(user_input):
         "retrieving a record"
     ]
     
-    # Then do zero-shot
     hypothesis_template="A user is {}."
     results = classifier(user_input, candidate_labels=user_intents, hypothesis_template=hypothesis_template)
     return results["labels"][0]
 
-# Extract stage and amount
+# Set vars for amount extract regex
 MULTIPLIERS = {
     "k": 1_000,
     "thousand": 1_000,
@@ -92,6 +91,7 @@ AMOUNT_REGEX = re.compile(
     r"(?:\s*(k|thousand|million|billion))?"  # optional multiplier
 )
 
+# Extract amount with sick ass regex
 def parse_amount_str(text: str) -> float:
     """
     Searches the text for a numeric monetary expression and returns it as a float.
@@ -143,16 +143,15 @@ def extract_fields_from_input(user_input):
         "Perception Analysis"
     ]
 
-    # Extract the stage
+    # Extract the stage and amount
     hypothesis_template="The text indicates the sales opportunity stage is {}."
     stage_results = classifier(user_input, candidate_labels=possible_stages, hypothesis_template=hypothesis_template)
     stage = stage_results["labels"][0] if stage_results["scores"][0] > 0.5 else None
-    
-    # Extract the amount using regex
     amount = parse_amount_str(user_input)
 
     return stage, amount
-    
+
+# Helper function to extract number should option selection contain fluffly language
 def extract_number(input_string):
     match = re.search(r'\b\d+\b', input_string)
     return match.group() if match else None
