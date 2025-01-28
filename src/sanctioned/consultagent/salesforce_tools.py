@@ -17,14 +17,6 @@ def get_salesforce_connection():
     )
     return sf
 
-def parse_amount(amount: str) -> float:
-    amount = amount.lower().replace("$", "").replace(",", "").replace("dollars", "").strip()
-    if "k" in amount:
-        amount = amount.replace("k", "")
-        return float(amount) * 1000
-    return float(amount)
-
-
 
 class CreateLeadInput(BaseModel):
     name: str
@@ -56,7 +48,7 @@ class GetOpportunityInput(BaseModel):
     account_name: Optional[str] = None
     opportunity_name: Optional[str] = None
     stage: Optional[str] = None
-    amount: Optional[str] = None
+    amount: Optional[float] = None
 
 class GetOpportunityTool(BaseTool):
     name: str = "get_opportunity_tool"
@@ -122,7 +114,7 @@ class UpdateOpportunityInput(BaseModel):
     opportunity_name: Optional[str] = None
     opportunity_id: Optional[str] = None
     stage: str
-    amount: str
+    amount: float
 
 class UpdateOpportunityTool(BaseTool):
     name: str = "update_opportunity_tool"
@@ -144,10 +136,10 @@ class UpdateOpportunityTool(BaseTool):
         opp_id = data.opportunity_id
         
         try:
-            parsed_amount = parse_amount(amount)
+            #parsed_amount = parse_amount(amount)
             sf.Opportunity.update(opp_id, {
                 "StageName": stage,
-                "Amount": parsed_amount
+                "Amount": amount
             })
             return {
                 "message": f"Opportunity updated successfully with ID: {opp_id}",

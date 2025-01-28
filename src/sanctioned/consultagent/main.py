@@ -60,26 +60,19 @@ classifier = pipeline(
     model="facebook/bart-large-mnli"
 )
 
-intents = {
-    "select_option": [
-        "selecting an option from a previously shown list",
-        "picking an option number",
-    ],
-    "new_request": [
-        "updating a record in Salesforce",
-        "creating a new record",
-        "fetching or retrieving data in Salesforce",
-    ]
-}
 def classify_intent(user_input):
     # Quick check for "pick \d+"
     if re.search(r"pick\s+option\s*\d+", user_input.lower()):
         return "select_option"
+
+    user_intents = [
+        "select_option",
+        "new_request"
+    ]
     
     # Then do zero-shot
-    candidate_labels = list(intents.keys())
-    hypothesis_template="User wants to: {}."
-    results = classifier(user_input, candidate_labels=candidate_labels, hypothesis_template=hypothesis_template)
+    hypothesis_template="A user wants to {}."
+    results = classifier(user_input, candidate_labels=user_intents, hypothesis_template=hypothesis_template)
     return results["labels"][0]
 
 # Leverage NLP to extract stage and amount
@@ -94,14 +87,13 @@ def extract_fields_from_input(user_input):
         "Id. Decision Makers",
         "Closed Lost",
     ]
-    monetary_label = "monetary value"
 
     # Extract the stage
-    hypothesis_template="A sales opportunity is being updated to stage: {}."
+    hypothesis_template="The text indicates the sales opportunity stage is {}."
     stage_results = classifier(user_input, candidate_labels=possible_stages, hypothesis_template=hypothesis_template)
     stage = stage_results["labels"][0] if stage_results["scores"][0] > 0.5 else None
     
-    # Extract the amount using regex fallback
+    # Extract the amount using regex
     amount_match = re.search(r"[\$\s]?([\d,\.]+k?)", user_input, re.IGNORECASE)
     if amount_match:
         amount_str = amount_match.group(1).lower().replace(",", "")
