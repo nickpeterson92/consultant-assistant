@@ -127,8 +127,6 @@ def parse_amount_str(text: str) -> float:
 
 # TODO: Modularize for better scalability
 def extract_fields_from_input(user_input):
-    """Extract stage and amount using NLP and fallback regex for monetary values."""
-
     # Define possible stages
     possible_stages = [
         "Proposal/Price Quote",
