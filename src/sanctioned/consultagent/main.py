@@ -1,254 +1,87 @@
 # main.py
-
-
 import os
-import re
 import json
+from typing import Annotated
 
-from langchain_community.chat_models import AzureChatOpenAI
-from langchain.agents import initialize_agent, AgentType
-from langchain.memory import ConversationBufferMemory
-from langchain.schema import AIMessage
-from transformers import pipeline
+from langchain_core.messages import BaseMessage
+from typing_extensions import TypedDict
+
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import StateGraph
+from langgraph.graph.message import add_messages
+from langgraph.prebuilt import ToolNode, tools_condition
+
 
 from salesforce_tools import CreateLeadTool, GetOpportunityTool, UpdateOpportunityTool
+
 from callbacks import MultipleMatchesCallback
+# If you want to attach callbacks at the tool level or node level
 
+# Example Azure LLM, if langgraph supports it directly, or you can wrap it in a ChatNode
+from langchain_openai import AzureChatOpenAI
 
-# Azure OpenAI Setup
-AZURE_OPENAI_API_KEY = os.environ["AZURE_OPENAI_API_KEY"]
-AZURE_OPENAI_ENDPOINT = os.environ["AZURE_OPENAI_ENDPOINT"]
-AZURE_OPENAI_API_VERSION = os.environ["AZURE_OPENAI_API_VERSION"]
-AZURE_OPENAI_CHAT_DEPLOYMENT_NAME = os.environ["AZURE_OPENAI_CHAT_DEPLOYMENT_NAME"]
-
-# Instantiate zero shot classifier
-classifier = pipeline(
-    "zero-shot-classification", 
-    model="facebook/bart-large-mnli"
-)
-
-# Azure chat creater helper
 def create_azure_openai_chat():
     return AzureChatOpenAI(
-        azure_endpoint=AZURE_OPENAI_ENDPOINT,
-        azure_deployment=AZURE_OPENAI_CHAT_DEPLOYMENT_NAME,
-        openai_api_version=AZURE_OPENAI_API_VERSION,
-        openai_api_key=AZURE_OPENAI_API_KEY,
+        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+        azure_deployment=os.environ["AZURE_OPENAI_CHAT_DEPLOYMENT_NAME"],
+        openai_api_version=os.environ["AZURE_OPENAI_API_VERSION"],
+        openai_api_key=os.environ["AZURE_OPENAI_API_KEY"],
         temperature=0.0,
     )
 
-# Create Agent with memory for callback
-def create_salesforce_agent(memory):
+def main():
+    print("\n=== Salesforce Assistant Powered by LangGraph ===\n")
+
+    class State(TypedDict):
+        messages: Annotated[list, add_messages]
+
+    
+    memory = MemorySaver()
+    graph_builder = StateGraph(State)
+
+    tools = [CreateLeadTool(), GetOpportunityTool(), UpdateOpportunityTool()]
     llm = create_azure_openai_chat()
+    llm_with_tools = llm.bind_tools(tools)
 
-    getter_tool = GetOpportunityTool()
-    updater_tool = UpdateOpportunityTool(getter_tool=getter_tool)
-    create_tool = CreateLeadTool()
 
-    tools = [create_tool, updater_tool, getter_tool]
-
-    system_msg = """
-    You are a Salesforce assistant using function calling.
-    """
-
-    agent = initialize_agent(
-        tools=tools,
-        llm=llm,
-        agent=AgentType.OPENAI_FUNCTIONS,
-        verbose=True,
-        memory=memory,
-        system_message=system_msg
-    )
-
-    return agent
-
-# Classify user intent, to-be used for routing requests, needs tuning
-def classify_intent(user_input):
-    user_intents = [
-        "selecting from a numbered list",
-        "creating a record",
-        "updating a record",
-        "retrieving a record"
-    ]
+    def chatbot(state: State):
+        return {"messages": [llm_with_tools.invoke(state["messages"])]}
     
-    hypothesis_template="A user is {}."
-    results = classifier(user_input, candidate_labels=user_intents, hypothesis_template=hypothesis_template)
-    return results["labels"][0]
-
-# Set vars for amount extract regex
-MULTIPLIERS = {
-    "k": 1_000,
-    "thousand": 1_000,
-    "million": 1_000_000,
-    "billion": 1_000_000_000
-}
-
-AMOUNT_REGEX = re.compile(
-    r"(?i)"                     # case-insensitive
-    r"(?:\$|usd\s*)?"           # optional $ or 'USD'
-    r"(\d{1,3}(?:,\d{3})*(?:\.\d+)?"  # capture digits with optional commas or decimals
-    r"|\d+(\.\d+)?)"            # or simpler fallback with decimals
-    r"(?:\s*(k|thousand|million|billion))?"  # optional multiplier
-)
-
-# Extract amount with sick ass regex
-def parse_amount_str(text: str) -> float:
-    """
-    Searches the text for a numeric monetary expression and returns it as a float.
-    If multiple matches, returns the first. If none found, returns None.
-    """
-    match = AMOUNT_REGEX.search(text)
-    if not match:
-        return None
-
-    # Groups:
-    # - match.group(1) => the numeric portion with commas, decimals
-    # - match.group(3) => optional multiplier like 'k', 'thousand'
-    numeric_str = match.group(1)  # This is the whole numeric portion
-    multiplier_str = match.group(3)  # k, thousand, million, or billion if present
-
-    # Remove commas
-    numeric_str = numeric_str.replace(",", "")
-
-    # Convert to float
-    try:
-        value = float(numeric_str)
-    except ValueError:
-        return None
-
-    # Apply multiplier if present
-    if multiplier_str:
-        # Lowercase to match dictionary
-        multiplier_str = multiplier_str.lower()
-        multiplier = MULTIPLIERS.get(multiplier_str, 1)
-        value *= multiplier
-
-    return value
-
-# TODO: Modularize for better scalability
-def extract_fields_from_input(user_input):
-    # Define possible stages
-    possible_stages = [
-        "Proposal/Price Quote",
-        "Closed Won",
-        "Negotiation",
-        "Id. Decision Makers",
-        "Closed Lost",
-        "Prospecting",
-        "Qualification",
-        "Needs Analysis",
-        "Value Proposition",
-        "Perception Analysis"
-    ]
-
-    # Extract the stage and amount
-    hypothesis_template="The text indicates the sales opportunity stage is {}."
-    stage_results = classifier(user_input, candidate_labels=possible_stages, hypothesis_template=hypothesis_template)
-    stage = stage_results["labels"][0] if stage_results["scores"][0] > 0.5 else None
-    amount = parse_amount_str(user_input)
-
-    return stage, amount
-
-# Helper function to extract number should option selection contain fluffly language
-def extract_number(input_string):
-    match = re.search(r'\b\d+\b', input_string)
-    return match.group() if match else None
     
-# Main Logic
-if __name__ == "__main__":
-    memory = ConversationBufferMemory(
-        memory_key="chat_history",
-        return_messages=True
+    graph_builder.add_node("chatbot", chatbot)
+    
+    tool_node = ToolNode(tools=tools)
+    graph_builder.add_node("tools", tool_node)
+    
+    graph_builder.add_conditional_edges(
+        "chatbot",
+        tools_condition,
     )
-    multiple_matches_callback = MultipleMatchesCallback(memory)
-    agent = create_salesforce_agent(memory)
+    graph_builder.add_edge("tools", "chatbot")
+    graph_builder.set_entry_point("chatbot")
+    graph = graph_builder.compile(checkpointer=memory)
 
-    print("\nSalesforce Agent is ready. Type 'exit' or 'quit' to close.\n")
-
+    # 8) Start an Interactive Loop:
+    def stream_graph_updates(user_input: str):
+        for event in graph.stream({"messages": [{"role": "user", "content": user_input}]}, config = {"configurable": {"thread_id": "1"}}):
+            for value in event.values():
+                print("Assistant:", value["messages"][-1].content)
+    
+    
     while True:
         try:
-            user_input = input("Your Request: ").strip()
-            if user_input.lower() in ("exit", "quit"):
+            user_input = input("User: ")
+            if user_input.lower() in ["quit", "exit", "q"]:
                 print("Goodbye!")
                 break
+    
+            stream_graph_updates(user_input)
+        except:
+            # fallback if input() is not available
+            user_input = "What do you know about LangGraph?"
+            print("User: " + user_input)
+            stream_graph_updates(user_input)
+            break
 
-            print(f"DEBUG: Starting execution for input: {user_input}")
-            
-            user_intent = classify_intent(user_input)
-
-            print(f"DEBUG: Classified intent: {user_intent}")
-            
-            # Handle numeric input (selection)
-            memory_data = memory.load_memory_variables({})
-            stored_context = None
-            for msg in memory_data.get("chat_history", []):
-                if isinstance(msg, AIMessage) and msg.content.startswith("{") and msg.content.endswith("}"):
-                    try:
-                        stored_context = json.loads(msg.content)
-                        print("DEBUG: Retrieved context from memory:", stored_context)
-                        break
-                    except json.JSONDecodeError:
-                        print("DEBUG: Failed to parse stored context:", msg.content)
-
-            # TODO: Leverage user intent once tuned...
-            if user_intent == "selecting from a numbered list" and stored_context:
-                selection_index = int(extract_number(user_input)) - 1
-                stored_matches = stored_context.get("matches")
-                stage = stored_context.get("stage")
-                amount = stored_context.get("amount")
-
-                if stored_matches and 0 <= selection_index < len(stored_matches):
-                    selected_match = stored_matches[selection_index]
-                    print(f"DEBUG: User selected match: {selected_match}")
-
-                    if not stage or not amount:
-                        print("Error: Missing stage or amount in memory.")
-                        continue
-
-                    input_data = {
-                        "input": json.dumps({
-                            "opportunity_id": selected_match["id"],
-                            "stage": stage,
-                            "amount": amount
-                        })
-                    }
-                    print("DEBUG: Invoking agent for update")
-                    response = agent.run(input_data, callbacks=[multiple_matches_callback])
-                    print("\nAGENT RESPONSE:\n", response)
-
-                else:
-                    print("Error: Invalid selection. Please choose a valid option.")
-                continue
-
-            if not user_input:
-                print("Error: No input provided. Please enter a valid request.")
-                continue
-
-            # TODO: Futher expand user intent to include more intents for better routing
-            if user_intent == "updating a record":
-                stage, amount = extract_fields_from_input(user_input)
-                print(f"DEBUG: Extracted stage: {stage}, amount: {amount}")
-                if not stage or not amount:
-                    print("Error: Could not extract stage or amount. Please rephrase your request.")
-                    continue
-            
-                input_data = {
-                    "input": json.dumps({
-                        "request": user_input,
-                        "stage": stage,
-                        "amount": amount
-                    })
-                }
-                print("DEBUG: Invoking agent for update with input_data:", input_data)
-                response = agent.run(input_data, callbacks=[multiple_matches_callback])
-
-            else:
-                input_data = {"input": user_input}
-                print("DEBUG: Invoking agent for retrieval with input_data:", input_data)
-                response = agent.run(input_data, callbacks=[multiple_matches_callback])
-
-
-            print("\nAGENT RESPONSE:\n", response)
-
-        except Exception as e:
-            print("Error:", e)
+if __name__ == "__main__":
+    main()

@@ -58,7 +58,7 @@ class GetOpportunityTool(BaseTool):
         "If called for such a scenario, ensure to maintain the values for both opportunity stage and amount"
     )
     args_schema: type = GetOpportunityInput
-
+    
     def _run(self, **kwargs) -> dict:
         print(f"DEBUG: Tool 'get_opportunity_tool' invoked with input: {kwargs}")
         sf = get_salesforce_connection()
