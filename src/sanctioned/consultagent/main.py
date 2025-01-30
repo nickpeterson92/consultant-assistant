@@ -7,10 +7,12 @@ from typing import Annotated
 from typing_extensions import TypedDict
 
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import StateGraph
+from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.types import Command, interrupt
 
+from langchain_core.tools import tool
 from langchain_openai import AzureChatOpenAI
 
 from attachment_tools import OCRTool
@@ -54,7 +56,13 @@ def main():
 
     memory = MemorySaver()
     graph_builder = StateGraph(State)
-
+    
+    @tool
+    def human_assistance(query: str) -> str:
+        """Request assistance from a human"""
+        human_response = interrupt({"query": query})
+        return human_response["data"]
+    
     tools = [
                 CreateLeadTool(),
                 GetLeadTool(),
@@ -96,15 +104,11 @@ def main():
     )
     graph_builder.add_edge("tools", "chatbot")
     graph_builder.set_entry_point("chatbot")
+    graph_builder.add_edge(START, "chatbot")
+    graph_builder.add_edge("chatbot", END)
     graph = graph_builder.compile(checkpointer=memory)
-
-    # 8) Start an Interactive Loop:
-    def stream_graph_updates(user_input: str):
-        for event in graph.stream({"messages": [{"role": "user", "content": user_input}]}, config = {"configurable": {"thread_id": "1"}}):
-            for value in event.values():
-                print("Assistant:", value["messages"][-1].content)
     
-    
+    config = {"configurable": {"thread_id": "1"}}
     while True:
         try:
             user_input = input("User: ")
@@ -112,12 +116,15 @@ def main():
                 print("Goodbye!")
                 break
     
-            stream_graph_updates(user_input)
+            events = graph.stream(
+                {"messages": [{"role": "user", "content": user_input}]},
+                config,
+                stream_mode="values",
+            )
+
+            for event in events:
+                event["messages"][-1].pretty_print()
         except:
-            # fallback if input() is not available
-            user_input = "What do you know about LangGraph?"
-            print("User: " + user_input)
-            stream_graph_updates(user_input)
             break
 
 if __name__ == "__main__":
