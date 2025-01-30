@@ -22,7 +22,10 @@ from salesforce_tools import (
     CreateOpportunityTool,
     GetAccountTool,
     CreateAccountTool, 
-    UpdateAccountTool
+    UpdateAccountTool,
+    GetContactTool,
+    CreateContactTool,
+    UpdateContactTool
 )
 
 
@@ -54,7 +57,10 @@ def main():
                 CreateOpportunityTool(),
                 GetAccountTool(),
                 CreateAccountTool(),
-                UpdateAccountTool()
+                UpdateAccountTool(),
+                GetContactTool(),
+                CreateContactTool(),
+                UpdateContactTool()
             ]
     
     llm = create_azure_openai_chat()
