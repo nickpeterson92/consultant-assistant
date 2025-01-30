@@ -13,8 +13,17 @@ from langgraph.prebuilt import ToolNode, tools_condition
 
 from langchain_openai import AzureChatOpenAI
 
-from salesforce_tools import CreateLeadTool, GetOpportunityTool, UpdateOpportunityTool, CreateOpportunityTool, GetAccountTool
-
+from salesforce_tools import ( 
+    CreateLeadTool, 
+    GetLeadTool,
+    UpdateLeadTool,
+    GetOpportunityTool,
+    UpdateOpportunityTool,
+    CreateOpportunityTool,
+    GetAccountTool,
+    CreateAccountTool, 
+    UpdateAccountTool
+)
 
 
 def create_azure_openai_chat():
@@ -26,22 +35,26 @@ def create_azure_openai_chat():
         temperature=0.0,
     )
 
+
 def main():
     print("\n=== Salesforce Assistant Powered by LangGraph ===\n")
 
     class State(TypedDict):
         messages: Annotated[list, add_messages]
 
-    
     memory = MemorySaver()
     graph_builder = StateGraph(State)
 
     tools = [
-             CreateLeadTool(), 
-             GetOpportunityTool(), 
-             UpdateOpportunityTool(), 
-             CreateOpportunityTool(),
-             GetAccountTool()
+                CreateLeadTool(),
+                GetLeadTool(),
+                UpdateLeadTool(), 
+                GetOpportunityTool(), 
+                UpdateOpportunityTool(), 
+                CreateOpportunityTool(),
+                GetAccountTool(),
+                CreateAccountTool(),
+                UpdateAccountTool()
             ]
     
     llm = create_azure_openai_chat()
