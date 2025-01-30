@@ -1,9 +1,9 @@
 # main.py
+
+
 import os
-import json
 from typing import Annotated
 
-from langchain_core.messages import BaseMessage
 from typing_extensions import TypedDict
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -11,14 +11,11 @@ from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 
-
-from salesforce_tools import CreateLeadTool, GetOpportunityTool, UpdateOpportunityTool
-
-from callbacks import MultipleMatchesCallback
-# If you want to attach callbacks at the tool level or node level
-
-# Example Azure LLM, if langgraph supports it directly, or you can wrap it in a ChatNode
 from langchain_openai import AzureChatOpenAI
+
+from salesforce_tools import CreateLeadTool, GetOpportunityTool, UpdateOpportunityTool, CreateOpportunityTool, GetAccountTool
+
+
 
 def create_azure_openai_chat():
     return AzureChatOpenAI(
@@ -39,7 +36,14 @@ def main():
     memory = MemorySaver()
     graph_builder = StateGraph(State)
 
-    tools = [CreateLeadTool(), GetOpportunityTool(), UpdateOpportunityTool()]
+    tools = [
+             CreateLeadTool(), 
+             GetOpportunityTool(), 
+             UpdateOpportunityTool(), 
+             CreateOpportunityTool(),
+             GetAccountTool()
+            ]
+    
     llm = create_azure_openai_chat()
     llm_with_tools = llm.bind_tools(tools)
 
