@@ -772,3 +772,4 @@ class UpdateTaskTool(BaseTool):
         except Exception as e:
             return {"error": str(e)}
         return {"message": f"Task updated with ID: {data.task_id}"}
+

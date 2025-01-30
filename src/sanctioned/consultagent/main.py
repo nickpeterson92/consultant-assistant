@@ -1,5 +1,6 @@
 # main.py
 
+
 import os
 from typing import Annotated
 
@@ -12,6 +13,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 
 from langchain_openai import AzureChatOpenAI
 
+from attachment_tools import OCRTool
 from salesforce_tools import (
     CreateLeadTool,
     GetLeadTool,
@@ -71,7 +73,8 @@ def main():
                 UpdateCaseTool(),
                 GetTaskTool(),
                 CreateTaskTool(),
-                UpdateTaskTool()
+                UpdateTaskTool(),
+                OCRTool()
             ]
     
     llm = create_azure_openai_chat()
