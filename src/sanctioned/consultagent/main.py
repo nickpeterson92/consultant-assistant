@@ -1,6 +1,5 @@
 # main.py
 
-
 import os
 from typing import Annotated
 
@@ -13,15 +12,15 @@ from langgraph.prebuilt import ToolNode, tools_condition
 
 from langchain_openai import AzureChatOpenAI
 
-from salesforce_tools import ( 
-    CreateLeadTool, 
+from salesforce_tools import (
+    CreateLeadTool,
     GetLeadTool,
     UpdateLeadTool,
     GetOpportunityTool,
     UpdateOpportunityTool,
     CreateOpportunityTool,
     GetAccountTool,
-    CreateAccountTool, 
+    CreateAccountTool,
     UpdateAccountTool,
     GetContactTool,
     CreateContactTool,

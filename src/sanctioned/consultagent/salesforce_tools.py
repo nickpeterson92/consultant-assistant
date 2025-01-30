@@ -35,62 +35,52 @@ class GetLeadTool(BaseTool):
         "Sometimes used in workflows involving tools that require a lead_id where one is not supplied."
     )
     args_schema: type = GetLeadInput
-    
+
     def _run(self, **kwargs) -> dict:
         print(f"DEBUG: Tool 'get_lead_tool' invoked with input: {kwargs}")
         data = GetLeadInput(**kwargs)
-        
-        lead_id = data.lead_id
-        email = data.email
-        name = data.name
-        phone = data.phone
-        company = data.company
-
-        if lead_id:
-            query =f"SELECT Id, Name, Company, Email, Phone FROM Lead WHERE Id = '{lead_id}'"
-        else:
-            query_conditions = []
-            if email:
-                query_conditions.append(f"Email LIKE '%{email}%'")
-            if name:
-                query_conditions.append(f"Name LIKE '%{name}%'")
-            if phone:
-                query_conditions.append(f"Phone LIKE '%{phone}%'")
-            if company:
-                query_conditions.append(f"Company LIKE '%{company}%'")
-    
-            query = f"SELECT Id, Name, Company, Email, Phone FROM Lead WHERE {' AND '.join(query_conditions)}"
-            print(f"DEBUG: Executing SOQL query: {query}")
-
         try:
-         sf = get_salesforce_connection()
-         result = sf.query(query)
+            sf = get_salesforce_connection()
+            if data.lead_id:
+                query = f"SELECT Id, Name, Company, Email, Phone FROM Lead WHERE Id = '{data.lead_id}'"
+            else:
+                query_conditions = []
+                if data.email:
+                    query_conditions.append(f"Email LIKE '%{data.email}%'")
+                if data.name:
+                    query_conditions.append(f"Name LIKE '%{data.name}%'")
+                if data.phone:
+                    query_conditions.append(f"Phone LIKE '%{data.phone}%'")
+                if data.company:
+                    query_conditions.append(f"Company LIKE '%{data.company}%'")
+
+                if not query_conditions:
+                    return {"error": "No search criteria provided."}
+
+                query = f"SELECT Id, Name, Company, Email, Phone FROM Lead WHERE {' OR '.join(query_conditions)}"
+                print(f"DEBUG: Executing SOQL query: {query}")
+
+            records = sf.query(query)['records']
+            if len(records) > 1:
+                return {
+                    "multiple_matches": [
+                        {
+                            "id": rec["Id"],
+                            "name": rec["Name"],
+                            "account": rec["Account"]["Name"] if rec.get("Account") else None,
+                            "email": rec["Email"],
+                            "phone": rec["Phone"]
+                        }
+                        for rec in records
+                    ]
+                }
+
+            return {
+                "match": records[0]
+            }
         except Exception as e:
             return {"error": str(e)}
-        
-        records = result.get("records", [])
 
-        if not records:
-            return {"error": "No leads found."}
-
-        if len(records) > 1:
-            return {
-                "multiple_matches": [
-                    {
-                        "id": rec["Id"],
-                        "name": rec["Name"],
-                        "company": rec["Company"],
-                        "email": rec["Email"],
-                        "phone": rec["Phone"]
-                    }
-                    for rec in records
-                ]
-            }
-
-        return {
-            "match": records[0]
-        }
-    
 
 class CreateLeadInput(BaseModel):
     name: str
@@ -546,5 +536,4 @@ class UpdateContactTool(BaseTool):
         except Exception as e:
             return {"error": str(e)}
         return {"message": f"Contact updated with ID: {result['id']}"}
-    
 
