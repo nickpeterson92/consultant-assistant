@@ -29,7 +29,7 @@ class MultipleMatchesCallback(BaseCallbackHandler):
         else:
             print("DEBUG: Insufficient arguments passed to on_tool_start.")
 
-    def on_tool_end(self, output, **kwargs):
+    def on_tool_end(self, output):
         print("DEBUG: Tool execution completed.")
         print(f"DEBUG: Tool output: {output}")
         self.memory.clear()
