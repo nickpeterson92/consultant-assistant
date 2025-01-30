@@ -67,7 +67,7 @@ class GetLeadTool(BaseTool):
                         {
                             "id": rec["Id"],
                             "name": rec["Name"],
-                            "account": rec["Account"]["Name"] if rec.get("Account") else None,
+                            "company": rec["Company"],
                             "email": rec["Email"],
                             "phone": rec["Phone"]
                         }
@@ -135,7 +135,7 @@ class UpdateLeadTool(BaseTool):
                 "Email": data.email,
                 "Phone": data.phone
             })
-            return {"message": f"Lead updated with ID: {result['id']}"}
+            return {"message": f"Lead updated with ID: {data.lead_id}"}
         except Exception as e:
             return {"error": str(e)}
     
@@ -403,7 +403,7 @@ class UpdateAccountTool(BaseTool):
             })
         except Exception as e:
             return {"error": str(e)}
-        return {"message": f"Account updated with ID: {result['id']}"}
+        return {"message": f"Account updated with ID: {data.account_id}"}
     
 
 class GetContactInput(BaseModel):
@@ -535,5 +535,240 @@ class UpdateContactTool(BaseTool):
             })
         except Exception as e:
             return {"error": str(e)}
-        return {"message": f"Contact updated with ID: {result['id']}"}
+        return {"message": f"Contact updated with ID: {data.contact_id}"}
+    
 
+class GetCaseInput(BaseModel):
+    case_id: Optional[str] = None
+    subject: Optional[str] = None
+    account_name: Optional[str] = None
+    contact_name: Optional[str] = None
+
+
+class GetCaseTool(BaseTool):
+    name: str = "get_case_tool"
+    description: str = (
+        "Retrieves Salesforce cases by case_id. If no case_id is supplied the tool uses subject, account_name, or contact_name. "
+        "If multiple cases match, returns a list of options for user selection. "
+        "Sometimes used in workflows involving tools that require a case_id where one is not supplied."
+    )
+    args_schema: type = GetCaseInput
+
+    def _run(self, **kwargs) -> dict:
+        print(f"DEBUG: Tool 'get_case_tool' invoked with input: {kwargs}")
+        data = GetCaseInput(**kwargs)
+        try:
+            sf = get_salesforce_connection()
+            if data.case_id:
+                query = f"SELECT Id, Subject, Account.Name, Contact.Name FROM Case WHERE Id = '{data.case_id}'"
+            else:
+                query_conditions = []
+                if data.subject:
+                    query_conditions.append(f"Subject LIKE '%{data.subject}%'")
+                if data.account_name:
+                    query_conditions.append(f"Account.Name LIKE '%{data.account_name}%'")
+                if data.contact_name:
+                    query_conditions.append(f"Contact.Name LIKE '%{data.contact_name}%'")
+
+                if not query_conditions:
+                    return {"error": "No search criteria provided."}
+
+                query = f"SELECT Id, Subject, Account.Name, Contact.Name FROM Case WHERE {' OR '.join(query_conditions)}"
+                print(f"DEBUG: Executing SOQL query: {query}")
+
+            records = sf.query(query)['records']
+            if len(records) > 1:
+                return {
+                    "multiple_matches": [
+                        {
+                            "id": rec["Id"],
+                            "subject": rec["Subject"],
+                            "account": rec["Account"]["Name"],
+                            "contact": rec["Contact"]["Name"]
+                        }
+                        for rec in records
+                    ]
+                }
+
+            return {
+                "match": records[0]
+            }
+        except Exception as e:
+            return {"error": str(e)}
+        
+
+class CreateCaseInput(BaseModel):
+    subject: str
+    description: Optional[str] = None
+    account_id: str
+    contact_id: str
+
+
+class CreateCaseTool(BaseTool):
+    name: str = "create_case_tool"
+    description: str = (
+        "Creates a new Salesforce case. Requires a subject, account_id and contact_id. Optional fields include description. "
+        "Use your discretion on how best to summarize the input into a subject and when to include a description."
+    )
+    args_schema: type = CreateCaseInput
+
+    def _run(self, **kwargs) -> dict:
+        print(f"DEBUG: Tool 'create_case_tool' invoked with input: {kwargs}")
+        data = CreateCaseInput(**kwargs)
+        try:
+            sf = get_salesforce_connection()
+            result = sf.Case.create({
+                "Subject": data.subject,
+                "Description": data.description,
+                "AccountId": data.account_id,
+                "ContactId": data.contact_id
+            })
+        except Exception as e:
+            return {"error": str(e)}
+        return {"message": f"Case created with ID: {result['id']}"}
+
+
+class UpdateCaseInput(BaseModel):
+    case_id: str
+    status: str
+    description: Optional[str] = None
+
+
+class UpdateCaseTool(BaseTool):
+    name: str = "update_case_tool"
+    description: str = (
+        "Updates an existing Salesforce case. Requires a case_id and status. "
+        "Optionally takes a description."
+    )
+    args_schema: type = UpdateCaseInput
+
+    def _run(self, **kwargs) -> dict:
+        print(f"DEBUG: Tool 'update_case_tool' invoked with input: {kwargs}")
+        data = UpdateCaseInput(**kwargs)
+        try:
+            sf = get_salesforce_connection()
+            result = sf.Case.update(data.case_id, {
+                "Status": data.status,
+                "Description": data.description
+            })
+        except Exception as e:
+            return {"error": str(e)}
+        return {"message": f"Case updated with ID: {data.case_id}"}
+    
+
+class GetTaskInput(BaseModel):
+    task_id: Optional[str] = None
+    subject: Optional[str] = None
+    account_name: Optional[str] = None
+    contact_name: Optional[str] = None
+
+
+class GetTaskTool(BaseTool):
+    name: str = "get_task_tool"
+    description: str = (
+        "Retrieves Salesforce tasks by task_id. If no task_id is supplied the tool uses subject, account_name, or contact_name. "
+        "If multiple tasks match, returns a list of options for user selection. "
+        "Sometimes used in workflows involving tools that require a task_id where one is not supplied."
+    )
+    args_schema: type = GetTaskInput
+
+    def _run(self, **kwargs) -> dict:
+        print(f"DEBUG: Tool 'get_task_tool' invoked with input: {kwargs}")
+        data = GetTaskInput(**kwargs)
+        try:
+            sf = get_salesforce_connection()
+            if data.task_id:
+                query = f"SELECT Id, Subject, Account.Name, Who.Name FROM Task WHERE Id = '{data.task_id}'"
+            else:
+                query_conditions = []
+                if data.subject:
+                    query_conditions.append(f"Subject LIKE '%{data.subject}%'")
+                if data.account_name:
+                    query_conditions.append(f"Account.Name LIKE '%{data.account_name}%'")
+                if data.contact_name:
+                    query_conditions.append(f"Who.Name LIKE '%{data.contact_name}%'")
+
+                if not query_conditions:
+                    return {"error": "No search criteria provided."}
+
+                query = f"SELECT Id, Subject, Account.Name, Who.Name FROM Task WHERE {' OR '.join(query_conditions)}"
+                print(f"DEBUG: Executing SOQL query: {query}")
+
+            records = sf.query(query)['records']
+            if len(records) > 1:
+                return {
+                    "multiple_matches": [
+                        {
+                            "id": rec["Id"],
+                            "subject": rec["Subject"],
+                            "account": rec["Account"]["Name"],
+                            "contact": rec["Who"]["Name"]
+                        }
+                        for rec in records
+                    ]
+                }
+
+            return {
+                "match": records[0]
+            }
+        except Exception as e:
+            return {"error": str(e)}
+        
+
+class CreateTaskInput(BaseModel):
+    subject: str
+    description: Optional[str] = None
+    account_id: str
+    contact_id: str
+
+
+class CreateTaskTool(BaseTool):
+    name: str = "create_task_tool"
+    description: str = (
+        "Creates a new Salesforce task. Requires a subject, account_id and contact_id. Optional fields include description. "
+        "Use your discretion on how best to summarize the input into a subject and when to include a description."
+    )
+    args_schema: type = CreateTaskInput
+
+    def _run(self, **kwargs) -> dict:
+        print(f"DEBUG: Tool 'create_task_tool' invoked with input: {kwargs}")
+        data = CreateTaskInput(**kwargs)
+        try:
+            sf = get_salesforce_connection()
+            result = sf.Task.create({
+                "Subject": data.subject,
+                "Description": data.description,
+                "WhatId": data.account_id,
+                "WhoId": data.contact_id
+            })
+        except Exception as e:
+            return {"error": str(e)}
+        return {"message": f"Task created with ID: {result['id']}"}
+
+
+class UpdateTaskInput(BaseModel):
+    task_id: str
+    status: str
+    description: Optional[str] = None
+
+
+class UpdateTaskTool(BaseTool):
+    name: str = "update_task_tool"
+    description: str = (
+        "Updates an existing Salesforce task. Requires a task_id and status. "
+        "Optionally takes a description."
+    )
+    args_schema: type = UpdateTaskInput
+
+    def _run(self, **kwargs) -> dict:
+        print(f"DEBUG: Tool 'update_task_tool' invoked with input: {kwargs}")
+        data = UpdateTaskInput(**kwargs)
+        try:
+            sf = get_salesforce_connection()
+            result = sf.Task.update(data.task_id, {
+                "Status": data.status,
+                "Description": data.description
+            })
+        except Exception as e:
+            return {"error": str(e)}
+        return {"message": f"Task updated with ID: {data.task_id}"}
