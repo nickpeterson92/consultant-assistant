@@ -4,7 +4,7 @@
 import os
 from datetime import date
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from langchain.tools import BaseTool
 from typing import Optional
 from simple_salesforce import Salesforce
@@ -32,7 +32,7 @@ class GetLeadTool(BaseTool):
     description: str = (
         "Retrieves Salesforce leads by lead_id. If no lead_id is supplied the tool uses email, name, phone, or company. "
         "If multiple leads match, returns a list of options for user selection. "
-        "Sometimes used in workflows involving tools that require a lead_id where one is not supplied."
+        "Must be used in workflows involving tools that require a lead_id where one is not supplied."
     )
     args_schema: type = GetLeadInput
 
@@ -61,6 +61,10 @@ class GetLeadTool(BaseTool):
                 print(f"DEBUG: Executing SOQL query: {query}")
 
             records = sf.query(query)['records']
+
+            if not records:
+                return {"message": "No leads found."}
+        
             if len(records) > 1:
                 return {
                     "multiple_matches": [
@@ -152,7 +156,7 @@ class GetOpportunityTool(BaseTool):
         "Retrieves Salesforce opportunities, always by opportunity_id if one is available. "
         "If no opportunity_id is available the tool uses account_name, opportunity_name, or both. "
         "If multiple opportunities match, returns a list of options for user selection. "
-        "Sometimes used in workflows involving tools that require an opportunity_id where one is not supplied."
+        "Must be used in workflows involving tools that require an opportunity_id where one is not supplied."
     )
     args_schema: type = GetOpportunityInput
     
@@ -183,7 +187,7 @@ class GetOpportunityTool(BaseTool):
         records = result.get("records", [])
 
         if not records:
-            return {"error": "No opportunities found."}
+            return {"message": "No opportunities found."}
 
         if len(records) > 1:
             return {
@@ -256,6 +260,22 @@ class UpdateOpportunityInput(BaseModel):
     stage: str
     amount: Optional[float] = None
 
+    @field_validator('stage')
+    def validate_stage(cls, v):
+        if v not in [
+        "Prospecting",
+        "Qualification",
+        "Needs Analysis",
+        "Value Proposition",
+        "Id. Decision Makers",
+        "Perception Analysis",
+        "Proposal/Price Quote",
+        "Negotiation/Review",
+        "Closed Won",
+        "Closed Lost"
+    ]:
+            raise ValueError(f"Invalid stage name : {v}. Available values are 'Prospecting', 'Qualification', 'Needs Analysis', 'Value Proposition', 'Id. Decision Makers', 'Perception Analysis', 'Proposal/Price Quote', 'Negotiation/Review', 'Closed Won', 'Closed Lost'")
+        return v
 
 class UpdateOpportunityTool(BaseTool):
     name: str = "update_opportunity_tool"
@@ -299,7 +319,7 @@ class GetAccountTool(BaseTool):
     description: str = (
         "Retrieves Salesforce accounts by account_id. If no account_id is supplied the tool uses account_name. "
         "If multiple accounts match, returns a list of options for user selection. "
-        "Sometimes used in workflows involving tools that require an account_id where one is not supplied."
+        "Must be used in workflows involving tools that require an account_id where one is not supplied."
     )
     args_schema: type = GetAccountInput
     
@@ -327,7 +347,7 @@ class GetAccountTool(BaseTool):
         records = result.get("records", [])
 
         if not records:
-            return {"error": "No accounts found."}
+            return {"message": "No accounts found."}
 
         if len(records) > 1:
             return {
@@ -419,7 +439,7 @@ class GetContactTool(BaseTool):
     description: str = (
         "Retrieves Salesforce contacts by contact_id. If no contact_id is supplied the tool uses email, name, phone, or account_name. "
         "If multiple contacts match, returns a list of options for user selection. "
-        "Sometimes used in workflows involving tools that require a contact_id where one is not supplied."
+        "Must be used in workflows involving tools that require a contact_id where one is not supplied."
     )
     args_schema: type = GetContactInput
     
@@ -458,7 +478,7 @@ class GetContactTool(BaseTool):
         records = result.get("records", [])
 
         if not records:
-            return {"error": "No contacts found."}
+            return {"message": "No contacts found."}
 
         if len(records) > 1:
             return {
@@ -550,7 +570,7 @@ class GetCaseTool(BaseTool):
     description: str = (
         "Retrieves Salesforce cases by case_id. If no case_id is supplied the tool uses subject, account_name, or contact_name. "
         "If multiple cases match, returns a list of options for user selection. "
-        "Sometimes used in workflows involving tools that require a case_id where one is not supplied."
+        "Must be used in workflows involving tools that require a case_id where one is not supplied."
     )
     args_schema: type = GetCaseInput
 
@@ -560,7 +580,7 @@ class GetCaseTool(BaseTool):
         try:
             sf = get_salesforce_connection()
             if data.case_id:
-                query = f"SELECT Id, Subject, Account.Name, Contact.Name FROM Case WHERE Id = '{data.case_id}'"
+                query = f"SELECT Id, Subject, Description, Account.Name, Contact.Name FROM Case WHERE Id = '{data.case_id}'"
             else:
                 query_conditions = []
                 if data.subject:
@@ -573,10 +593,14 @@ class GetCaseTool(BaseTool):
                 if not query_conditions:
                     return {"error": "No search criteria provided."}
 
-                query = f"SELECT Id, Subject, Account.Name, Contact.Name FROM Case WHERE {' OR '.join(query_conditions)}"
+                query = f"SELECT Id, Subject, Description, Account.Name, Contact.Name FROM Case WHERE {' OR '.join(query_conditions)}"
                 print(f"DEBUG: Executing SOQL query: {query}")
 
             records = sf.query(query)['records']
+
+            if not records:
+                return {"message": "No cases found."}
+            
             if len(records) > 1:
                 return {
                     "multiple_matches": [
@@ -668,7 +692,7 @@ class GetTaskTool(BaseTool):
     description: str = (
         "Retrieves Salesforce tasks by task_id. If no task_id is supplied the tool uses subject, account_name, or contact_name. "
         "If multiple tasks match, returns a list of options for user selection. "
-        "Sometimes used in workflows involving tools that require a task_id where one is not supplied."
+        "Must be used in workflows involving tools that require a task_id where one is not supplied."
     )
     args_schema: type = GetTaskInput
 
@@ -695,6 +719,10 @@ class GetTaskTool(BaseTool):
                 print(f"DEBUG: Executing SOQL query: {query}")
 
             records = sf.query(query)['records']
+
+            if not records:
+                return {"message": "No tasks found."}
+            
             if len(records) > 1:
                 return {
                     "multiple_matches": [
