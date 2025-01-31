@@ -10,10 +10,8 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph
 from langgraph.graph.message import RemoveMessage, add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
-from langgraph.types import interrupt
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.tools import tool
 from langchain_openai import AzureChatOpenAI
 
 from helpers import unify_messages_to_dicts, convert_dicts_to_lc_messages
@@ -123,7 +121,7 @@ def main():
         return {"summary": response.content, "messages": delete_messages}
 
     def start_summarized(state: State):
-        """Return the next node to execute."""
+        """Return the first node to execute."""
 
         messages = state["messages"]
 
