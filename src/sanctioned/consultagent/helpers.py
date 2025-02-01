@@ -24,7 +24,7 @@ def unify_messages_to_dicts(messages: list) -> list[dict]:
             })
         elif isinstance(msg, ToolMessage):
             unified.append({
-                "role": "tool",
+                "role": "tool_calls",
                 "content": msg.content
             })
         else:
@@ -47,9 +47,6 @@ def convert_dicts_to_lc_messages(dict_messages: list[dict]) -> list:
             lc_msgs.append(HumanMessage(content=content))
         elif role == "system":
             lc_msgs.append(SystemMessage(content=content))
-        elif role == "tool_calls":
-            # map to ToolMessage or something else
-            lc_msgs.append(ToolMessage(content=content))
         else:
             # fallback
             from langchain_core.messages import AIMessage
