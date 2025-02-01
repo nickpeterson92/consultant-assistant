@@ -37,7 +37,7 @@ class GetLeadTool(BaseTool):
     args_schema: type = GetLeadInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'get_lead_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'get_lead_tool' invoked with input: {kwargs}")
         data = GetLeadInput(**kwargs)
         try:
             sf = get_salesforce_connection()
@@ -101,6 +101,7 @@ class CreateLeadTool(BaseTool):
     args_schema: type = CreateLeadInput
 
     def _run(self, **kwargs) -> dict:
+        #print(f"DEBUG: Tool 'create_lead_tool' invoked with input: {kwargs}")
         try:
             sf = get_salesforce_connection()
             data = CreateLeadInput(**kwargs)
@@ -131,6 +132,7 @@ class UpdateLeadTool(BaseTool):
     args_schema: type = UpdateLeadInput
 
     def _run(self, **kwargs) -> dict:
+        #print(f"DEBUG: Tool 'update_lead_tool' invoked with input: {kwargs}")
         try:
             sf = get_salesforce_connection()
             data = UpdateLeadInput(**kwargs)
@@ -161,7 +163,7 @@ class GetOpportunityTool(BaseTool):
     args_schema: type = GetOpportunityInput
     
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'get_opportunity_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'get_opportunity_tool' invoked with input: {kwargs}")
         data = GetOpportunityInput(**kwargs)
         
         account_name = data.account_name
@@ -225,7 +227,7 @@ class CreateOpportunityTool(BaseTool):
     args_schema: type = CreateOpportunityInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'create_opportunity_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'create_opportunity_tool' invoked with input: {kwargs}")
 
         data = CreateOpportunityInput(**kwargs)
 
@@ -274,7 +276,9 @@ class UpdateOpportunityInput(BaseModel):
         "Closed Won",
         "Closed Lost"
     ]:
-            raise ValueError(f"Invalid stage name : {v}. Available values are 'Prospecting', 'Qualification', 'Needs Analysis', 'Value Proposition', 'Id. Decision Makers', 'Perception Analysis', 'Proposal/Price Quote', 'Negotiation/Review', 'Closed Won', 'Closed Lost'")
+            raise ValueError(f"Invalid stage name : {v}. Available values are 'Prospecting', 
+                             'Qualification', 'Needs Analysis', 'Value Proposition', 'Id. Decision Makers', 
+                             'Perception Analysis', 'Proposal/Price Quote', 'Negotiation/Review', 'Closed Won', 'Closed Lost'")
         return v
 
 class UpdateOpportunityTool(BaseTool):
@@ -286,7 +290,7 @@ class UpdateOpportunityTool(BaseTool):
     args_schema: type = UpdateOpportunityInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'update_opportunity_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'update_opportunity_tool' invoked with input: {kwargs}")
 
         data = UpdateOpportunityInput(**kwargs)
 
@@ -324,7 +328,7 @@ class GetAccountTool(BaseTool):
     args_schema: type = GetAccountInput
     
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'get_account_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'get_account_tool' invoked with input: {kwargs}")
         data = GetAccountInput(**kwargs)
         
         account_id = data.account_id
@@ -383,7 +387,7 @@ class CreateAccountTool(BaseTool):
     args_schema: type = CreateAccountInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'create_account_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'create_account_tool' invoked with input: {kwargs}")
         data = CreateAccountInput(**kwargs)
 
         try:
@@ -413,7 +417,7 @@ class UpdateAccountTool(BaseTool):
     args_schema: type = UpdateAccountInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'update_account_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'update_account_tool' invoked with input: {kwargs}")
         data = UpdateAccountInput(**kwargs)
         try:
             sf = get_salesforce_connection()
@@ -444,7 +448,7 @@ class GetContactTool(BaseTool):
     args_schema: type = GetContactInput
     
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'get_contact_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'get_contact_tool' invoked with input: {kwargs}")
         data = GetContactInput(**kwargs)
         
         contact_id = data.contact_id
@@ -514,7 +518,7 @@ class CreateContactTool(BaseTool):
     args_schema: type = CreateContactInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'create_contact_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'create_contact_tool' invoked with input: {kwargs}")
         data = CreateContactInput(**kwargs)
 
         try:
@@ -545,7 +549,7 @@ class UpdateContactTool(BaseTool):
     args_schema: type = UpdateContactInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'update_contact_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'update_contact_tool' invoked with input: {kwargs}")
         data = UpdateContactInput(**kwargs)
         try:
             sf = get_salesforce_connection()
@@ -575,7 +579,7 @@ class GetCaseTool(BaseTool):
     args_schema: type = GetCaseInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'get_case_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'get_case_tool' invoked with input: {kwargs}")
         data = GetCaseInput(**kwargs)
         try:
             sf = get_salesforce_connection()
@@ -637,7 +641,7 @@ class CreateCaseTool(BaseTool):
     args_schema: type = CreateCaseInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'create_case_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'create_case_tool' invoked with input: {kwargs}")
         data = CreateCaseInput(**kwargs)
         try:
             sf = get_salesforce_connection()
@@ -667,7 +671,7 @@ class UpdateCaseTool(BaseTool):
     args_schema: type = UpdateCaseInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'update_case_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'update_case_tool' invoked with input: {kwargs}")
         data = UpdateCaseInput(**kwargs)
         try:
             sf = get_salesforce_connection()
@@ -697,7 +701,7 @@ class GetTaskTool(BaseTool):
     args_schema: type = GetTaskInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'get_task_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'get_task_tool' invoked with input: {kwargs}")
         data = GetTaskInput(**kwargs)
         try:
             sf = get_salesforce_connection()
@@ -759,7 +763,7 @@ class CreateTaskTool(BaseTool):
     args_schema: type = CreateTaskInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'create_task_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'create_task_tool' invoked with input: {kwargs}")
         data = CreateTaskInput(**kwargs)
         try:
             sf = get_salesforce_connection()
@@ -789,7 +793,7 @@ class UpdateTaskTool(BaseTool):
     args_schema: type = UpdateTaskInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'update_task_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'update_task_tool' invoked with input: {kwargs}")
         data = UpdateTaskInput(**kwargs)
         try:
             sf = get_salesforce_connection()
