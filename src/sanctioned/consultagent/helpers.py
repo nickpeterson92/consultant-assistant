@@ -24,7 +24,7 @@ def unify_messages_to_dicts(messages: list) -> list[dict]:
             })
         elif isinstance(msg, ToolMessage):
             unified.append({
-                "role": "tool",
+                "role": "tool_calls",
                 "content": msg.content
             })
         else:
