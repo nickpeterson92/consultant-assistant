@@ -24,7 +24,7 @@ def unify_messages_to_dicts(messages: list) -> list[dict]:
             })
         elif isinstance(msg, ToolMessage):
             unified.append({
-                "role": "tool_calls",
+                "role": "tool",
                 "content": msg.content
             })
         else:
@@ -37,7 +37,10 @@ def unify_messages_to_dicts(messages: list) -> list[dict]:
 
 
 def convert_dicts_to_lc_messages(dict_messages: list[dict]) -> list:
-
+    """
+    Serialize the unified messages back to respecitve Langchain messssage types (besides ToolMessage).
+    ToolMessage defaults to AIMessage to avoid bad message sequence after message culling.
+    """
     lc_msgs = []
     for m in dict_messages:
         role = m["role"]
@@ -47,7 +50,6 @@ def convert_dicts_to_lc_messages(dict_messages: list[dict]) -> list:
         elif role == "system":
             lc_msgs.append(SystemMessage(content=content))
         else:
-            # fallback
             from langchain_core.messages import AIMessage
             lc_msgs.append(AIMessage(content=content))
     #print(f"DEBUG: Converted messages: {lc_msgs}")

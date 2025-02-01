@@ -55,10 +55,6 @@ def main():
     class OverallState(TypedDict):
         messages: Annotated[list, add_messages]
         summary: str
-    
-
-    class PrivateState(TypedDict):
-        summary: str
 
 
     memory = MemorySaver()
@@ -84,13 +80,15 @@ def main():
                 UpdateTaskTool()
             ]
     
-    attachment_tools = [OCRTool()]
+    attachment_tools = [
+        OCRTool()
+        ]
 
     llm = create_azure_openai_chat()
     llm_with_tools = llm.bind_tools(tools+attachment_tools)
 
-    def call_model(state: OverallState) -> OverallState:
-        print("Calling model")
+    def chatbot(state: OverallState) -> OverallState:
+        #print("DEBUG: Calling model")
         summary = state.get("summary", "")
 
         if summary:
@@ -105,7 +103,7 @@ def main():
         return {"messages": response}
 
     def summarize_conversation(state: OverallState) -> OverallState:
-        print("Summarizing conversation")
+        #print("DEBUG: Summarizing conversation")
         summary = state.get("summary", "")
 
         if summary:
@@ -115,8 +113,7 @@ def main():
                 "Prioritize maintaining the order of the records, their relationships "
                 "and their key:value pairs. If a user refers to a previous record, check the "
                 "summary before retrieving the record from the target system. "
-                "If the record is not in the summary, retrieve the record. "
-                "Don't just show no records found."
+                "If the record is not in the summary, attempt to retrieve the record."
             )
         else:
             summary_message =( "Create a summary of the conversation above. " 
@@ -131,8 +128,8 @@ def main():
         delete_messages = [RemoveMessage(id=m.id) for m in state["messages"][:-2]]
         state.update({"summary": response.content, "messages": delete_messages})
 
-    def should_continue(state: OverallState):
-        """Return the first node to execute."""
+    def needs_summary(state: OverallState):
+        """Summarize conversation if more than 6 messages"""
 
         messages = state["messages"]
 
@@ -147,7 +144,7 @@ def main():
     attachment_tool_node = ToolNode(tools=attachment_tools)
     graph_builder.add_node("attachment_tools", attachment_tool_node)
     
-    graph_builder.add_node("conversation", call_model)
+    graph_builder.add_node("conversation", chatbot)
     graph_builder.add_node(summarize_conversation)
 
     graph_builder.add_conditional_edges(
@@ -156,7 +153,7 @@ def main():
     )
     graph_builder.add_conditional_edges(
         "conversation",
-        should_continue,
+        needs_summary,
     )
 
     graph_builder.add_edge("tools", "conversation")
