@@ -55,10 +55,6 @@ def main():
     class OverallState(TypedDict):
         messages: Annotated[list, add_messages]
         summary: str
-    
-
-    class PrivateState(TypedDict):
-        summary: str
 
 
     memory = MemorySaver()
