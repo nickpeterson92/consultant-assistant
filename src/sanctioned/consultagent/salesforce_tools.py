@@ -276,9 +276,9 @@ class UpdateOpportunityInput(BaseModel):
         "Closed Won",
         "Closed Lost"
     ]:
-            raise ValueError(f"Invalid stage name : {v}. Available values are 'Prospecting', 
-                             'Qualification', 'Needs Analysis', 'Value Proposition', 'Id. Decision Makers', 
-                             'Perception Analysis', 'Proposal/Price Quote', 'Negotiation/Review', 'Closed Won', 'Closed Lost'")
+            raise ValueError(f"Invalid stage name : {v}. Available values are 'Prospecting', "
+                             "'Qualification', 'Needs Analysis', 'Value Proposition', 'Id. Decision Makers', "
+                             "'Perception Analysis', 'Proposal/Price Quote', 'Negotiation/Review', 'Closed Won', 'Closed Lost'")
         return v
 
 class UpdateOpportunityTool(BaseTool):
@@ -564,7 +564,6 @@ class UpdateContactTool(BaseTool):
 
 class GetCaseInput(BaseModel):
     case_id: Optional[str] = None
-    subject: Optional[str] = None
     account_name: Optional[str] = None
     contact_name: Optional[str] = None
 
@@ -587,8 +586,6 @@ class GetCaseTool(BaseTool):
                 query = f"SELECT Id, Subject, Description, Account.Name, Contact.Name FROM Case WHERE Id = '{data.case_id}'"
             else:
                 query_conditions = []
-                if data.subject:
-                    query_conditions.append(f"Subject LIKE '%{data.subject}%'")
                 if data.account_name:
                     query_conditions.append(f"Account.Name LIKE '%{data.account_name}%'")
                 if data.contact_name:
