@@ -32,12 +32,11 @@ def unify_messages_to_dicts(messages: list) -> list[dict]:
                 "role": "assistant",
                 "content": str(msg)
             })
+    #print(f"DEBUG: Unified messages: {unified}")
     return unified
 
 
 def convert_dicts_to_lc_messages(dict_messages: list[dict]) -> list:
-    from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
-    # or wherever your message classes are
 
     lc_msgs = []
     for m in dict_messages:
@@ -51,4 +50,5 @@ def convert_dicts_to_lc_messages(dict_messages: list[dict]) -> list:
             # fallback
             from langchain_core.messages import AIMessage
             lc_msgs.append(AIMessage(content=content))
+    #print(f"DEBUG: Converted messages: {lc_msgs}")
     return lc_msgs
