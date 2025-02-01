@@ -127,9 +127,9 @@ def main():
         response = llm_with_tools.invoke(
                 convert_dicts_to_lc_messages(
                     unify_messages_to_dicts(messages)))
-
+        
         delete_messages = [RemoveMessage(id=m.id) for m in state["messages"][:-2]]
-        return {"summary": response.content, "messages": delete_messages}
+        state.update({"summary": response.content, "messages": delete_messages})
 
     def should_continue(state: OverallState):
         """Return the first node to execute."""
@@ -163,7 +163,6 @@ def main():
     graph_builder.add_edge("conversation", END)
     graph_builder.set_entry_point("conversation")
     graph = graph_builder.compile(checkpointer=memory)
-    
     config = {"configurable": {"thread_id": "1"}}
     while True:
         try:
