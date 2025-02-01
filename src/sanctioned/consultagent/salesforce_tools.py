@@ -4,7 +4,7 @@
 import os
 from datetime import date
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from langchain.tools import BaseTool
 from typing import Optional
 from simple_salesforce import Salesforce
@@ -32,12 +32,12 @@ class GetLeadTool(BaseTool):
     description: str = (
         "Retrieves Salesforce leads by lead_id. If no lead_id is supplied the tool uses email, name, phone, or company. "
         "If multiple leads match, returns a list of options for user selection. "
-        "Sometimes used in workflows involving tools that require a lead_id where one is not supplied."
+        "Must be used in workflows involving tools that require a lead_id where one is not supplied."
     )
     args_schema: type = GetLeadInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'get_lead_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'get_lead_tool' invoked with input: {kwargs}")
         data = GetLeadInput(**kwargs)
         try:
             sf = get_salesforce_connection()
@@ -61,6 +61,10 @@ class GetLeadTool(BaseTool):
                 print(f"DEBUG: Executing SOQL query: {query}")
 
             records = sf.query(query)['records']
+
+            if not records:
+                return {"message": "No leads found."}
+        
             if len(records) > 1:
                 return {
                     "multiple_matches": [
@@ -97,6 +101,7 @@ class CreateLeadTool(BaseTool):
     args_schema: type = CreateLeadInput
 
     def _run(self, **kwargs) -> dict:
+        #print(f"DEBUG: Tool 'create_lead_tool' invoked with input: {kwargs}")
         try:
             sf = get_salesforce_connection()
             data = CreateLeadInput(**kwargs)
@@ -127,6 +132,7 @@ class UpdateLeadTool(BaseTool):
     args_schema: type = UpdateLeadInput
 
     def _run(self, **kwargs) -> dict:
+        #print(f"DEBUG: Tool 'update_lead_tool' invoked with input: {kwargs}")
         try:
             sf = get_salesforce_connection()
             data = UpdateLeadInput(**kwargs)
@@ -152,12 +158,12 @@ class GetOpportunityTool(BaseTool):
         "Retrieves Salesforce opportunities, always by opportunity_id if one is available. "
         "If no opportunity_id is available the tool uses account_name, opportunity_name, or both. "
         "If multiple opportunities match, returns a list of options for user selection. "
-        "Sometimes used in workflows involving tools that require an opportunity_id where one is not supplied."
+        "Must be used in workflows involving tools that require an opportunity_id where one is not supplied."
     )
     args_schema: type = GetOpportunityInput
     
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'get_opportunity_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'get_opportunity_tool' invoked with input: {kwargs}")
         data = GetOpportunityInput(**kwargs)
         
         account_name = data.account_name
@@ -183,7 +189,7 @@ class GetOpportunityTool(BaseTool):
         records = result.get("records", [])
 
         if not records:
-            return {"error": "No opportunities found."}
+            return {"message": "No opportunities found."}
 
         if len(records) > 1:
             return {
@@ -221,7 +227,7 @@ class CreateOpportunityTool(BaseTool):
     args_schema: type = CreateOpportunityInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'create_opportunity_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'create_opportunity_tool' invoked with input: {kwargs}")
 
         data = CreateOpportunityInput(**kwargs)
 
@@ -256,6 +262,24 @@ class UpdateOpportunityInput(BaseModel):
     stage: str
     amount: Optional[float] = None
 
+    @field_validator('stage')
+    def validate_stage(cls, v):
+        if v not in [
+        "Prospecting",
+        "Qualification",
+        "Needs Analysis",
+        "Value Proposition",
+        "Id. Decision Makers",
+        "Perception Analysis",
+        "Proposal/Price Quote",
+        "Negotiation/Review",
+        "Closed Won",
+        "Closed Lost"
+    ]:
+            raise ValueError(f"Invalid stage name : {v}. Available values are 'Prospecting', 
+                             'Qualification', 'Needs Analysis', 'Value Proposition', 'Id. Decision Makers', 
+                             'Perception Analysis', 'Proposal/Price Quote', 'Negotiation/Review', 'Closed Won', 'Closed Lost'")
+        return v
 
 class UpdateOpportunityTool(BaseTool):
     name: str = "update_opportunity_tool"
@@ -266,7 +290,7 @@ class UpdateOpportunityTool(BaseTool):
     args_schema: type = UpdateOpportunityInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'update_opportunity_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'update_opportunity_tool' invoked with input: {kwargs}")
 
         data = UpdateOpportunityInput(**kwargs)
 
@@ -299,12 +323,12 @@ class GetAccountTool(BaseTool):
     description: str = (
         "Retrieves Salesforce accounts by account_id. If no account_id is supplied the tool uses account_name. "
         "If multiple accounts match, returns a list of options for user selection. "
-        "Sometimes used in workflows involving tools that require an account_id where one is not supplied."
+        "Must be used in workflows involving tools that require an account_id where one is not supplied."
     )
     args_schema: type = GetAccountInput
     
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'get_account_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'get_account_tool' invoked with input: {kwargs}")
         data = GetAccountInput(**kwargs)
         
         account_id = data.account_id
@@ -327,7 +351,7 @@ class GetAccountTool(BaseTool):
         records = result.get("records", [])
 
         if not records:
-            return {"error": "No accounts found."}
+            return {"message": "No accounts found."}
 
         if len(records) > 1:
             return {
@@ -363,7 +387,7 @@ class CreateAccountTool(BaseTool):
     args_schema: type = CreateAccountInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'create_account_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'create_account_tool' invoked with input: {kwargs}")
         data = CreateAccountInput(**kwargs)
 
         try:
@@ -393,7 +417,7 @@ class UpdateAccountTool(BaseTool):
     args_schema: type = UpdateAccountInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'update_account_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'update_account_tool' invoked with input: {kwargs}")
         data = UpdateAccountInput(**kwargs)
         try:
             sf = get_salesforce_connection()
@@ -419,12 +443,12 @@ class GetContactTool(BaseTool):
     description: str = (
         "Retrieves Salesforce contacts by contact_id. If no contact_id is supplied the tool uses email, name, phone, or account_name. "
         "If multiple contacts match, returns a list of options for user selection. "
-        "Sometimes used in workflows involving tools that require a contact_id where one is not supplied."
+        "Must be used in workflows involving tools that require a contact_id where one is not supplied."
     )
     args_schema: type = GetContactInput
     
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'get_contact_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'get_contact_tool' invoked with input: {kwargs}")
         data = GetContactInput(**kwargs)
         
         contact_id = data.contact_id
@@ -458,7 +482,7 @@ class GetContactTool(BaseTool):
         records = result.get("records", [])
 
         if not records:
-            return {"error": "No contacts found."}
+            return {"message": "No contacts found."}
 
         if len(records) > 1:
             return {
@@ -494,7 +518,7 @@ class CreateContactTool(BaseTool):
     args_schema: type = CreateContactInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'create_contact_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'create_contact_tool' invoked with input: {kwargs}")
         data = CreateContactInput(**kwargs)
 
         try:
@@ -525,7 +549,7 @@ class UpdateContactTool(BaseTool):
     args_schema: type = UpdateContactInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'update_contact_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'update_contact_tool' invoked with input: {kwargs}")
         data = UpdateContactInput(**kwargs)
         try:
             sf = get_salesforce_connection()
@@ -550,17 +574,17 @@ class GetCaseTool(BaseTool):
     description: str = (
         "Retrieves Salesforce cases by case_id. If no case_id is supplied the tool uses subject, account_name, or contact_name. "
         "If multiple cases match, returns a list of options for user selection. "
-        "Sometimes used in workflows involving tools that require a case_id where one is not supplied."
+        "Must be used in workflows involving tools that require a case_id where one is not supplied."
     )
     args_schema: type = GetCaseInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'get_case_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'get_case_tool' invoked with input: {kwargs}")
         data = GetCaseInput(**kwargs)
         try:
             sf = get_salesforce_connection()
             if data.case_id:
-                query = f"SELECT Id, Subject, Account.Name, Contact.Name FROM Case WHERE Id = '{data.case_id}'"
+                query = f"SELECT Id, Subject, Description, Account.Name, Contact.Name FROM Case WHERE Id = '{data.case_id}'"
             else:
                 query_conditions = []
                 if data.subject:
@@ -573,10 +597,14 @@ class GetCaseTool(BaseTool):
                 if not query_conditions:
                     return {"error": "No search criteria provided."}
 
-                query = f"SELECT Id, Subject, Account.Name, Contact.Name FROM Case WHERE {' OR '.join(query_conditions)}"
+                query = f"SELECT Id, Subject, Description, Account.Name, Contact.Name FROM Case WHERE {' OR '.join(query_conditions)}"
                 print(f"DEBUG: Executing SOQL query: {query}")
 
             records = sf.query(query)['records']
+
+            if not records:
+                return {"message": "No cases found."}
+            
             if len(records) > 1:
                 return {
                     "multiple_matches": [
@@ -613,7 +641,7 @@ class CreateCaseTool(BaseTool):
     args_schema: type = CreateCaseInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'create_case_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'create_case_tool' invoked with input: {kwargs}")
         data = CreateCaseInput(**kwargs)
         try:
             sf = get_salesforce_connection()
@@ -643,7 +671,7 @@ class UpdateCaseTool(BaseTool):
     args_schema: type = UpdateCaseInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'update_case_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'update_case_tool' invoked with input: {kwargs}")
         data = UpdateCaseInput(**kwargs)
         try:
             sf = get_salesforce_connection()
@@ -668,12 +696,12 @@ class GetTaskTool(BaseTool):
     description: str = (
         "Retrieves Salesforce tasks by task_id. If no task_id is supplied the tool uses subject, account_name, or contact_name. "
         "If multiple tasks match, returns a list of options for user selection. "
-        "Sometimes used in workflows involving tools that require a task_id where one is not supplied."
+        "Must be used in workflows involving tools that require a task_id where one is not supplied."
     )
     args_schema: type = GetTaskInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'get_task_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'get_task_tool' invoked with input: {kwargs}")
         data = GetTaskInput(**kwargs)
         try:
             sf = get_salesforce_connection()
@@ -695,6 +723,10 @@ class GetTaskTool(BaseTool):
                 print(f"DEBUG: Executing SOQL query: {query}")
 
             records = sf.query(query)['records']
+
+            if not records:
+                return {"message": "No tasks found."}
+            
             if len(records) > 1:
                 return {
                     "multiple_matches": [
@@ -731,7 +763,7 @@ class CreateTaskTool(BaseTool):
     args_schema: type = CreateTaskInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'create_task_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'create_task_tool' invoked with input: {kwargs}")
         data = CreateTaskInput(**kwargs)
         try:
             sf = get_salesforce_connection()
@@ -761,7 +793,7 @@ class UpdateTaskTool(BaseTool):
     args_schema: type = UpdateTaskInput
 
     def _run(self, **kwargs) -> dict:
-        print(f"DEBUG: Tool 'update_task_tool' invoked with input: {kwargs}")
+        #print(f"DEBUG: Tool 'update_task_tool' invoked with input: {kwargs}")
         data = UpdateTaskInput(**kwargs)
         try:
             sf = get_salesforce_connection()
