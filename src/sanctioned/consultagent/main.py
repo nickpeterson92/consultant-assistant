@@ -17,12 +17,12 @@ from langgraph.graph import StateGraph, END
 from langgraph.graph.message import RemoveMessage, add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import AzureChatOpenAI
 
 from sys_msg import chatbot_sys_msg, summary_sys_msg, memory_sys_msg
-from helpers import unify_messages_to_dicts, convert_dicts_to_lc_messages, filter_pending_tool_calls
+from helpers import unify_messages_to_dicts, convert_dicts_to_lc_messages
 from memory_schemas import AccountList
 from attachment_tools import OCRTool
 from salesforce_tools import (
@@ -109,7 +109,7 @@ async def main():
         summary = state.get("summary", "No summary available")
         turn = state.get("turns", 0)
 
-         # Get the user_id value from the config
+        # Get the user_id value from the config
         user_id = config["configurable"]["user_id"]
 
         # Get the memory from the store
@@ -139,6 +139,7 @@ async def main():
     def summarize_conversation(state: OverallState):
         #print("DEBUG: Summarizing conversation")
         summary = state.get("summary", "No summary available")
+
         system_message = summary_sys_msg(summary)
 
         # Append the system message to the conversation history.
@@ -157,7 +158,7 @@ async def main():
 
         messages = state["messages"]
 
-        if len(messages)  > 6:
+        if len(messages) > 6:
             return "summarize_conversation"
         
         return END
@@ -166,9 +167,6 @@ async def main():
         """Memorize field-level details of records"""
         # Get the user_id value from the config
         user_id = config["configurable"]["user_id"]
-
-        # Get the summary from the state
-        summary = state.get("summary", "No summary available")
 
         # Get the memory from the store
         namespace = ("memory", user_id)
@@ -181,7 +179,7 @@ async def main():
         else:
             existing_memory_content = "No existing memory found"
 
-        system_message = memory_sys_msg(existing_memory_content, summary)
+        system_message = memory_sys_msg(existing_memory_content)
         
         messages = state["messages"] + [HumanMessage(content=system_message)]
         response = await trustcall_extractor.ainvoke(
@@ -195,8 +193,9 @@ async def main():
 
     def needs_memory(state: OverallState):
         """Memorize records every 8 or so turns"""
-        print("Turn count:", state["turns"])
-        if state["turns"] > 7:
+        messages = state["messages"]
+
+        if len(messages) > 6:
             return "memorize_records"
         
         return END
@@ -228,7 +227,8 @@ async def main():
                 {"messages": [{"role": "user", "content": user_input}]},
                 config,
                 stream_mode="values",):
-                #print(event["messages"])
+                #print(event)
+                #if event["event"] == "on_chat_model_stream" and event["metadata"].get("langgraph_node","") == node_to_stream:
                 event["messages"][-1].pretty_print()
         except Exception as e:
             print(f"An error occurred: {e}")
