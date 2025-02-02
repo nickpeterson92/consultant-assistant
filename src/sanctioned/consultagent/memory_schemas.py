@@ -41,4 +41,4 @@ class Account(BaseModel):
     tasks: Optional[List[Task]] = None
 
 class AccountList(BaseModel):
-    accounts: List[Account]
+    accounts: Optional[List[Account]] = None

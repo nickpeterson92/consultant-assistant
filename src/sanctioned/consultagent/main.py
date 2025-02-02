@@ -2,10 +2,13 @@
 
 
 import os
-from typing import Annotated, List
+from operator import add
+from typing import Annotated
 from typing_extensions import TypedDict
 
 import asyncio
+
+from trustcall import create_extractor
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.base import BaseStore
@@ -14,12 +17,12 @@ from langgraph.graph import StateGraph, END
 from langgraph.graph.message import RemoveMessage, add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import AzureChatOpenAI
 
 from sys_msg import chatbot_sys_msg, summary_sys_msg, memory_sys_msg
-from helpers import unify_messages_to_dicts, convert_dicts_to_lc_messages
+from helpers import unify_messages_to_dicts, convert_dicts_to_lc_messages, filter_pending_tool_calls
 from memory_schemas import AccountList
 from attachment_tools import OCRTool
 from salesforce_tools import (
@@ -53,14 +56,15 @@ def create_azure_openai_chat():
         temperature=0.0,
     )
 
+node_to_stream = "conversation"
 
-def main():
+async def main():
     print("\n=== Salesforce Assistant Powered by LangGraph ===\n")
 
 
     class OverallState(TypedDict):
         messages: Annotated[list, add_messages]
-        summary: str
+        summary: Annotated[str, add]
         turns: int
 
 
@@ -92,9 +96,13 @@ def main():
 
     llm = create_azure_openai_chat()
     llm_with_tools = llm.bind_tools(tools)
-    struct_llm = llm.with_structured_output(AccountList)
+    trustcall_extractor = create_extractor(
+        llm,
+        tools=[AccountList],
+        tool_choice="AccountList"
+    )
 
-    def chatbot(state: OverallState, config: RunnableConfig, store:BaseStore) -> OverallState:
+    def chatbot(state: OverallState, config: RunnableConfig, store:BaseStore):
         #print("DEBUG: Calling model")
 
         # Get the summary and turn count from the state
@@ -105,7 +113,7 @@ def main():
         user_id = config["configurable"]["user_id"]
 
         # Get the memory from the store
-        namespace = (memory, "user_id")
+        namespace = (memory, user_id)
         key = "records"
         existing_memory = store.get(namespace, key)
 
@@ -116,31 +124,33 @@ def main():
             existing_memory_content = "No existing memory found"
 
         if summary:
-            system_message = chatbot_sys_msg(summary, existing_memory_content).format()
+            system_message = chatbot_sys_msg(summary, existing_memory_content)
             messages = [SystemMessage(content=system_message)] + state["messages"]
         else:
             messages = state["messages"]
 
         response = llm_with_tools.invoke(
-                convert_dicts_to_lc_messages(
-                    unify_messages_to_dicts(messages)))
+            convert_dicts_to_lc_messages(
+                unify_messages_to_dicts(messages)
+            )
+        )
         return {"messages": response, "turns": turn + 1}
-
-    def summarize_conversation_sync(state: OverallState) -> OverallState:
-        return asyncio.run(summarize_conversation(state))
-    
-    async def summarize_conversation(state: OverallState) -> OverallState:
+   
+    def summarize_conversation(state: OverallState):
         #print("DEBUG: Summarizing conversation")
-        summary = state.get("summary", "")
-        system_message = summary_sys_msg(summary).format()
+        summary = state.get("summary", "No summary available")
+        system_message = summary_sys_msg(summary)
 
+        # Append the system message to the conversation history.
         messages = state["messages"] + [HumanMessage(content=system_message)]
-        response = await llm.ainvoke(
-                convert_dicts_to_lc_messages(
-                    unify_messages_to_dicts(messages)))
-        
+        response = llm.invoke(
+            convert_dicts_to_lc_messages(
+                unify_messages_to_dicts(messages)
+            )
+        )
+
         delete_messages = [RemoveMessage(id=m.id) for m in state["messages"][:-2]]
-        state.update({"summary": response.content, "messages": delete_messages})
+        return {"summary": response.content, "messages": delete_messages}
 
     def needs_summary(state: OverallState):
         """Summarize conversation if more than 6 messages"""
@@ -148,52 +158,54 @@ def main():
         messages = state["messages"]
 
         if len(messages)  > 6:
-            return "summarize_conversation_sync"
+            return "summarize_conversation"
         
         return END
     
-    def memorize_records_sync(state: OverallState, config: RunnableConfig, store: BaseStore) -> OverallState:
-        return asyncio.run(memorize_records(state, config, store))
-    
-    async def memorize_records(state: OverallState, config: RunnableConfig, store: BaseStore) -> OverallState:
+    async def memorize_records(state: OverallState, config: RunnableConfig, store: BaseStore):
         """Memorize field-level details of records"""
-
         # Get the user_id value from the config
         user_id = config["configurable"]["user_id"]
+
+        # Get the summary from the state
+        summary = state.get("summary", "No summary available")
 
         # Get the memory from the store
         namespace = ("memory", user_id)
         key = "records"
         existing_memory = store.get(namespace, key)
+        print(f"DEBUG <<MEMORY>>: {existing_memory}")
 
-        # Extract memory if it exists and prefix the content
         if existing_memory:
             existing_memory_content = existing_memory.value.get("memory")
         else:
             existing_memory_content = "No existing memory found"
 
-        system_message = memory_sys_msg(existing_memory_content).format()
-
+        system_message = memory_sys_msg(existing_memory_content, summary)
+        
         messages = state["messages"] + [HumanMessage(content=system_message)]
-        response = await struct_llm.ainvoke(
-                convert_dicts_to_lc_messages(
-                    unify_messages_to_dicts(messages)))
-        store.put(namespace, key, {"memory": response.dict()})
+        response = await trustcall_extractor.ainvoke(
+            convert_dicts_to_lc_messages(
+                unify_messages_to_dicts(messages)
+            )
+        )
+        #print(f"DEBUG: {response}")
+        store.put(namespace, key, {"memory": response})
+        return {"turns": 0}
 
     def needs_memory(state: OverallState):
-        """Memorize records every 8 turns"""
+        """Memorize records every 8 or so turns"""
         print("Turn count:", state["turns"])
         if state["turns"] > 7:
-            state["turns"] = 0
-            return "memorize_records_sync"
+            return "memorize_records"
         
         return END
     
     tool_node = ToolNode(tools=tools)
     graph_builder.add_node("tools", tool_node)
     graph_builder.add_node("conversation", chatbot)
-    graph_builder.add_node(summarize_conversation_sync)
-    graph_builder.add_node(memorize_records_sync)
+    graph_builder.add_node(summarize_conversation)
+    graph_builder.add_node(memorize_records)
 
     graph_builder.set_entry_point("conversation")
     graph_builder.add_conditional_edges("conversation",tools_condition)
@@ -206,24 +218,20 @@ def main():
     config = {"configurable": {"thread_id": "1", "user_id": "1"}}
 
     while True:
-        turns = 0
         try:
             user_input = input("User: ")
             if user_input.lower() in ["quit", "exit", "q"]:
                 print("Goodbye!")
                 break
-    
-            events = graph.stream(
+
+            async for event in graph.astream(
                 {"messages": [{"role": "user", "content": user_input}]},
                 config,
-                stream_mode="values",
-            )
-
-            for event in events:
+                stream_mode="values",):
+                #print(event["messages"])
                 event["messages"][-1].pretty_print()
-            turns += 1
         except Exception as e:
             print(f"An error occurred: {e}")
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

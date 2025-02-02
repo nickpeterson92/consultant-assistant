@@ -1,4 +1,5 @@
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from typing import Optional
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage, AIMessage
 
 def unify_messages_to_dicts(messages: list) -> list[dict]:
     """
@@ -24,7 +25,7 @@ def unify_messages_to_dicts(messages: list) -> list[dict]:
             })
         elif isinstance(msg, ToolMessage):
             unified.append({
-                "role": "tool_calls",
+                "role": "tool",
                 "content": msg.content
             })
         else:
@@ -50,7 +51,7 @@ def convert_dicts_to_lc_messages(dict_messages: list[dict]) -> list:
         elif role == "system":
             lc_msgs.append(SystemMessage(content=content))
         else:
-            from langchain_core.messages import AIMessage
             lc_msgs.append(AIMessage(content=content))
     #print(f"DEBUG: Converted messages: {lc_msgs}")
     return lc_msgs
+
