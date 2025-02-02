@@ -2,7 +2,6 @@
 
 
 import os
-from operator import add
 from typing import Annotated
 from typing_extensions import TypedDict
 
@@ -21,7 +20,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import AzureChatOpenAI
 
-from sys_msg import chatbot_sys_msg, summary_sys_msg, memory_sys_msg
+from sys_msg import chatbot_sys_msg, memory_content_msg, summary_sys_msg, instruct_trustcall, TRUSTCALL_INSTRUCTION
 from helpers import unify_messages_to_dicts, convert_dicts_to_lc_messages
 from memory_schemas import AccountList
 from attachment_tools import OCRTool
@@ -64,8 +63,8 @@ async def main():
 
     class OverallState(TypedDict):
         messages: Annotated[list, add_messages]
-        summary: Annotated[str, add]
-        turns: int
+        summary: str
+        turns: int 
 
 
     memory = MemorySaver()
@@ -99,35 +98,25 @@ async def main():
     trustcall_extractor = create_extractor(
         llm,
         tools=[AccountList],
-        tool_choice="AccountList"
+        tool_choice="AccountList",
+        enable_inserts=True,
     )
 
     def chatbot(state: OverallState, config: RunnableConfig, store:BaseStore):
         #print("DEBUG: Calling model")
 
-        # Get the summary and turn count from the state
         summary = state.get("summary", "No summary available")
         turn = state.get("turns", 0)
 
-        # Get the user_id value from the config
         user_id = config["configurable"]["user_id"]
 
-        # Get the memory from the store
-        namespace = (memory, user_id)
+        namespace = ("memory", user_id)
         key = "records"
         existing_memory = store.get(namespace, key)
+        existing_records = {"records": existing_memory.value} if existing_memory else None
 
-        # Extract memory if it exists and prefix the content
-        if existing_memory:
-            existing_memory_content = existing_memory.value.get("memory")
-        else:
-            existing_memory_content = "No existing memory found"
-
-        if summary:
-            system_message = chatbot_sys_msg(summary, existing_memory_content)
-            messages = [SystemMessage(content=system_message)] + state["messages"]
-        else:
-            messages = state["messages"]
+        system_message = chatbot_sys_msg(summary, existing_records)
+        messages = [SystemMessage(content=system_message)] + state["messages"]
 
         response = llm_with_tools.invoke(
             convert_dicts_to_lc_messages(
@@ -165,37 +154,34 @@ async def main():
     
     async def memorize_records(state: OverallState, config: RunnableConfig, store: BaseStore):
         """Memorize field-level details of records"""
-        # Get the user_id value from the config
+        summary = state.get("summary", "No summary available")
+
         user_id = config["configurable"]["user_id"]
 
-        # Get the memory from the store
         namespace = ("memory", user_id)
         key = "records"
         existing_memory = store.get(namespace, key)
-        print(f"DEBUG <<MEMORY>>: {existing_memory}")
-
-        if existing_memory:
-            existing_memory_content = existing_memory.value.get("memory")
-        else:
-            existing_memory_content = "No existing memory found"
-
-        system_message = memory_sys_msg(existing_memory_content)
+        existing_records = {"records": existing_memory.value} if existing_memory else None
+        print(f"DEBUG <<MEMORY>>: {existing_records}")
         
-        messages = state["messages"] + [HumanMessage(content=system_message)]
+        messages = [SystemMessage(content=TRUSTCALL_INSTRUCTION)]+[HumanMessage(content=memory_content_msg(summary))]
+        print(f"DEBUG <<MEMORY MSG>>: {messages}")
         response = await trustcall_extractor.ainvoke(
             convert_dicts_to_lc_messages(
-                unify_messages_to_dicts(messages)
+                unify_messages_to_dicts([{"messages": messages, "existing": existing_records}])
             )
         )
-        #print(f"DEBUG: {response}")
-        store.put(namespace, key, {"memory": response})
+        print(f"DEBUG: {response}")
+
+        updated_records = response["responses"][0].model_dump()
+        store.put(namespace, key, {"memory": updated_records})
         return {"turns": 0}
 
     def needs_memory(state: OverallState):
-        """Memorize records every 8 or so turns"""
+        """Memorize if more than 4 or so turns"""
         messages = state["messages"]
-
-        if len(messages) > 6:
+        turns = state.get("turns")
+        if turns > 4:
             return "memorize_records"
         
         return END
@@ -217,7 +203,7 @@ async def main():
     config = {"configurable": {"thread_id": "1", "user_id": "1"}}
 
     while True:
-        try:
+       # try:
             user_input = input("User: ")
             if user_input.lower() in ["quit", "exit", "q"]:
                 print("Goodbye!")
@@ -230,8 +216,8 @@ async def main():
                 #print(event)
                 #if event["event"] == "on_chat_model_stream" and event["metadata"].get("langgraph_node","") == node_to_stream:
                 event["messages"][-1].pretty_print()
-        except Exception as e:
-            print(f"An error occurred: {e}")
+        #except Exception as e:
+            #print(f"An error occurred: {e}")
 
 if __name__ == "__main__":
     asyncio.run(main())

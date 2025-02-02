@@ -63,10 +63,10 @@ class GetLeadTool(BaseTool):
             records = sf.query(query)['records']
 
             if not records:
-                return {"message": "No leads found."}
-        
+                return {"messages": [{"role": "assistant", "content": records}]}
+                
             if len(records) > 1:
-                return {
+                multiple_matches = {
                     "multiple_matches": [
                         {
                             "id": rec["Id"],
@@ -78,12 +78,13 @@ class GetLeadTool(BaseTool):
                         for rec in records
                     ]
                 }
-
-            return {
-                "match": records[0]
-            }
+                return {"messages": [{"role": "assistant", "content": multiple_matches}]}
+            else:
+                match = {"match": records[0]}
+                return {"messages": [{"role": "assistant", "content": match}]}
         except Exception as e:
-            return {"error": str(e)}
+            content = f"error: {str(e)}"
+            return {"messages": [{"role": "assistant", "content": content}]}
 
 
 class CreateLeadInput(BaseModel):
@@ -111,9 +112,10 @@ class CreateLeadTool(BaseTool):
                 "Email": data.email,
                 "Phone": data.phone
             })
-            return {"message": f"Lead created with ID: {result['id']}"}
+            return {"messages": [{"role": "assistant", "content": result}]}
         except Exception as e:
-            return {"error": str(e)}
+            content = f"error: {str(e)}"
+            return {"messages": [{"role": "assistant", "content": content}]}
     
 
 class UpdateLeadInput(BaseModel):
@@ -136,14 +138,15 @@ class UpdateLeadTool(BaseTool):
         try:
             sf = get_salesforce_connection()
             data = UpdateLeadInput(**kwargs)
-            result = sf.Lead.update(data.lead_id, {
+            sf.Lead.update(data.lead_id, {
                 "Company": data.company,
                 "Email": data.email,
                 "Phone": data.phone
             })
-            return {"message": f"Lead updated with ID: {data.lead_id}"}
+            return {"messages": [{"role": "assistant", "content": "Successfully updated lead with Id: " + data.lead_id}]}
         except Exception as e:
-            return {"error": str(e)}
+            content = f"error: {str(e)}"
+            return {"messages": [{"role": "assistant", "content": content}]}
     
 
 class GetOpportunityInput(BaseModel):
@@ -184,15 +187,16 @@ class GetOpportunityTool(BaseTool):
             sf = get_salesforce_connection()
             result = sf.query(query)
         except Exception as e:
-            return {"error": str(e)}
+            content = f"error: {str(e)}"
+            return {"messages": [{"role": "assistant", "content": content}]}
         
         records = result.get("records", [])
 
         if not records:
-            return {"message": "No opportunities found."}
-
+            return {"messages": [{"role": "assistant", "content": records}]}
+            
         if len(records) > 1:
-            return {
+            multiple_matches = {
                 "multiple_matches": [
                     {
                         "id": rec["Id"],
@@ -204,10 +208,10 @@ class GetOpportunityTool(BaseTool):
                     for rec in records
                 ]
             }
-
-        return {
-            "match": records[0]
-        }
+            return {"messages": [{"role": "assistant", "content": multiple_matches}]}
+        else:
+            match = {"match": records[0]}
+            return {"messages": [{"role": "assistant", "content": match}]}
     
 
 class CreateOpportunityInput(BaseModel):
@@ -239,22 +243,17 @@ class CreateOpportunityTool(BaseTool):
 
         try:
             sf = get_salesforce_connection()
-            sf.Opportunity.create({
+            result = sf.Opportunity.create({
                 "Name": opportunity_name,
                 "AccountId": account_id,
                 "Amount": amount,
                 "StageName": stage_name,
                 "CloseDate": close_date
             })
-            return {
-                "message": "Opportunity created successfully",
-                "opportunity_name": opportunity_name,
-                "amount": amount,
-                "stage_name": stage_name,
-                "close_date": close_date
-            }
+            return {"messages": [{"role": "assistant", "content": result}]}
         except Exception as e:
-            return {"error": str(e)}
+            content = f"error: {str(e)}"
+            return {"messages": [{"role": "assistant", "content": content}]}
         
 
 class UpdateOpportunityInput(BaseModel):
@@ -304,13 +303,10 @@ class UpdateOpportunityTool(BaseTool):
                 "StageName": stage,
                 "Amount": amount
             })
-            return {
-                "message": f"Opportunity updated successfully with ID: {opp_id}",
-                "stage": stage,
-                "amount": amount
-            }
+            return {"messages": [{"role": "assistant", "content": "Successfully updated opportunity with Id: " + opp_id}]}
         except Exception as e:
-            return {"error": str(e)}
+            content = f"error: {str(e)}"
+            return {"messages": [{"role": "assistant", "content": content}]}
 
 
 class GetAccountInput(BaseModel):
@@ -346,15 +342,16 @@ class GetAccountTool(BaseTool):
             sf = get_salesforce_connection()
             result = sf.query(query)
         except Exception as e:
-            return {"error": str(e)}
+            content = f"error: {str(e)}"
+            return {"messages": [{"role": "assistant", "content": content}]}
         
         records = result.get("records", [])
 
         if not records:
-            return {"message": "No accounts found."}
-
+            return {"messages": [{"role": "assistant", "content": records}]}
+            
         if len(records) > 1:
-            return {
+            multiple_matches = {
                 "multiple_matches": [
                     {
                         "id": rec["Id"],
@@ -366,10 +363,10 @@ class GetAccountTool(BaseTool):
                     for rec in records
                 ]
             }
-
-        return {
-            "match": records[0]
-        }
+            return {"messages": [{"role": "assistant", "content": multiple_matches}]}
+        else:
+            match = {"match": records[0]}
+            return {"messages": [{"role": "assistant", "content": match}]}
     
 
 class CreateAccountInput(BaseModel):
@@ -398,8 +395,9 @@ class CreateAccountTool(BaseTool):
                 "Website": data.website
             })
         except Exception as e:
-            return {"error": str(e)}
-        return {"message": f"Account created with ID: {result['id']}"}
+            content = f"error: {str(e)}"
+            return {"messages": [{"role": "assistant", "content": content}]}
+        return {"messages": [{"role": "assistant", "content": result}]}
 
 
 class UpdateAccountInput(BaseModel):
@@ -421,13 +419,14 @@ class UpdateAccountTool(BaseTool):
         data = UpdateAccountInput(**kwargs)
         try:
             sf = get_salesforce_connection()
-            result = sf.Account.update(data.account_id, {
+            sf.Account.update(data.account_id, {
                 "Phone": data.phone,
                 "Website": data.website
             })
         except Exception as e:
-            return {"error": str(e)}
-        return {"message": f"Account updated with ID: {data.account_id}"}
+            content = f"error: {str(e)}"
+            return {"messages": [{"role": "assistant", "content": content}]}
+        return {"messages": [{"role": "assistant", "content": "Successfully updated account with Id: " + data.account_id}]}
     
 
 class GetContactInput(BaseModel):
@@ -477,15 +476,16 @@ class GetContactTool(BaseTool):
             sf = get_salesforce_connection()
             result = sf.query(query)
         except Exception as e:
-            return {"error": str(e)}
+            content = f"error: {str(e)}"
+            return {"messages": [{"role": "assistant", "content": content}]}
         
         records = result.get("records", [])
 
         if not records:
-            return {"message": "No contacts found."}
-
+            return {"messages": [{"role": "assistant", "content": records}]}
+            
         if len(records) > 1:
-            return {
+            multiple_matches = {
                 "multiple_matches": [
                     {
                         "id": rec["Id"],
@@ -497,10 +497,10 @@ class GetContactTool(BaseTool):
                     for rec in records
                 ]
             }
-
-        return {
-            "match": records[0]
-        }
+            return {"messages": [{"role": "assistant", "content": multiple_matches}]}
+        else:
+            match = {"match": records[0]}
+            return {"messages": [{"role": "assistant", "content": match}]}
     
 
 class CreateContactInput(BaseModel):
@@ -530,8 +530,9 @@ class CreateContactTool(BaseTool):
                 "Phone": data.phone
             })
         except Exception as e:
-            return {"error": str(e)}
-        return {"message": f"Contact created with ID: {result['id']}"}
+            content = f"error: {str(e)}"
+            return {"messages": [{"role": "assistant", "content": content}]}
+        return {"messages": [{"role": "assistant", "content": result}]}
 
 
 class UpdateContactInput(BaseModel):
@@ -553,13 +554,14 @@ class UpdateContactTool(BaseTool):
         data = UpdateContactInput(**kwargs)
         try:
             sf = get_salesforce_connection()
-            result = sf.Contact.update(data.contact_id, {
+            sf.Contact.update(data.contact_id, {
                 "Email": data.email,
                 "Phone": data.phone
             })
         except Exception as e:
-            return {"error": str(e)}
-        return {"message": f"Contact updated with ID: {data.contact_id}"}
+            content = f"error: {str(e)}"
+            return {"messages": [{"role": "assistant", "content": content}]}
+        return {"messages": [{"role": "assistant", "content": "Successfully updated contact with Id: " + data.contact_id}]}
     
 
 class GetCaseInput(BaseModel):
@@ -600,10 +602,10 @@ class GetCaseTool(BaseTool):
             records = sf.query(query)['records']
 
             if not records:
-                return {"message": "No cases found."}
-            
+                return {"messages": [{"role": "assistant", "content": records}]}
+                
             if len(records) > 1:
-                return {
+                multiple_matches = {
                     "multiple_matches": [
                         {
                             "id": rec["Id"],
@@ -614,12 +616,13 @@ class GetCaseTool(BaseTool):
                         for rec in records
                     ]
                 }
-
-            return {
-                "match": records[0]
-            }
+                return {"messages": [{"role": "assistant", "content": multiple_matches}]}
+            else:
+                match = {"match": records[0]}
+                return {"messages": [{"role": "assistant", "content": match}]}
         except Exception as e:
-            return {"error": str(e)}
+            content = f"error: {str(e)}"
+            return {"messages": [{"role": "assistant", "content": content}]}
         
 
 class CreateCaseInput(BaseModel):
@@ -649,8 +652,9 @@ class CreateCaseTool(BaseTool):
                 "ContactId": data.contact_id
             })
         except Exception as e:
-            return {"error": str(e)}
-        return {"message": f"Case created with ID: {result['id']}"}
+            content = f"error: {str(e)}"
+            return {"messages": [{"role": "assistant", "content": content}]}
+        return {"messages": [{"role": "assistant", "content": result}]}
 
 
 class UpdateCaseInput(BaseModel):
@@ -672,13 +676,14 @@ class UpdateCaseTool(BaseTool):
         data = UpdateCaseInput(**kwargs)
         try:
             sf = get_salesforce_connection()
-            result = sf.Case.update(data.case_id, {
+            sf.Case.update(data.case_id, {
                 "Status": data.status,
                 "Description": data.description
             })
         except Exception as e:
-            return {"error": str(e)}
-        return {"message": f"Case updated with ID: {data.case_id}"}
+            content = f"error: {str(e)}"
+            return {"messages": [{"role": "assistant", "content": content}]}
+        return {"messages": [{"role": "assistant", "content": "Successfully updated case with Id: " + data.case_id}]}
     
 
 class GetTaskInput(BaseModel):
@@ -722,10 +727,10 @@ class GetTaskTool(BaseTool):
             records = sf.query(query)['records']
 
             if not records:
-                return {"message": "No tasks found."}
-            
+                return {"messages": [{"role": "assistant", "content": records}]}
+                
             if len(records) > 1:
-                return {
+                multiple_matches = {
                     "multiple_matches": [
                         {
                             "id": rec["Id"],
@@ -736,12 +741,13 @@ class GetTaskTool(BaseTool):
                         for rec in records
                     ]
                 }
-
-            return {
-                "match": records[0]
-            }
+                return {"messages": [{"role": "assistant", "content": multiple_matches}]}
+            else:
+                match = {"match": records[0]}
+                return {"messages": [{"role": "assistant", "content": match}]}
         except Exception as e:
-            return {"error": str(e)}
+            content = f"error: {str(e)}"
+            return {"messages": [{"role": "assistant", "content": content}]}
         
 
 class CreateTaskInput(BaseModel):
@@ -771,8 +777,9 @@ class CreateTaskTool(BaseTool):
                 "WhoId": data.contact_id
             })
         except Exception as e:
-            return {"error": str(e)}
-        return {"message": f"Task created with ID: {result['id']}"}
+            content = f"error: {str(e)}"
+            return {"messages": [{"role": "assistant", "content": content}]}
+        return {"messages": [{"role": "assistant", "content": result}]}
 
 
 class UpdateTaskInput(BaseModel):
@@ -794,11 +801,12 @@ class UpdateTaskTool(BaseTool):
         data = UpdateTaskInput(**kwargs)
         try:
             sf = get_salesforce_connection()
-            result = sf.Task.update(data.task_id, {
+            sf.Task.update(data.task_id, {
                 "Status": data.status,
                 "Description": data.description
             })
         except Exception as e:
-            return {"error": str(e)}
-        return {"message": f"Task updated with ID: {data.task_id}"}
+            content = f"error: {str(e)}"
+            return {"messages": [{"role": "assistant", "content": content}]}
+        return {"messages": [{"role": "assistant", "content": "Successfully updated task with Id: " + data.task_id}]}
     
