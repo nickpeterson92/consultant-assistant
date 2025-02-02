@@ -136,7 +136,7 @@ async def main():
         )
         return {"messages": response, "turns": turn + 1}
    
-    def summarize_conversation(state: OverallState, config: RunnableConfig, store:BaseStore):
+    def summarize_conversation(state: OverallState):
         #print("DEBUG: Summarizing conversation")
         summary = state.get("summary", "No summary available")
 
@@ -227,7 +227,8 @@ async def main():
                 {"messages": [{"role": "user", "content": user_input}]},
                 config,
                 stream_mode="values",):
-                #print(event["messages"])
+                #print(event)
+                #if event["event"] == "on_chat_model_stream" and event["metadata"].get("langgraph_node","") == node_to_stream:
                 event["messages"][-1].pretty_print()
         except Exception as e:
             print(f"An error occurred: {e}")
