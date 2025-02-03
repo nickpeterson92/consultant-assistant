@@ -20,3 +20,4 @@ class StateManager:
             self.state[update] = value
         else:
             raise ValueError("Provide either a dict or a key and value pair.")
+        
