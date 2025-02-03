@@ -35,7 +35,6 @@ def unify_messages_to_dicts(messages: list) -> list[dict]:
                 "role": "assistant",
                 "content": str(msg)
             })
-    #print(f"DEBUG: Unified messages: {unified}")
     return unified
 
 
@@ -46,14 +45,13 @@ def convert_dicts_to_lc_messages(dict_messages: list[dict]) -> list:
     """
     lc_msgs = []
     for m in dict_messages:
-        role = m["role"]
-        content = m["content"]
+        role = m.get("role", "assistant")
+        content = m.get("content", "")
         if role == "user":
             lc_msgs.append(HumanMessage(content=content))
         elif role == "system":
             lc_msgs.append(SystemMessage(content=content))
         else:
             lc_msgs.append(AIMessage(content=content))
-    #print(f"DEBUG: Converted messages: {lc_msgs}")
     return lc_msgs
 
