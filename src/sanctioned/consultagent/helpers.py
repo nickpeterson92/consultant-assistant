@@ -1,6 +1,7 @@
 # helpers.property
 
-
+import sys
+import asyncio
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage, AIMessage
 
 def unify_messages_to_dicts(messages: list) -> list[dict]:
@@ -55,3 +56,16 @@ def convert_dicts_to_lc_messages(dict_messages: list[dict]) -> list:
             lc_msgs.append(AIMessage(content=content))
     return lc_msgs
 
+
+async def type_out(text, delay=0.02):
+    """
+    Animates printing of the given text one character at a time.
+    
+    Args:
+        text (str): The text to animate.
+        delay (float): Delay in seconds between each character.
+    """
+    for char in text:
+        sys.stdout.write(char)
+        sys.stdout.flush()
+        await asyncio.sleep(delay)

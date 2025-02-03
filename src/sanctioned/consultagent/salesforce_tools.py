@@ -67,7 +67,7 @@ class GetLeadTool(BaseTool):
                     return {"messages": [{"role": "tool", "content":{"error": "No search criteria provided."}, "tool_call_id": call_id}]}
 
                 query = f"SELECT Id, Name, Company, Email, Phone FROM Lead WHERE {' OR '.join(query_conditions)}"
-                print(f"DEBUG: Executing SOQL query: {query}")
+                #print(f"DEBUG: Executing SOQL query: {query}")
 
             records = sf.query(query)['records']
 
@@ -214,7 +214,7 @@ class GetOpportunityTool(BaseTool):
                 query_conditions.append(f"Name LIKE '%{opportunity_name}%'")
     
             query = f"SELECT Id, Name, StageName, Amount, Account.Name FROM Opportunity WHERE {' AND '.join(query_conditions)}"
-            print(f"DEBUG: Executing SOQL query: {query}")
+            #print(f"DEBUG: Executing SOQL query: {query}")
 
         try:
             sf = get_salesforce_connection()
@@ -391,7 +391,7 @@ class GetAccountTool(BaseTool):
             query_conditions = [f"Account.Name LIKE '%{account_name}%'"]
     
             query = f"SELECT Id, Name FROM Account WHERE {' AND '.join(query_conditions)}"
-            print(f"DEBUG: Executing SOQL query: {query}")
+            #print(f"DEBUG: Executing SOQL query: {query}")
 
         try:
             sf = get_salesforce_connection()
@@ -549,7 +549,7 @@ class GetContactTool(BaseTool):
                 query_conditions.append(f"Account.Name LIKE '%{account_name}%'")
     
             query = f"SELECT Id, Name, Account.Name, Email, Phone FROM Contact WHERE {' AND '.join(query_conditions)}"
-            print(f"DEBUG: Executing SOQL query: {query}")
+            #print(f"DEBUG: Executing SOQL query: {query}")
 
         try:
             sf = get_salesforce_connection()
@@ -700,7 +700,7 @@ class GetCaseTool(BaseTool):
                     return {"messages": [{"role": "tool", "content":{"error": "No search criteria provided."}, "tool_call_id": call_id}]}
 
                 query = f"SELECT Id, Subject, Description, Account.Name, Contact.Name FROM Case WHERE {' OR '.join(query_conditions)}"
-                print(f"DEBUG: Executing SOQL query: {query}")
+                #print(f"DEBUG: Executing SOQL query: {query}")
 
             records = sf.query(query)['records']
 
@@ -849,7 +849,7 @@ class GetTaskTool(BaseTool):
                     return {"messages": [{"role": "tool", "content":{"error": "No search criteria provided."}, "tool_call_id": call_id}]}
 
                 query = f"SELECT Id, Subject, Account.Name, Who.Name FROM Task WHERE {' OR '.join(query_conditions)}"
-                print(f"DEBUG: Executing SOQL query: {query}")
+                #print(f"DEBUG: Executing SOQL query: {query}")
 
             records = sf.query(query)['records']
 
