@@ -16,13 +16,14 @@ from langgraph.graph import StateGraph, END
 from langgraph.graph.message import RemoveMessage, add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import AzureChatOpenAI
 
-from sys_msg import chatbot_sys_msg, memory_content_msg, summary_sys_msg, instruct_trustcall, TRUSTCALL_INSTRUCTION
+from state_manager import StateManager
+from sys_msg import chatbot_sys_msg, summary_sys_msg, TRUSTCALL_INSTRUCTION
 from helpers import unify_messages_to_dicts, convert_dicts_to_lc_messages
-from memory_schemas import AccountList
+from memory_schemas import AccountList, Account, SimpleAccount
 from attachment_tools import OCRTool
 from salesforce_tools import (
     CreateLeadTool,
@@ -94,11 +95,12 @@ async def main():
             ]
 
     llm = create_azure_openai_chat()
+    mem_llm = create_azure_openai_chat()
     llm_with_tools = llm.bind_tools(tools)
     trustcall_extractor = create_extractor(
         llm,
-        tools=[AccountList],
-        tool_choice="AccountList",
+        tools=[SimpleAccount],
+        tool_choice="SimpleAccount",
         enable_inserts=True,
     )
 
@@ -120,9 +122,9 @@ async def main():
 
         response = llm_with_tools.invoke(
             convert_dicts_to_lc_messages(
-                unify_messages_to_dicts(messages)
-            )
-        )
+                unify_messages_to_dicts(messages)))
+
+        state_mgr.update_state({"messages": response, "turns": turn + 1})
         return {"messages": response, "turns": turn + 1}
    
     def summarize_conversation(state: OverallState):
@@ -135,9 +137,7 @@ async def main():
         messages = state["messages"] + [HumanMessage(content=system_message)]
         response = llm.invoke(
             convert_dicts_to_lc_messages(
-                unify_messages_to_dicts(messages)
-            )
-        )
+                unify_messages_to_dicts(messages)))
 
         delete_messages = [RemoveMessage(id=m.id) for m in state["messages"][:-2]]
         return {"summary": response.content, "messages": delete_messages}
@@ -147,7 +147,7 @@ async def main():
 
         messages = state["messages"]
 
-        if len(messages) > 6:
+        if len(messages) > 7:
             return "summarize_conversation"
         
         return END
@@ -155,23 +155,22 @@ async def main():
     async def memorize_records(state: OverallState, config: RunnableConfig, store: BaseStore):
         """Memorize field-level details of records"""
         summary = state.get("summary", "No summary available")
-
+        messages = state["messages"]
         user_id = config["configurable"]["user_id"]
 
         namespace = ("memory", user_id)
-        key = "records"
+        key = "SimpleAccount"
         existing_memory = store.get(namespace, key)
-        existing_records = {"records": existing_memory.value} if existing_memory else None
-        print(f"DEBUG <<MEMORY>>: {existing_records}")
+        existing_records = {"SimpleAccount": existing_memory.value} if existing_memory else None
+        #print(f"DEBUG <<MEMORY>>: {existing_records}")
         
-        messages = [SystemMessage(content=TRUSTCALL_INSTRUCTION)]+[HumanMessage(content=memory_content_msg(summary))]
-        print(f"DEBUG <<MEMORY MSG>>: {messages}")
+        messages = [SystemMessage(content=TRUSTCALL_INSTRUCTION)] + [HumanMessage(content=summary)] 
+        #print(f"DEBUG <<MEMORY MSG>>: {messages}")
         response = await trustcall_extractor.ainvoke(
             convert_dicts_to_lc_messages(
-                unify_messages_to_dicts([{"messages": messages, "existing": existing_records}])
-            )
-        )
-        print(f"DEBUG: {response}")
+                unify_messages_to_dicts([{"messages": messages, "existing": existing_records}])))
+
+        #print(f"DEBUG: {response}")
 
         updated_records = response["responses"][0].model_dump()
         store.put(namespace, key, {"memory": updated_records})
@@ -179,7 +178,6 @@ async def main():
 
     def needs_memory(state: OverallState):
         """Memorize if more than 4 or so turns"""
-        messages = state["messages"]
         turns = state.get("turns")
         if turns > 4:
             return "memorize_records"
@@ -197,13 +195,14 @@ async def main():
     graph_builder.add_conditional_edges("conversation",needs_summary)
     graph_builder.add_conditional_edges("conversation",needs_memory)
     graph_builder.add_edge("tools", "conversation")
-    graph_builder.add_edge("conversation", END)
+    graph_builder.set_finish_point("conversation")
     
     graph = graph_builder.compile(checkpointer=memory, store=memory_store)
+    state_mgr = StateManager()
     config = {"configurable": {"thread_id": "1", "user_id": "1"}}
 
     while True:
-       # try:
+        try:
             user_input = input("User: ")
             if user_input.lower() in ["quit", "exit", "q"]:
                 print("Goodbye!")
@@ -213,11 +212,9 @@ async def main():
                 {"messages": [{"role": "user", "content": user_input}]},
                 config,
                 stream_mode="values",):
-                #print(event)
-                #if event["event"] == "on_chat_model_stream" and event["metadata"].get("langgraph_node","") == node_to_stream:
                 event["messages"][-1].pretty_print()
-        #except Exception as e:
-            #print(f"An error occurred: {e}")
+        except Exception as e:
+            print(f"An error occurred: {e}")
 
 if __name__ == "__main__":
     asyncio.run(main())

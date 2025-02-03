@@ -8,7 +8,7 @@ from pydantic import BaseModel, field_validator
 from langchain.tools import BaseTool
 from typing import Optional
 from simple_salesforce import Salesforce
-
+from state_manager import StateManager
 
 def get_salesforce_connection():
     sf = Salesforce(
@@ -37,8 +37,17 @@ class GetLeadTool(BaseTool):
     args_schema: type = GetLeadInput
 
     def _run(self, **kwargs) -> dict:
-        #print(f"DEBUG: Tool 'get_lead_tool' invoked with input: {kwargs}")
+        state_mgr = StateManager()
+        state = state_mgr.get_state()
+        ai_msg = state.get("messages")
+
+        tool_calls = None
+        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
+            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
+            call_id = tool_calls[0]["id"]
+
         data = GetLeadInput(**kwargs)
+
         try:
             sf = get_salesforce_connection()
             if data.lead_id:
@@ -55,7 +64,7 @@ class GetLeadTool(BaseTool):
                     query_conditions.append(f"Company LIKE '%{data.company}%'")
 
                 if not query_conditions:
-                    return {"error": "No search criteria provided."}
+                    return {"messages": [{"role": "tool", "content":{"error": "No search criteria provided."}, "tool_call_id": call_id}]}
 
                 query = f"SELECT Id, Name, Company, Email, Phone FROM Lead WHERE {' OR '.join(query_conditions)}"
                 print(f"DEBUG: Executing SOQL query: {query}")
@@ -63,7 +72,7 @@ class GetLeadTool(BaseTool):
             records = sf.query(query)['records']
 
             if not records:
-                return {"messages": [{"role": "assistant", "content": records}]}
+                return {"messages": [{"role": "tool", "content": records, "tool_call_id": call_id}]}
                 
             if len(records) > 1:
                 multiple_matches = {
@@ -78,13 +87,13 @@ class GetLeadTool(BaseTool):
                         for rec in records
                     ]
                 }
-                return {"messages": [{"role": "assistant", "content": multiple_matches}]}
+                return {"messages": [{"role": "tool", "content": multiple_matches, "tool_call_id": call_id}]}
             else:
                 match = {"match": records[0]}
-                return {"messages": [{"role": "assistant", "content": match}]}
+                return {"messages": [{"role": "tool", "content": match, "tool_call_id": call_id}]}
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "assistant", "content": content}]}
+            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
 
 
 class CreateLeadInput(BaseModel):
@@ -102,7 +111,15 @@ class CreateLeadTool(BaseTool):
     args_schema: type = CreateLeadInput
 
     def _run(self, **kwargs) -> dict:
-        #print(f"DEBUG: Tool 'create_lead_tool' invoked with input: {kwargs}")
+        state_mgr = StateManager()
+        state = state_mgr.get_state()
+        ai_msg = state.get("messages")
+
+        tool_calls = None
+        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
+            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
+            call_id = tool_calls[0]["id"]
+
         try:
             sf = get_salesforce_connection()
             data = CreateLeadInput(**kwargs)
@@ -112,10 +129,10 @@ class CreateLeadTool(BaseTool):
                 "Email": data.email,
                 "Phone": data.phone
             })
-            return {"messages": [{"role": "assistant", "content": result}]}
+            return {"messages": [{"role": "tool", "content": result, "tool_call_id": call_id}]}
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "assistant", "content": content}]}
+            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
     
 
 class UpdateLeadInput(BaseModel):
@@ -134,7 +151,15 @@ class UpdateLeadTool(BaseTool):
     args_schema: type = UpdateLeadInput
 
     def _run(self, **kwargs) -> dict:
-        #print(f"DEBUG: Tool 'update_lead_tool' invoked with input: {kwargs}")
+        state_mgr = StateManager()
+        state = state_mgr.get_state()
+        ai_msg = state.get("messages")
+
+        tool_calls = None
+        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
+            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
+            call_id = tool_calls[0]["id"]
+
         try:
             sf = get_salesforce_connection()
             data = UpdateLeadInput(**kwargs)
@@ -143,10 +168,10 @@ class UpdateLeadTool(BaseTool):
                 "Email": data.email,
                 "Phone": data.phone
             })
-            return {"messages": [{"role": "assistant", "content": "Successfully updated lead with Id: " + data.lead_id}]}
+            return {"messages": [{"role": "tool", "content": "Successfully updated lead with Id: " + data.lead_id, "tool_call_id": call_id}]}
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "assistant", "content": content}]}
+            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
     
 
 class GetOpportunityInput(BaseModel):
@@ -166,7 +191,15 @@ class GetOpportunityTool(BaseTool):
     args_schema: type = GetOpportunityInput
     
     def _run(self, **kwargs) -> dict:
-        #print(f"DEBUG: Tool 'get_opportunity_tool' invoked with input: {kwargs}")
+        state_mgr = StateManager()
+        state = state_mgr.get_state()
+        ai_msg = state.get("messages")
+
+        tool_calls = None
+        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
+            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
+            call_id = tool_calls[0]["id"]
+
         data = GetOpportunityInput(**kwargs)
         
         account_name = data.account_name
@@ -188,12 +221,12 @@ class GetOpportunityTool(BaseTool):
             result = sf.query(query)
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "assistant", "content": content}]}
+            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
         
         records = result.get("records", [])
 
         if not records:
-            return {"messages": [{"role": "assistant", "content": records}]}
+            return {"messages": [{"role": "tool", "content": records, "tool_call_id": call_id}]}
             
         if len(records) > 1:
             multiple_matches = {
@@ -208,10 +241,10 @@ class GetOpportunityTool(BaseTool):
                     for rec in records
                 ]
             }
-            return {"messages": [{"role": "assistant", "content": multiple_matches}]}
+            return {"messages": [{"role": "tool", "content": multiple_matches, "tool_call_id": call_id}]}
         else:
             match = {"match": records[0]}
-            return {"messages": [{"role": "assistant", "content": match}]}
+            return {"messages": [{"role": "tool", "content": match, "tool_call_id": call_id}]}
     
 
 class CreateOpportunityInput(BaseModel):
@@ -231,7 +264,14 @@ class CreateOpportunityTool(BaseTool):
     args_schema: type = CreateOpportunityInput
 
     def _run(self, **kwargs) -> dict:
-        #print(f"DEBUG: Tool 'create_opportunity_tool' invoked with input: {kwargs}")
+        state_mgr = StateManager()
+        state = state_mgr.get_state()
+        ai_msg = state.get("messages")
+
+        tool_calls = None
+        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
+            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
+            call_id = tool_calls[0]["id"]
 
         data = CreateOpportunityInput(**kwargs)
 
@@ -250,10 +290,10 @@ class CreateOpportunityTool(BaseTool):
                 "StageName": stage_name,
                 "CloseDate": close_date
             })
-            return {"messages": [{"role": "assistant", "content": result}]}
+            return {"messages": [{"role": "tool", "content": result, "tool_call_id": call_id}]}
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "assistant", "content": content}]}
+            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
         
 
 class UpdateOpportunityInput(BaseModel):
@@ -289,7 +329,14 @@ class UpdateOpportunityTool(BaseTool):
     args_schema: type = UpdateOpportunityInput
 
     def _run(self, **kwargs) -> dict:
-        #print(f"DEBUG: Tool 'update_opportunity_tool' invoked with input: {kwargs}")
+        state_mgr = StateManager()
+        state = state_mgr.get_state()
+        ai_msg = state.get("messages")
+
+        tool_calls = None
+        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
+            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
+            call_id = tool_calls[0]["id"]
 
         data = UpdateOpportunityInput(**kwargs)
 
@@ -303,10 +350,10 @@ class UpdateOpportunityTool(BaseTool):
                 "StageName": stage,
                 "Amount": amount
             })
-            return {"messages": [{"role": "assistant", "content": "Successfully updated opportunity with Id: " + opp_id}]}
+            return {"messages": [{"role": "tool", "content": "Successfully updated opportunity with Id: " + opp_id, "tool_call_id": call_id}]}
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "assistant", "content": content}]}
+            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
 
 
 class GetAccountInput(BaseModel):
@@ -324,7 +371,15 @@ class GetAccountTool(BaseTool):
     args_schema: type = GetAccountInput
     
     def _run(self, **kwargs) -> dict:
-        #print(f"DEBUG: Tool 'get_account_tool' invoked with input: {kwargs}")
+        state_mgr = StateManager()
+        state = state_mgr.get_state()
+        ai_msg = state.get("messages")
+
+        tool_calls = None
+        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
+            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
+            call_id = tool_calls[0]["id"]
+            
         data = GetAccountInput(**kwargs)
         
         account_id = data.account_id
@@ -343,12 +398,12 @@ class GetAccountTool(BaseTool):
             result = sf.query(query)
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "assistant", "content": content}]}
+            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
         
         records = result.get("records", [])
 
         if not records:
-            return {"messages": [{"role": "assistant", "content": records}]}
+            return {"messages": [{"role": "tool", "content": records, "tool_call_id": call_id}]}
             
         if len(records) > 1:
             multiple_matches = {
@@ -363,10 +418,10 @@ class GetAccountTool(BaseTool):
                     for rec in records
                 ]
             }
-            return {"messages": [{"role": "assistant", "content": multiple_matches}]}
+            return {"messages": [{"role": "tool", "content": multiple_matches, "tool_call_id": call_id}]}
         else:
             match = {"match": records[0]}
-            return {"messages": [{"role": "assistant", "content": match}]}
+            return {"messages": [{"role": "tool", "content": match, "tool_call_id": call_id}]}
     
 
 class CreateAccountInput(BaseModel):
@@ -384,7 +439,15 @@ class CreateAccountTool(BaseTool):
     args_schema: type = CreateAccountInput
 
     def _run(self, **kwargs) -> dict:
-        #print(f"DEBUG: Tool 'create_account_tool' invoked with input: {kwargs}")
+        state_mgr = StateManager()
+        state = state_mgr.get_state()
+        ai_msg = state.get("messages")
+
+        tool_calls = None
+        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
+            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
+            call_id = tool_calls[0]["id"]
+
         data = CreateAccountInput(**kwargs)
 
         try:
@@ -396,8 +459,8 @@ class CreateAccountTool(BaseTool):
             })
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "assistant", "content": content}]}
-        return {"messages": [{"role": "assistant", "content": result}]}
+            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
+        return {"messages": [{"role": "tool", "content": result, "tool_call_id": call_id}]}
 
 
 class UpdateAccountInput(BaseModel):
@@ -415,7 +478,15 @@ class UpdateAccountTool(BaseTool):
     args_schema: type = UpdateAccountInput
 
     def _run(self, **kwargs) -> dict:
-        #print(f"DEBUG: Tool 'update_account_tool' invoked with input: {kwargs}")
+        state_mgr = StateManager()
+        state = state_mgr.get_state()
+        ai_msg = state.get("messages")
+
+        tool_calls = None
+        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
+            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
+            call_id = tool_calls[0]["id"]
+
         data = UpdateAccountInput(**kwargs)
         try:
             sf = get_salesforce_connection()
@@ -425,8 +496,8 @@ class UpdateAccountTool(BaseTool):
             })
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "assistant", "content": content}]}
-        return {"messages": [{"role": "assistant", "content": "Successfully updated account with Id: " + data.account_id}]}
+            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
+        return {"messages": [{"role": "tool", "content": "Successfully updated account with Id: " + data.account_id, "tool_call_id": call_id}]}
     
 
 class GetContactInput(BaseModel):
@@ -447,7 +518,15 @@ class GetContactTool(BaseTool):
     args_schema: type = GetContactInput
     
     def _run(self, **kwargs) -> dict:
-        #print(f"DEBUG: Tool 'get_contact_tool' invoked with input: {kwargs}")
+        state_mgr = StateManager()
+        state = state_mgr.get_state()
+        ai_msg = state.get("messages")
+
+        tool_calls = None
+        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
+            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
+            call_id = tool_calls[0]["id"]
+
         data = GetContactInput(**kwargs)
         
         contact_id = data.contact_id
@@ -477,12 +556,12 @@ class GetContactTool(BaseTool):
             result = sf.query(query)
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "assistant", "content": content}]}
+            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
         
         records = result.get("records", [])
 
         if not records:
-            return {"messages": [{"role": "assistant", "content": records}]}
+            return {"messages": [{"role": "tool", "content": records, "tool_call_id": call_id}]}
             
         if len(records) > 1:
             multiple_matches = {
@@ -497,10 +576,10 @@ class GetContactTool(BaseTool):
                     for rec in records
                 ]
             }
-            return {"messages": [{"role": "assistant", "content": multiple_matches}]}
+            return {"messages": [{"role": "tool", "content": multiple_matches, "tool_call_id": call_id}]}
         else:
             match = {"match": records[0]}
-            return {"messages": [{"role": "assistant", "content": match}]}
+            return {"messages": [{"role": "tool", "content": match, "tool_call_id": call_id}]}
     
 
 class CreateContactInput(BaseModel):
@@ -518,7 +597,15 @@ class CreateContactTool(BaseTool):
     args_schema: type = CreateContactInput
 
     def _run(self, **kwargs) -> dict:
-        #print(f"DEBUG: Tool 'create_contact_tool' invoked with input: {kwargs}")
+        state_mgr = StateManager()
+        state = state_mgr.get_state()
+        ai_msg = state.get("messages")
+
+        tool_calls = None
+        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
+            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
+            call_id = tool_calls[0]["id"]
+
         data = CreateContactInput(**kwargs)
 
         try:
@@ -531,8 +618,8 @@ class CreateContactTool(BaseTool):
             })
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "assistant", "content": content}]}
-        return {"messages": [{"role": "assistant", "content": result}]}
+            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
+        return {"messages": [{"role": "tool", "content": result, "tool_call_id": call_id}]}
 
 
 class UpdateContactInput(BaseModel):
@@ -550,7 +637,15 @@ class UpdateContactTool(BaseTool):
     args_schema: type = UpdateContactInput
 
     def _run(self, **kwargs) -> dict:
-        #print(f"DEBUG: Tool 'update_contact_tool' invoked with input: {kwargs}")
+        state_mgr = StateManager()
+        state = state_mgr.get_state()
+        ai_msg = state.get("messages")
+
+        tool_calls = None
+        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
+            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
+            call_id = tool_calls[0]["id"]
+
         data = UpdateContactInput(**kwargs)
         try:
             sf = get_salesforce_connection()
@@ -560,8 +655,8 @@ class UpdateContactTool(BaseTool):
             })
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "assistant", "content": content}]}
-        return {"messages": [{"role": "assistant", "content": "Successfully updated contact with Id: " + data.contact_id}]}
+            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
+        return {"messages": [{"role": "tool", "content": "Successfully updated contact with Id: " + data.contact_id, "tool_call_id": call_id}]}
     
 
 class GetCaseInput(BaseModel):
@@ -580,7 +675,15 @@ class GetCaseTool(BaseTool):
     args_schema: type = GetCaseInput
 
     def _run(self, **kwargs) -> dict:
-        #print(f"DEBUG: Tool 'get_case_tool' invoked with input: {kwargs}")
+        state_mgr = StateManager()
+        state = state_mgr.get_state()
+        ai_msg = state.get("messages")
+
+        tool_calls = None
+        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
+            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
+            call_id = tool_calls[0]["id"]
+
         data = GetCaseInput(**kwargs)
         try:
             sf = get_salesforce_connection()
@@ -594,7 +697,7 @@ class GetCaseTool(BaseTool):
                     query_conditions.append(f"Contact.Name LIKE '%{data.contact_name}%'")
 
                 if not query_conditions:
-                    return {"error": "No search criteria provided."}
+                    return {"messages": [{"role": "tool", "content":{"error": "No search criteria provided."}, "tool_call_id": call_id}]}
 
                 query = f"SELECT Id, Subject, Description, Account.Name, Contact.Name FROM Case WHERE {' OR '.join(query_conditions)}"
                 print(f"DEBUG: Executing SOQL query: {query}")
@@ -602,7 +705,7 @@ class GetCaseTool(BaseTool):
             records = sf.query(query)['records']
 
             if not records:
-                return {"messages": [{"role": "assistant", "content": records}]}
+                return {"messages": [{"role": "tool", "content": records, "tool_call_id": call_id}]}
                 
             if len(records) > 1:
                 multiple_matches = {
@@ -616,13 +719,13 @@ class GetCaseTool(BaseTool):
                         for rec in records
                     ]
                 }
-                return {"messages": [{"role": "assistant", "content": multiple_matches}]}
+                return {"messages": [{"role": "tool", "content": multiple_matches, "tool_call_id": call_id}]}
             else:
                 match = {"match": records[0]}
-                return {"messages": [{"role": "assistant", "content": match}]}
+                return {"messages": [{"role": "tool", "content": match, "tool_call_id": call_id}]}
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "assistant", "content": content}]}
+            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
         
 
 class CreateCaseInput(BaseModel):
@@ -641,7 +744,15 @@ class CreateCaseTool(BaseTool):
     args_schema: type = CreateCaseInput
 
     def _run(self, **kwargs) -> dict:
-        #print(f"DEBUG: Tool 'create_case_tool' invoked with input: {kwargs}")
+        state_mgr = StateManager()
+        state = state_mgr.get_state()
+        ai_msg = state.get("messages")
+
+        tool_calls = None
+        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
+            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
+            call_id = tool_calls[0]["id"]
+
         data = CreateCaseInput(**kwargs)
         try:
             sf = get_salesforce_connection()
@@ -653,8 +764,8 @@ class CreateCaseTool(BaseTool):
             })
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "assistant", "content": content}]}
-        return {"messages": [{"role": "assistant", "content": result}]}
+            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
+        return {"messages": [{"role": "tool", "content": result, "tool_call_id": call_id}]}
 
 
 class UpdateCaseInput(BaseModel):
@@ -672,7 +783,15 @@ class UpdateCaseTool(BaseTool):
     args_schema: type = UpdateCaseInput
 
     def _run(self, **kwargs) -> dict:
-        #print(f"DEBUG: Tool 'update_case_tool' invoked with input: {kwargs}")
+        state_mgr = StateManager()
+        state = state_mgr.get_state()
+        ai_msg = state.get("messages")
+
+        tool_calls = None
+        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
+            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
+            call_id = tool_calls[0]["id"]
+
         data = UpdateCaseInput(**kwargs)
         try:
             sf = get_salesforce_connection()
@@ -682,8 +801,8 @@ class UpdateCaseTool(BaseTool):
             })
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "assistant", "content": content}]}
-        return {"messages": [{"role": "assistant", "content": "Successfully updated case with Id: " + data.case_id}]}
+            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
+        return {"messages": [{"role": "tool", "content": "Successfully updated case with Id: " + data.case_id, "tool_call_id": call_id}]}
     
 
 class GetTaskInput(BaseModel):
@@ -703,7 +822,15 @@ class GetTaskTool(BaseTool):
     args_schema: type = GetTaskInput
 
     def _run(self, **kwargs) -> dict:
-        #print(f"DEBUG: Tool 'get_task_tool' invoked with input: {kwargs}")
+        state_mgr = StateManager()
+        state = state_mgr.get_state()
+        ai_msg = state.get("messages")
+
+        tool_calls = None
+        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
+            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
+            call_id = tool_calls[0]["id"]
+
         data = GetTaskInput(**kwargs)
         try:
             sf = get_salesforce_connection()
@@ -719,7 +846,7 @@ class GetTaskTool(BaseTool):
                     query_conditions.append(f"Who.Name LIKE '%{data.contact_name}%'")
 
                 if not query_conditions:
-                    return {"error": "No search criteria provided."}
+                    return {"messages": [{"role": "tool", "content":{"error": "No search criteria provided."}, "tool_call_id": call_id}]}
 
                 query = f"SELECT Id, Subject, Account.Name, Who.Name FROM Task WHERE {' OR '.join(query_conditions)}"
                 print(f"DEBUG: Executing SOQL query: {query}")
@@ -727,7 +854,7 @@ class GetTaskTool(BaseTool):
             records = sf.query(query)['records']
 
             if not records:
-                return {"messages": [{"role": "assistant", "content": records}]}
+                return {"messages": [{"role": "tool", "content": records, "tool_call_id": call_id}]}
                 
             if len(records) > 1:
                 multiple_matches = {
@@ -741,13 +868,13 @@ class GetTaskTool(BaseTool):
                         for rec in records
                     ]
                 }
-                return {"messages": [{"role": "assistant", "content": multiple_matches}]}
+                return {"messages": [{"role": "tool", "content": multiple_matches, "tool_call_id": call_id}]}
             else:
                 match = {"match": records[0]}
-                return {"messages": [{"role": "assistant", "content": match}]}
+                return {"messages": [{"role": "tool", "content": match, "tool_call_id": call_id}]}
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "assistant", "content": content}]}
+            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
         
 
 class CreateTaskInput(BaseModel):
@@ -766,7 +893,15 @@ class CreateTaskTool(BaseTool):
     args_schema: type = CreateTaskInput
 
     def _run(self, **kwargs) -> dict:
-        #print(f"DEBUG: Tool 'create_task_tool' invoked with input: {kwargs}")
+        state_mgr = StateManager()
+        state = state_mgr.get_state()
+        ai_msg = state.get("messages")
+
+        tool_calls = None
+        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
+            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
+            call_id = tool_calls[0]["id"]
+
         data = CreateTaskInput(**kwargs)
         try:
             sf = get_salesforce_connection()
@@ -778,8 +913,8 @@ class CreateTaskTool(BaseTool):
             })
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "assistant", "content": content}]}
-        return {"messages": [{"role": "assistant", "content": result}]}
+            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
+        return {"messages": [{"role": "tool", "content": result, "tool_call_id": call_id}]}
 
 
 class UpdateTaskInput(BaseModel):
@@ -797,7 +932,15 @@ class UpdateTaskTool(BaseTool):
     args_schema: type = UpdateTaskInput
 
     def _run(self, **kwargs) -> dict:
-        #print(f"DEBUG: Tool 'update_task_tool' invoked with input: {kwargs}")
+        state_mgr = StateManager()
+        state = state_mgr.get_state()
+        ai_msg = state.get("messages")
+
+        tool_calls = None
+        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
+            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
+            call_id = tool_calls[0]["id"]
+
         data = UpdateTaskInput(**kwargs)
         try:
             sf = get_salesforce_connection()
@@ -807,6 +950,6 @@ class UpdateTaskTool(BaseTool):
             })
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "assistant", "content": content}]}
-        return {"messages": [{"role": "assistant", "content": "Successfully updated task with Id: " + data.task_id}]}
+            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
+        return {"messages": [{"role": "tool", "content": "Successfully updated task with Id: " + data.task_id, "tool_call_id": call_id}]}
     
