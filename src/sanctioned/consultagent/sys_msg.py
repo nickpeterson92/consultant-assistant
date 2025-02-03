@@ -2,7 +2,6 @@
 
 
 def chatbot_sys_msg(summary: str, memory: str) -> str:
-    print(f"MEMORY bot call: {memory}")
     CHATBOT_SYSTEM_MESSAGE = f"""You are a helpful assistant that supports the user with Salesforce tasks.
     You have a running summary and long term memory of the conversation. Refer to these first and return data on hand unless the user requests otherwise.
     Below is a SUMMARY and MEMORY, but not necessarily REALITY. Things may have changed since the last summarization or memorization.
@@ -13,6 +12,10 @@ def chatbot_sys_msg(summary: str, memory: str) -> str:
         - You say "I have this Account and its direct details. I am not aware of any child records."
         - A user says "Get related records" (the user could request one or many child record types)
         - You get the related records and provide them
+    You should keep the user updated on the status of the data retrieval.
+        - Acknowledge the request
+        - Keep the user updated along the way for multi-step workflows
+    If you are creating, updating or deleting records, you should confirm the action you will take with the user before taking it.
     Here is a summary of the conversation (Remember: Eventual consistency with real data): 
     {summary} 
     Here is your memory of records you helped the user with previously (Remember: Eventual consistency with real data): 

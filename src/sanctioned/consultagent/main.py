@@ -1,11 +1,13 @@
 # main.py
 
+
 import os
+import json
+import asyncio
+import argparse
+
 from typing import Annotated
 from typing_extensions import TypedDict
-
-import asyncio
-import json
 
 from trustcall import create_extractor
 
@@ -46,6 +48,11 @@ from salesforce_tools import (
     UpdateTaskTool
 )
 
+# Debug mode flag
+parser = argparse.ArgumentParser(description="Salesforce Assistant Powered by LangGraph")
+parser.add_argument("-d", "--debug", action="store_true", help="Enable debug mode (disable animation and show events from all nodes)")
+args = parser.parse_args()
+DEBUG_MODE = args.debug
 
 def create_azure_openai_chat():
     return AzureChatOpenAI(
@@ -55,7 +62,6 @@ def create_azure_openai_chat():
         openai_api_key=os.environ["AZURE_OPENAI_API_KEY"],
         temperature=0.0,
     )
-
 
 node_to_stream = "conversation"
 state_mgr = StateManager()
@@ -147,7 +153,6 @@ async def main():
     
     async def memorize_records(state: OverallState, config: RunnableConfig, store: BaseStore):
         """Memorize field-level details of records"""
-        summary = state.get("summary", "No summary available")
         messages = state["messages"]
         user_id = config["configurable"]["user_id"]
 
@@ -156,7 +161,7 @@ async def main():
         existing_memory = store.get(namespace, key)
         existing_records = {"SimpleAccount": existing_memory.value} if existing_memory else None
         
-        messages = [SystemMessage(content=TRUSTCALL_INSTRUCTION)] + [HumanMessage(content=summary)] 
+        messages = [SystemMessage(content=TRUSTCALL_INSTRUCTION)] + messages
         response = await trustcall_extractor.ainvoke(
             convert_dicts_to_lc_messages(
                 unify_messages_to_dicts([{"messages": messages, "existing": existing_records}])
@@ -198,38 +203,46 @@ async def main():
                 print("Goodbye!")
                 break
 
-            full_data = ""
-            # Process events from the graph stream.
-            async for event in graph.astream_events(
-                {"messages": [{"role": "user", "content": user_input}]},
-                config,
-                stream_mode="values",
-                version="v2"
-            ):
-                if (event["event"] == "on_chat_model_stream" and 
-                    event["metadata"].get("langgraph_node", "") == node_to_stream):
-                    
-                    data = event["data"]
-                    if isinstance(data, dict) and "chunk" in data:
-                        chunk_obj = data["chunk"]
-                        if hasattr(chunk_obj, "content"):
-                            chunk_content = chunk_obj.content
-                        elif isinstance(chunk_obj, dict):
-                            chunk_content = chunk_obj.get("content", "")
+            if DEBUG_MODE:
+                # Debug mode: Use the original approach and print events from all nodes.
+                async for event in graph.astream(
+                    {"messages": [{"role": "user", "content": user_input}]},
+                    config,
+                    stream_mode="values",
+                ):
+                    # Print the last message in the event
+                    event["messages"][-1].pretty_print()
+            else:
+                # Non-debug mode: Process only the desired events with animated output.
+                async for event in graph.astream_events(
+                    {"messages": [{"role": "user", "content": user_input}]},
+                    config,
+                    stream_mode="values",
+                    version="v2"
+                ):
+                    # Process only events from the desired node.
+                    if (event.get("event") == "on_chat_model_stream" and 
+                        event.get("metadata", {}).get("langgraph_node", "") == node_to_stream):
+                        
+                        data = event["data"]
+                        if isinstance(data, dict) and "chunk" in data:
+                            chunk_obj = data["chunk"]
+                            if hasattr(chunk_obj, "content"):
+                                chunk_content = chunk_obj.content
+                            elif isinstance(chunk_obj, dict):
+                                chunk_content = chunk_obj.get("content", "")
+                            else:
+                                chunk_content = str(chunk_obj)
                         else:
-                            chunk_content = str(chunk_obj)
-                    else:
-                        chunk_content = json.dumps(data) if isinstance(data, dict) else str(data)
-
-                    full_data += chunk_content
-
-                    # Instead of immediately writing the new chunk, animate it like a typing effect.
-                    await type_out(chunk_content, delay=0.02)
-                    await asyncio.sleep(0.03)
+                            chunk_content = json.dumps(data) if isinstance(data, dict) else str(data)
+                        
+                        # Animate the output of this chunk.
+                        await type_out(chunk_content, delay=0.02)
             print()
 
         except Exception as e:
             print(f"An error occurred: {e}")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
