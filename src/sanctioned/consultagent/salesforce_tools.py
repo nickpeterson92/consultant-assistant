@@ -10,6 +10,7 @@ from typing import Optional
 from simple_salesforce import Salesforce
 from state_manager import StateManager
 
+
 def get_salesforce_connection():
     sf = Salesforce(
         username=os.environ["SFDC_USER"],
@@ -64,7 +65,7 @@ class GetLeadTool(BaseTool):
                     query_conditions.append(f"Company LIKE '%{data.company}%'")
 
                 if not query_conditions:
-                    return {"messages": [{"role": "tool", "content":{"error": "No search criteria provided."}, "tool_call_id": call_id}]}
+                    return [{"role": "tool", "content":{"error": "No search criteria provided."}, "tool_call_id": call_id}]
 
                 query = f"SELECT Id, Name, Company, Email, Phone FROM Lead WHERE {' OR '.join(query_conditions)}"
                 #print(f"DEBUG: Executing SOQL query: {query}")
@@ -72,7 +73,7 @@ class GetLeadTool(BaseTool):
             records = sf.query(query)['records']
 
             if not records:
-                return {"messages": [{"role": "tool", "content": records, "tool_call_id": call_id}]}
+                return [{"role": "tool", "content": records, "tool_call_id": call_id}]
                 
             if len(records) > 1:
                 multiple_matches = {
@@ -87,13 +88,13 @@ class GetLeadTool(BaseTool):
                         for rec in records
                     ]
                 }
-                return {"messages": [{"role": "tool", "content": multiple_matches, "tool_call_id": call_id}]}
+                return [{"role": "tool", "content": multiple_matches, "tool_call_id": call_id}]
             else:
                 match = {"match": records[0]}
-                return {"messages": [{"role": "tool", "content": match, "tool_call_id": call_id}]}
+                return [{"role": "tool", "content": match, "tool_call_id": call_id}]
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
 
 
 class CreateLeadInput(BaseModel):
@@ -129,10 +130,10 @@ class CreateLeadTool(BaseTool):
                 "Email": data.email,
                 "Phone": data.phone
             })
-            return {"messages": [{"role": "tool", "content": result, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": result, "tool_call_id": call_id}]
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
     
 
 class UpdateLeadInput(BaseModel):
@@ -168,10 +169,10 @@ class UpdateLeadTool(BaseTool):
                 "Email": data.email,
                 "Phone": data.phone
             })
-            return {"messages": [{"role": "tool", "content": "Successfully updated lead with Id: " + data.lead_id, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": "Successfully updated lead with Id: " + data.lead_id, "tool_call_id": call_id}]
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
     
 
 class GetOpportunityInput(BaseModel):
@@ -221,12 +222,12 @@ class GetOpportunityTool(BaseTool):
             result = sf.query(query)
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
         
         records = result.get("records", [])
 
         if not records:
-            return {"messages": [{"role": "tool", "content": records, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": records, "tool_call_id": call_id}]
             
         if len(records) > 1:
             multiple_matches = {
@@ -241,10 +242,10 @@ class GetOpportunityTool(BaseTool):
                     for rec in records
                 ]
             }
-            return {"messages": [{"role": "tool", "content": multiple_matches, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": multiple_matches, "tool_call_id": call_id}]
         else:
             match = {"match": records[0]}
-            return {"messages": [{"role": "tool", "content": match, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": match, "tool_call_id": call_id}]
     
 
 class CreateOpportunityInput(BaseModel):
@@ -290,10 +291,10 @@ class CreateOpportunityTool(BaseTool):
                 "StageName": stage_name,
                 "CloseDate": close_date
             })
-            return {"messages": [{"role": "tool", "content": result, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": result, "tool_call_id": call_id}]
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
         
 
 class UpdateOpportunityInput(BaseModel):
@@ -350,10 +351,10 @@ class UpdateOpportunityTool(BaseTool):
                 "StageName": stage,
                 "Amount": amount
             })
-            return {"messages": [{"role": "tool", "content": "Successfully updated opportunity with Id: " + opp_id, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": "Successfully updated opportunity with Id: " + opp_id, "tool_call_id": call_id}]
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
 
 
 class GetAccountInput(BaseModel):
@@ -398,12 +399,12 @@ class GetAccountTool(BaseTool):
             result = sf.query(query)
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
         
         records = result.get("records", [])
 
         if not records:
-            return {"messages": [{"role": "tool", "content": records, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": records, "tool_call_id": call_id}]
             
         if len(records) > 1:
             multiple_matches = {
@@ -418,10 +419,10 @@ class GetAccountTool(BaseTool):
                     for rec in records
                 ]
             }
-            return {"messages": [{"role": "tool", "content": multiple_matches, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": multiple_matches, "tool_call_id": call_id}]
         else:
             match = {"match": records[0]}
-            return {"messages": [{"role": "tool", "content": match, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": match, "tool_call_id": call_id}]
     
 
 class CreateAccountInput(BaseModel):
@@ -459,8 +460,8 @@ class CreateAccountTool(BaseTool):
             })
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
-        return {"messages": [{"role": "tool", "content": result, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
+        return [{"role": "tool", "content": result, "tool_call_id": call_id}]
 
 
 class UpdateAccountInput(BaseModel):
@@ -496,8 +497,8 @@ class UpdateAccountTool(BaseTool):
             })
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
-        return {"messages": [{"role": "tool", "content": "Successfully updated account with Id: " + data.account_id, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
+        return [{"role": "tool", "content": "Successfully updated account with Id: " + data.account_id, "tool_call_id": call_id}]
     
 
 class GetContactInput(BaseModel):
@@ -556,12 +557,12 @@ class GetContactTool(BaseTool):
             result = sf.query(query)
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
         
         records = result.get("records", [])
 
         if not records:
-            return {"messages": [{"role": "tool", "content": records, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": records, "tool_call_id": call_id}]
             
         if len(records) > 1:
             multiple_matches = {
@@ -576,10 +577,10 @@ class GetContactTool(BaseTool):
                     for rec in records
                 ]
             }
-            return {"messages": [{"role": "tool", "content": multiple_matches, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": multiple_matches, "tool_call_id": call_id}]
         else:
             match = {"match": records[0]}
-            return {"messages": [{"role": "tool", "content": match, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": match, "tool_call_id": call_id}]
     
 
 class CreateContactInput(BaseModel):
@@ -618,8 +619,8 @@ class CreateContactTool(BaseTool):
             })
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
-        return {"messages": [{"role": "tool", "content": result, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
+        return [{"role": "tool", "content": result, "tool_call_id": call_id}]
 
 
 class UpdateContactInput(BaseModel):
@@ -655,8 +656,8 @@ class UpdateContactTool(BaseTool):
             })
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
-        return {"messages": [{"role": "tool", "content": "Successfully updated contact with Id: " + data.contact_id, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
+        return [{"role": "tool", "content": "Successfully updated contact with Id: " + data.contact_id, "tool_call_id": call_id}]
     
 
 class GetCaseInput(BaseModel):
@@ -697,7 +698,7 @@ class GetCaseTool(BaseTool):
                     query_conditions.append(f"Contact.Name LIKE '%{data.contact_name}%'")
 
                 if not query_conditions:
-                    return {"messages": [{"role": "tool", "content":{"error": "No search criteria provided."}, "tool_call_id": call_id}]}
+                    return [{"role": "tool", "content":{"error": "No search criteria provided."}, "tool_call_id": call_id}]
 
                 query = f"SELECT Id, Subject, Description, Account.Name, Contact.Name FROM Case WHERE {' OR '.join(query_conditions)}"
                 #print(f"DEBUG: Executing SOQL query: {query}")
@@ -705,7 +706,7 @@ class GetCaseTool(BaseTool):
             records = sf.query(query)['records']
 
             if not records:
-                return {"messages": [{"role": "tool", "content": records, "tool_call_id": call_id}]}
+                return [{"role": "tool", "content": records, "tool_call_id": call_id}]
                 
             if len(records) > 1:
                 multiple_matches = {
@@ -719,13 +720,13 @@ class GetCaseTool(BaseTool):
                         for rec in records
                     ]
                 }
-                return {"messages": [{"role": "tool", "content": multiple_matches, "tool_call_id": call_id}]}
+                return [{"role": "tool", "content": multiple_matches, "tool_call_id": call_id}]
             else:
                 match = {"match": records[0]}
-                return {"messages": [{"role": "tool", "content": match, "tool_call_id": call_id}]}
+                return [{"role": "tool", "content": match, "tool_call_id": call_id}]
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
         
 
 class CreateCaseInput(BaseModel):
@@ -764,8 +765,8 @@ class CreateCaseTool(BaseTool):
             })
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
-        return {"messages": [{"role": "tool", "content": result, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
+        return [{"role": "tool", "content": result, "tool_call_id": call_id}]
 
 
 class UpdateCaseInput(BaseModel):
@@ -801,8 +802,8 @@ class UpdateCaseTool(BaseTool):
             })
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
-        return {"messages": [{"role": "tool", "content": "Successfully updated case with Id: " + data.case_id, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
+        return [{"role": "tool", "content": "Successfully updated case with Id: " + data.case_id, "tool_call_id": call_id}]
     
 
 class GetTaskInput(BaseModel):
@@ -846,7 +847,7 @@ class GetTaskTool(BaseTool):
                     query_conditions.append(f"Who.Name LIKE '%{data.contact_name}%'")
 
                 if not query_conditions:
-                    return {"messages": [{"role": "tool", "content":{"error": "No search criteria provided."}, "tool_call_id": call_id}]}
+                    return [{"role": "tool", "content":{"error": "No search criteria provided."}, "tool_call_id": call_id}]
 
                 query = f"SELECT Id, Subject, Account.Name, Who.Name FROM Task WHERE {' OR '.join(query_conditions)}"
                 #print(f"DEBUG: Executing SOQL query: {query}")
@@ -854,7 +855,7 @@ class GetTaskTool(BaseTool):
             records = sf.query(query)['records']
 
             if not records:
-                return {"messages": [{"role": "tool", "content": records, "tool_call_id": call_id}]}
+                return [{"role": "tool", "content": records, "tool_call_id": call_id}]
                 
             if len(records) > 1:
                 multiple_matches = {
@@ -868,13 +869,13 @@ class GetTaskTool(BaseTool):
                         for rec in records
                     ]
                 }
-                return {"messages": [{"role": "tool", "content": multiple_matches, "tool_call_id": call_id}]}
+                return [{"role": "tool", "content": multiple_matches, "tool_call_id": call_id}]
             else:
                 match = {"match": records[0]}
-                return {"messages": [{"role": "tool", "content": match, "tool_call_id": call_id}]}
+                return [{"role": "tool", "content": match, "tool_call_id": call_id}]
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
         
 
 class CreateTaskInput(BaseModel):
@@ -913,8 +914,8 @@ class CreateTaskTool(BaseTool):
             })
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
-        return {"messages": [{"role": "tool", "content": result, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
+        return [{"role": "tool", "content": result, "tool_call_id": call_id}]
 
 
 class UpdateTaskInput(BaseModel):
@@ -950,6 +951,6 @@ class UpdateTaskTool(BaseTool):
             })
         except Exception as e:
             content = f"error: {str(e)}"
-            return {"messages": [{"role": "tool", "content": content, "tool_call_id": call_id}]}
-        return {"messages": [{"role": "tool", "content": "Successfully updated task with Id: " + data.task_id, "tool_call_id": call_id}]}
+            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
+        return [{"role": "tool", "content": "Successfully updated task with Id: " + data.task_id, "tool_call_id": call_id}]
     

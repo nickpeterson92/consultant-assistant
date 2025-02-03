@@ -153,7 +153,7 @@ async def main():
     
     async def memorize_records(state: OverallState, config: RunnableConfig, store: BaseStore):
         """Memorize field-level details of records"""
-        messages = state["messages"]
+        summary = state.get("summary", "No summary available")
         user_id = config["configurable"]["user_id"]
 
         namespace = ("memory", user_id)
@@ -161,7 +161,7 @@ async def main():
         existing_memory = store.get(namespace, key)
         existing_records = {"SimpleAccount": existing_memory.value} if existing_memory else None
         
-        messages = [SystemMessage(content=TRUSTCALL_INSTRUCTION)] + messages
+        messages = [SystemMessage(content=TRUSTCALL_INSTRUCTION)] + [HumanMessage(content=summary)]
         response = await trustcall_extractor.ainvoke(
             convert_dicts_to_lc_messages(
                 unify_messages_to_dicts([{"messages": messages, "existing": existing_records}])
