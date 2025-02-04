@@ -25,7 +25,7 @@ from langchain_openai import AzureChatOpenAI
 from state_manager import StateManager
 from sys_msg import chatbot_sys_msg, summary_sys_msg, TRUSTCALL_INSTRUCTION
 from helpers import unify_messages_to_dicts, convert_dicts_to_lc_messages, type_out
-from memory_schemas import AccountList, Account, SimpleAccount, SimpleAccountList
+from memory_schemas import AccountList
 from attachment_tools import OCRTool
 from salesforce_tools import (
     CreateLeadTool,
@@ -104,8 +104,8 @@ async def main():
     llm_with_tools = llm.bind_tools(tools)
     trustcall_extractor = create_extractor(
         llm,
-        tools=[SimpleAccountList],
-        tool_choice="SimpleAccountList",
+        tools=[AccountList],
+        tool_choice="AccountList",
     )
 
     def chatbot(state: OverallState, config: RunnableConfig, store: BaseStore):
@@ -115,9 +115,9 @@ async def main():
         user_id = config["configurable"]["user_id"]
 
         namespace = ("memory", user_id)
-        key = "SimpleAccountList"
+        key = "AccountList"
         existing_memory = store.get(namespace, key)
-        existing_records = {"SimpleAccountList": existing_memory.value} if existing_memory else None
+        existing_records = {"AccountList": existing_memory.value} if existing_memory else None
 
         system_message = chatbot_sys_msg(summary, existing_records)
         messages = [SystemMessage(content=system_message)] + state["messages"]
@@ -149,7 +149,7 @@ async def main():
     def needs_summary(state: OverallState):
         """Summarize conversation if more than 6 messages"""
         messages = state["messages"]
-        if len(messages) > 7:
+        if len(messages) > 6:
             return "summarize_conversation"
         return END
     
@@ -160,30 +160,30 @@ async def main():
         user_id = config["configurable"]["user_id"]
 
         namespace = ("memory", user_id)
-        key = "SimpleAccountList"
+        key = "AccountList"
         existing_memory = store.get(namespace, key)
-        existing_records = {"SimpleAccountList": existing_memory.value} if existing_memory else {"SimpleAccountList": SimpleAccountList().model_dump()}
-        print(f"Existing records: {existing_records}") if DEBUG_MODE else None
+        existing_records = {"AccountList": existing_memory.value} if existing_memory else {"AccountList": AccountList().model_dump()}
+        print(f"Existing memory: {existing_records}") if DEBUG_MODE else None
 
         messages = {
                     "messages": [SystemMessage(content=TRUSTCALL_INSTRUCTION), HumanMessage(content=summary)],
                     "existing": existing_records,
         }
-        print(f"Messages: {messages}") if DEBUG_MODE else None
+        print(f"MEMORY Messages: {messages}") if DEBUG_MODE else None
 
         response = await trustcall_extractor.ainvoke(messages)
-        print(f"Response: {response}") if DEBUG_MODE else None
+        print(f"MEMORY Response: {response}") if DEBUG_MODE else None
 
         response = response["responses"][0].model_dump()
-        print(f"Updated records: {response}") if DEBUG_MODE else None
+        store.put(namespace, key, response)
+        print(f"Updated memory: {response}") if DEBUG_MODE else None
 
-        store.put(namespace, key, {"memory": response})
         return {"turns": 0}
 
     def needs_memory(state: OverallState):
         """Memorize if more than 4 turns"""
         turns = state.get("turns")
-        if turns > 4:
+        if turns > 6:
             return "memorize_records"
         return END
     
