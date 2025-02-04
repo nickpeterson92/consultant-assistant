@@ -25,7 +25,7 @@ from langchain_openai import AzureChatOpenAI
 from state_manager import StateManager
 from sys_msg import chatbot_sys_msg, summary_sys_msg, TRUSTCALL_INSTRUCTION
 from helpers import unify_messages_to_dicts, convert_dicts_to_lc_messages, type_out
-from memory_schemas import AccountList, Account, SimpleAccount
+from memory_schemas import AccountList, Account, SimpleAccount, SimpleAccountList
 from attachment_tools import OCRTool
 from salesforce_tools import (
     CreateLeadTool,
@@ -104,9 +104,8 @@ async def main():
     llm_with_tools = llm.bind_tools(tools)
     trustcall_extractor = create_extractor(
         llm,
-        tools=[SimpleAccount],
-        tool_choice="SimpleAccount",
-        enable_inserts=True,
+        tools=[SimpleAccountList],
+        tool_choice="SimpleAccountList",
     )
 
     def chatbot(state: OverallState, config: RunnableConfig, store: BaseStore):
@@ -116,9 +115,9 @@ async def main():
         user_id = config["configurable"]["user_id"]
 
         namespace = ("memory", user_id)
-        key = "records"
+        key = "SimpleAccountList"
         existing_memory = store.get(namespace, key)
-        existing_records = {"records": existing_memory.value} if existing_memory else None
+        existing_records = {"SimpleAccountList": existing_memory.value} if existing_memory else None
 
         system_message = chatbot_sys_msg(summary, existing_records)
         messages = [SystemMessage(content=system_message)] + state["messages"]
@@ -134,13 +133,16 @@ async def main():
    
     def summarize_conversation(state: OverallState):
         summary = state.get("summary", "No summary available")
+
         system_message = summary_sys_msg(summary)
         messages = state["messages"] + [HumanMessage(content=system_message)]
+
         response = llm.invoke(
             convert_dicts_to_lc_messages(
                 unify_messages_to_dicts(messages)
             )
         )
+
         delete_messages = [RemoveMessage(id=m.id) for m in state["messages"][:-2]]
         return {"summary": response.content, "messages": delete_messages}
 
@@ -154,26 +156,32 @@ async def main():
     async def memorize_records(state: OverallState, config: RunnableConfig, store: BaseStore):
         """Memorize field-level details of records"""
         summary = state.get("summary", "No summary available")
+        messages = state["messages"]
         user_id = config["configurable"]["user_id"]
 
         namespace = ("memory", user_id)
-        key = "SimpleAccount"
+        key = "SimpleAccountList"
         existing_memory = store.get(namespace, key)
-        existing_records = {"SimpleAccount": existing_memory.value} if existing_memory else None
-        
-        messages = [SystemMessage(content=TRUSTCALL_INSTRUCTION)] + [HumanMessage(content=summary)]
-        response = await trustcall_extractor.ainvoke(
-            convert_dicts_to_lc_messages(
-                unify_messages_to_dicts([{"messages": messages, "existing": existing_records}])
-            )
-        )
+        existing_records = {"SimpleAccountList": existing_memory.value} if existing_memory else {"SimpleAccountList": SimpleAccountList().model_dump()}
+        print(f"Existing records: {existing_records}") if DEBUG_MODE else None
 
-        updated_records = response["responses"][0].model_dump()
-        store.put(namespace, key, {"memory": updated_records})
+        messages = {
+                    "messages": [SystemMessage(content=TRUSTCALL_INSTRUCTION), HumanMessage(content=summary)],
+                    "existing": existing_records,
+        }
+        print(f"Messages: {messages}") if DEBUG_MODE else None
+
+        response = await trustcall_extractor.ainvoke(messages)
+        print(f"Response: {response}") if DEBUG_MODE else None
+
+        response = response["responses"][0].model_dump()
+        print(f"Updated records: {response}") if DEBUG_MODE else None
+
+        store.put(namespace, key, {"memory": response})
         return {"turns": 0}
 
     def needs_memory(state: OverallState):
-        """Memorize if more than 4 or so turns"""
+        """Memorize if more than 4 turns"""
         turns = state.get("turns")
         if turns > 4:
             return "memorize_records"
