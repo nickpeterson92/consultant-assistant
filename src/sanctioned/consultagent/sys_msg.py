@@ -43,7 +43,7 @@ def summary_sys_msg(summary: str) -> str:
     USER INTERACTION:
     1. Review the chat history and CURENT INTERACTION SUMMARY carefully.
     2. Identify any user requests, questions or information about the user in general.
-        - Record general information about the user like their name, role, or any other relevant information
+        - Record general information about the user like their name, role, location, etc.
         - Record any user requests for information or actions
         - Record any user questions or concerns
         - Note the user's general mood or attitude and adjust your responses accordingly
@@ -58,10 +58,11 @@ def summary_sys_msg(summary: str) -> str:
     Remember: Only include factual information either stated by the user or returned from any end system the user is interacting with.
               Do not make assumptions or inferences.
 
-    Based on the chat history and CURENT INTERACTION SUMMARY please update the CURENT INTERACTION SUMMARY with the most recent information.
+    Based on the above chat history and CURENT INTERACTION SUMMARY please update the CURENT INTERACTION SUMMARY with the most recent information.
     """
     return SUMMARY_SYSTEM_MESSAGE
 
 
-TRUSTCALL_INSTRUCTION = f"""The below conversation summary should be incorporated into your (JSON doc) memory:"""
+TRUSTCALL_INSTRUCTION = f"""You will be presented a summary of a conversation in the subsequent HumanMessage.
+You are tasked with updating the memory (JSON doc) from the TECHNICAL/SYSTEM INFORMATION using the following summary:"""
 

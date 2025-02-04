@@ -47,20 +47,24 @@ class Contact(BaseModel):
         extra = "forbid"
 
 class Account(BaseModel):
-    id: str
-    name: str
-    leads: List[Lead] = Field(default_factory=list)
-    contacts: List[Contact] = Field(default_factory=list)
-    opportunities: List[Opportunity] = Field(default_factory=list)
-    cases: List[Case] = Field(default_factory=list)
-    tasks: List[Task] = Field(default_factory=list)
+    id: Optional[str] = None
+    name: Optional[str] = None
+    leads: Union[Lead, List[Lead]] = Field(default_factory=list)
+    contacts: Union[Contact, List[Contact]] = Field(default_factory=list)
+    opportunities: Union[Opportunity, List[Opportunity]] = Field(default_factory=list)
+    cases: Union[Case, List[Case]] = Field(default_factory=list)
+    tasks: Union[Task, List[Task]] = Field(default_factory=list)
 
 
 class AccountList(BaseModel):
-    accounts: List[Account] = Field(default_factory=list)
+    accounts: Union[Account, List[Account]] = Field(default_factory=list)
 
-    class Config:
-        extra = "forbid"
+    @field_validator("accounts", mode="before")
+    def ensure_list(cls, v):
+        # If a single object is provided, wrap it in a list
+        if isinstance(v, dict):
+            return [v]
+        return v
 
 
 class SimpleAccount(BaseModel):
