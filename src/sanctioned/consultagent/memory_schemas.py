@@ -1,8 +1,8 @@
 # memory_schemas.py
 
 
-from pydantic import BaseModel, Field
-from typing import List, Optional
+from pydantic import BaseModel, Field, field_validator
+from typing import List, Optional, Union
 
 class Opportunity(BaseModel):
     id: str
@@ -64,8 +64,15 @@ class AccountList(BaseModel):
 
 
 class SimpleAccount(BaseModel):
-    id: str
-    name: str
+    id: Optional[str] = None
+    name: Optional[str] = None
 
-    class Config:
-        extra = "forbid"
+class SimpleAccountList(BaseModel):
+    accounts: Union[SimpleAccount, List[SimpleAccount]] = Field(default_factory=list)
+
+    @field_validator("accounts", mode="before")
+    def ensure_list(cls, v):
+        # If a single object is provided, wrap it in a list
+        if isinstance(v, dict):
+            return [v]
+        return v
