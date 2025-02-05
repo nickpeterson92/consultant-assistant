@@ -13,7 +13,6 @@ from trustcall import create_extractor
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.base import BaseStore
-from langgraph.store.memory import InMemoryStore
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import RemoveMessage, add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
@@ -22,6 +21,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import AzureChatOpenAI
 
+from sqlite_store import SQLiteStore
 from state_manager import StateManager
 from sys_msg import chatbot_sys_msg, summary_sys_msg, TRUSTCALL_INSTRUCTION
 from helpers import unify_messages_to_dicts, convert_dicts_to_lc_messages, type_out
@@ -72,10 +72,11 @@ async def main():
     class OverallState(TypedDict):
         messages: Annotated[list, add_messages]
         summary: str
+        memory: dict
         turns: int 
 
     memory = MemorySaver()
-    memory_store = InMemoryStore()
+    memory_store = SQLiteStore()
 
     graph_builder = StateGraph(OverallState)
     tools = [
@@ -110,16 +111,26 @@ async def main():
 
     def chatbot(state: OverallState, config: RunnableConfig, store: BaseStore):
         summary = state.get("summary", "No summary available")
+        memory = state.get("memory", "No memory available")
         turn = state.get("turns", 0)
+        print(f"CHATBOT summary: {summary}") if DEBUG_MODE else None
+        print(f"CHATBOT memory: {memory}") if DEBUG_MODE else None
+        print(f"CHATBOT turns: {turn}") if DEBUG_MODE else None
 
-        user_id = config["configurable"]["user_id"]
+        if memory == "No memory available":
+            user_id = config["configurable"]["user_id"]
 
-        namespace = ("memory", user_id)
-        key = "AccountList"
-        existing_memory = store.get(namespace, key)
-        existing_records = {"AccountList": existing_memory.value} if existing_memory else None
+            namespace = ("memory", user_id)
+            key = "AccountList"
+            store = memory_store.get_connection("memory_store.db")
+            existing_memory = store.get(namespace, key)
+            print(f"CHATBOT Existing memory: {existing_memory}") if DEBUG_MODE else None
 
-        system_message = chatbot_sys_msg(summary, existing_records)
+            existing_memory = {"AccountList": existing_memory} if existing_memory else {"AccountList": AccountList().model_dump()}
+        else:
+            existing_memory = memory
+
+        system_message = chatbot_sys_msg(summary, existing_memory)
         messages = [SystemMessage(content=system_message)] + state["messages"]
 
         response = llm_with_tools.invoke(
@@ -133,8 +144,9 @@ async def main():
    
     def summarize_conversation(state: OverallState):
         summary = state.get("summary", "No summary available")
-
-        system_message = summary_sys_msg(summary)
+        memory = state.get("memory", "No memory available")
+        
+        system_message = summary_sys_msg(summary,memory)
         messages = state["messages"] + [HumanMessage(content=system_message)]
 
         response = llm.invoke(
@@ -161,8 +173,9 @@ async def main():
 
         namespace = ("memory", user_id)
         key = "AccountList"
+        store = memory_store.get_connection("memory_store.db")
         existing_memory = store.get(namespace, key)
-        existing_records = {"AccountList": existing_memory.value} if existing_memory else {"AccountList": AccountList().model_dump()}
+        existing_records = {"AccountList": existing_memory} if existing_memory else {"AccountList": AccountList().model_dump()}
         print(f"Existing memory: {existing_records}") if DEBUG_MODE else None
 
         messages = {
@@ -178,7 +191,7 @@ async def main():
         store.put(namespace, key, response)
         print(f"Updated memory: {response}") if DEBUG_MODE else None
 
-        return {"turns": 0}
+        return {"memory": response, "turns": 0}
 
     def needs_memory(state: OverallState):
         """Memorize if more than 4 turns"""
@@ -205,8 +218,9 @@ async def main():
     config = {"configurable": {"thread_id": "1", "user_id": "1"}}
 
     while True:
+        additional_kwargs = None
         try:
-            user_input = input("User: ")
+            user_input = input("USER: ")
             if user_input.lower() in ["quit", "exit", "q"]:
                 print("Goodbye!")
                 break
@@ -221,6 +235,7 @@ async def main():
                     # Print the last message in the event
                     event["messages"][-1].pretty_print()
             else:
+                print()
                 # Non-debug mode: Process only the desired events with animated output.
                 async for event in graph.astream_events(
                     {"messages": [{"role": "user", "content": user_input}]},
@@ -243,11 +258,26 @@ async def main():
                                 chunk_content = str(chunk_obj)
                         else:
                             chunk_content = json.dumps(data) if isinstance(data, dict) else str(data)
-                        
+                            
                         # Animate the output of this chunk.
                         await type_out(chunk_content, delay=0.02)
-            print()
+                        
+                        if isinstance(data, dict) and "chunk" in data:
+                            chunk_obj = data["chunk"]
+                            if hasattr(chunk_obj, "additional_kwargs"):
+                                kwargs_obj = chunk_obj.additional_kwargs
+                            elif isinstance(chunk_obj, dict):
+                                kwargs_obj = chunk_obj.get("additional_kwargs", {})
+                            else:
+                                kwargs_obj = None
 
+                            if kwargs_obj and not additional_kwargs:
+                                print()
+                                print()
+                                additional_kwargs = kwargs_obj
+            print()
+            print()
+            
         except Exception as e:
             print(f"An error occurred: {e}")
 
