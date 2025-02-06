@@ -4,7 +4,14 @@
 from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Union
 
-class Opportunity(BaseModel):
+# New mixin for immutable id fields
+class ImmutableIdMixin(BaseModel):
+    def __setattr__(self, name, value):
+        if name == "id" and "id" in self.__dict__:
+            raise ValueError("The id field is immutable.")
+        super().__setattr__(name, value)
+
+class Opportunity(ImmutableIdMixin, BaseModel):
     id: str
     name: str
     stage: Optional[str] = None
@@ -13,7 +20,7 @@ class Opportunity(BaseModel):
     class Config:
         extra = "forbid"
 
-class Case(BaseModel):
+class Case(ImmutableIdMixin, BaseModel):
     id: str
     subject: str
     description: Optional[str] = None
@@ -22,7 +29,7 @@ class Case(BaseModel):
     class Config:
         extra = "forbid"
 
-class Task(BaseModel):
+class Task(ImmutableIdMixin, BaseModel):
     id: str
     subject: str
     contact: Optional[str] = None
@@ -30,7 +37,7 @@ class Task(BaseModel):
     class Config:
         extra = "forbid"
 
-class Lead(BaseModel):
+class Lead(ImmutableIdMixin, BaseModel):
     id: str
     name: str
     status: Optional[str] = None
@@ -38,7 +45,7 @@ class Lead(BaseModel):
     class Config:
         extra = "forbid"
 
-class Contact(BaseModel):
+class Contact(ImmutableIdMixin, BaseModel):
     id: str
     name: str
     email: Optional[str] = None
@@ -46,7 +53,7 @@ class Contact(BaseModel):
     class Config:
         extra = "forbid"
 
-class Account(BaseModel):
+class Account(ImmutableIdMixin, BaseModel):
     id: Optional[str] = None
     name: Optional[str] = None
     leads: Union[Lead, List[Lead]] = Field(default_factory=list)
@@ -55,24 +62,8 @@ class Account(BaseModel):
     cases: Union[Case, List[Case]] = Field(default_factory=list)
     tasks: Union[Task, List[Task]] = Field(default_factory=list)
 
-
 class AccountList(BaseModel):
     accounts: Union[Account, List[Account]] = Field(default_factory=list)
-
-    @field_validator("accounts", mode="before")
-    def ensure_list(cls, v):
-        # If a single object is provided, wrap it in a list
-        if isinstance(v, dict):
-            return [v]
-        return v
-
-
-class SimpleAccount(BaseModel):
-    id: Optional[str] = None
-    name: Optional[str] = None
-
-class SimpleAccountList(BaseModel):
-    accounts: Union[SimpleAccount, List[SimpleAccount]] = Field(default_factory=list)
 
     @field_validator("accounts", mode="before")
     def ensure_list(cls, v):

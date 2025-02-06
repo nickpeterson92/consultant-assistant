@@ -8,7 +8,7 @@ from pydantic import BaseModel, field_validator
 from langchain.tools import BaseTool
 from typing import Optional
 from simple_salesforce import Salesforce
-from state_manager import StateManager
+from utils.state_manager import StateManager
 
 
 def get_salesforce_connection():
