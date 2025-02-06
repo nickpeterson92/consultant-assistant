@@ -6,6 +6,9 @@ import json
 import asyncio
 import argparse
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from typing import Annotated
 from typing_extensions import TypedDict
 
@@ -21,13 +24,13 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import AzureChatOpenAI
 
-from sqlite_store import SQLiteStore
-from state_manager import StateManager
-from sys_msg import chatbot_sys_msg, summary_sys_msg, TRUSTCALL_INSTRUCTION
-from helpers import unify_messages_to_dicts, convert_dicts_to_lc_messages, type_out
-from memory_schemas import AccountList
-from attachment_tools import OCRTool
-from salesforce_tools import (
+from store.sqlite_store import SQLiteStore
+from store.memory_schemas import AccountList
+from utils.state_manager import StateManager
+from utils.sys_msg import chatbot_sys_msg, summary_sys_msg, TRUSTCALL_INSTRUCTION
+from utils.helpers import unify_messages_to_dicts, convert_dicts_to_lc_messages, type_out
+from tools.attachment_tools import OCRTool
+from tools.salesforce_tools import (
     CreateLeadTool,
     GetLeadTool,
     UpdateLeadTool,
@@ -53,6 +56,8 @@ parser = argparse.ArgumentParser(description="Salesforce Assistant Powered by La
 parser.add_argument("-d", "--debug", action="store_true", help="Enable debug mode (disable animation and show events from all nodes)")
 args = parser.parse_args()
 DEBUG_MODE = args.debug
+
+load_dotenv()
 
 def create_azure_openai_chat():
     return AzureChatOpenAI(
@@ -194,7 +199,7 @@ async def main():
         return {"memory": response, "turns": 0}
 
     def needs_memory(state: OverallState):
-        """Memorize if more than 4 turns"""
+        """Memorize if more than 6 turns"""
         turns = state.get("turns")
         if turns > 6:
             return "memorize_records"
@@ -260,7 +265,7 @@ async def main():
                             chunk_content = json.dumps(data) if isinstance(data, dict) else str(data)
                             
                         # Animate the output of this chunk.
-                        await type_out(chunk_content, delay=0.02)
+                        await type_out(chunk_content)
                         
                         if isinstance(data, dict) and "chunk" in data:
                             chunk_obj = data["chunk"]
@@ -275,12 +280,13 @@ async def main():
                                 print()
                                 print()
                                 additional_kwargs = kwargs_obj
-            print()
-            print()
-            
+            if not DEBUG_MODE:
+                print()
+                print() 
         except Exception as e:
             print(f"An error occurred: {e}")
 
 
 if __name__ == "__main__":
     asyncio.run(main())
+

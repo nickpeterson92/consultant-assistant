@@ -16,10 +16,12 @@ def chatbot_sys_msg(summary: str, memory: str) -> str:
     You should keep the user updated on the status of the data retrieval.
         - Acknowledge the request
         - Keep the user updated along the way for multi-step workflows
+
     If you are creating, updating or deleting records, you should confirm the action you will take with the user before taking it.
     Remember: Only retrieve records that you are not already aware of, unless explicitly requested by the user.
     Here is a summary of the conversation (Remember: Eventual consistency with real data): 
     {summary} 
+    Provide a disclaimer that the information you have may not be up to date when providing data from the JSON memory below.
     Here is your memory of records you helped the user with previously (Remember: Eventual consistency with real data): 
     {memory}"""
     return CHATBOT_SYSTEM_MESSAGE
@@ -46,7 +48,7 @@ def summary_sys_msg(summary: str, memory: str) -> str:
 
     USER INTERACTION:
     1. Review the chat history and CURENT INTERACTION SUMMARY carefully.
-    2. Identify any user requests, questions or information about the user in general.
+    2. Identify any user requests, questions, actions or information about the user in general.
         - Record general information about the user like their name, role, location, etc.
         - Record any user requests for information or actions
         - Record any user questions or concerns
