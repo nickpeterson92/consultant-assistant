@@ -1,0 +1,9 @@
+{
+  "graphs": {
+    "agent": "./src/consultagent/main.py:graph"
+  },
+  "env": ".env",
+  "dependencies": [
+    "./src/consultagent"
+  ]
+}
