@@ -1,13 +1,11 @@
 # main.py
 
-
 import os
 import json
 import asyncio
 import argparse
 
 from dotenv import load_dotenv
-load_dotenv()
 
 from typing import Annotated
 from typing_extensions import TypedDict
@@ -51,13 +49,12 @@ from tools.salesforce_tools import (
     UpdateTaskTool
 )
 
-# Debug mode flag
+# Setup command-line argument parsing
 parser = argparse.ArgumentParser(description="Salesforce Assistant Powered by LangGraph")
 parser.add_argument("-d", "--debug", action="store_true", help="Enable debug mode (disable animation and show events from all nodes)")
-args = parser.parse_args()
-DEBUG_MODE = args.debug
 
-load_dotenv()
+# Global state manager instance
+state_mgr = StateManager()
 
 def create_azure_openai_chat():
     return AzureChatOpenAI(
@@ -68,12 +65,13 @@ def create_azure_openai_chat():
         temperature=0.0,
     )
 
-node_to_stream = "conversation"
-state_mgr = StateManager()
+def build_graph(debug_mode: bool = False):
+    """
+    Build and compile the LangGraph graph.
+    """
+    load_dotenv()
 
-async def main():
-    print("\n=== Salesforce Assistant Powered by LangGraph ===\n")
-
+    # Define the state schema
     class OverallState(TypedDict):
         messages: Annotated[list, add_messages]
         summary: str
@@ -114,26 +112,27 @@ async def main():
         tool_choice="AccountList",
     )
 
+    # Node function: chatbot
     def chatbot(state: OverallState, config: RunnableConfig, store: BaseStore):
         summary = state.get("summary", "No summary available")
-        memory = state.get("memory", "No memory available")
+        memory_val = state.get("memory", "No memory available")
         turn = state.get("turns", 0)
-        print(f"CHATBOT summary: {summary}") if DEBUG_MODE else None
-        print(f"CHATBOT memory: {memory}") if DEBUG_MODE else None
-        print(f"CHATBOT turns: {turn}") if DEBUG_MODE else None
+        if debug_mode:
+            print(f"CHATBOT summary: {summary}")
+            print(f"CHATBOT memory: {memory_val}")
+            print(f"CHATBOT turns: {turn}")
 
-        if memory == "No memory available":
+        if memory_val == "No memory available":
             user_id = config["configurable"]["user_id"]
-
             namespace = ("memory", user_id)
             key = "AccountList"
-            store = memory_store.get_connection("memory_store.db")
-            existing_memory = store.get(namespace, key)
-            print(f"CHATBOT Existing memory: {existing_memory}") if DEBUG_MODE else None
-
+            store_conn = memory_store.get_connection("memory_store.db")
+            existing_memory = store_conn.get(namespace, key)
+            if debug_mode:
+                print(f"CHATBOT Existing memory: {existing_memory}")
             existing_memory = {"AccountList": existing_memory} if existing_memory else {"AccountList": AccountList().model_dump()}
         else:
-            existing_memory = memory
+            existing_memory = memory_val
 
         system_message = chatbot_sys_msg(summary, existing_memory)
         messages = [SystemMessage(content=system_message)] + state["messages"]
@@ -146,65 +145,60 @@ async def main():
 
         state_mgr.update_state({"messages": response, "turns": turn + 1})
         return {"messages": response, "turns": turn + 1}
-   
+
+    # Node function: summarize_conversation
     def summarize_conversation(state: OverallState):
         summary = state.get("summary", "No summary available")
-        memory = state.get("memory", "No memory available")
-        
-        system_message = summary_sys_msg(summary,memory)
+        memory_val = state.get("memory", "No memory available")
+        system_message = summary_sys_msg(summary, memory_val)
         messages = state["messages"] + [HumanMessage(content=system_message)]
-
         response = llm.invoke(
             convert_dicts_to_lc_messages(
                 unify_messages_to_dicts(messages)
             )
         )
-
         delete_messages = [RemoveMessage(id=m.id) for m in state["messages"][:-2]]
         return {"summary": response.content, "messages": delete_messages}
 
+    # Node function: needs_summary
     def needs_summary(state: OverallState):
-        """Summarize conversation if more than 6 messages"""
-        messages = state["messages"]
-        if len(messages) > 6:
+        if len(state["messages"]) > 6:
             return "summarize_conversation"
         return END
-    
-    async def memorize_records(state: OverallState, config: RunnableConfig, store: BaseStore):
-        """Memorize field-level details of records"""
-        summary = state.get("summary", "No summary available")
-        messages = state["messages"]
-        user_id = config["configurable"]["user_id"]
 
+    # Node function: memorize_records
+    async def memorize_records(state: OverallState, config: RunnableConfig, store: BaseStore):
+        user_id = config["configurable"]["user_id"]
         namespace = ("memory", user_id)
         key = "AccountList"
-        store = memory_store.get_connection("memory_store.db")
-        existing_memory = store.get(namespace, key)
+        store_conn = memory_store.get_connection("memory_store.db")
+        existing_memory = store_conn.get(namespace, key)
         existing_records = {"AccountList": existing_memory} if existing_memory else {"AccountList": AccountList().model_dump()}
-        print(f"Existing memory: {existing_records}") if DEBUG_MODE else None
-
+        if debug_mode:
+            print(f"Existing memory: {existing_records}")
         messages = {
-                    "messages": [SystemMessage(content=TRUSTCALL_INSTRUCTION), HumanMessage(content=summary)],
-                    "existing": existing_records,
+            "messages": [SystemMessage(content=TRUSTCALL_INSTRUCTION), HumanMessage(content=summary_sys_msg(state.get("summary", ""), existing_records))],
+            "existing": existing_records,
         }
-        print(f"MEMORY Messages: {messages}") if DEBUG_MODE else None
+        if debug_mode:
+            print(f"MEMORY Messages: {messages}")
 
         response = await trustcall_extractor.ainvoke(messages)
-        print(f"MEMORY Response: {response}") if DEBUG_MODE else None
-
+        if debug_mode:
+            print(f"MEMORY Response: {response}")
         response = response["responses"][0].model_dump()
-        store.put(namespace, key, response)
-        print(f"Updated memory: {response}") if DEBUG_MODE else None
-
+        store_conn.put(namespace, key, response)
+        if debug_mode:
+            print(f"Updated memory: {response}")
         return {"memory": response, "turns": 0}
 
+    # Node function: needs_memory
     def needs_memory(state: OverallState):
-        """Memorize if more than 6 turns"""
-        turns = state.get("turns")
-        if turns > 6:
+        if state.get("turns", 0) > 6:
             return "memorize_records"
         return END
-    
+
+    # Build the graph with nodes and edges
     tool_node = ToolNode(tools=tools)
     graph_builder.add_node("tools", tool_node)
     graph_builder.add_node("conversation", chatbot)
@@ -217,10 +211,27 @@ async def main():
     graph_builder.add_conditional_edges("conversation", needs_memory)
     graph_builder.add_edge("tools", "conversation")
     graph_builder.set_finish_point("conversation")
-    
-    graph = graph_builder.compile(checkpointer=memory, store=memory_store)
-    
+
+    # Compile and return the graph
+    return graph_builder.compile(checkpointer=memory, store=memory_store)
+
+# Build and export the graph at the module level
+graph = build_graph(debug_mode=False)
+
+# Main interactive function (CLI mode)
+async def main():
+    args = parser.parse_args()
+    DEBUG_MODE = args.debug
+
+    # Rebuild the graph with debug mode if requested
+    if DEBUG_MODE:
+        local_graph = build_graph(debug_mode=True)
+    else:
+        local_graph = graph  # use the module-level graph
+
+    print("\n=== Salesforce Assistant Powered by LangGraph ===\n")
     config = {"configurable": {"thread_id": "1", "user_id": "1"}}
+    node_to_stream = "conversation"
 
     while True:
         additional_kwargs = None
@@ -231,27 +242,24 @@ async def main():
                 break
 
             if DEBUG_MODE:
-                # Debug mode: Use the original approach and print events from all nodes.
-                async for event in graph.astream(
+                # In debug mode, stream all events
+                async for event in local_graph.astream(
                     {"messages": [{"role": "user", "content": user_input}]},
                     config,
                     stream_mode="values",
                 ):
-                    # Print the last message in the event
                     event["messages"][-1].pretty_print()
             else:
                 print()
-                # Non-debug mode: Process only the desired events with animated output.
-                async for event in graph.astream_events(
+                # In non-debug mode, process only specific streamed events
+                async for event in local_graph.astream_events(
                     {"messages": [{"role": "user", "content": user_input}]},
                     config,
                     stream_mode="values",
                     version="v2"
                 ):
-                    # Process only events from the desired node.
                     if (event.get("event") == "on_chat_model_stream" and 
                         event.get("metadata", {}).get("langgraph_node", "") == node_to_stream):
-                        
                         data = event["data"]
                         if isinstance(data, dict) and "chunk" in data:
                             chunk_obj = data["chunk"]
@@ -263,10 +271,7 @@ async def main():
                                 chunk_content = str(chunk_obj)
                         else:
                             chunk_content = json.dumps(data) if isinstance(data, dict) else str(data)
-                            
-                        # Animate the output of this chunk.
                         await type_out(chunk_content)
-                        
                         if isinstance(data, dict) and "chunk" in data:
                             chunk_obj = data["chunk"]
                             if hasattr(chunk_obj, "additional_kwargs"):
@@ -277,16 +282,12 @@ async def main():
                                 kwargs_obj = None
 
                             if kwargs_obj and not additional_kwargs:
-                                print()
-                                print()
+                                print("\n\n")
                                 additional_kwargs = kwargs_obj
             if not DEBUG_MODE:
-                print()
-                print() 
+                print("\n\n")
         except Exception as e:
             print(f"An error occurred: {e}")
 
-
 if __name__ == "__main__":
     asyncio.run(main())
-
