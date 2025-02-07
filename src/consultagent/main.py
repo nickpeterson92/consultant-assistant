@@ -113,7 +113,7 @@ def build_graph(debug_mode: bool = False):
     )
 
     # Node function: chatbot
-    def chatbot(state: OverallState, config: RunnableConfig, store: BaseStore):
+    def chatbot(state: OverallState, config: RunnableConfig):
         summary = state.get("summary", "No summary available")
         memory_val = state.get("memory", "No memory available")
         turn = state.get("turns", 0)
@@ -143,13 +143,17 @@ def build_graph(debug_mode: bool = False):
             )
         )
 
-        state_mgr.update_state({"messages": response, "turns": turn + 1})
-        return {"messages": response, "turns": turn + 1}
+        state_mgr.update_state({"messages": response, "memory": existing_memory, "turns": turn + 1})
+        return {"messages": response, "memory": existing_memory, "turns": turn + 1}
 
     # Node function: summarize_conversation
     def summarize_conversation(state: OverallState):
         summary = state.get("summary", "No summary available")
         memory_val = state.get("memory", "No memory available")
+        if debug_mode:
+            print(f"SUMMARY summary: {summary}")
+            print(f"SUMMARY memory: {memory_val}")
+            
         system_message = summary_sys_msg(summary, memory_val)
         messages = state["messages"] + [HumanMessage(content=system_message)]
         response = llm.invoke(
@@ -167,7 +171,7 @@ def build_graph(debug_mode: bool = False):
         return END
 
     # Node function: memorize_records
-    async def memorize_records(state: OverallState, config: RunnableConfig, store: BaseStore):
+    async def memorize_records(state: OverallState, config: RunnableConfig):
         user_id = config["configurable"]["user_id"]
         namespace = ("memory", user_id)
         key = "AccountList"
@@ -177,7 +181,8 @@ def build_graph(debug_mode: bool = False):
         if debug_mode:
             print(f"Existing memory: {existing_records}")
         messages = {
-            "messages": [SystemMessage(content=TRUSTCALL_INSTRUCTION), HumanMessage(content=summary_sys_msg(state.get("summary", ""), existing_records))],
+            "messages": [SystemMessage(content=TRUSTCALL_INSTRUCTION), 
+                         HumanMessage(content=state.get("summary", ""))],
             "existing": existing_records,
         }
         if debug_mode:
