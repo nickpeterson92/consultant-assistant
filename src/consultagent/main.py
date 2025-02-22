@@ -13,7 +13,6 @@ from typing_extensions import TypedDict
 from trustcall import create_extractor
 
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.store.base import BaseStore
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import RemoveMessage, add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
