@@ -1,12 +1,15 @@
-# Salesforce Assistant
+# Consultant Assistant
 
 ## Overview
-The **Salesforce Assistant** is a tool powered by **LangGraph** that integrates with Salesforce to assist users with various CRM-related tasks, such as retrieving, creating, updating, and managing Salesforce records. The assistant utilizes OpenAI's **AzureChatOpenAI**, an interactive conversational agent, and **TrustCall** for data extraction. The tool maintains memory using **SQLite** and provides structured interaction through LangGraph's **state management and workflow execution.**
+The **Consultant Assistant** is a tool powered by **LangGraph** that integrates with multiple enterprise systems to assist consultants in their daily workflows. While the initial focus is on Salesforce for CRM-related tasks, the tool is designed to support additional systems such as **Egencia** for travel booking, **ChromeRiver** for expense management, **Workday** for feedback and HR tasks, and **time entry systems** for logging work hours. This assistant acts as a **consultant's AI buddy**, helping drive sales, manage travel, submit expenses, track feedback, and ensure seamless time tracking.
+
+The assistant utilizes OpenAI's **AzureChatOpenAI**, an interactive conversational agent, and **TrustCall** for data extraction. The tool maintains memory using **SQLite** and provides structured interaction through LangGraph's **state management and workflow execution.**
 
 ## Features
-- **Salesforce Integration:** Enables seamless interaction with Salesforce objects like Leads, Accounts, Opportunities, Contacts, Cases, and Tasks.
+- **Multi-System Integration:** Supports Salesforce, Egencia, ChromeRiver, Workday, time entry systems, and more.
+- **AI-Powered Assistant:** Acts as a consultant’s digital buddy to streamline administrative tasks.
 - **Memory Management:** Stores conversational state using SQLite and a memory store for persistence.
-- **OCR Processing:** Extracts text from image files using Tesseract OCR.
+- **OCR Processing:** Extracts text from receipts and other documents for ingestion into expense and financial systems.
 - **Interactive CLI:** Provides a command-line interface for user interaction.
 - **Workflow Automation:** Implements LangGraph-based workflows for guided interactions.
 - **Multi-turn Conversations:** Handles structured conversations while remembering context.
@@ -16,15 +19,16 @@ The **Salesforce Assistant** is a tool powered by **LangGraph** that integrates 
 ## Installation
 ### Prerequisites
 - Python 3.9+
-- Salesforce account with API access
+- Salesforce account with API access (if using SFDC features)
 - Azure OpenAI setup
+- Egencia, ChromeRiver, Workday, or time entry system access as needed
 - Tesseract OCR installed (for text extraction from images)
 
 ### Setup
 1. **Clone the repository:**
    ```bash
    git clone <repo-url>
-   cd salesforce-assistant
+   cd consultant-assistant
    ```
 2. **Install dependencies:**
    ```bash
@@ -52,8 +56,8 @@ The **Salesforce Assistant** is a tool powered by **LangGraph** that integrates 
 ## Project Structure
 ```
 ├── main.py                  # Entry point for CLI interaction
-├── salesforce_tools.py      # Salesforce API tools (CRUD operations)
-├── attachment_tools.py      # OCR tool for extracting text from images
+├── salesforce_tools.py      # Salesforce API tools (CRM operations)
+├── attachment_tools.py      # OCR tool for extracting text from receipts and documents
 ├── state_manager.py         # Singleton-based state management
 ├── states.py                # State definitions for LangGraph
 ├── sys_msg.py               # System messages and conversation management
@@ -74,7 +78,7 @@ The **Salesforce Assistant** is a tool powered by **LangGraph** that integrates 
    ```bash
    USER: Find lead with email john.doe@example.com
    ```
-3. The assistant will interact with Salesforce and return relevant information.
+3. The assistant will interact with Salesforce (or other integrated systems) and return relevant information.
 4. To exit, type:
    ```bash
    quit
@@ -87,10 +91,28 @@ USER: Find lead with email john.doe@example.com
 ASSISTANT: I found a matching lead: John Doe, Company: Acme Corp.
 ```
 
-**Creating an Opportunity:**
+**Booking a Flight with Egencia:**
 ```
-USER: Create an opportunity named "Big Deal" with $100,000 for Acme Corp.
-ASSISTANT: Opportunity "Big Deal" has been created successfully.
+USER: Book a flight to New York on March 15th.
+ASSISTANT: I found the best options on Egencia. Would you like me to proceed with booking?
+```
+
+**Submitting an Expense via ChromeRiver:**
+```
+USER: Upload this receipt image
+ASSISTANT: Extracted text from the receipt. Submitting to ChromeRiver for reimbursement.
+```
+
+**Providing Feedback via Workday:**
+```
+USER: Submit performance feedback for Alex.
+ASSISTANT: What would you like to include in the feedback?
+```
+
+**Logging Time Entry:**
+```
+USER: Log 8 hours of work for the Acme project.
+ASSISTANT: Time entry submitted successfully.
 ```
 
 ---
@@ -102,15 +124,18 @@ The tool uses various libraries, including:
 - **Simple-Salesforce** (for Salesforce API interaction)
 - **Pytesseract & PIL** (for OCR functionality)
 - **SQLite** (for state management)
+- **Egencia, ChromeRiver, Workday APIs** (planned future integrations)
 
 Check `requirements.txt` for the full list.
 
 ---
 
 ## Future Enhancements
+- **Support for Additional End Systems:** Expanding integrations with more consultant-friendly tools.
+- **Advanced OCR Processing:** More refined document parsing and classification.
 - **GUI/Web Interface:** Adding a web-based interface for better usability.
 - **Advanced Memory Handling:** Enhancing memory retention for long-term interactions.
-- **Multi-User Support:** Expanding the assistant to handle multiple users simultaneously.
+- **Multi-User Support:** Expanding the assistant to handle multiple consultants simultaneously.
 
 ---
 
