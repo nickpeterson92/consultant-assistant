@@ -1,18 +1,32 @@
 # Consultant Assistant
 
 ## Overview
-The **Consultant Assistant** is a tool powered by **LangGraph** that integrates with multiple enterprise systems to assist consultants in their daily workflows. While the initial focus is on Salesforce for CRM-related tasks, the tool is designed to support additional systems such as **Egencia** for travel booking, **ChromeRiver** for expense management, **Workday** for feedback and HR tasks, and **time entry systems** for logging work hours. This assistant acts as a **consultant's AI buddy**, helping drive sales, manage travel, submit expenses, track feedback, and ensure seamless time tracking.
+The **Consultant Assistant** is a tool powered by **LangGraph** designed to assist consultants in their daily workflows by integrating with various enterprise systems. While the initial focus is on Salesforce for CRM-related tasks, the tool is intended to expand to support additional systems such as **Egencia** for travel booking, **ChromeRiver** for expense management, **Workday** for feedback and HR tasks, and **time entry systems** for logging work hours. This assistant acts as a **consultant’s AI buddy**, helping drive sales, manage travel, submit expenses, track feedback, and ensure seamless time tracking.
 
 The assistant utilizes OpenAI's **AzureChatOpenAI**, an interactive conversational agent, and **TrustCall** for data extraction. The tool maintains memory using **SQLite** and provides structured interaction through LangGraph's **state management and workflow execution.**
 
-## Features
-- **Multi-System Integration:** Supports Salesforce, Egencia, ChromeRiver, Workday, time entry systems, and more.
-- **AI-Powered Assistant:** Acts as a consultant’s digital buddy to streamline administrative tasks.
+---
+
+## Current Functionality
+### Implemented Features
+- **Salesforce Integration:** Supports retrieving, creating, and updating Salesforce records (Leads, Accounts, Opportunities, Contacts, Cases, and Tasks).
 - **Memory Management:** Stores conversational state using SQLite and a memory store for persistence.
-- **OCR Processing:** Extracts text from receipts and other documents for ingestion into expense and financial systems.
+- **OCR Processing:** Extracts text from receipts and other documents for ingestion into integrated systems.
 - **Interactive CLI:** Provides a command-line interface for user interaction.
 - **Workflow Automation:** Implements LangGraph-based workflows for guided interactions.
 - **Multi-turn Conversations:** Handles structured conversations while remembering context.
+
+---
+
+## Future Vision
+### Planned Features
+- **Egencia Integration:** Automate travel booking for consultants.
+- **ChromeRiver Integration:** Enable receipt scanning and expense submission.
+- **Workday Integration:** Streamline feedback submission and HR-related tasks.
+- **Time Entry System Integration:** Automate work hour logging.
+- **Advanced Memory Handling:** Enhance memory retention for long-term interactions.
+- **Multi-User Support:** Expand the assistant to handle multiple consultants simultaneously.
+- **GUI/Web Interface:** Develop a web-based UI for better usability.
 
 ---
 
@@ -85,31 +99,33 @@ The assistant utilizes OpenAI's **AzureChatOpenAI**, an interactive conversation
    ```
 
 ### Example Interactions
+#### Current Functionality
 **Retrieving a Lead:**
 ```
 USER: Find lead with email john.doe@example.com
 ASSISTANT: I found a matching lead: John Doe, Company: Acme Corp.
 ```
 
-**Booking a Flight with Egencia:**
+**Submitting an Expense via OCR (for Future ChromeRiver Integration):**
+```
+USER: Upload this receipt image
+ASSISTANT: Extracted text from the receipt. Where would you like to submit it?
+```
+
+#### Planned Functionality
+**Booking a Flight with Egencia (Future Feature):**
 ```
 USER: Book a flight to New York on March 15th.
 ASSISTANT: I found the best options on Egencia. Would you like me to proceed with booking?
 ```
 
-**Submitting an Expense via ChromeRiver:**
-```
-USER: Upload this receipt image
-ASSISTANT: Extracted text from the receipt. Submitting to ChromeRiver for reimbursement.
-```
-
-**Providing Feedback via Workday:**
+**Providing Feedback via Workday (Future Feature):**
 ```
 USER: Submit performance feedback for Alex.
 ASSISTANT: What would you like to include in the feedback?
 ```
 
-**Logging Time Entry:**
+**Logging Time Entry (Future Feature):**
 ```
 USER: Log 8 hours of work for the Acme project.
 ASSISTANT: Time entry submitted successfully.
@@ -130,23 +146,9 @@ Check `requirements.txt` for the full list.
 
 ---
 
-## Future Enhancements
-- **Support for Additional End Systems:** Expanding integrations with more consultant-friendly tools.
-- **Advanced OCR Processing:** More refined document parsing and classification.
-- **GUI/Web Interface:** Adding a web-based interface for better usability.
-- **Advanced Memory Handling:** Enhancing memory retention for long-term interactions.
-- **Multi-User Support:** Expanding the assistant to handle multiple consultants simultaneously.
-
----
-
 ## Contributing
 Contributions are welcome! To contribute:
 1. Fork the repository.
 2. Create a feature branch.
 3. Submit a pull request with detailed changes.
-
----
-
-## License
-This project is licensed under the MIT License.
 
