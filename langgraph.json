@@ -1,6 +1,6 @@
 {
   "graphs": {
-    "agent": "./src/consultagent/main.py:graph"
+    "agent": "./src/agent/main.py:graph"
   },
   "env": ".env",
   "dependencies": [
