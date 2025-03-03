@@ -4,6 +4,6 @@
   },
   "env": ".env",
   "dependencies": [
-    "./src/consultagent"
+    "./src/agent"
   ]
 }
