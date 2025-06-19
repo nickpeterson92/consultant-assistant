@@ -12,6 +12,7 @@ def unify_messages_to_dicts(messages: list) -> list[dict]:
         HumanMessage: lambda m: {"role": "user", "content": m.content},
         SystemMessage: lambda m: {"role": "system", "content": m.content},
         ToolMessage: lambda m: {"role": "tool", "content": m.content},
+        AIMessage: lambda m: {"role": "assistant", "content": m.content},
     }
     unified = []
     for msg in messages:
@@ -46,13 +47,7 @@ def convert_dicts_to_lc_messages(dict_messages: list[dict]) -> list:
 
 
 async def type_out(text, delay=0.02):
-    """
-    Animates printing of the given text one character at a time.
-    
-    Args:
-        text (str): The text to animate.
-        delay (float): Delay in seconds between each character.
-    """
+    # Animates printing of the given text one character at a time.
     for char in text:
         sys.stdout.write(char)
         sys.stdout.flush()

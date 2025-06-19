@@ -1,0 +1,30 @@
+# Core AI and LangGraph dependencies
+langchain==0.3.17
+langgraph==0.2.69
+langsmith==0.3.6
+langchain-openai==0.3.3
+openai==1.61.1
+
+# A2A Protocol dependencies
+aiohttp==3.11.11
+requests==2.32.3
+
+# Salesforce integration
+simple-salesforce==1.12.6
+
+# Data processing and extraction
+trustcall==0.0.34
+pydantic==2.10.6
+
+# Database and storage
+SQLAlchemy==2.0.37
+
+# OCR capabilities
+pytesseract==0.3.13
+pillow==11.1.0
+
+# Utilities
+python-dotenv==1.0.1
+
+# Optional: for enhanced logging and debugging
+colorlog==6.8.2

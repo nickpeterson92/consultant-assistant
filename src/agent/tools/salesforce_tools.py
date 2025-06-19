@@ -45,7 +45,7 @@ class GetLeadTool(BaseTool):
         tool_calls = None
         if ai_msg and hasattr(ai_msg, "additional_kwargs"):
             tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
+            call_id = tool_calls[0]["id"] if tool_calls and len(tool_calls) > 0 else None
 
         data = GetLeadInput(**kwargs)
 
@@ -119,7 +119,7 @@ class CreateLeadTool(BaseTool):
         tool_calls = None
         if ai_msg and hasattr(ai_msg, "additional_kwargs"):
             tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
+            call_id = tool_calls[0]["id"] if tool_calls and len(tool_calls) > 0 else None
 
         try:
             sf = get_salesforce_connection()
@@ -159,7 +159,7 @@ class UpdateLeadTool(BaseTool):
         tool_calls = None
         if ai_msg and hasattr(ai_msg, "additional_kwargs"):
             tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
+            call_id = tool_calls[0]["id"] if tool_calls and len(tool_calls) > 0 else None
 
         try:
             sf = get_salesforce_connection()
@@ -199,7 +199,7 @@ class GetOpportunityTool(BaseTool):
         tool_calls = None
         if ai_msg and hasattr(ai_msg, "additional_kwargs"):
             tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
+            call_id = tool_calls[0]["id"] if tool_calls and len(tool_calls) > 0 else None
 
         data = GetOpportunityInput(**kwargs)
         
@@ -272,7 +272,7 @@ class CreateOpportunityTool(BaseTool):
         tool_calls = None
         if ai_msg and hasattr(ai_msg, "additional_kwargs"):
             tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
+            call_id = tool_calls[0]["id"] if tool_calls and len(tool_calls) > 0 else None
 
         data = CreateOpportunityInput(**kwargs)
 
@@ -337,7 +337,7 @@ class UpdateOpportunityTool(BaseTool):
         tool_calls = None
         if ai_msg and hasattr(ai_msg, "additional_kwargs"):
             tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
+            call_id = tool_calls[0]["id"] if tool_calls and len(tool_calls) > 0 else None
 
         data = UpdateOpportunityInput(**kwargs)
 
@@ -379,7 +379,7 @@ class GetAccountTool(BaseTool):
         tool_calls = None
         if ai_msg and hasattr(ai_msg, "additional_kwargs"):
             tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
+            call_id = tool_calls[0]["id"] if tool_calls and len(tool_calls) > 0 else None
             
         data = GetAccountInput(**kwargs)
         
@@ -447,7 +447,7 @@ class CreateAccountTool(BaseTool):
         tool_calls = None
         if ai_msg and hasattr(ai_msg, "additional_kwargs"):
             tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
+            call_id = tool_calls[0]["id"] if tool_calls and len(tool_calls) > 0 else None
 
         data = CreateAccountInput(**kwargs)
 
@@ -486,7 +486,7 @@ class UpdateAccountTool(BaseTool):
         tool_calls = None
         if ai_msg and hasattr(ai_msg, "additional_kwargs"):
             tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
+            call_id = tool_calls[0]["id"] if tool_calls and len(tool_calls) > 0 else None
 
         data = UpdateAccountInput(**kwargs)
         try:
@@ -526,7 +526,7 @@ class GetContactTool(BaseTool):
         tool_calls = None
         if ai_msg and hasattr(ai_msg, "additional_kwargs"):
             tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
+            call_id = tool_calls[0]["id"] if tool_calls and len(tool_calls) > 0 else None
 
         data = GetContactInput(**kwargs)
         
@@ -605,7 +605,7 @@ class CreateContactTool(BaseTool):
         tool_calls = None
         if ai_msg and hasattr(ai_msg, "additional_kwargs"):
             tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
+            call_id = tool_calls[0]["id"] if tool_calls and len(tool_calls) > 0 else None
 
         data = CreateContactInput(**kwargs)
 
@@ -645,7 +645,7 @@ class UpdateContactTool(BaseTool):
         tool_calls = None
         if ai_msg and hasattr(ai_msg, "additional_kwargs"):
             tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
+            call_id = tool_calls[0]["id"] if tool_calls and len(tool_calls) > 0 else None
 
         data = UpdateContactInput(**kwargs)
         try:
@@ -683,7 +683,7 @@ class GetCaseTool(BaseTool):
         tool_calls = None
         if ai_msg and hasattr(ai_msg, "additional_kwargs"):
             tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
+            call_id = tool_calls[0]["id"] if tool_calls and len(tool_calls) > 0 else None
 
         data = GetCaseInput(**kwargs)
         try:
@@ -752,7 +752,7 @@ class CreateCaseTool(BaseTool):
         tool_calls = None
         if ai_msg and hasattr(ai_msg, "additional_kwargs"):
             tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
+            call_id = tool_calls[0]["id"] if tool_calls and len(tool_calls) > 0 else None
 
         data = CreateCaseInput(**kwargs)
         try:
@@ -791,7 +791,7 @@ class UpdateCaseTool(BaseTool):
         tool_calls = None
         if ai_msg and hasattr(ai_msg, "additional_kwargs"):
             tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
+            call_id = tool_calls[0]["id"] if tool_calls and len(tool_calls) > 0 else None
 
         data = UpdateCaseInput(**kwargs)
         try:
@@ -830,7 +830,7 @@ class GetTaskTool(BaseTool):
         tool_calls = None
         if ai_msg and hasattr(ai_msg, "additional_kwargs"):
             tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
+            call_id = tool_calls[0]["id"] if tool_calls and len(tool_calls) > 0 else None
 
         data = GetTaskInput(**kwargs)
         try:
@@ -901,7 +901,7 @@ class CreateTaskTool(BaseTool):
         tool_calls = None
         if ai_msg and hasattr(ai_msg, "additional_kwargs"):
             tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
+            call_id = tool_calls[0]["id"] if tool_calls and len(tool_calls) > 0 else None
 
         data = CreateTaskInput(**kwargs)
         try:
@@ -940,7 +940,7 @@ class UpdateTaskTool(BaseTool):
         tool_calls = None
         if ai_msg and hasattr(ai_msg, "additional_kwargs"):
             tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
+            call_id = tool_calls[0]["id"] if tool_calls and len(tool_calls) > 0 else None
 
         data = UpdateTaskInput(**kwargs)
         try:

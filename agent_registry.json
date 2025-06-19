@@ -1,0 +1,38 @@
+{
+  "agents": [
+    {
+      "name": "salesforce-agent",
+      "endpoint": "http://localhost:8002",
+      "agent_card": {
+        "name": "salesforce-agent",
+        "version": "1.0.0",
+        "description": "Specialized agent for Salesforce CRM operations including leads, accounts, opportunities, contacts, cases, and tasks",
+        "capabilities": [
+          "salesforce_operations",
+          "lead_management",
+          "account_management",
+          "opportunity_tracking",
+          "contact_management",
+          "case_handling",
+          "task_management",
+          "crm_operations"
+        ],
+        "endpoints": {
+          "process_task": "/a2a",
+          "agent_card": "/a2a/agent-card"
+        },
+        "communication_modes": [
+          "sync",
+          "streaming"
+        ],
+        "metadata": {
+          "framework": "langgraph",
+          "tools_count": 15,
+          "memory_type": "sqlite_with_trustcall"
+        }
+      },
+      "status": "online",
+      "last_health_check": 916844.568943541
+    }
+  ]
+}
