@@ -12,11 +12,8 @@ from typing_extensions import TypedDict
 
 from dotenv import load_dotenv
 
-from trustcall import create_extractor
-
-from langgraph.checkpoint.memory import MemorySaver  
 from langgraph.graph import StateGraph, END
-from langgraph.graph.message import RemoveMessage, add_messages
+from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -35,12 +32,7 @@ sys.path.insert(0, agent_path)
 
 from src.a2a import A2AServer, AgentCard, A2ATask
 
-# Now import from the agent directory
-from store.sqlite_store import SQLiteStore
-from store.memory_schemas import AccountList
-from utils.state_manager import StateManager
-from utils.sys_msg import chatbot_sys_msg, summary_sys_msg, TRUSTCALL_INSTRUCTION
-from utils.helpers import clean_orphaned_tool_calls
+# Now import from the agent directory  
 from tools.salesforce_tools import (
     CreateLeadTool, GetLeadTool, UpdateLeadTool,
     GetOpportunityTool, UpdateOpportunityTool, CreateOpportunityTool,
@@ -57,8 +49,7 @@ os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
 logger = logging.getLogger(__name__)
 
-# Global state manager for Salesforce agent
-salesforce_state_mgr = StateManager()
+# Salesforce agent is now "dumb" - no state management or memory
 
 def create_azure_openai_chat():
     """Create Azure OpenAI chat instance"""
@@ -75,17 +66,11 @@ def build_salesforce_graph(debug_mode: bool = False):
     
     load_dotenv()
     
-    # Define the Salesforce agent state schema
+    # Define the simple Salesforce agent state schema (dumb agent)
     class SalesforceState(TypedDict):
         messages: Annotated[list, add_messages]
-        summary: str
-        memory: dict
-        turns: int
         task_context: Dict[str, Any]
         external_context: Dict[str, Any]
-    
-    memory = MemorySaver()
-    memory_store = SQLiteStore()
     
     graph_builder = StateGraph(SalesforceState)
     
@@ -101,117 +86,64 @@ def build_salesforce_graph(debug_mode: bool = False):
     
     llm = create_azure_openai_chat()
     llm_with_tools = llm.bind_tools(tools)
-    trustcall_extractor = create_extractor(
-        llm,
-        tools=[AccountList],
-        tool_choice="AccountList",
-    )
     
-    # Node function: salesforce_chatbot
+    # Node function: salesforce_chatbot (simplified dumb agent)
     def salesforce_chatbot(state: SalesforceState, config: RunnableConfig):
-        """Main Salesforce agent conversation handler"""
+        """Simplified Salesforce agent conversation handler - no memory/summarization"""
         try:
             if debug_mode:
-                logger.info(f"=== SALESFORCE AGENT START ===")
+                logger.info(f"=== SALESFORCE AGENT START (DUMB MODE) ===")
             
-            summary = state.get("summary", "No summary available")
-            memory_val = state.get("memory", "No memory available")
-            turn = state.get("turns", 0)
             task_context = state.get("task_context", {})
             external_context = state.get("external_context", {})
             
             if debug_mode:
-                logger.info(f"Processing turn: {turn}")
                 logger.info(f"State keys: {list(state.keys())}")
                 logger.info(f"Message count: {len(state.get('messages', []))}")
                 logger.info(f"Task context: {task_context}")
                 logger.info(f"External context keys: {list(external_context.keys())}")
-                logger.info(f"Summary length: {len(summary)}")
-                logger.info(f"Memory type: {type(memory_val)}")
             
-            # Load existing memory
-            if memory_val == "No memory available":
-                if debug_mode:
-                    logger.info("Loading memory from store...")
-                user_id = config["configurable"].get("user_id", "default")
-                namespace = ("memory", user_id)
-                key = "AccountList"
-                store_conn = memory_store.get_connection("salesforce_memory.db")
-                existing_memory = store_conn.get(namespace, key)
-                if debug_mode:
-                    logger.info(f"Loaded existing memory: {existing_memory is not None}")
-                existing_memory = {"AccountList": existing_memory} if existing_memory else {"AccountList": AccountList().model_dump()}
-            else:
-                if debug_mode:
-                    logger.info("Using provided memory")
-                existing_memory = memory_val
+            # Create simple system message for Salesforce operations
+            system_message_content = """You are a Salesforce CRM specialist agent. 
+Your role is to execute Salesforce operations (leads, accounts, opportunities, contacts, cases, tasks) as requested.
+
+Key behaviors:
+- Execute the requested Salesforce operations using available tools
+- Provide clear, factual responses about Salesforce data
+- Do not maintain conversation memory or state - each request is independent
+- Focus on the specific task or query at hand
+- When retrieving records, provide complete details available
+- When creating/updating records, confirm the action taken"""
             
-            if debug_mode:
-                logger.info(f"Memory keys: {list(existing_memory.keys()) if isinstance(existing_memory, dict) else 'not dict'}")
-            
-            # Create enhanced system message with A2A context
-            if debug_mode:
-                logger.info("Creating enhanced system message...")
-            enhanced_summary = summary
+            # Add task context if available
             if task_context:
-                enhanced_summary += f"\n\nCURRENT TASK CONTEXT:\n{json.dumps(task_context, indent=2)}"
+                system_message_content += f"\n\nTASK CONTEXT:\n{json.dumps(task_context, indent=2)}"
                 if debug_mode:
-                    logger.info("Added task context to summary")
+                    logger.info("Added task context to system message")
             
+            # Add external context if available
             if external_context:
-                enhanced_summary += f"\n\nEXTERNAL CONTEXT:\n{json.dumps(external_context, indent=2)}"
+                system_message_content += f"\n\nEXTERNAL CONTEXT:\n{json.dumps(external_context, indent=2)}"
                 if debug_mode:
-                    logger.info("Added external context to summary")
+                    logger.info("Added external context to system message")
             
+            messages = [SystemMessage(content=system_message_content)] + state["messages"]
             if debug_mode:
-                logger.info(f"Enhanced summary length: {len(enhanced_summary)}")
-                logger.info("Creating system message...")
-            system_message = chatbot_sys_msg(enhanced_summary, existing_memory)
-            if debug_mode:
-                logger.info(f"System message length: {len(system_message)}")
-            
-            messages = [SystemMessage(content=system_message)] + state["messages"]
-            if debug_mode:
-                logger.info(f"Total messages before conversion: {len(messages)}")
-            
-            # Clean orphaned tool calls to prevent 400 errors
-            if debug_mode:
-                logger.info("Cleaning orphaned tool calls...")
-            clean_messages = clean_orphaned_tool_calls(messages)
-            if debug_mode:
-                logger.info(f"Clean messages count: {len(clean_messages)}")
-                # Log message types for debugging
-                for i, msg in enumerate(clean_messages):
-                    logger.info(f"Message {i}: {type(msg).__name__} - {str(msg)[:100]}...")
+                logger.info(f"Total messages: {len(messages)}")
                 logger.info("Invoking LLM with tools...")
-            response = llm_with_tools.invoke(clean_messages)
+            
+            response = llm_with_tools.invoke(messages)
+            
             if debug_mode:
                 logger.info(f"LLM response type: {type(response)}")
                 logger.info(f"Response content: {str(response)[:200]}...")
-                # Check for tool calls
                 has_tool_calls = hasattr(response, 'tool_calls') and response.tool_calls
                 logger.info(f"Response has tool calls: {has_tool_calls}")
                 if has_tool_calls:
                     logger.info(f"Number of tool calls: {len(response.tool_calls)}")
-                    for i, tc in enumerate(response.tool_calls):
-                        logger.info(f"Tool call {i}: {tc.get('name', 'unknown')} - {str(tc)[:100]}...")
-                logger.info("Updating state manager...")
-            salesforce_state_mgr.update_state({
-                "messages": response, 
-                "memory": existing_memory, 
-                "turns": turn + 1
-            })
-            
-            final_state = {
-                "messages": response,
-                "memory": existing_memory, 
-                "turns": turn + 1
-            }
-            
-            if debug_mode:
-                logger.info(f"Final state keys: {list(final_state.keys())}")
                 logger.info(f"=== SALESFORCE AGENT SUCCESS ===")
-            return final_state
+            
+            return {"messages": response}
             
         except Exception as e:
             if debug_mode:
@@ -219,85 +151,25 @@ def build_salesforce_graph(debug_mode: bool = False):
                 logger.error(f"Error type: {type(e).__name__}")
                 logger.error(f"Error message: {str(e)}")
                 logger.error(f"State keys: {list(state.keys())}")
-                logger.error(f"Config keys: {list(config.keys()) if isinstance(config, dict) else 'not dict'}")
                 import traceback
                 logger.error(f"Traceback: {traceback.format_exc()}")
             else:
                 logger.error(f"Error in Salesforce agent: {e}")
             raise
     
-    # Node function: summarize_conversation
-    def summarize_conversation(state: SalesforceState):
-        """Summarize conversation when it gets too long"""
-        summary = state.get("summary", "No summary available")
-        memory_val = state.get("memory", "No memory available")
-        
-        if debug_mode:
-            logger.info("Summarizing Salesforce conversation")
-        
-        system_message = summary_sys_msg(summary, memory_val)
-        messages = state["messages"] + [HumanMessage(content=system_message)]
-        # Clean orphaned tool calls to prevent 400 errors
-        clean_messages = clean_orphaned_tool_calls(messages)
-        response = llm.invoke(clean_messages)
-        
-        delete_messages = [RemoveMessage(id=m.id) for m in state["messages"][:-2]]
-        return {"summary": response.content, "messages": delete_messages}
+    # No memory or summarization functions needed - dumb agent
     
-    # Node function: memorize_records
-    async def memorize_records(state: SalesforceState, config: RunnableConfig):
-        """Update Salesforce records memory"""
-        user_id = config["configurable"].get("user_id", "default")
-        namespace = ("memory", user_id)
-        key = "AccountList"
-        store_conn = memory_store.get_connection("salesforce_memory.db")
-        existing_memory = store_conn.get(namespace, key)
-        existing_records = {"AccountList": existing_memory} if existing_memory else {"AccountList": AccountList().model_dump()}
-        
-        if debug_mode:
-            logger.info(f"Updating Salesforce memory")
-        
-        messages = {
-            "messages": [SystemMessage(content=TRUSTCALL_INSTRUCTION),
-                        HumanMessage(content=state.get("summary", ""))],
-            "existing": existing_records,
-        }
-        
-        response = await trustcall_extractor.ainvoke(messages)
-        if debug_mode:
-            logger.info(f"Memory update response received")
-        
-        response = response["responses"][0].model_dump()
-        store_conn.put(namespace, key, response)
-        
-        return {"memory": response, "turns": 0}
-    
-    # Conditional functions
-    def needs_summary(state: SalesforceState):
-        if len(state["messages"]) > 6:
-            return "summarize_conversation"
-        return END
-    
-    def needs_memory(state: SalesforceState):
-        if state.get("turns", 0) > 6:
-            return "memorize_records"
-        return END
-    
-    # Build the graph
+    # Build the simplified graph (dumb agent)
     tool_node = ToolNode(tools=tools)
     graph_builder.add_node("tools", tool_node)
     graph_builder.add_node("conversation", salesforce_chatbot)
-    graph_builder.add_node("summarize_conversation", summarize_conversation)
-    graph_builder.add_node("memorize_records", memorize_records)
     
     graph_builder.set_entry_point("conversation")
     graph_builder.add_conditional_edges("conversation", tools_condition)
-    graph_builder.add_conditional_edges("conversation", needs_summary)
-    graph_builder.add_conditional_edges("conversation", needs_memory)
     graph_builder.add_edge("tools", "conversation")
     graph_builder.set_finish_point("conversation")
     
-    return graph_builder.compile(checkpointer=memory, store=memory_store)
+    return graph_builder.compile()
 
 # Build the graph at module level - removed to avoid blocking import
 # salesforce_graph = build_salesforce_graph(debug_mode=False)

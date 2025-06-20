@@ -36,7 +36,11 @@ sys.path.insert(0, agent_path)
 from .agent_registry import AgentRegistry
 from .state_manager import MultiAgentStateManager
 from .agent_caller_tools import SalesforceAgentTool, GenericAgentTool, AgentRegistryTool
-from utils.helpers import clean_orphaned_tool_calls, type_out
+from utils.helpers import type_out, smart_preserve_messages
+from utils.sys_msg import summary_sys_msg, TRUSTCALL_INSTRUCTION
+from store.sqlite_store import SQLiteStore
+from store.memory_schemas import AccountList
+from .enhanced_sys_msg import orchestrator_chatbot_sys_msg, orchestrator_summary_sys_msg, ORCHESTRATOR_TRUSTCALL_INSTRUCTION
 
 import logging
 
@@ -64,16 +68,17 @@ def build_orchestrator_graph(debug_mode: bool = False):
     
     load_dotenv()
     
-    # Define the orchestrator state schema
+    # Define the orchestrator state schema (with legacy memory support)
     class OrchestratorState(TypedDict):
         messages: Annotated[list, add_messages]
-        conversation_summary: str
-        global_memory: Annotated[Dict[str, Any], lambda existing, new: {**existing, **new} if existing else new]
+        summary: str  # Using legacy name for compatibility
+        memory: dict  # Using legacy structured memory
         turns: int
         active_agents: List[str]
         last_agent_interaction: Dict[str, Any]
     
     memory = MemorySaver()
+    memory_store = SQLiteStore()
     graph_builder = StateGraph(OrchestratorState)
     
     # Initialize orchestrator tools
@@ -85,101 +90,71 @@ def build_orchestrator_graph(debug_mode: bool = False):
     
     llm = create_azure_openai_chat()
     llm_with_tools = llm.bind_tools(tools)
+    trustcall_extractor = create_extractor(
+        llm,
+        tools=[AccountList],
+        tool_choice="AccountList",
+    )
     
-    # System message for orchestrator
+    # Enhanced system message using merged legacy + orchestrator approach
     def get_orchestrator_system_message(state: OrchestratorState) -> str:
-        summary = state.get("conversation_summary", "No summary available")
-        global_memory = state.get("global_memory", {})
+        summary = state.get("summary", "No summary available")
+        memory_val = state.get("memory", "No memory available")
         active_agents = state.get("active_agents", [])
         
         # Get registry stats for context
         registry_stats = agent_registry.get_registry_stats()
         
-        system_msg = f"""You are the Consultant Assistant Orchestrator, coordinating between specialized AI agents to help consultants with their workflows.
-
-CONVERSATION CONTEXT:
-{summary}
-
-AVAILABLE SPECIALIZED AGENTS:
+        # Build agent context information
+        agent_context = f"""AVAILABLE SPECIALIZED AGENTS:
 {', '.join(registry_stats['available_capabilities']) if registry_stats['available_capabilities'] else 'None currently available'}
 
 CURRENTLY ACTIVE AGENTS: {', '.join(active_agents) if active_agents else 'None'}
 
-GLOBAL MEMORY CONTEXT:
-{json.dumps(global_memory, indent=2) if global_memory else 'No global memory available'}
-
-YOUR ROLE:
-- Route user requests to appropriate specialized agents
-- Coordinate multi-agent workflows when needed
-- Maintain conversation context and memory across agents
-- Provide unified responses combining results from multiple agents
-
-TOOLS AVAILABLE:
+ORCHESTRATOR TOOLS:
 1. salesforce_agent: For Salesforce CRM operations (leads, accounts, opportunities, contacts, cases, tasks)
 2. call_agent: For general agent calls (travel, expenses, HR, OCR, etc.)
-3. manage_agents: To check agent status and capabilities
-
-CRITICAL INSTRUCTIONS - FOLLOW THESE EXACTLY:
-- NEVER call the same tool multiple times for the same user request
-- When a tool returns results, respond directly to the user with those results
-- Do NOT make additional tool calls after receiving successful results
-- STOP IMMEDIATELY after getting tool results - synthesize and respond to user
-- If you see ANY tool results in conversation history, use those instead of making new calls
-- Only make NEW tool calls when the user asks for completely different information
-- IMPORTANT: If you see tool results containing account details, respond with those details - DO NOT call tools again
-- NEVER EVER make duplicate tool calls - if you see previous tool results, USE THEM
-- EXAMINE THE CONVERSATION HISTORY CAREFULLY before making any tool calls
-- For Salesforce-related queries, use the salesforce_agent tool
-- For other enterprise systems (travel, expenses, HR), use call_agent
-- If unsure which agents are available, use manage_agents first
-- Combine results from multiple agents when beneficial
-- Keep responses concise and helpful
-- Pass relevant context from previous interactions to agents
-
-RESPONSE BEHAVIOR:
-- ALWAYS check conversation history for existing tool results BEFORE making new calls
-- If you see tool results in the conversation, DO synthesize and present them to the user
-- DO NOT repeat tool calls for information that has already been retrieved
-- Focus on providing helpful responses based on available information
-- Prefer using existing information over making redundant tool calls
-- NEVER respond with generic "Is there anything else" - ALWAYS provide the actual data from tool results
-- When tool results contain specific data (accounts, contacts, opportunities), PRESENT THAT DATA to the user
-- NEVER ask follow-up questions like "Is there anything else?" or "What would you like to do next?"
-- If you have already provided the requested information, do NOT generate additional responses"""
+3. manage_agents: To check agent status and capabilities"""
         
-        return system_msg
+        # Use the enhanced orchestrator system message
+        return orchestrator_chatbot_sys_msg(summary, memory_val, agent_context)
     
     # Node function: orchestrator (main conversation handler)
     def orchestrator(state: OrchestratorState, config: RunnableConfig):
         """Main orchestrator node that coordinates with specialized agents"""
         try:
-            if debug_mode:
-                logger.info(f"=== ORCHESTRATOR START ===")
-                logger.info(f"Processing with {len(state.get('messages', []))} messages")
-                logger.info(f"Current turn: {state.get('turns', 0)}")
-                
-                # Debug: Show all messages in state
-                logger.info("=== CURRENT STATE MESSAGES ===")
+            # POST-SUMMARIZATION DEBUG: Log when we're called after summarization
+            if debug_mode and len(state.get('messages', [])) <= 3:
+                logger.info("=== ORCHESTRATOR POST-SUMMARIZATION CALL ===")
+                logger.info(f"Messages count: {len(state.get('messages', []))}")
+                logger.info(f"Turn: {state.get('turns', 0)}")
+                logger.info(f"Has summary: {bool(state.get('summary', '').strip())}")
                 for i, msg in enumerate(state.get('messages', [])):
-                    msg_type = type(msg).__name__
-                    has_tool_calls = hasattr(msg, 'tool_calls') and msg.tool_calls
-                    has_tool_call_id = hasattr(msg, 'tool_call_id')
-                    content_preview = str(msg.content)[:150] if hasattr(msg, 'content') else "No content"
-                    logger.info(f"State Message {i}: {msg_type} | HasToolCalls: {has_tool_calls} | HasToolCallId: {has_tool_call_id}")
-                    logger.info(f"  Content: {content_preview}...")
-                    if has_tool_calls:
-                        for j, tc in enumerate(msg.tool_calls):
-                            logger.info(f"    Tool call {j}: {tc.get('name', 'unknown')} - {tc.get('args', {})}")
-                logger.info("=== END STATE MESSAGES ===")
+                    logger.info(f"Message {i}: {type(msg).__name__} - {str(msg.content)[:100]}...")
+                logger.info("=== END POST-SUMMARIZATION DEBUG ===")
+            
+            # Load and manage memory like legacy system
+            summary = state.get("summary", "No summary available")
+            memory_val = state.get("memory", "No memory available")
+            turn = state.get("turns", 0)
+            
+            # Load existing memory from store if needed
+            if memory_val == "No memory available":
+                user_id = config["configurable"].get("user_id", "default")
+                namespace = ("memory", user_id)
+                key = "AccountList"
+                store_conn = memory_store.get_connection("memory_store.db")
+                existing_memory = store_conn.get(namespace, key)
+                existing_memory = {"AccountList": existing_memory} if existing_memory else {"AccountList": AccountList().model_dump()}
+            else:
+                existing_memory = memory_val
+            
+            # Update state with loaded memory
+            state["memory"] = existing_memory
             
             # Create system message with current context
             system_message = get_orchestrator_system_message(state)
-            if debug_mode:
-                logger.info(f"System message length: {len(system_message)}")
-            
             messages = [SystemMessage(content=system_message)] + state["messages"]
-            if debug_mode:
-                logger.info(f"Total messages before conversion: {len(messages)}")
             
             # Check if we already have tool results that answer the user's question
             recent_tool_results = []
@@ -189,66 +164,22 @@ RESPONSE BEHAVIOR:
                     if len(recent_tool_results) >= 2:  # Stop after finding recent results
                         break
             
-            # If we have recent tool results, check if they answer the current question
-            if recent_tool_results and debug_mode:
-                logger.info(f"Found {len(recent_tool_results)} recent tool results")
-                for i, result in enumerate(recent_tool_results):
-                    logger.info(f"Tool result {i}: {str(result.content)[:200]}...")
+            # No need to clean orphaned tool calls - smart preservation prevents them
+            response = llm_with_tools.invoke(messages)
             
-            # Clean orphaned tool calls to prevent 400 errors
-            if debug_mode:
-                logger.info("Cleaning orphaned tool calls...")
-            clean_messages = clean_orphaned_tool_calls(messages)
-            if debug_mode:
-                logger.info(f"Messages after cleanup: {len(clean_messages)}")
-                
-                # Debug: Show what gets sent to LLM
-                logger.info("=== MESSAGES SENT TO LLM ===")
-                for i, msg in enumerate(clean_messages):
-                    msg_type = type(msg).__name__
-                    content = str(getattr(msg, 'content', ''))[:150]
-                    has_tool_calls = hasattr(msg, 'tool_calls') and getattr(msg, 'tool_calls', None)
-                    logger.info(f"LLM Message {i}: {msg_type} - {content}..." + (f" [HAS_TOOL_CALLS]" if has_tool_calls else ""))
-                logger.info("=== END LLM MESSAGES ===")
-                
-                logger.info("Invoking LLM with tools...")
-            response = llm_with_tools.invoke(clean_messages)
-            if debug_mode:
-                logger.info(f"LLM response type: {type(response)}")
-                logger.info(f"Response content: {str(response)[:200]}...")
-                
-                # Check for tool calls
-                has_tool_calls = hasattr(response, 'tool_calls') and response.tool_calls
-                logger.info(f"Response has tool calls: {has_tool_calls}")
-                if has_tool_calls:
-                    logger.info(f"Number of tool calls: {len(response.tool_calls)}")
-                    for i, tc in enumerate(response.tool_calls):
-                        logger.info(f"Tool call {i}: {tc.get('name', 'unknown')} - {str(tc)[:100]}...")
-                        
-                # Show why LLM might be making tool calls
-                if has_tool_calls:
-                    logger.info("=== LLM DECISION ANALYSIS ===")
-                    logger.info("LLM generated tool calls despite having conversation history.")
-                    logger.info("This suggests the LLM either:")
-                    logger.info("1. Doesn't see the previous tool results")
-                    logger.info("2. Doesn't recognize them as answering the user's question") 
-                    logger.info("3. System prompt is not clear enough about using existing results")
-                    logger.info("=== END ANALYSIS ===")
-            
-            # Update orchestrator state
+            # Update orchestrator state (legacy style)
             turn = state.get("turns", 0)
             updated_state = {
                 "messages": response,
+                "memory": existing_memory,
                 "turns": turn + 1
             }
             
             # Update global state manager
             orchestrator_state_mgr.update_conversation_summary(
-                state.get("conversation_summary", "")
+                state.get("summary", "")
             )
             
-            if debug_mode:
-                logger.info(f"=== ORCHESTRATOR END - SUCCESS ===")
             return updated_state
             
         except Exception as e:
@@ -264,98 +195,156 @@ RESPONSE BEHAVIOR:
                 logger.error(f"Error processing request: {e}")
             raise
     
-    # Node function: summarize_conversation  
+    # Smart message preservation now imported from helpers
+    
+    # Node function: summarize_conversation (with smart preservation)
     def summarize_conversation(state: OrchestratorState):
-        """Summarize conversation when it gets too long"""
+        """Summarize conversation using smart message preservation"""
         if debug_mode:
-            logger.info("Summarizing conversation")
+            logger.info("=== SUMMARIZE_CONVERSATION START ===")
+            logger.info(f"Input state keys: {list(state.keys())}")
+            logger.info(f"Messages in state: {len(state.get('messages', []))}")
+            logger.info(f"Turn: {state.get('turns', 0)}")
+            
+            # Show each message going into summarization
+            for i, msg in enumerate(state.get('messages', [])):
+                logger.info(f"Input Message {i}: {type(msg).__name__} - {str(msg.content)[:100]}...")
         
-        summary = state.get("conversation_summary", "No summary available")
-        global_memory = state.get("global_memory", {})
+        summary = state.get("summary", "No summary available")
+        memory_val = state.get("memory", "No memory available")
         
-        system_message = f"""Please provide a concise summary of this conversation, maintaining important context for future interactions.
-
-Previous summary: {summary}
-
-Global context: {json.dumps(global_memory, indent=2) if global_memory else 'None'}
-
-Focus on:
-- User's current goals and requests
-- Key information discovered or processed
-- Important entities (contacts, accounts, etc.) mentioned
-- Outstanding tasks or next steps
-- Agent interactions and their outcomes"""
+        # Use enhanced orchestrator summary system message
+        system_message = orchestrator_summary_sys_msg(summary, memory_val)
+        messages = [SystemMessage(content=system_message)] + state["messages"]
         
-        messages = state["messages"] + [HumanMessage(content=system_message)]
-        # Clean orphaned tool calls to avoid 400 errors
-        clean_messages = clean_orphaned_tool_calls(messages)
-        response = llm.invoke(clean_messages)
+        if debug_mode:
+            logger.info(f"System message for summarization: {system_message[:200]}...")
+            logger.info(f"Total messages for LLM: {len(messages)}")
+            logger.info("Using smart preservation - no cleanup needed")
+        
+        response = llm.invoke(messages)
+        
+        if debug_mode:
+            logger.info(f"LLM summary response type: {type(response)}")
+            logger.info(f"LLM summary content: {str(response.content)[:300]}...")
         
         # Update global state manager with new summary
         orchestrator_state_mgr.update_conversation_summary(response.content)
         
-        # Remove old messages but keep the last 2
-        delete_messages = [RemoveMessage(id=m.id) for m in state["messages"][:-2]]
+        # Use smart preservation instead of simple slice
+        messages_to_preserve = smart_preserve_messages(state["messages"], keep_count=3)
+        messages_to_delete = []
         
-        return {
-            "conversation_summary": response.content,
-            "messages": delete_messages,
-            "global_memory": orchestrator_state_mgr.export_state()
-        }
-    
-    # Node function: update_global_memory
-    def update_global_memory(state: OrchestratorState):
-        """Update global memory with information from recent interactions"""
+        # Find messages that are NOT in the preserved list
+        preserved_ids = {getattr(msg, 'id', None) for msg in messages_to_preserve if hasattr(msg, 'id')}
+        for msg in state["messages"]:
+            if hasattr(msg, 'id') and msg.id not in preserved_ids:
+                messages_to_delete.append(RemoveMessage(id=msg.id))
+        
         if debug_mode:
-            logger.info("Updating global memory")
-        
-        # Export current state from state manager
-        global_state = orchestrator_state_mgr.export_state()
+            logger.info(f"Messages to delete: {len(messages_to_delete)}")
+            logger.info(f"Messages to preserve: {len(messages_to_preserve)}")
+            logger.info("Smart preservation ensures no orphaned tool calls")
+            logger.info("=== SUMMARIZE_CONVERSATION END ===")
         
         return {
-            "global_memory": global_state,
-            "turns": 0  # Reset turn counter after memory update
+            "summary": response.content,
+            "messages": messages_to_delete
         }
     
-    # Conditional function: needs_summary
+    # Node function: memorize_records (legacy approach)
+    async def memorize_records(state: OrchestratorState, config: RunnableConfig):
+        """Update memory using legacy TrustCall approach"""
+        if debug_mode:
+            logger.info("Updating memory (legacy TrustCall approach)")
+        
+        user_id = config["configurable"].get("user_id", "default")
+        namespace = ("memory", user_id)
+        key = "AccountList"
+        store_conn = memory_store.get_connection("memory_store.db")
+        existing_memory = store_conn.get(namespace, key)
+        existing_records = {"AccountList": existing_memory} if existing_memory else {"AccountList": AccountList().model_dump()}
+        
+        if debug_mode:
+            logger.info(f"Existing memory: {existing_records}")
+        
+        messages = {
+            "messages": [SystemMessage(content=ORCHESTRATOR_TRUSTCALL_INSTRUCTION),
+                        HumanMessage(content=state.get("summary", ""))],
+            "existing": existing_records,
+        }
+        
+        if debug_mode:
+            logger.info(f"TrustCall messages: {messages}")
+        
+        response = await trustcall_extractor.ainvoke(messages)
+        if debug_mode:
+            logger.info(f"TrustCall response: {response}")
+        
+        response = response["responses"][0].model_dump()
+        store_conn.put(namespace, key, response)
+        
+        if debug_mode:
+            logger.info(f"Updated memory: {response}")
+        
+        return {"memory": response, "turns": 0}
+    
+    # Conditional functions (legacy approach)
     def needs_summary(state: OrchestratorState):
-        """Check if conversation needs summarization"""
-        if len(state["messages"]) > 8:  # Increased threshold for orchestrator
+        """Check if conversation needs summarization (legacy)"""
+        if len(state["messages"]) > 12:  # Legacy threshold
             return "summarize_conversation"
         return END
     
-    # Conditional function: needs_memory_update
-    def needs_memory_update(state: OrchestratorState):
-        """Check if global memory needs updating"""
-        if state.get("turns", 0) > 8:  # Update memory less frequently
-            return "update_global_memory"
+    def needs_memory(state: OrchestratorState):
+        """Check if memory needs updating (legacy)"""
+        if state.get("turns", 0) > 6:  # Legacy threshold
+            return "memorize_records"
         return END
     
-    # Build the graph with nodes and edges
+    # Build the graph with nodes and edges (legacy approach)
     tool_node = ToolNode(tools=tools)
     graph_builder.add_node("tools", tool_node)
-    graph_builder.add_node("orchestrator", orchestrator)
+    graph_builder.add_node("conversation", orchestrator)  # Legacy name
     graph_builder.add_node("summarize_conversation", summarize_conversation)
-    graph_builder.add_node("update_global_memory", update_global_memory)
+    graph_builder.add_node("memorize_records", memorize_records)
     
     # Set entry point
-    graph_builder.set_entry_point("orchestrator")
+    graph_builder.set_entry_point("conversation")
       
-    # Add conditional edges
-    graph_builder.add_conditional_edges("orchestrator", tools_condition)
-    graph_builder.add_conditional_edges("orchestrator", needs_summary)
-    graph_builder.add_conditional_edges("orchestrator", needs_memory_update)
+    # Sequential routing function (fixes timing issue)
+    def smart_routing(state: OrchestratorState):
+        """Route to tools first, then summarization - prevents 400 errors"""
+        # STEP 1: Check for tools first (highest priority)
+        tool_result = tools_condition(state)
+        if tool_result != END:
+            return tool_result
+        
+        # STEP 2: Then check for summary (only after tools complete)
+        summary_result = needs_summary(state)
+        if summary_result != END:
+            return summary_result
+            
+        # STEP 3: Finally check memory (lowest priority)
+        memory_result = needs_memory(state)
+        if memory_result != END:
+            return memory_result
+            
+        return END
     
-    # Add standard edges
-    graph_builder.add_edge("tools", "orchestrator")
-    graph_builder.add_edge("summarize_conversation", "orchestrator")
-    graph_builder.add_edge("update_global_memory", "orchestrator")
+    # Add sequential routing (fixes tool/summary timing issue)
+    graph_builder.add_conditional_edges("conversation", smart_routing)
+    
+    # Add standard edges - removed tools->conversation to prevent duplicate responses
+    graph_builder.add_edge("tools", "conversation")
+    graph_builder.add_edge("summarize_conversation", "conversation")
+    graph_builder.add_edge("memorize_records", "conversation")
     
     # Set finish point
-    graph_builder.set_finish_point("orchestrator")
+    graph_builder.set_finish_point("conversation")
     
     # Compile and return the graph
-    return graph_builder.compile(checkpointer=memory)
+    return graph_builder.compile(checkpointer=memory, store=memory_store)
 
 # Build and export the graph at module level
 orchestrator_graph = build_orchestrator_graph(debug_mode=False)
@@ -440,6 +429,9 @@ async def main():
     
     config = {"configurable": {"thread_id": "orchestrator-1", "user_id": "user-1"}}
     
+    # Control which node's output gets streamed to user (legacy approach)
+    node_to_stream = "conversation"
+    
     while True:
         try:
             user_input = input("USER: ")
@@ -474,19 +466,19 @@ async def main():
                 print("\nASSISTANT: ", end="", flush=True)
                 # In non-debug mode, get final result and show with animation
                 result = None
-                async for event in local_graph.astream(
+                async for event in local_graph.astream_events(
                     {"messages": [{"role": "user", "content": user_input}]},
                     config,
                     stream_mode="values",
-                ):
-                    if "messages" in event and event["messages"]:
-                        result = event["messages"][-1]
-                
-                # Display the final response with typeout animation
-                if result and hasattr(result, 'content'):
-                    await type_out(result.content)
-                elif result:
-                    await type_out(str(result))
+                    version="v2"
+                ):  
+                    #print(event)
+                    if (event.get("event") == "on_chat_model_stream" and 
+                        event.get("metadata", {}).get("langgraph_node", "") == node_to_stream):
+                        data = event.get("data", {})
+                        chunk = data.get("chunk", {})
+                        if hasattr(chunk, "content") and chunk.content:
+                            await type_out(chunk.content, delay=0.01)
                 
                 print("\n")
                         
