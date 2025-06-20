@@ -299,8 +299,8 @@ def build_salesforce_graph(debug_mode: bool = False):
     
     return graph_builder.compile(checkpointer=memory, store=memory_store)
 
-# Build the graph at module level
-salesforce_graph = build_salesforce_graph(debug_mode=False)
+# Build the graph at module level - removed to avoid blocking import
+# salesforce_graph = build_salesforce_graph(debug_mode=False)
 
 class SalesforceA2AHandler:
     """Handles A2A protocol requests for the Salesforce agent"""
@@ -479,10 +479,9 @@ async def main():
     )
     
     # Build the graph with debug mode if requested
-    if DEBUG_MODE:
-        local_graph = build_salesforce_graph(debug_mode=True)
-    else:
-        local_graph = salesforce_graph
+    logger.info("Building Salesforce graph...")
+    local_graph = build_salesforce_graph(debug_mode=DEBUG_MODE)
+    logger.info("Graph built successfully")
     
     # Create A2A handler
     handler = SalesforceA2AHandler(local_graph, DEBUG_MODE)
