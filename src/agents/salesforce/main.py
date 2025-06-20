@@ -40,7 +40,7 @@ from store.sqlite_store import SQLiteStore
 from store.memory_schemas import AccountList
 from utils.state_manager import StateManager
 from utils.sys_msg import chatbot_sys_msg, summary_sys_msg, TRUSTCALL_INSTRUCTION
-from utils.helpers import unify_messages_to_dicts, convert_dicts_to_lc_messages
+from utils.helpers import clean_orphaned_tool_calls
 from tools.salesforce_tools import (
     CreateLeadTool, GetLeadTool, UpdateLeadTool,
     GetOpportunityTool, UpdateOpportunityTool, CreateOpportunityTool,
@@ -174,14 +174,10 @@ def build_salesforce_graph(debug_mode: bool = False):
             if debug_mode:
                 logger.info(f"Total messages before conversion: {len(messages)}")
             
-            # Convert messages through dict conversion to avoid orphaned tool calls
+            # Clean orphaned tool calls to prevent 400 errors
             if debug_mode:
-                logger.info("Converting messages to dicts...")
-            dict_messages = unify_messages_to_dicts(messages)
-            if debug_mode:
-                logger.info(f"Dict messages count: {len(dict_messages)}")
-                logger.info("Converting dicts back to LC messages...")
-            clean_messages = convert_dicts_to_lc_messages(dict_messages)
+                logger.info("Cleaning orphaned tool calls...")
+            clean_messages = clean_orphaned_tool_calls(messages)
             if debug_mode:
                 logger.info(f"Clean messages count: {len(clean_messages)}")
                 # Log message types for debugging
@@ -241,9 +237,8 @@ def build_salesforce_graph(debug_mode: bool = False):
         
         system_message = summary_sys_msg(summary, memory_val)
         messages = state["messages"] + [HumanMessage(content=system_message)]
-        # Convert messages through dict conversion to avoid orphaned tool calls
-        dict_messages = unify_messages_to_dicts(messages)
-        clean_messages = convert_dicts_to_lc_messages(dict_messages)
+        # Clean orphaned tool calls to prevent 400 errors
+        clean_messages = clean_orphaned_tool_calls(messages)
         response = llm.invoke(clean_messages)
         
         delete_messages = [RemoveMessage(id=m.id) for m in state["messages"][:-2]]

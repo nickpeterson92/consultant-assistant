@@ -26,7 +26,7 @@ from store.sqlite_store import SQLiteStore
 from store.memory_schemas import AccountList
 from utils.state_manager import StateManager
 from utils.sys_msg import chatbot_sys_msg, summary_sys_msg, TRUSTCALL_INSTRUCTION
-from utils.helpers import unify_messages_to_dicts, convert_dicts_to_lc_messages, type_out
+from utils.helpers import clean_orphaned_tool_calls, type_out
 from tools.attachment_tools import OCRTool
 from tools.salesforce_tools import (
     CreateLeadTool,
@@ -136,12 +136,8 @@ def build_graph(debug_mode: bool = False):
 
         system_message = chatbot_sys_msg(summary, existing_memory)
         messages = [SystemMessage(content=system_message)] + state["messages"]
-
-        response = llm_with_tools.invoke(
-            convert_dicts_to_lc_messages(
-                unify_messages_to_dicts(messages)
-            )
-        )
+        messages = clean_orphaned_tool_calls(messages)
+        response = llm_with_tools.invoke(messages)
 
         state_mgr.update_state({"messages": response, "memory": existing_memory, "turns": turn + 1})
         return {"messages": response, "memory": existing_memory, "turns": turn + 1}
@@ -156,11 +152,8 @@ def build_graph(debug_mode: bool = False):
             
         system_message = summary_sys_msg(summary, memory_val)
         messages = state["messages"] + [HumanMessage(content=system_message)]
-        response = llm.invoke(
-            convert_dicts_to_lc_messages(
-                unify_messages_to_dicts(messages)
-            )
-        )
+        messages = clean_orphaned_tool_calls(messages)
+        response = llm_with_tools.invoke(messages)
         delete_messages = [RemoveMessage(id=m.id) for m in state["messages"][:-2]]
         return {"summary": response.content, "messages": delete_messages}
 

@@ -36,7 +36,7 @@ sys.path.insert(0, agent_path)
 from .agent_registry import AgentRegistry
 from .state_manager import MultiAgentStateManager
 from .agent_caller_tools import SalesforceAgentTool, GenericAgentTool, AgentRegistryTool
-from utils.helpers import unify_messages_to_dicts, convert_dicts_to_lc_messages, type_out
+from utils.helpers import clean_orphaned_tool_calls, type_out
 
 import logging
 
@@ -119,14 +119,33 @@ TOOLS AVAILABLE:
 2. call_agent: For general agent calls (travel, expenses, HR, OCR, etc.)
 3. manage_agents: To check agent status and capabilities
 
-INSTRUCTIONS:
-- Always choose the most appropriate specialized agent for each task
+CRITICAL INSTRUCTIONS - FOLLOW THESE EXACTLY:
+- NEVER call the same tool multiple times for the same user request
+- When a tool returns results, respond directly to the user with those results
+- Do NOT make additional tool calls after receiving successful results
+- STOP IMMEDIATELY after getting tool results - synthesize and respond to user
+- If you see ANY tool results in conversation history, use those instead of making new calls
+- Only make NEW tool calls when the user asks for completely different information
+- IMPORTANT: If you see tool results containing account details, respond with those details - DO NOT call tools again
+- NEVER EVER make duplicate tool calls - if you see previous tool results, USE THEM
+- EXAMINE THE CONVERSATION HISTORY CAREFULLY before making any tool calls
 - For Salesforce-related queries, use the salesforce_agent tool
 - For other enterprise systems (travel, expenses, HR), use call_agent
 - If unsure which agents are available, use manage_agents first
 - Combine results from multiple agents when beneficial
 - Keep responses concise and helpful
-- Pass relevant context from previous interactions to agents"""
+- Pass relevant context from previous interactions to agents
+
+RESPONSE BEHAVIOR:
+- ALWAYS check conversation history for existing tool results BEFORE making new calls
+- If you see tool results in the conversation, DO synthesize and present them to the user
+- DO NOT repeat tool calls for information that has already been retrieved
+- Focus on providing helpful responses based on available information
+- Prefer using existing information over making redundant tool calls
+- NEVER respond with generic "Is there anything else" - ALWAYS provide the actual data from tool results
+- When tool results contain specific data (accounts, contacts, opportunities), PRESENT THAT DATA to the user
+- NEVER ask follow-up questions like "Is there anything else?" or "What would you like to do next?"
+- If you have already provided the requested information, do NOT generate additional responses"""
         
         return system_msg
     
@@ -138,6 +157,20 @@ INSTRUCTIONS:
                 logger.info(f"=== ORCHESTRATOR START ===")
                 logger.info(f"Processing with {len(state.get('messages', []))} messages")
                 logger.info(f"Current turn: {state.get('turns', 0)}")
+                
+                # Debug: Show all messages in state
+                logger.info("=== CURRENT STATE MESSAGES ===")
+                for i, msg in enumerate(state.get('messages', [])):
+                    msg_type = type(msg).__name__
+                    has_tool_calls = hasattr(msg, 'tool_calls') and msg.tool_calls
+                    has_tool_call_id = hasattr(msg, 'tool_call_id')
+                    content_preview = str(msg.content)[:150] if hasattr(msg, 'content') else "No content"
+                    logger.info(f"State Message {i}: {msg_type} | HasToolCalls: {has_tool_calls} | HasToolCallId: {has_tool_call_id}")
+                    logger.info(f"  Content: {content_preview}...")
+                    if has_tool_calls:
+                        for j, tc in enumerate(msg.tool_calls):
+                            logger.info(f"    Tool call {j}: {tc.get('name', 'unknown')} - {tc.get('args', {})}")
+                logger.info("=== END STATE MESSAGES ===")
             
             # Create system message with current context
             system_message = get_orchestrator_system_message(state)
@@ -148,23 +181,35 @@ INSTRUCTIONS:
             if debug_mode:
                 logger.info(f"Total messages before conversion: {len(messages)}")
             
-            # Convert messages through dict process to avoid orphaned tool calls
-            if debug_mode:
-                logger.info("Converting messages to dicts...")
-            dict_messages = unify_messages_to_dicts(messages)
-            if debug_mode:
-                logger.info(f"Dict messages: {len(dict_messages)}")
+            # Check if we already have tool results that answer the user's question
+            recent_tool_results = []
+            for msg in reversed(state.get("messages", [])):
+                if hasattr(msg, 'name') and getattr(msg, 'name', None) in ['salesforce_agent', 'call_agent']:
+                    recent_tool_results.append(msg)
+                    if len(recent_tool_results) >= 2:  # Stop after finding recent results
+                        break
             
-            if debug_mode:
-                logger.info("Converting dicts back to LC messages...")
-            clean_messages = convert_dicts_to_lc_messages(dict_messages)
-            if debug_mode:
-                logger.info(f"Clean messages: {len(clean_messages)}")
+            # If we have recent tool results, check if they answer the current question
+            if recent_tool_results and debug_mode:
+                logger.info(f"Found {len(recent_tool_results)} recent tool results")
+                for i, result in enumerate(recent_tool_results):
+                    logger.info(f"Tool result {i}: {str(result.content)[:200]}...")
             
-            # Log message types for debugging
+            # Clean orphaned tool calls to prevent 400 errors
             if debug_mode:
+                logger.info("Cleaning orphaned tool calls...")
+            clean_messages = clean_orphaned_tool_calls(messages)
+            if debug_mode:
+                logger.info(f"Messages after cleanup: {len(clean_messages)}")
+                
+                # Debug: Show what gets sent to LLM
+                logger.info("=== MESSAGES SENT TO LLM ===")
                 for i, msg in enumerate(clean_messages):
-                    logger.info(f"Message {i}: {type(msg).__name__} - {str(msg)[:100]}...")
+                    msg_type = type(msg).__name__
+                    content = str(getattr(msg, 'content', ''))[:150]
+                    has_tool_calls = hasattr(msg, 'tool_calls') and getattr(msg, 'tool_calls', None)
+                    logger.info(f"LLM Message {i}: {msg_type} - {content}..." + (f" [HAS_TOOL_CALLS]" if has_tool_calls else ""))
+                logger.info("=== END LLM MESSAGES ===")
                 
                 logger.info("Invoking LLM with tools...")
             response = llm_with_tools.invoke(clean_messages)
@@ -179,6 +224,16 @@ INSTRUCTIONS:
                     logger.info(f"Number of tool calls: {len(response.tool_calls)}")
                     for i, tc in enumerate(response.tool_calls):
                         logger.info(f"Tool call {i}: {tc.get('name', 'unknown')} - {str(tc)[:100]}...")
+                        
+                # Show why LLM might be making tool calls
+                if has_tool_calls:
+                    logger.info("=== LLM DECISION ANALYSIS ===")
+                    logger.info("LLM generated tool calls despite having conversation history.")
+                    logger.info("This suggests the LLM either:")
+                    logger.info("1. Doesn't see the previous tool results")
+                    logger.info("2. Doesn't recognize them as answering the user's question") 
+                    logger.info("3. System prompt is not clear enough about using existing results")
+                    logger.info("=== END ANALYSIS ===")
             
             # Update orchestrator state
             turn = state.get("turns", 0)
@@ -232,9 +287,8 @@ Focus on:
 - Agent interactions and their outcomes"""
         
         messages = state["messages"] + [HumanMessage(content=system_message)]
-        # Convert messages to dictionaries then back to LC messages to avoid orphaned tool calls
-        dict_messages = unify_messages_to_dicts(messages)
-        clean_messages = convert_dicts_to_lc_messages(dict_messages)
+        # Clean orphaned tool calls to avoid 400 errors
+        clean_messages = clean_orphaned_tool_calls(messages)
         response = llm.invoke(clean_messages)
         
         # Update global state manager with new summary
@@ -286,7 +340,7 @@ Focus on:
     
     # Set entry point
     graph_builder.set_entry_point("orchestrator")
-    
+      
     # Add conditional edges
     graph_builder.add_conditional_edges("orchestrator", tools_condition)
     graph_builder.add_conditional_edges("orchestrator", needs_summary)
@@ -395,13 +449,27 @@ async def main():
             
             if DEBUG_MODE:
                 # In debug mode, stream all events
+                event_count = 0
                 async for event in local_graph.astream(
                     {"messages": [{"role": "user", "content": user_input}]},
                     config,
                     stream_mode="values",
                 ):
-                    if "messages" in event and event["messages"]:
-                        event["messages"][-1].pretty_print()
+                    event_count += 1
+                    logger.info(f"=== STREAM EVENT {event_count} ===")
+                    logger.info(f"Event keys: {list(event.keys())}")
+                    
+                    if "messages" in event:
+                        logger.info(f"Messages in event: {len(event['messages'])}")
+                        if event["messages"]:
+                            last_msg = event["messages"][-1]
+                            logger.info(f"Last message type: {type(last_msg).__name__}")
+                            logger.info(f"Last message preview: {str(last_msg)[:100]}...")
+                            last_msg.pretty_print()
+                    
+                    logger.info(f"=== END STREAM EVENT {event_count} ===")
+                    
+                logger.info(f"Total stream events processed: {event_count}")
             else:
                 print("\nASSISTANT: ", end="", flush=True)
                 # In non-debug mode, get final result and show with animation
@@ -425,9 +493,17 @@ async def main():
         except KeyboardInterrupt:
             print("\nGoodbye!")
             break
+        except EOFError:
+            # Handle EOF gracefully (e.g., when input is redirected or piped)
+            print("\nInput stream ended. Goodbye!")
+            break
         except Exception as e:
             logger.error(f"Error processing request: {e}")
             print(f"Error: {e}")
+            # For serious errors, consider breaking the loop
+            if "connection" in str(e).lower() or "network" in str(e).lower():
+                print("Network error encountered. Exiting...")
+                break
 
 if __name__ == "__main__":
     asyncio.run(main())
