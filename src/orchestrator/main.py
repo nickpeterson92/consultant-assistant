@@ -292,7 +292,7 @@ ORCHESTRATOR TOOLS:
     # Conditional functions (legacy approach)
     def needs_summary(state: OrchestratorState):
         """Check if conversation needs summarization (legacy)"""
-        if len(state["messages"]) > 12:  # Legacy threshold
+        if len(state["messages"]) > 9:  # Legacy threshold
             return "summarize_conversation"
         return END
     
@@ -301,17 +301,7 @@ ORCHESTRATOR TOOLS:
         if state.get("turns", 0) > 6:  # Legacy threshold
             return "memorize_records"
         return END
-    
-    # Build the graph with nodes and edges (legacy approach)
-    tool_node = ToolNode(tools=tools)
-    graph_builder.add_node("tools", tool_node)
-    graph_builder.add_node("conversation", orchestrator)  # Legacy name
-    graph_builder.add_node("summarize_conversation", summarize_conversation)
-    graph_builder.add_node("memorize_records", memorize_records)
-    
-    # Set entry point
-    graph_builder.set_entry_point("conversation")
-      
+
     # Sequential routing function (fixes timing issue)
     def smart_routing(state: OrchestratorState):
         """Route to tools first, then summarization - prevents 400 errors"""
@@ -331,6 +321,16 @@ ORCHESTRATOR TOOLS:
             return memory_result
             
         return END
+
+    # Build the graph with nodes and edges (legacy approach)
+    tool_node = ToolNode(tools=tools)
+    graph_builder.add_node("tools", tool_node)
+    graph_builder.add_node("conversation", orchestrator)  # Legacy name
+    graph_builder.add_node("summarize_conversation", summarize_conversation)
+    graph_builder.add_node("memorize_records", memorize_records)
+    
+    # Set entry point
+    graph_builder.set_entry_point("conversation")
     
     # Add sequential routing (fixes tool/summary timing issue)
     graph_builder.add_conditional_edges("conversation", smart_routing)
