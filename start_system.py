@@ -7,9 +7,9 @@ import os
 import sys
 import subprocess
 
-# Add src to path for centralized logging
-sys.path.insert(0, 'src')
-from utils.activity_logger import log_multi_agent_activity
+# Add project root to path for src imports
+sys.path.insert(0, '.')
+from src.utils.activity_logger import log_multi_agent_activity
 
 import time
 import signal

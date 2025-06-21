@@ -22,13 +22,13 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import AzureChatOpenAI
 
-from store.sqlite_store import SQLiteStore
-from store.memory_schemas import AccountList
+from src.utils.store.sqlite_store import SQLiteStore
+from src.utils.store.memory_schemas import AccountList
 from utils.state_manager import StateManager
-from utils.sys_msg import chatbot_sys_msg, summary_sys_msg, TRUSTCALL_INSTRUCTION
-from utils.helpers import clean_orphaned_tool_calls, type_out
+from src.utils.sys_msg import chatbot_sys_msg, summary_sys_msg, TRUSTCALL_INSTRUCTION
+from src.utils.helpers import clean_orphaned_tool_calls, type_out
 from tools.attachment_tools import OCRTool
-from tools.salesforce_tools import (
+from src.tools.salesforce_tools import (
     CreateLeadTool,
     GetLeadTool,
     UpdateLeadTool,

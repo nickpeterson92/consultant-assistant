@@ -20,15 +20,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import AzureChatOpenAI
 
-# Fix path resolution for imports
-import sys
-import os
-# Add the project root to path
-project_root = os.path.join(os.path.dirname(__file__), '..', '..', '..')
-sys.path.insert(0, project_root)
-# Add the agent directory to path
-agent_path = os.path.join(os.path.dirname(__file__), '..', '..', 'agent')
-sys.path.insert(0, agent_path)
+# Imports no longer need path manipulation
 
 from src.a2a import A2AServer, AgentCard, A2ATask
 
@@ -48,7 +40,7 @@ import logging
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
 # Add structured logging
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+# Path manipulation no longer needed
 from src.utils.logging_config import get_logger, get_performance_tracker, get_cost_tracker
 
 

@@ -14,9 +14,7 @@ from typing_extensions import TypedDict
 from dotenv import load_dotenv
 
 # Add logging configuration
-import sys
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from utils.logging_config import get_logger, get_performance_tracker, get_cost_tracker, init_session_tracking
+from src.utils.logging_config import get_logger, get_performance_tracker, get_cost_tracker, init_session_tracking
 
 from trustcall import create_extractor
 
@@ -29,18 +27,9 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import AzureChatOpenAI
 
-# Fix path resolution for imports
-import sys
-import os
-# Add the project root to path for relative imports
-project_root = os.path.join(os.path.dirname(__file__), '..', '..')
-sys.path.insert(0, project_root)
-# Add the agent directory to path
-agent_path = os.path.join(os.path.dirname(__file__), '..', 'agent')
-sys.path.insert(0, agent_path)
+# Imports no longer need path manipulation
 
 from .agent_registry import AgentRegistry
-from .state_manager import MultiAgentStateManager
 from .agent_caller_tools import SalesforceAgentTool, GenericAgentTool, AgentRegistryTool
 from src.utils.helpers import type_out, smart_preserve_messages
 from src.utils.sys_msg import summary_sys_msg, TRUSTCALL_INSTRUCTION
@@ -62,8 +51,7 @@ from src.utils.activity_logger import log_orchestrator_activity, log_cost_activi
 
 logger = logging.getLogger(__name__)
 
-# Global orchestrator state manager
-orchestrator_state_mgr = MultiAgentStateManager()
+# State management now handled by LangGraph + SQLiteStore + A2A protocol
 agent_registry = AgentRegistry()
 
 def create_azure_openai_chat():
@@ -229,10 +217,7 @@ ORCHESTRATOR TOOLS:
                 "turns": turn + 1
             }
             
-            # Update global state manager
-            orchestrator_state_mgr.update_conversation_summary(
-                state.get("summary", "")
-            )
+            # Conversation summary already handled by LangGraph state
             
             return updated_state
             
@@ -284,8 +269,7 @@ ORCHESTRATOR TOOLS:
                          response_length=len(str(response.content)) if hasattr(response, 'content') else 0)
         
         
-        # Update global state manager with new summary
-        orchestrator_state_mgr.update_conversation_summary(response.content)
+        # Summary already stored in LangGraph state
         
         # Use smart preservation instead of simple slice
         messages_to_preserve = smart_preserve_messages(state["messages"], keep_count=3)
@@ -542,6 +526,15 @@ async def main():
             if user_input.lower() in ["quit", "exit", "q"]:
                 print("Goodbye!")
                 break
+            
+            # Validate user input for security
+            try:
+                from src.utils.input_validation import AgentInputValidator
+                validated_input = AgentInputValidator.validate_orchestrator_input(user_input)
+                user_input = validated_input
+            except Exception as e:
+                print(f"Error: Invalid input - {e}")
+                continue
             
             if DEBUG_MODE:
                 # In debug mode, track duplicate responses

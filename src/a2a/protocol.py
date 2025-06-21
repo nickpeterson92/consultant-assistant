@@ -17,12 +17,14 @@ import sys
 import os
 
 # Add logging configuration
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 from src.utils.logging_config import get_logger, get_performance_tracker
 
 
 # Import centralized logging
 from src.utils.activity_logger import log_a2a_activity, log_performance_activity
+from src.utils.input_validation import AgentInputValidator, ValidationError
+from src.utils.circuit_breaker import get_circuit_breaker, CircuitBreakerConfig, RetryConfig, resilient_call
+from src.utils.config import get_a2a_config
 
 # A2A logging now handled by centralized activity_logger
 
@@ -159,17 +161,28 @@ class A2AClient:
         self.timeout = timeout
         self.debug_mode = debug_mode
         self.session = None
+        self._closed = False
     
     async def __aenter__(self):
         self.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout))
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self.session:
-            await self.session.close()
+        await self.close()
     
-    async def call_agent(self, endpoint: str, method: str, params: Dict[str, Any], request_id: Optional[str] = None) -> Dict[str, Any]:
-        """Make a JSON-RPC call to another agent"""
+    async def close(self):
+        """Properly close the client session"""
+        if self.session and not self._closed:
+            try:
+                await self.session.close()
+            except Exception as e:
+                logger.warning(f"Error closing A2A client session: {e}")
+            finally:
+                self._closed = True
+                self.session = None
+    
+    async def _make_raw_call(self, endpoint: str, method: str, params: Dict[str, Any], request_id: Optional[str] = None) -> Dict[str, Any]:
+        """Make a raw JSON-RPC call without resilience patterns"""
         
         # Ensure external loggers are initialized at runtime
         ensure_loggers_initialized()
@@ -227,10 +240,10 @@ class A2AClient:
                     print(f"📡 Task context: {task.get('context')}")
                     print(f"📡 Task state_snapshot: {task.get('state_snapshot')}")
 
-            if not self.session:
+            if not self.session or self._closed:
                 if self.debug_mode:
-                    logger.error("Client session not initialized")
-                raise RuntimeError("Client must be used as async context manager")
+                    logger.error("Client session not initialized or already closed")
+                raise RuntimeError("Client must be used as async context manager and not closed")
 
             request = A2ARequest(method, params, request_id)
             request_dict = request.to_dict()
@@ -341,7 +354,12 @@ class A2AClient:
                 except:
                     pass
             logger.error(f"A2A network error calling {endpoint}: {e}")
-            raise A2AException(f"Network error: {str(e)}")
+            # Don't re-raise if session was closed during shutdown
+            if not self._closed:
+                raise A2AException(f"Network error: {str(e)}")
+            else:
+                logger.info("Ignoring network error during client shutdown")
+                return {"error": "Client shutdown during operation"}
         except Exception as e:
             # Log unexpected error
             if a2a_perf:
@@ -362,6 +380,42 @@ class A2AClient:
             if self.debug_mode:
                 import traceback
                 logger.error(f"Traceback: {traceback.format_exc()}")
+            raise
+    
+    async def call_agent(self, endpoint: str, method: str, params: Dict[str, Any], request_id: Optional[str] = None) -> Dict[str, Any]:
+        """Make a resilient JSON-RPC call to another agent with circuit breaker and retry"""
+        
+        # Get configuration
+        a2a_config = get_a2a_config()
+        
+        # Create circuit breaker config from system config
+        circuit_config = CircuitBreakerConfig(
+            failure_threshold=a2a_config.circuit_breaker_threshold,
+            timeout=a2a_config.circuit_breaker_timeout,
+            half_open_max_calls=3
+        )
+        
+        # Create retry config from system config
+        retry_config = RetryConfig(
+            max_attempts=a2a_config.retry_attempts,
+            base_delay=a2a_config.retry_delay,
+            max_delay=30.0
+        )
+        
+        # Extract agent name from endpoint for circuit breaker naming
+        agent_name = endpoint.split('/')[2].replace(':', '_')  # Convert host:port to host_port
+        circuit_breaker_name = f"a2a_{agent_name}_{method}"
+        
+        try:
+            return await resilient_call(
+                self._make_raw_call,
+                circuit_breaker_name,
+                retry_config,
+                circuit_config,
+                endpoint, method, params, request_id
+            )
+        except Exception as e:
+            logger.error(f"Resilient A2A call failed after all retries: {e}")
             raise
     
     async def process_task(self, endpoint: str, task: A2ATask) -> Dict[str, Any]:
@@ -410,6 +464,13 @@ class A2AServer:
         try:
             data = await request.json()
             
+            # Input validation for security
+            if not isinstance(data, dict):
+                return web.json_response(
+                    A2AResponse(error={"code": -32600, "message": "Invalid Request - must be object"}).to_dict(),
+                    status=400
+                )
+            
             # Validate JSON-RPC format
             if data.get("jsonrpc") != "2.0":
                 return web.json_response(
@@ -420,6 +481,31 @@ class A2AServer:
             method = data.get("method")
             params = data.get("params", {})
             request_id = data.get("id")
+            
+            # Validate method name
+            if not isinstance(method, str) or len(method) > 100:
+                return web.json_response(
+                    A2AResponse(error={"code": -32600, "message": "Invalid method name"}, request_id=request_id).to_dict(),
+                    status=400
+                )
+            
+            # Validate params
+            if not isinstance(params, dict):
+                return web.json_response(
+                    A2AResponse(error={"code": -32600, "message": "Invalid params - must be object"}, request_id=request_id).to_dict(),
+                    status=400
+                )
+            
+            # Validate task data if this is a process_task call
+            if method == "process_task" and "task" in params:
+                try:
+                    validated_task = AgentInputValidator.validate_a2a_task(params["task"])
+                    params["task"] = validated_task
+                except ValidationError as e:
+                    return web.json_response(
+                        A2AResponse(error={"code": -32602, "message": f"Invalid task data: {e}"}, request_id=request_id).to_dict(),
+                        status=400
+                    )
             
             if method not in self.handlers:
                 return web.json_response(

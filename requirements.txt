@@ -18,6 +18,7 @@ pydantic==2.10.6
 
 # Database and storage
 SQLAlchemy==2.0.37
+aiosqlite==0.21.0
 
 # OCR capabilities
 pytesseract==0.3.13

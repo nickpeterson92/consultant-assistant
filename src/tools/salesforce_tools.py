@@ -49,18 +49,24 @@ class GetLeadTool(BaseTool):
             log_tool_activity("GetLeadTool", "RETRIEVE_LEAD", 
                             search_params={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
+            # Escape all user inputs to prevent SOQL injection
             if data.lead_id:
-                query = f"SELECT Id, Name, Company, Email, Phone FROM Lead WHERE Id = '{data.lead_id}'"
+                escaped_id = sf.escape(data.lead_id)
+                query = f"SELECT Id, Name, Company, Email, Phone FROM Lead WHERE Id = '{escaped_id}'"
             else:
                 query_conditions = []
                 if data.email:
-                    query_conditions.append(f"Email LIKE '%{data.email}%'")
+                    escaped_email = sf.escape(data.email)
+                    query_conditions.append(f"Email LIKE '%{escaped_email}%'")
                 if data.name:
-                    query_conditions.append(f"Name LIKE '%{data.name}%'")
+                    escaped_name = sf.escape(data.name)
+                    query_conditions.append(f"Name LIKE '%{escaped_name}%'")
                 if data.phone:
-                    query_conditions.append(f"Phone LIKE '%{data.phone}%'")
+                    escaped_phone = sf.escape(data.phone)
+                    query_conditions.append(f"Phone LIKE '%{escaped_phone}%'")
                 if data.company:
-                    query_conditions.append(f"Company LIKE '%{data.company}%'")
+                    escaped_company = sf.escape(data.company)
+                    query_conditions.append(f"Company LIKE '%{escaped_company}%'")
 
                 if not query_conditions:
                     return {"error": "No search criteria provided."}
@@ -179,23 +185,36 @@ class GetOpportunityTool(BaseTool):
     args_schema: type = GetOpportunityInput
     
     def _run(self, **kwargs) -> dict:
-        data = GetOpportunityInput(**kwargs)
+        try:
+            # Validate and sanitize inputs
+            validated_kwargs = validate_tool_input("get_opportunity_tool", **kwargs)
+            data = GetOpportunityInput(**validated_kwargs)
+        except ValidationError as e:
+            return {"error": f"Input validation failed: {str(e)}"}
+        except Exception as e:
+            return {"error": f"Input processing failed: {str(e)}"}
         
         account_name = data.account_name
         account_id = data.account_id
         opportunity_name = data.opportunity_name
         opportunity_id = data.opportunity_id
 
+        # Escape all user inputs to prevent SOQL injection
+        sf = get_salesforce_connection()
         if opportunity_id:
-            query =f"SELECT Id, Name, StageName, Amount, Account.Name FROM Opportunity WHERE Id = '{opportunity_id}'"
+            escaped_opp_id = sf.escape(opportunity_id)
+            query = f"SELECT Id, Name, StageName, Amount, Account.Name FROM Opportunity WHERE Id = '{escaped_opp_id}'"
         else:
             query_conditions = []
             if account_name:
-                query_conditions.append(f"Account.Name LIKE '%{account_name}%'")
+                escaped_account_name = sf.escape(account_name)
+                query_conditions.append(f"Account.Name LIKE '%{escaped_account_name}%'")
             if account_id:
-                query_conditions.append(f"AccountId = '{account_id}'")
+                escaped_account_id = sf.escape(account_id)
+                query_conditions.append(f"AccountId = '{escaped_account_id}'")
             if opportunity_name:
-                query_conditions.append(f"Name LIKE '%{opportunity_name}%'")
+                escaped_opp_name = sf.escape(opportunity_name)
+                query_conditions.append(f"Name LIKE '%{escaped_opp_name}%'")
             
             if not query_conditions:
                 return {"error": "No search criteria provided."}
@@ -206,7 +225,6 @@ class GetOpportunityTool(BaseTool):
             # Log tool activity
             log_tool_activity("GetOpportunityTool", "RETRIEVE_OPPORTUNITY", 
                             search_params={k: v for k, v in locals().items() if k not in ['self', 'sf']})
-            sf = get_salesforce_connection()
             result = sf.query(query)
         except Exception as e:
             return {"error": str(e)}
@@ -354,10 +372,14 @@ class GetAccountTool(BaseTool):
         account_id = data.account_id
         account_name = data.account_name
 
+        # Escape all user inputs to prevent SOQL injection
+        sf = get_salesforce_connection()
         if account_id:
-            query =f"SELECT Id, Name FROM Account WHERE Id = '{account_id}'"
+            escaped_account_id = sf.escape(account_id)
+            query = f"SELECT Id, Name FROM Account WHERE Id = '{escaped_account_id}'"
         else:
-            query_conditions = [f"Name LIKE '%{account_name}%'"]
+            escaped_account_name = sf.escape(account_name)
+            query_conditions = [f"Name LIKE '%{escaped_account_name}%'"]
     
             query = f"SELECT Id, Name FROM Account WHERE {' AND '.join(query_conditions)}"
 
@@ -365,7 +387,6 @@ class GetAccountTool(BaseTool):
             # Log tool activity
             log_tool_activity("GetAccountTool", "RETRIEVE_ACCOUNT", 
                             search_params={k: v for k, v in locals().items() if k not in ['self', 'sf']})
-            sf = get_salesforce_connection()
             result = sf.query(query)
         except Exception as e:
             return {"error": str(e)}
@@ -485,20 +506,28 @@ class GetContactTool(BaseTool):
         account_name = data.account_name
         account_id = data.account_id
 
+        # Escape all user inputs to prevent SOQL injection
+        sf = get_salesforce_connection()
         if contact_id:
-            query =f"SELECT Id, Name, Account.Name, Email, Phone FROM Contact WHERE Id = '{contact_id}'"
+            escaped_contact_id = sf.escape(contact_id)
+            query = f"SELECT Id, Name, Account.Name, Email, Phone FROM Contact WHERE Id = '{escaped_contact_id}'"
         else:
             query_conditions = []
             if email:
-                query_conditions.append(f"Email LIKE '%{email}%'")
+                escaped_email = sf.escape(email)
+                query_conditions.append(f"Email LIKE '%{escaped_email}%'")
             if name:
-                query_conditions.append(f"Name LIKE '%{name}%'")
+                escaped_name = sf.escape(name)
+                query_conditions.append(f"Name LIKE '%{escaped_name}%'")
             if phone:
-                query_conditions.append(f"Phone LIKE '%{phone}%'")
+                escaped_phone = sf.escape(phone)
+                query_conditions.append(f"Phone LIKE '%{escaped_phone}%'")
             if account_name:
-                query_conditions.append(f"Account.Name LIKE '%{account_name}%'")
+                escaped_account_name = sf.escape(account_name)
+                query_conditions.append(f"Account.Name LIKE '%{escaped_account_name}%'")
             if account_id:
-                query_conditions.append(f"AccountId = '{account_id}'")
+                escaped_account_id = sf.escape(account_id)
+                query_conditions.append(f"AccountId = '{escaped_account_id}'")
 
             if not query_conditions:
                 return {"error": "No search criteria provided."}
@@ -509,7 +538,6 @@ class GetContactTool(BaseTool):
             # Log tool activity
             log_tool_activity("GetContactTool", "RETRIEVE_CONTACT", 
                             search_params={k: v for k, v in locals().items() if k not in ['self', 'sf']})
-            sf = get_salesforce_connection()
             result = sf.query(query)
         except Exception as e:
             return {"error": str(e)}
@@ -628,16 +656,22 @@ class GetCaseTool(BaseTool):
             log_tool_activity("GetCaseTool", "RETRIEVE_CASE", 
                             search_params={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
+            
+            # Escape all user inputs to prevent SOQL injection
             if data.case_id:
-                query = f"SELECT Id, Subject, Description, Account.Name, Contact.Name FROM Case WHERE Id = '{data.case_id}'"
+                escaped_case_id = sf.escape(data.case_id)
+                query = f"SELECT Id, Subject, Description, Account.Name, Contact.Name FROM Case WHERE Id = '{escaped_case_id}'"
             else:
                 query_conditions = []
                 if data.account_name:
-                    query_conditions.append(f"Account.Name LIKE '%{data.account_name}%'")
+                    escaped_account_name = sf.escape(data.account_name)
+                    query_conditions.append(f"Account.Name LIKE '%{escaped_account_name}%'")
                 if data.account_id:
-                    query_conditions.append(f"AccountId = '{data.account_id}'")
+                    escaped_account_id = sf.escape(data.account_id)
+                    query_conditions.append(f"AccountId = '{escaped_account_id}'")
                 if data.contact_name:
-                    query_conditions.append(f"Contact.Name LIKE '%{data.contact_name}%'")
+                    escaped_contact_name = sf.escape(data.contact_name)
+                    query_conditions.append(f"Contact.Name LIKE '%{escaped_contact_name}%'")
 
                 if not query_conditions:
                     return {"error": "No search criteria provided."}
@@ -761,18 +795,25 @@ class GetTaskTool(BaseTool):
             log_tool_activity("GetTaskTool", "RETRIEVE_TASK", 
                             search_params={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
+            
+            # Escape all user inputs to prevent SOQL injection
             if data.task_id:
-                query = f"SELECT Id, Subject, Account.Name, Who.Name FROM Task WHERE Id = '{data.task_id}'"
+                escaped_task_id = sf.escape(data.task_id)
+                query = f"SELECT Id, Subject, Account.Name, Who.Name FROM Task WHERE Id = '{escaped_task_id}'"
             else:
                 query_conditions = []
                 if data.subject:
-                    query_conditions.append(f"Subject LIKE '%{data.subject}%'")
+                    escaped_subject = sf.escape(data.subject)
+                    query_conditions.append(f"Subject LIKE '%{escaped_subject}%'")
                 if data.account_name:
-                    query_conditions.append(f"Account.Name LIKE '%{data.account_name}%'")
+                    escaped_account_name = sf.escape(data.account_name)
+                    query_conditions.append(f"Account.Name LIKE '%{escaped_account_name}%'")
                 if data.account_id:
-                    query_conditions.append(f"WhatId = '{data.account_id}'")
+                    escaped_account_id = sf.escape(data.account_id)
+                    query_conditions.append(f"WhatId = '{escaped_account_id}'")
                 if data.contact_name:
-                    query_conditions.append(f"Who.Name LIKE '%{data.contact_name}%'")
+                    escaped_contact_name = sf.escape(data.contact_name)
+                    query_conditions.append(f"Who.Name LIKE '%{escaped_contact_name}%'")
 
                 if not query_conditions:
                     return {"error": "No search criteria provided."}
