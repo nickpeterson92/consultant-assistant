@@ -6,14 +6,73 @@ Based on Google's A2A specification with JSON-RPC 2.0 over HTTP
 import json
 import uuid
 import asyncio
+import time
 from typing import Dict, Any, Optional, List, Union
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 import aiohttp
 from aiohttp import web
 import logging
+import sys
+import os
+
+# Add logging configuration
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
+from src.utils.logging_config import get_logger, get_performance_tracker
+
+
+# BULLETPROOF EXTERNAL LOGGING - Direct file writing
+import json
+from datetime import datetime
+from pathlib import Path
+
+def log_a2a_activity(operation_type, **data):
+    """Direct external logging that always works"""
+    try:
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "operation_type": operation_type,
+            **data
+        }
+        
+        # Write to A2A protocol log
+        log_file = Path(__file__).parent.parent.parent / "logs" / "a2a_protocol.log"
+        log_file.parent.mkdir(exist_ok=True)
+        
+        with open(log_file, 'a') as f:
+            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - a2a_protocol - INFO - {json.dumps(log_entry)}\n")
+            f.flush()
+            
+        # Write to performance log if it's a performance event
+        if operation_type in ["A2A_CALL_START", "A2A_CALL_SUCCESS"]:
+            perf_file = Path(__file__).parent.parent.parent / "logs" / "performance.log"
+            with open(perf_file, 'a') as f:
+                f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - performance - INFO - {json.dumps(log_entry)}\n")
+                f.flush()
+    except:
+        pass  # Silent fallback
 
 logger = logging.getLogger(__name__)
+
+# Initialize external logging for A2A protocol
+# Note: This will be re-initialized at runtime if needed
+a2a_logger = None
+a2a_perf = None
+
+def ensure_loggers_initialized():
+    """Ensure external loggers are properly initialized at runtime"""
+    global a2a_logger, a2a_perf
+    
+    if a2a_logger is None or a2a_perf is None:
+        debug_mode = os.environ.get('DEBUG_MODE', 'false').lower() == 'true'
+        try:
+            a2a_logger = get_logger('a2a_protocol', debug_mode)
+            a2a_perf = get_performance_tracker('a2a_protocol', debug_mode)
+            # Test log to confirm initialization  
+            a2a_logger.info("RUNTIME_LOGGER_INITIALIZED", debug_mode=debug_mode)
+        except Exception as e:
+            # Silent fallback
+            pass
 
 @dataclass
 class AgentCard:
@@ -137,6 +196,41 @@ class A2AClient:
     
     async def call_agent(self, endpoint: str, method: str, params: Dict[str, Any], request_id: Optional[str] = None) -> Dict[str, Any]:
         """Make a JSON-RPC call to another agent"""
+        
+        # Ensure external loggers are initialized at runtime
+        ensure_loggers_initialized()
+        
+        # Start performance tracking
+        operation_id = f"a2a_call_{uuid.uuid4().hex[:8]}"
+
+        # BULLETPROOF EXTERNAL LOGGING
+        log_a2a_activity("A2A_CALL_START", 
+                        operation_id=operation_id,
+                        endpoint=endpoint,
+                        method=method,
+                        params_keys=list(params.keys()))
+        
+        # External logging with safe fallback
+        if a2a_perf:
+            try:
+                a2a_perf.start_operation(operation_id, "a2a_call", 
+                                        endpoint=endpoint, 
+                                        method=method,
+                                        request_id=request_id)
+            except:
+                pass
+        
+        if a2a_logger:
+            try:
+                a2a_logger.info("A2A_CALL_START", 
+                               operation_id=operation_id,
+                               endpoint=endpoint, 
+                               method=method,
+                               request_id=request_id,
+                               params_keys=list(params.keys()))
+            except:
+                pass
+        
         try:
             if self.debug_mode:
                 logger.info(f"A2A call to {endpoint}: {method}")
@@ -151,22 +245,22 @@ class A2AClient:
                     print(f"📡 Task instruction: {task.get('instruction')}")
                     print(f"📡 Task context: {task.get('context')}")
                     print(f"📡 Task state_snapshot: {task.get('state_snapshot')}")
-            
+
             if not self.session:
                 if self.debug_mode:
                     logger.error("Client session not initialized")
                 raise RuntimeError("Client must be used as async context manager")
-            
+
             request = A2ARequest(method, params, request_id)
             request_dict = request.to_dict()
-            
+
             if self.debug_mode:
                 print(f"📤 SENDING REQUEST PAYLOAD:")
                 print(f"   JSON-RPC version: {request_dict.get('jsonrpc')}")
                 print(f"   Method: {request_dict.get('method')}")
                 print(f"   ID: {request_dict.get('id')}")
                 print(f"   Params keys: {list(request_dict.get('params', {}).keys())}")
-                
+
             async with self.session.post(
                 endpoint,
                 json=request_dict,
@@ -178,9 +272,9 @@ class A2AClient:
                         print(f"❌ HTTP ERROR {response.status}: {error_text}")
                     logger.error(f"A2A HTTP error {response.status}: {error_text}")
                     raise A2AException(f"HTTP {response.status}: {error_text}")
-                
+
                 result = await response.json()
-                
+
                 if self.debug_mode:
                     print(f"📥 RECEIVED RESPONSE:")
                     print(f"   Response keys: {list(result.keys())}")
@@ -198,24 +292,83 @@ class A2AClient:
                                 if isinstance(first_artifact, dict) and 'content' in first_artifact:
                                     content = first_artifact['content']
                                     print(f"   Content preview: {str(content)[:200]}...")
-                
+
                 if "error" in result:
                     if self.debug_mode:
                         print(f"❌ AGENT ERROR: {result['error']}")
                     logger.error(f"Agent returned error: {result['error']}")
                     raise A2AException(f"Agent error: {result['error']}")
-                
+
                 final_result = result.get("result", {})
+
+                # Log successful completion
+                duration = None
+                if a2a_perf:
+                    try:
+                        duration = a2a_perf.end_operation(operation_id, success=True,
+                                                         result_keys=list(final_result.keys()),
+                                                         artifacts_count=len(final_result.get('artifacts', [])))
+                    except:
+                        pass
+
+                if a2a_logger:
+                    try:
+                        a2a_logger.info("A2A_CALL_SUCCESS",
+                                       operation_id=operation_id,
+                                       endpoint=endpoint,
+                                       method=method,
+                                       duration_ms=duration*1000 if duration else 0,
+                                       result_keys=list(final_result.keys()))
+                    except:
+                        pass
+
                 if self.debug_mode:
                     logger.info(f"A2A call success: {method}")
                     print(f"✅ A2A CALL SUCCESSFUL")
                     print(f"🔥 END A2A CLIENT NUCLEAR DEBUG 🔥\n")
+                # Log completion
+                log_a2a_activity("A2A_CALL_SUCCESS",
+                                operation_id=operation_id,
+                                endpoint=endpoint,
+                                method=method,
+                                result_keys=list(final_result.keys()),
+                                artifacts_count=len(final_result.get('artifacts', [])))
+
                 return final_result
-        
+
         except aiohttp.ClientError as e:
+            # Log network error
+            if a2a_perf:
+                try:
+                    a2a_perf.end_operation(operation_id, success=False, error_type="network_error")
+                except:
+                    pass
+            if a2a_logger:
+                try:
+                    a2a_logger.error("A2A_CALL_NETWORK_ERROR",
+                                    operation_id=operation_id,
+                                    endpoint=endpoint,
+                                    error=str(e))
+                except:
+                    pass
             logger.error(f"A2A network error calling {endpoint}: {e}")
             raise A2AException(f"Network error: {str(e)}")
         except Exception as e:
+            # Log unexpected error
+            if a2a_perf:
+                try:
+                    a2a_perf.end_operation(operation_id, success=False, error_type=type(e).__name__)
+                except:
+                    pass
+            if a2a_logger:
+                try:
+                    a2a_logger.error("A2A_CALL_ERROR",
+                                    operation_id=operation_id,
+                                    endpoint=endpoint,
+                                    error_type=type(e).__name__,
+                                    error=str(e))
+                except:
+                    pass
             logger.error(f"A2A unexpected error: {type(e).__name__}: {e}")
             if self.debug_mode:
                 import traceback

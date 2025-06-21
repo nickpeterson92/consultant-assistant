@@ -6,6 +6,28 @@ Utility script to start the entire multi-agent system
 import os
 import sys
 import subprocess
+import json
+from datetime import datetime
+from pathlib import Path
+
+def log_multi_agent_activity(event_type, **data):
+    """Log multi-agent system events"""
+    try:
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "event": event_type,
+            **data
+        }
+        
+        log_file = Path(__file__).parent / "logs" / "multi_agent.log"
+        log_file.parent.mkdir(exist_ok=True)
+        
+        with open(log_file, 'a') as f:
+            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - multi_agent - INFO - {json.dumps(log_entry)}\n")
+            f.flush()
+    except:
+        pass
+
 import time
 import signal
 import asyncio
@@ -47,7 +69,11 @@ def main():
     args = parser.parse_args()
     DEBUG_MODE = args.debug
     
+    # Set environment variable for all child processes
+    os.environ['DEBUG_MODE'] = 'true' if DEBUG_MODE else 'false'
+    
     print("=== Consultant Assistant Multi-Agent System ===")
+    log_multi_agent_activity("SYSTEM_START", components=["orchestrator", "salesforce-agent"])
     print("Starting specialized agents and orchestrator...")
     if DEBUG_MODE:
         print("DEBUG MODE ENABLED - Detailed logging active")
@@ -115,6 +141,7 @@ def main():
                 orchestrator_process.kill()
         
         print("All components stopped.")
+        log_multi_agent_activity("SYSTEM_SHUTDOWN", graceful=True)
 
 if __name__ == "__main__":
     main()

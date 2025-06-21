@@ -10,11 +10,35 @@ from typing import Dict, Any, Optional, List
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 import logging
+from pathlib import Path
 
 from .agent_registry import AgentRegistry
 from ..a2a import A2AClient, A2ATask, A2AException
 
 logger = logging.getLogger(__name__)
+
+# Direct orchestrator logging
+def log_orchestrator_activity(operation_type, **data):
+    """Direct orchestrator logging for A2A calls"""
+    try:
+        import json
+        from datetime import datetime
+        
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "operation_type": operation_type,
+            **data
+        }
+        
+        log_file = Path(__file__).parent.parent.parent / "logs" / "orchestrator.log"
+        log_file.parent.mkdir(exist_ok=True)
+        
+        with open(log_file, 'a') as f:
+            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - orchestrator - INFO - {json.dumps(log_entry)}\n")
+            f.flush()
+    except:
+        pass
+
 
 class AgentCallInput(BaseModel):
     """Input schema for agent calls"""
@@ -142,6 +166,13 @@ class SalesforceAgentTool(BaseTool):
             async with A2AClient(debug_mode=debug_mode) as client:
                 endpoint = agent.endpoint + "/a2a"
                 
+                                
+                # Log A2A dispatch
+                log_orchestrator_activity("A2A_DISPATCH",
+                                        agent="salesforce-agent",
+                                        task_id=task_id,
+                                        instruction_preview=instruction[:100],
+                                        endpoint=endpoint)
                 result = await client.process_task(
                     endpoint=endpoint,
                     task=task
@@ -167,6 +198,10 @@ class SalesforceAgentTool(BaseTool):
                         logger.info(f"Final response length: {len(final_response)}")
                         logger.info(f"Final response preview: {final_response[:200]}...")
                         logger.info(f"=== SALESFORCE AGENT TOOL SUCCESS ===")
+                    log_orchestrator_activity("A2A_RESPONSE_SUCCESS",
+                                            agent="salesforce-agent", 
+                                            task_id=task_id,
+                                            response_length=len(final_response))
                     return final_response
                 
                 fallback_response = str(result.get("result", "No response from Salesforce agent"))

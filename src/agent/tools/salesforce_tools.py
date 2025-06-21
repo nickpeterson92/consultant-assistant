@@ -10,6 +10,54 @@ from typing import Optional
 from simple_salesforce import Salesforce
 from utils.state_manager import StateManager
 
+# Tool activity logging
+import json
+from datetime import datetime
+from pathlib import Path
+
+def log_tool_activity(tool_name, operation, **data):
+    """Log tool usage to external file with safe JSON serialization"""
+    try:
+        # Safely serialize data, handling Pydantic objects and other non-serializable types
+        safe_data = {}
+        for k, v in data.items():
+            try:
+                if hasattr(v, 'model_dump'):  # Pydantic object
+                    safe_data[k] = v.model_dump()
+                elif hasattr(v, '__dict__'):  # Other objects with attributes
+                    safe_data[k] = str(v)
+                else:
+                    # Test if it's JSON serializable
+                    json.dumps(v)
+                    safe_data[k] = v
+            except (TypeError, ValueError):
+                # If not serializable, convert to string
+                safe_data[k] = str(v)
+        
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "tool": tool_name,
+            "operation": operation,
+            **safe_data
+        }
+        
+        log_file = Path(__file__).parent.parent.parent.parent / "logs" / "tools.log"
+        log_file.parent.mkdir(exist_ok=True)
+        
+        with open(log_file, 'a') as f:
+            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - tools - INFO - {json.dumps(log_entry)}\n")
+            f.flush()
+    except Exception as e:
+        # Fallback logging if all else fails
+        try:
+            log_file = Path(__file__).parent.parent.parent.parent / "logs" / "tools.log"
+            log_file.parent.mkdir(exist_ok=True)
+            with open(log_file, 'a') as f:
+                f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - tools - ERROR - Failed to log {tool_name}:{operation} - {str(e)}\n")
+                f.flush()
+        except:
+            pass
+
 
 def get_salesforce_connection():
     sf = Salesforce(
@@ -41,6 +89,9 @@ class GetLeadTool(BaseTool):
         data = GetLeadInput(**kwargs)
 
         try:
+            # Log tool activity
+            log_tool_activity("GetLeadTool", "RETRIEVE_LEAD", 
+                            search_params={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             if data.lead_id:
                 query = f"SELECT Id, Name, Company, Email, Phone FROM Lead WHERE Id = '{data.lead_id}'"
@@ -102,6 +153,9 @@ class CreateLeadTool(BaseTool):
 
     def _run(self, **kwargs) -> dict:
         try:
+            # Log tool activity
+            log_tool_activity("CreateLeadTool", "CREATE_LEAD", 
+                            input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             data = CreateLeadInput(**kwargs)
             result = sf.Lead.create({
@@ -132,6 +186,9 @@ class UpdateLeadTool(BaseTool):
 
     def _run(self, **kwargs) -> dict:
         try:
+            # Log tool activity
+            log_tool_activity("UpdateLeadTool", "UPDATE_LEAD", 
+                            input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             data = UpdateLeadInput(**kwargs)
             sf.Lead.update(data.lead_id, {
@@ -139,6 +196,10 @@ class UpdateLeadTool(BaseTool):
                 "Email": data.email,
                 "Phone": data.phone
             })
+            
+            # Log successful update
+            log_tool_activity("UpdateLeadTool", "UPDATE_LEAD_SUCCESS", 
+                              record_id=data.lead_id)
             return "Successfully updated lead with Id: " + data.lead_id
         except Exception as e:
             return {"error": str(e)}
@@ -186,6 +247,9 @@ class GetOpportunityTool(BaseTool):
             query = f"SELECT Id, Name, StageName, Amount, Account.Name FROM Opportunity WHERE {' OR '.join(query_conditions)}"
             
         try:
+            # Log tool activity
+            log_tool_activity("GetOpportunityTool", "RETRIEVE_OPPORTUNITY", 
+                            search_params={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             result = sf.query(query)
         except Exception as e:
@@ -241,6 +305,9 @@ class CreateOpportunityTool(BaseTool):
         close_date = data.close_date
 
         try:
+            # Log tool activity
+            log_tool_activity("CreateOpportunityTool", "CREATE_OPPORTUNITY", 
+                            input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             result = sf.Opportunity.create({
                 "Name": opportunity_name,
@@ -294,11 +361,18 @@ class UpdateOpportunityTool(BaseTool):
         opp_id = data.opportunity_id
         
         try:
+            # Log tool activity
+            log_tool_activity("UpdateOpportunityTool", "UPDATE_OPPORTUNITY", 
+                            input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             sf.Opportunity.update(opp_id, {
                 "StageName": stage,
                 "Amount": amount
             })
+            
+            # Log successful update
+            log_tool_activity("UpdateOpportunityTool", "UPDATE_OPPORTUNITY_SUCCESS", 
+                              record_id=opp_id)
             return "Successfully updated opportunity with Id: " + opp_id
         except Exception as e:
             return {"error": str(e)}
@@ -332,6 +406,9 @@ class GetAccountTool(BaseTool):
             query = f"SELECT Id, Name FROM Account WHERE {' AND '.join(query_conditions)}"
 
         try:
+            # Log tool activity
+            log_tool_activity("GetAccountTool", "RETRIEVE_ACCOUNT", 
+                            search_params={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             result = sf.query(query)
         except Exception as e:
@@ -376,6 +453,9 @@ class CreateAccountTool(BaseTool):
         data = CreateAccountInput(**kwargs)
 
         try:
+            # Log tool activity
+            log_tool_activity("CreateAccountTool", "CREATE_ACCOUNT", 
+                            input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             result = sf.Account.create({
                 "Name": data.account_name,
@@ -404,11 +484,18 @@ class UpdateAccountTool(BaseTool):
     def _run(self, **kwargs) -> dict:
         data = UpdateAccountInput(**kwargs)
         try:
+            # Log tool activity
+            log_tool_activity("UpdateAccountTool", "UPDATE_ACCOUNT", 
+                            input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             sf.Account.update(data.account_id, {
                 "Phone": data.phone,
                 "Website": data.website
             })
+            
+            # Log successful update
+            log_tool_activity("UpdateAccountTool", "UPDATE_ACCOUNT_SUCCESS", 
+                              record_id=data.account_id)
             return "Successfully updated account with Id: " + data.account_id
         except Exception as e:
             return {"error": str(e)}
@@ -463,6 +550,9 @@ class GetContactTool(BaseTool):
             query = f"SELECT Id, Name, Account.Name, Email, Phone FROM Contact WHERE {' OR '.join(query_conditions)}"
 
         try:
+            # Log tool activity
+            log_tool_activity("GetContactTool", "RETRIEVE_CONTACT", 
+                            search_params={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             result = sf.query(query)
         except Exception as e:
@@ -510,6 +600,9 @@ class CreateContactTool(BaseTool):
         data = CreateContactInput(**kwargs)
 
         try:
+            # Log tool activity
+            log_tool_activity("CreateContactTool", "CREATE_CONTACT", 
+                            input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             result = sf.Contact.create({
                 "LastName": data.name,
@@ -539,11 +632,18 @@ class UpdateContactTool(BaseTool):
     def _run(self, **kwargs) -> dict:
         data = UpdateContactInput(**kwargs)
         try:
+            # Log tool activity
+            log_tool_activity("UpdateContactTool", "UPDATE_CONTACT", 
+                            input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             sf.Contact.update(data.contact_id, {
                 "Email": data.email,
                 "Phone": data.phone
             })
+            
+            # Log successful update
+            log_tool_activity("UpdateContactTool", "UPDATE_CONTACT_SUCCESS", 
+                              record_id=data.contact_id)
             return "Successfully updated contact with Id: " + data.contact_id
         except Exception as e:
             return {"error": str(e)}
@@ -568,6 +668,9 @@ class GetCaseTool(BaseTool):
     def _run(self, **kwargs) -> dict:
         data = GetCaseInput(**kwargs)
         try:
+            # Log tool activity
+            log_tool_activity("GetCaseTool", "RETRIEVE_CASE", 
+                            search_params={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             if data.case_id:
                 query = f"SELECT Id, Subject, Description, Account.Name, Contact.Name FROM Case WHERE Id = '{data.case_id}'"
@@ -629,6 +732,9 @@ class CreateCaseTool(BaseTool):
     def _run(self, **kwargs) -> dict:
         data = CreateCaseInput(**kwargs)
         try:
+            # Log tool activity
+            log_tool_activity("CreateCaseTool", "CREATE_CASE", 
+                            input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             result = sf.Case.create({
                 "Subject": data.subject,
@@ -658,11 +764,18 @@ class UpdateCaseTool(BaseTool):
     def _run(self, **kwargs) -> dict:
         data = UpdateCaseInput(**kwargs)
         try:
+            # Log tool activity
+            log_tool_activity("UpdateCaseTool", "UPDATE_CASE", 
+                            input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             sf.Case.update(data.case_id, {
                 "Status": data.status,
                 "Description": data.description
             })
+            
+            # Log successful update
+            log_tool_activity("UpdateCaseTool", "UPDATE_CASE_SUCCESS", 
+                              record_id=data.case_id)
             return "Successfully updated case with Id: " + data.case_id
         except Exception as e:
             return {"error": str(e)}
@@ -688,6 +801,9 @@ class GetTaskTool(BaseTool):
     def _run(self, **kwargs) -> dict:
         data = GetTaskInput(**kwargs)
         try:
+            # Log tool activity
+            log_tool_activity("GetTaskTool", "RETRIEVE_TASK", 
+                            search_params={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             if data.task_id:
                 query = f"SELECT Id, Subject, Account.Name, Who.Name FROM Task WHERE Id = '{data.task_id}'"
@@ -751,6 +867,9 @@ class CreateTaskTool(BaseTool):
     def _run(self, **kwargs) -> dict:
         data = CreateTaskInput(**kwargs)
         try:
+            # Log tool activity
+            log_tool_activity("CreateTaskTool", "CREATE_TASK", 
+                            input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             result = sf.Task.create({
                 "Subject": data.subject,
@@ -780,11 +899,18 @@ class UpdateTaskTool(BaseTool):
     def _run(self, **kwargs) -> dict:
         data = UpdateTaskInput(**kwargs)
         try:
+            # Log tool activity
+            log_tool_activity("UpdateTaskTool", "UPDATE_TASK", 
+                            input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             sf.Task.update(data.task_id, {
                 "Status": data.status,
                 "Description": data.description
             })
+            
+            # Log successful update
+            log_tool_activity("UpdateTaskTool", "UPDATE_TASK_SUCCESS", 
+                              record_id=data.task_id)
             return "Successfully updated task with Id: " + data.task_id
         except Exception as e:
             return {"error": str(e)}

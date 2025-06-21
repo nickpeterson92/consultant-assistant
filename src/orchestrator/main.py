@@ -7,10 +7,16 @@ import os
 import json
 import asyncio
 import argparse
+import time
 from typing import Annotated, Dict, Any, List
 from typing_extensions import TypedDict
 
 from dotenv import load_dotenv
+
+# Add logging configuration
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from utils.logging_config import get_logger, get_performance_tracker, get_cost_tracker, init_session_tracking
 
 from trustcall import create_extractor
 
@@ -36,16 +42,77 @@ sys.path.insert(0, agent_path)
 from .agent_registry import AgentRegistry
 from .state_manager import MultiAgentStateManager
 from .agent_caller_tools import SalesforceAgentTool, GenericAgentTool, AgentRegistryTool
-from utils.helpers import type_out, smart_preserve_messages
-from utils.sys_msg import summary_sys_msg, TRUSTCALL_INSTRUCTION
-from store.sqlite_store import SQLiteStore
-from store.memory_schemas import AccountList
+from agent.utils.helpers import type_out, smart_preserve_messages
+from agent.utils.sys_msg import summary_sys_msg, TRUSTCALL_INSTRUCTION
+from agent.store.sqlite_store import SQLiteStore
+from agent.store.memory_schemas import AccountList
 from .enhanced_sys_msg import orchestrator_chatbot_sys_msg, orchestrator_summary_sys_msg, ORCHESTRATOR_TRUSTCALL_INSTRUCTION
 
 import logging
 
 # Disable LangSmith tracing to avoid circular reference errors
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
+
+
+# BULLETPROOF EXTERNAL LOGGING - Direct file writing for orchestrator
+import json
+from datetime import datetime
+from pathlib import Path
+
+def log_orchestrator_activity(operation_type, **data):
+    """Direct external logging that always works"""
+    try:
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "operation_type": operation_type,
+            **data
+        }
+        
+        # Write to orchestrator log
+        log_file = Path(__file__).parent.parent.parent / "logs" / "orchestrator.log"
+        log_file.parent.mkdir(exist_ok=True)
+        
+        with open(log_file, 'a') as f:
+            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - orchestrator - INFO - {json.dumps(log_entry)}\n")
+            f.flush()
+            
+        # Also write to cost tracking log for LLM calls
+        if "cost" in data or "tokens" in data:
+            cost_file = Path(__file__).parent.parent.parent / "logs" / "cost_tracking.log"
+            with open(cost_file, 'a') as f:
+                f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - cost_tracking - INFO - {json.dumps(log_entry)}\n")
+                f.flush()
+    except:
+        pass  # Silent fallback
+def log_cost_activity(operation, tokens_used, model="gpt-4", **data):
+    """Direct cost tracking logging"""
+    try:
+        import json
+        from datetime import datetime
+        from pathlib import Path
+        
+        # Rough token cost estimates
+        cost_per_1k = 0.03  # $0.03 per 1K tokens for GPT-4
+        estimated_cost = (tokens_used / 1000) * cost_per_1k
+        
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "operation": operation,
+            "model": model,
+            "tokens_used": tokens_used,
+            "estimated_cost": f"${estimated_cost:.4f}",
+            **data
+        }
+        
+        log_file = Path(__file__).parent.parent.parent / "logs" / "cost_tracking.log"
+        log_file.parent.mkdir(exist_ok=True)
+        
+        with open(log_file, 'a') as f:
+            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - cost_tracking - INFO - {json.dumps(log_entry)}\n")
+            f.flush()
+    except:
+        pass
+
 
 logger = logging.getLogger(__name__)
 
@@ -123,10 +190,25 @@ ORCHESTRATOR TOOLS:
     def orchestrator(state: OrchestratorState, config: RunnableConfig):
         """Main orchestrator node that coordinates with specialized agents"""
         try:
-            # DUPLICATE DETECTION: Track when orchestrator is called
+            # Track when orchestrator is called
+            msg_count = len(state.get('messages', []))
+            last_msg = state.get('messages', [])[-1] if state.get('messages') else None
+            
+            # Log message based on type - distinguish user vs AI messages
+            if hasattr(last_msg, 'content'):
+                from langchain_core.messages import HumanMessage, AIMessage
+                if isinstance(last_msg, HumanMessage):
+                    log_orchestrator_activity("USER_REQUEST", 
+                                             message=str(last_msg.content)[:200],
+                                             message_count=msg_count,
+                                             turn=state.get('turns', 0))
+                elif isinstance(last_msg, AIMessage):
+                    log_orchestrator_activity("AI_RESPONSE_PROCESSING", 
+                                             message=str(last_msg.content)[:200],
+                                             message_count=msg_count,
+                                             turn=state.get('turns', 0))
+            
             if debug_mode:
-                msg_count = len(state.get('messages', []))
-                last_msg = state.get('messages', [])[-1] if state.get('messages') else None
                 last_type = type(last_msg).__name__ if last_msg else "None"
                 
                 # Check for potential duplicate scenario
@@ -168,6 +250,30 @@ ORCHESTRATOR TOOLS:
             
             # No need to clean orphaned tool calls - smart preservation prevents them
             response = llm_with_tools.invoke(messages)
+            
+            # Log tool calls if present
+            if hasattr(response, 'tool_calls') and response.tool_calls:
+                for tool_call in response.tool_calls:
+                    log_orchestrator_activity("TOOL_CALL",
+                                             tool_name=tool_call.get('name', 'unknown'),
+                                             tool_args=tool_call.get('args', {}),
+                                             turn=state.get('turns', 0))
+            
+            # Log LLM response and cost
+            response_content = str(response.content) if hasattr(response, 'content') else ""
+            log_orchestrator_activity("LLM_RESPONSE", 
+                                     response_length=len(response_content),
+                                     response_content=response_content[:500],  # Truncate for readability
+                                     has_tool_calls=bool(hasattr(response, 'tool_calls') and response.tool_calls),
+                                     turn=state.get('turns', 0))
+            
+            # Log token usage for cost tracking
+            message_chars = sum(len(str(m.content if hasattr(m, 'content') else m)) for m in messages)
+            response_chars = len(str(response.content)) if hasattr(response, 'content') else 0
+            estimated_tokens = (message_chars + response_chars) // 4
+            log_cost_activity("ORCHESTRATOR_LLM", estimated_tokens,
+                            message_count=len(messages),
+                            turn=state.get('turns', 0))
             
             # Update orchestrator state (legacy style)
             turn = state.get("turns", 0)
@@ -218,6 +324,18 @@ ORCHESTRATOR TOOLS:
         
         
         response = llm.invoke(messages)
+        response_content = str(response.content) if hasattr(response, 'content') else ""
+        log_orchestrator_activity("LLM_RESPONSE", 
+                                 response_length=len(response_content),
+                                 response_content=response_content[:500],  # Truncate for readability
+                                 operation="SUMMARIZATION")
+        
+        # Estimate and log token usage
+        message_chars = sum(len(str(m.content if hasattr(m, 'content') else m)) for m in messages)
+        estimated_tokens = message_chars // 4  # Rough estimate: 4 chars per token
+        log_cost_activity("ORCHESTRATOR_LLM_CALL", estimated_tokens, 
+                         message_count=len(messages),
+                         response_length=len(str(response.content)) if hasattr(response, 'content') else 0)
         
         
         # Update global state manager with new summary
@@ -416,9 +534,22 @@ async def main():
     
     DEBUG_MODE = args.debug
     
-    # Setup logging
+    # Setup comprehensive external logging
+    init_session_tracking(DEBUG_MODE)
+    
+    # Get structured loggers
+    orchestrator_logger = get_logger('orchestrator', DEBUG_MODE)
+    perf_tracker = get_performance_tracker('orchestrator', DEBUG_MODE)
+    cost_tracker = get_cost_tracker(DEBUG_MODE)
+    
+    # Setup basic logging for console output
     log_level = logging.DEBUG if DEBUG_MODE else logging.INFO
     logging.basicConfig(level=log_level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    
+    # Log session start
+    orchestrator_logger.info("ORCHESTRATOR_SESSION_START", 
+                           debug_mode=DEBUG_MODE,
+                           components=['orchestrator', 'agents', 'a2a'])
     
     # Suppress verbose HTTP request logging from third-party libraries
     # Always suppress HTTP noise regardless of debug mode

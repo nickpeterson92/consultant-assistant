@@ -47,7 +47,68 @@ import logging
 # Disable LangSmith tracing to avoid circular reference errors
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
+# Add structured logging
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+from src.utils.logging_config import get_logger, get_performance_tracker, get_cost_tracker
+
+
+# BULLETPROOF EXTERNAL LOGGING - Direct file writing for salesforce
+import json
+from datetime import datetime
+from pathlib import Path
+
+def log_salesforce_activity(operation_type, **data):
+    """Direct external logging with safe JSON serialization"""
+    try:
+        # Safely serialize data, handling non-serializable types
+        safe_data = {}
+        for k, v in data.items():
+            try:
+                if hasattr(v, 'model_dump'):  # Pydantic object
+                    safe_data[k] = v.model_dump()
+                elif hasattr(v, '__dict__'):  # Other objects with attributes
+                    safe_data[k] = str(v)
+                else:
+                    # Test if it's JSON serializable
+                    json.dumps(v)
+                    safe_data[k] = v
+            except (TypeError, ValueError):
+                # If not serializable, convert to string
+                safe_data[k] = str(v)
+        
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "operation_type": operation_type,
+            **safe_data
+        }
+        
+        # Write to salesforce log in logs folder
+        log_file = Path(__file__).parent.parent.parent.parent / "logs" / "salesforce_agent.log"
+        log_file.parent.mkdir(exist_ok=True)
+        
+        with open(log_file, 'a') as f:
+            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - salesforce_agent - INFO - {json.dumps(log_entry)}\n")
+            f.flush()
+    except Exception as e:
+        # Fallback logging if all else fails
+        try:
+            log_file = Path(__file__).parent.parent.parent.parent / "logs" / "salesforce_agent.log"
+            log_file.parent.mkdir(exist_ok=True)
+            with open(log_file, 'a') as f:
+                f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - salesforce_agent - ERROR - Failed to log {operation_type} - {str(e)}\n")
+                f.flush()
+        except:
+            pass
+
 logger = logging.getLogger(__name__)
+
+# Suppress verbose HTTP debug logs
+logging.getLogger('openai._base_client').setLevel(logging.WARNING)
+logging.getLogger('httpcore').setLevel(logging.WARNING)
+logging.getLogger('httpcore.http11').setLevel(logging.WARNING)
+logging.getLogger('httpcore.connection').setLevel(logging.WARNING)
+# Remove structured logger in favor of direct file logging
+# Remove structured perf tracker in favor of direct file logging
 
 # Salesforce agent is now "dumb" - no state management or memory
 
@@ -151,6 +212,11 @@ IMPORTANT - Tool Result Interpretation:
                 logger.info(f"System message length: {len(system_message_content)}")
                 logger.info("Invoking LLM with tools...")
             
+            # Log Salesforce LLM call
+            log_salesforce_activity("SALESFORCE_LLM_CALL",
+                                   message_count=len(messages),
+                                   task_id=state.get("task_context", {}).get("task_id", "unknown"))
+            
             response = llm_with_tools.invoke(messages)
             
             if debug_mode:
@@ -192,8 +258,8 @@ IMPORTANT - Tool Result Interpretation:
     
     return graph_builder.compile()
 
-# Build the graph at module level - removed to avoid blocking import
-# salesforce_graph = build_salesforce_graph(debug_mode=False)
+# Build the graph at module level
+salesforce_graph = None  # Will be created when needed
 
 class SalesforceA2AHandler:
     """Handles A2A protocol requests for the Salesforce agent"""
@@ -205,6 +271,10 @@ class SalesforceA2AHandler:
     async def process_task(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Process an A2A task request"""
         try:
+            # Log A2A task processing
+            log_salesforce_activity("A2A_TASK_START", 
+                                   task_id=params.get("task", {}).get("id", "unknown"),
+                                   instruction_preview=params.get("task", {}).get("instruction", "")[:100])
             task_data = params.get("task", {})
             
             if self.debug_mode:
@@ -212,6 +282,11 @@ class SalesforceA2AHandler:
             
             # Extract task information
             instruction = task_data.get("instruction", "")
+            
+            # Log task details
+            log_salesforce_activity("A2A_TASK_RECEIVED", 
+                                   task_id=task_data.get("id", "unknown"),
+                                   instruction=instruction[:200])
             context = task_data.get("context", {})
             state_snapshot = task_data.get("state_snapshot", {})
             
@@ -245,6 +320,16 @@ class SalesforceA2AHandler:
             # Process the task through the Salesforce graph
             result = await self.graph.ainvoke(initial_state, config)
             
+            # Log Salesforce operation result
+            if "messages" in result:
+                for msg in result["messages"]:
+                    if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                        for tool_call in msg.tool_calls:
+                            log_salesforce_activity("TOOL_CALL",
+                                                   task_id=task_data.get("id", "unknown"),
+                                                   tool_name=tool_call.get("name", "unknown"),
+                                                   tool_args=tool_call.get("args", {}))
+            
             # Extract response and prepare A2A response
             response_message = result.get("messages", [])
             if response_message and len(response_message) > 0:
@@ -255,6 +340,10 @@ class SalesforceA2AHandler:
                     response_content = str(last_message)
             else:
                 response_content = "Task completed successfully"
+            
+            log_salesforce_activity("TASK_COMPLETED", 
+                                   task_id=task_data.get("id", "unknown"),
+                                   response_preview=response_content[:200])
             
             # Prepare state updates for the orchestrator
             state_updates = {}
@@ -344,6 +433,33 @@ async def main():
     # Setup logging
     log_level = logging.DEBUG if DEBUG_MODE else logging.INFO
     logging.basicConfig(level=log_level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+    # Suppress ALL HTTP noise comprehensively
+    # OpenAI/Azure related
+    logging.getLogger('openai').setLevel(logging.WARNING)
+    logging.getLogger('openai._base_client').setLevel(logging.WARNING)
+    logging.getLogger('openai.resources').setLevel(logging.WARNING)
+    logging.getLogger('azure').setLevel(logging.WARNING)
+    
+    # HTTP libraries
+    logging.getLogger('httpcore').setLevel(logging.WARNING)
+    logging.getLogger('httpcore.http11').setLevel(logging.WARNING)
+    logging.getLogger('httpcore.connection').setLevel(logging.WARNING)
+    logging.getLogger('httpx').setLevel(logging.WARNING)
+    logging.getLogger('urllib3').setLevel(logging.WARNING)
+    logging.getLogger('urllib3.connectionpool').setLevel(logging.WARNING)
+    logging.getLogger('requests').setLevel(logging.WARNING)
+    logging.getLogger('aiohttp').setLevel(logging.WARNING)
+    logging.getLogger('aiohttp.access').setLevel(logging.WARNING)
+    
+    # Salesforce related
+    logging.getLogger('simple_salesforce').setLevel(logging.WARNING)
+    logging.getLogger('salesforce').setLevel(logging.WARNING)
+    
+    # Any other potential HTTP noise
+    for logger_name in logging.root.manager.loggerDict:
+        if any(term in logger_name.lower() for term in ['http', 'request', 'urllib', 'connection']):
+            logging.getLogger(logger_name).setLevel(logging.WARNING)
     
     # Suppress verbose HTTP request logging from third-party libraries
     # Always suppress HTTP noise regardless of debug mode

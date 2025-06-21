@@ -21,4 +21,14 @@ src/agents/salesforce/__pycache__/main.cpython-313.pyc
 src/a2a/__pycache__/__init__.cpython-313.pyc
 src/a2a/__pycache__/protocol.cpython-313.pyc
 src/agents/__pycache__/__init__.cpython-313.pyc
+# External log files - comprehensive logging
+*.log
+logs/
+orchestrator.log
 salesforce_agent.log
+a2a_protocol.log
+cost_tracking.log
+performance.log
+src/utils/__pycache__/logging_config.cpython-313.pyc
+__pycache__/orchestrator.cpython-313.pyc
+memory_store.db
