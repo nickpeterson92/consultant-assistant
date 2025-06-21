@@ -6,27 +6,10 @@ Utility script to start the entire multi-agent system
 import os
 import sys
 import subprocess
-import json
-from datetime import datetime
-from pathlib import Path
 
-def log_multi_agent_activity(event_type, **data):
-    """Log multi-agent system events"""
-    try:
-        log_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "event": event_type,
-            **data
-        }
-        
-        log_file = Path(__file__).parent / "logs" / "multi_agent.log"
-        log_file.parent.mkdir(exist_ok=True)
-        
-        with open(log_file, 'a') as f:
-            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - multi_agent - INFO - {json.dumps(log_entry)}\n")
-            f.flush()
-    except:
-        pass
+# Add src to path for centralized logging
+sys.path.insert(0, 'src')
+from utils.activity_logger import log_multi_agent_activity
 
 import time
 import signal

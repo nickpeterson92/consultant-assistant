@@ -17,27 +17,8 @@ from ..a2a import A2AClient, A2ATask, A2AException
 
 logger = logging.getLogger(__name__)
 
-# Direct orchestrator logging
-def log_orchestrator_activity(operation_type, **data):
-    """Direct orchestrator logging for A2A calls"""
-    try:
-        import json
-        from datetime import datetime
-        
-        log_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "operation_type": operation_type,
-            **data
-        }
-        
-        log_file = Path(__file__).parent.parent.parent / "logs" / "orchestrator.log"
-        log_file.parent.mkdir(exist_ok=True)
-        
-        with open(log_file, 'a') as f:
-            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - orchestrator - INFO - {json.dumps(log_entry)}\n")
-            f.flush()
-    except:
-        pass
+# Import centralized logging
+from src.utils.activity_logger import log_orchestrator_activity
 
 
 class AgentCallInput(BaseModel):

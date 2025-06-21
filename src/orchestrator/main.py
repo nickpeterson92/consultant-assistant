@@ -42,10 +42,10 @@ sys.path.insert(0, agent_path)
 from .agent_registry import AgentRegistry
 from .state_manager import MultiAgentStateManager
 from .agent_caller_tools import SalesforceAgentTool, GenericAgentTool, AgentRegistryTool
-from agent.utils.helpers import type_out, smart_preserve_messages
-from agent.utils.sys_msg import summary_sys_msg, TRUSTCALL_INSTRUCTION
-from agent.store.sqlite_store import SQLiteStore
-from agent.store.memory_schemas import AccountList
+from src.utils.helpers import type_out, smart_preserve_messages
+from src.utils.sys_msg import summary_sys_msg, TRUSTCALL_INSTRUCTION
+from src.utils.store.sqlite_store import SQLiteStore
+from src.utils.store.memory_schemas import AccountList
 from .enhanced_sys_msg import orchestrator_chatbot_sys_msg, orchestrator_summary_sys_msg, ORCHESTRATOR_TRUSTCALL_INSTRUCTION
 
 import logging
@@ -54,64 +54,10 @@ import logging
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
 
-# BULLETPROOF EXTERNAL LOGGING - Direct file writing for orchestrator
-import json
-from datetime import datetime
-from pathlib import Path
+# Import centralized logging
+from src.utils.activity_logger import log_orchestrator_activity, log_cost_activity
 
-def log_orchestrator_activity(operation_type, **data):
-    """Direct external logging that always works"""
-    try:
-        log_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "operation_type": operation_type,
-            **data
-        }
-        
-        # Write to orchestrator log
-        log_file = Path(__file__).parent.parent.parent / "logs" / "orchestrator.log"
-        log_file.parent.mkdir(exist_ok=True)
-        
-        with open(log_file, 'a') as f:
-            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - orchestrator - INFO - {json.dumps(log_entry)}\n")
-            f.flush()
-            
-        # Also write to cost tracking log for LLM calls
-        if "cost" in data or "tokens" in data:
-            cost_file = Path(__file__).parent.parent.parent / "logs" / "cost_tracking.log"
-            with open(cost_file, 'a') as f:
-                f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - cost_tracking - INFO - {json.dumps(log_entry)}\n")
-                f.flush()
-    except:
-        pass  # Silent fallback
-def log_cost_activity(operation, tokens_used, model="gpt-4", **data):
-    """Direct cost tracking logging"""
-    try:
-        import json
-        from datetime import datetime
-        from pathlib import Path
-        
-        # Rough token cost estimates
-        cost_per_1k = 0.03  # $0.03 per 1K tokens for GPT-4
-        estimated_cost = (tokens_used / 1000) * cost_per_1k
-        
-        log_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "operation": operation,
-            "model": model,
-            "tokens_used": tokens_used,
-            "estimated_cost": f"${estimated_cost:.4f}",
-            **data
-        }
-        
-        log_file = Path(__file__).parent.parent.parent / "logs" / "cost_tracking.log"
-        log_file.parent.mkdir(exist_ok=True)
-        
-        with open(log_file, 'a') as f:
-            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - cost_tracking - INFO - {json.dumps(log_entry)}\n")
-            f.flush()
-    except:
-        pass
+# Logging functions now imported from centralized activity_logger
 
 
 logger = logging.getLogger(__name__)

@@ -32,8 +32,8 @@ sys.path.insert(0, agent_path)
 
 from src.a2a import A2AServer, AgentCard, A2ATask
 
-# Now import from the agent directory  
-from tools.salesforce_tools import (
+# Import from the centralized tools directory
+from src.tools.salesforce_tools import (
     CreateLeadTool, GetLeadTool, UpdateLeadTool,
     GetOpportunityTool, UpdateOpportunityTool, CreateOpportunityTool,
     GetAccountTool, CreateAccountTool, UpdateAccountTool,
@@ -52,53 +52,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from src.utils.logging_config import get_logger, get_performance_tracker, get_cost_tracker
 
 
-# BULLETPROOF EXTERNAL LOGGING - Direct file writing for salesforce
-import json
-from datetime import datetime
-from pathlib import Path
+# Import centralized logging
+from src.utils.activity_logger import log_salesforce_activity
 
-def log_salesforce_activity(operation_type, **data):
-    """Direct external logging with safe JSON serialization"""
-    try:
-        # Safely serialize data, handling non-serializable types
-        safe_data = {}
-        for k, v in data.items():
-            try:
-                if hasattr(v, 'model_dump'):  # Pydantic object
-                    safe_data[k] = v.model_dump()
-                elif hasattr(v, '__dict__'):  # Other objects with attributes
-                    safe_data[k] = str(v)
-                else:
-                    # Test if it's JSON serializable
-                    json.dumps(v)
-                    safe_data[k] = v
-            except (TypeError, ValueError):
-                # If not serializable, convert to string
-                safe_data[k] = str(v)
-        
-        log_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "operation_type": operation_type,
-            **safe_data
-        }
-        
-        # Write to salesforce log in logs folder
-        log_file = Path(__file__).parent.parent.parent.parent / "logs" / "salesforce_agent.log"
-        log_file.parent.mkdir(exist_ok=True)
-        
-        with open(log_file, 'a') as f:
-            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - salesforce_agent - INFO - {json.dumps(log_entry)}\n")
-            f.flush()
-    except Exception as e:
-        # Fallback logging if all else fails
-        try:
-            log_file = Path(__file__).parent.parent.parent.parent / "logs" / "salesforce_agent.log"
-            log_file.parent.mkdir(exist_ok=True)
-            with open(log_file, 'a') as f:
-                f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - salesforce_agent - ERROR - Failed to log {operation_type} - {str(e)}\n")
-                f.flush()
-        except:
-            pass
+# Logging function now imported from centralized activity_logger
 
 logger = logging.getLogger(__name__)
 

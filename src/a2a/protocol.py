@@ -21,36 +21,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 from src.utils.logging_config import get_logger, get_performance_tracker
 
 
-# BULLETPROOF EXTERNAL LOGGING - Direct file writing
-import json
-from datetime import datetime
-from pathlib import Path
+# Import centralized logging
+from src.utils.activity_logger import log_a2a_activity, log_performance_activity
 
-def log_a2a_activity(operation_type, **data):
-    """Direct external logging that always works"""
-    try:
-        log_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "operation_type": operation_type,
-            **data
-        }
-        
-        # Write to A2A protocol log
-        log_file = Path(__file__).parent.parent.parent / "logs" / "a2a_protocol.log"
-        log_file.parent.mkdir(exist_ok=True)
-        
-        with open(log_file, 'a') as f:
-            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - a2a_protocol - INFO - {json.dumps(log_entry)}\n")
-            f.flush()
-            
-        # Write to performance log if it's a performance event
-        if operation_type in ["A2A_CALL_START", "A2A_CALL_SUCCESS"]:
-            perf_file = Path(__file__).parent.parent.parent / "logs" / "performance.log"
-            with open(perf_file, 'a') as f:
-                f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - performance - INFO - {json.dumps(log_entry)}\n")
-                f.flush()
-    except:
-        pass  # Silent fallback
+# A2A logging now handled by centralized activity_logger
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +184,13 @@ class A2AClient:
                         method=method,
                         params_keys=list(params.keys()))
         
+        # Also log to performance tracker
+        log_performance_activity("A2A_CALL_START",
+                                operation_id=operation_id,
+                                endpoint=endpoint,
+                                method=method,
+                                params_keys=list(params.keys()))
+        
         # External logging with safe fallback
         if a2a_perf:
             try:
@@ -333,6 +314,14 @@ class A2AClient:
                                 method=method,
                                 result_keys=list(final_result.keys()),
                                 artifacts_count=len(final_result.get('artifacts', [])))
+                
+                # Also log to performance tracker
+                log_performance_activity("A2A_CALL_SUCCESS",
+                                        operation_id=operation_id,
+                                        endpoint=endpoint,
+                                        method=method,
+                                        result_keys=list(final_result.keys()),
+                                        artifacts_count=len(final_result.get('artifacts', [])))
 
                 return final_result
 
