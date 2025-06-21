@@ -3,7 +3,19 @@
 # External log files - comprehensive logging
 *.log
 *.pyc
-*.__pycache__
+__pycache__/
+**/__pycache__/
 *.db
+*.db-wal
+*.db-shm
 logs/
-memory_store.db
+# Exclude any other log directories that might be created
+src/logs/
+src/agents/logs/
+
+# Test and analysis files
+test_*.py
+*_test.py
+analyze_*.py
+inspect_*.py
+deep_*.py

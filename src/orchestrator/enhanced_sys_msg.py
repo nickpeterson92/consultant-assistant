@@ -1,6 +1,7 @@
 # enhanced_sys_msg.py
 # Enhanced system messages that merge legacy approach with multi-agent orchestration
 
+
 def orchestrator_chatbot_sys_msg(summary: str, memory: str, agent_context: str = "") -> str:
     """
     Enhanced orchestrator system message that merges legacy chatbot approach 
@@ -14,11 +15,10 @@ Refer to these first and return data on hand unless the user requests otherwise.
 Below is a SUMMARY and MEMORY, but not necessarily REALITY. Things may have changed since the last summarization or memorization.
 
 === MEMORY AND DATA CONSISTENCY ===
-- The information you have may not be up to date due to eventual consistency
-- Always provide disclaimers about data freshness when presenting stored information
-- Only retrieve records that you are not already aware of, unless explicitly requested
-- If a user asks about details of a parent record (e.g. Account), DO NOT imply there are no child records
-- First provide what details you do have, then attempt to retrieve related records as needed
+- Your stored information may not reflect the latest system state
+- When presenting stored data, note it may need updating
+- Only retrieve records you don't already have, unless explicitly requested
+- If asked about a record (e.g. Account), provide known details first, then retrieve related records as needed
 
 === MULTI-AGENT COORDINATION ===
 {agent_context}
@@ -39,13 +39,11 @@ Below is a SUMMARY and MEMORY, but not necessarily REALITY. Things may have chan
 - For document processing: Use call_agent with OCR capabilities
 - Check agent availability before routing requests
 
-=== CONVERSATION SUMMARY ===
-(Remember: Eventual consistency with real data)
+=== CURRENT INTERACTION SUMMARY ===
 {summary}
 
 === STRUCTURED MEMORY ===
-(Remember: Eventual consistency with real data)
-Provide a disclaimer that this information may not be up to date when presenting data from memory.
+(Note: This data may need updating from live systems)
 {memory}
 
 === CRITICAL ORCHESTRATOR BEHAVIOR ===
@@ -87,20 +85,34 @@ CURRENT INTERACTION SUMMARY:
 MEMORY:
 {memory}
 
+ENTERPRISE DATA RETRIEVED THIS SESSION:
+(Data will be extracted by TrustCall from tool responses below)
+
+RECENT TOOL RESPONSES (for detailed extraction):
+Include the most recent agent responses containing detailed records with IDs.
+
 INSTRUCTIONS:
 
 TECHNICAL/SYSTEM INFORMATION:
-1. Review the above chat history, CURRENT INTERACTION SUMMARY and MEMORY carefully. Prioritize key:value pairs.
-2. Identify new information about enterprise systems interactions, such as:
-   - Record IDs of any and all record types across all systems (Salesforce, Travel, Expenses, HR, etc.)
-   - New records of any type being created in any enterprise system
-   - Any updates to existing records across systems
-   - Any deletions of records
-   - Agent interactions and their outcomes
-   - Multi-agent workflow coordination results
-3. The relationship between records across systems is CRITICAL and must be accurately established and maintained
-4. Track which specialized agents were involved and their contributions
-5. Note any agent coordination or multi-system workflows
+1. Review the above chat history, CURRENT INTERACTION SUMMARY, MEMORY, and RECENT TOOL RESPONSES carefully. Prioritize key:value pairs.
+2. Extract ALL enterprise system data from tool responses:
+   - All Account IDs and names from agent responses
+   - All Opportunity IDs, names, stages, and amounts
+   - All Contact, Lead, Case, and Task information
+   - Maintain exact IDs and data as shown in tool responses
+3. Identify enterprise systems interactions:
+   - Record IDs from Salesforce, Travel, Expenses, HR, etc.
+   - New records created in any enterprise system
+   - Updates to existing records across systems
+   - Agent interactions and outcomes
+4. The relationship between records across systems is CRITICAL and must be accurately established and maintained
+5. Format this section clearly with subsections like:
+   ENTERPRISE RECORDS:
+   - Account: [Name] (ID: [ID])
+   - Opportunity: [Name] (ID: [ID], Stage: [Stage], Amount: [Amount])
+   - Contact: [Name] (ID: [ID], Email: [Email])
+   OTHER SYSTEMS:
+   - [System]: [Record details]
 
 USER INTERACTION:
 1. Review the chat history and CURRENT INTERACTION SUMMARY carefully.
@@ -135,6 +147,32 @@ Based on the above chat history and CURRENT INTERACTION SUMMARY please update th
     return ORCHESTRATOR_SUMMARY_MESSAGE
 
 
-# Reuse the existing TrustCall instruction as it works well
-ORCHESTRATOR_TRUSTCALL_INSTRUCTION = """You will be presented a summary of a conversation in the subsequent HumanMessage.
-You are tasked with updating the memory (JSON doc) from the TECHNICAL/SYSTEM INFORMATION using the following summary:"""
+# Enhanced TrustCall instruction following best practices
+ORCHESTRATOR_TRUSTCALL_INSTRUCTION = """You are tasked with extracting and updating Salesforce records from the conversation summary.
+
+CRITICAL: NEVER CREATE FAKE IDs - ONLY USE REAL IDs FROM THE SUMMARY
+
+EXTRACTION RULES:
+1. Extract ALL Salesforce records mentioned anywhere in the summary
+2. For each record found, look for its REAL Salesforce ID in the text
+3. If you find a real ID (like 00Qbm00000BOOndEAH), use that EXACT ID
+4. If you cannot find a real ID for a record, do NOT create a fake one - omit the record
+5. Account IDs start with 001, Contact IDs start with 003, Opportunity IDs start with 006, Lead IDs start with 00Q, Case IDs start with 500, Task IDs start with 00T
+
+RECORD TYPES TO EXTRACT:
+- Accounts: Extract name and real ID (001xxxxxxxxxx format)
+- Contacts: Extract name, email, phone, and real ID (003xxxxxxxxxx format) 
+- Opportunities: Extract name, stage, amount, and real ID (006xxxxxxxxxx format)
+- Leads: Extract name, company, email, phone, and real ID (00Qxxxxxxxxxx format)
+- Cases: Extract subject, description, and real ID (500xxxxxxxxxx format)
+- Tasks: Extract subject, description, and real ID (00Txxxxxxxxxx format)
+
+IMPORTANT: 
+- Search the ENTIRE summary text for Salesforce IDs, not just the TECHNICAL section
+- Look for patterns like "ID: 00Qbm00000BOOndEAH" or "- ID: 003xxxxxxxxxx"
+- NEVER generate IDs like "001bm00000SA8pOAAT-001" - these are FAKE
+- If the summary mentions a record but doesn't include its real ID, skip that record
+- Only use EXACT IDs found in the summary text
+
+You will be presented a summary of a conversation in the subsequent HumanMessage.
+Extract ALL Salesforce records with their REAL IDs:"""

@@ -24,17 +24,6 @@ python3 orchestrator.py -d
 python3 salesforce_agent.py -d --port 8001
 ```
 
-### Legacy Single-Agent System (Deprecated)
-```bash
-# Navigate to agent directory
-cd src/agent
-
-# Run the original monolithic agent
-python main.py
-
-# Run with debug mode
-python main.py -d
-```
 
 ### Environment Setup
 Create a `.env` file in the project root with:
@@ -53,7 +42,7 @@ SFDC_TOKEN=<your_salesforce_security_token>
 # Run with LangGraph CLI (if available)
 langgraph dev
 
-# The graph is defined in langgraph.json pointing to src/agent/main.py:graph
+# The graph is defined in langgraph.json pointing to src/orchestrator/main.py:orchestrator_graph
 ```
 
 ## Architecture Overview
@@ -67,21 +56,14 @@ This is a **multi-agent system** using Google's Agent2Agent (A2A) protocol with 
 4. **Global State Management**: Coordinated memory and context across all agents
 5. **Agent Registry**: Dynamic discovery and health monitoring of specialized agents
 
-### Legacy Single-Agent Design (Deprecated)
-The original **LangGraph-based conversational AI agent** with direct tool integration:
-
-1. **LangGraph State Machine**: Orchestrates conversation flow with conditional routing
-2. **Tool System**: Modular enterprise integrations using LangChain BaseTool pattern
-3. **Memory Management**: Multi-tiered persistence (session state, conversation summaries, structured records)
-4. **Streaming Interface**: Real-time CLI responses with animated output
 
 ### Multi-Agent Architecture Components
 
 #### Orchestrator Agent (`src/orchestrator/`)
 - **Main LangGraph** (`main.py`): Coordinates user requests and agent responses
 - **Agent Registry** (`agent_registry.py`): Discovers, registers, and monitors specialized agents
-- **State Manager** (`state_manager.py`): Global memory coordination across agents
 - **Agent Caller Tools** (`agent_caller_tools.py`): A2A protocol communication tools
+- **Enhanced System Messages** (`enhanced_sys_msg.py`): Multi-agent system prompts
 
 #### Specialized Agents (`src/agents/`)
 - **Salesforce Agent** (`salesforce/main.py`): Complete CRM operations
@@ -95,10 +77,11 @@ The original **LangGraph-based conversational AI agent** with direct tool integr
 #### Multi-Agent Data Flow
 User Input → Orchestrator → Agent Registry → A2A Task → Specialized Agent → LangGraph Workflow → A2A Response → Orchestrator → User Response
 
-#### Legacy Components (Single-Agent)
-- **Session State**: `StateManager` singleton for cross-conversation persistence
-- **Conversation Memory**: Automatic summarization after 6+ messages to manage context  
-- **Structured Memory**: TrustCall-based data extraction to SQLite after 6+ turns
+#### Utility Components (`src/utils/`)
+- **Storage** (`storage/`): SQLite adapters, async stores, memory schemas
+- **Logging** (`logging/`): Activity loggers, distributed tracing, performance tracking
+- **Caching** (`caching/`): LLM response caching, cached LLM wrappers
+- **Core Utils**: Input validation, circuit breakers, configuration management
 
 ### Tool Architecture
 Tools follow a consistent pattern in `tools/` directory:
@@ -107,9 +90,9 @@ Tools follow a consistent pattern in `tools/` directory:
 - **Extensible Design**: New enterprise systems can be added following the same BaseTool pattern
 
 ### Memory & Persistence
-- **SQLite Store**: Custom BaseStore implementation (`store/sqlite_store.py`) with namespace-based organization
-- **Pydantic Models**: Structured schemas (`store/memory_schemas.py`) for Salesforce data relationships
-- **State Schemas**: TypedDict definitions (`utils/states.py`) for LangGraph state management
+- **SQLite Store**: Custom BaseStore implementation (`utils/storage/sqlite_store.py`) with namespace-based organization
+- **Pydantic Models**: Structured schemas (`utils/storage/memory_schemas.py`) for Salesforce data relationships
+- **Async Adapters**: Thread-safe async storage adapters (`utils/storage/async_store_adapter.py`)
 
 ## Key Implementation Details
 
@@ -142,21 +125,17 @@ The `utils/sys_msg.py` contains carefully crafted prompts:
 5. Add agent to `agent_registry.json` configuration
 6. Update `start_system.py` to include the new agent
 
-### Legacy Enterprise Integration (Single-Agent System)
-1. Create new tool file in `tools/` following the Salesforce pattern
-2. Add Pydantic models to `store/memory_schemas.py` for data persistence
-3. Update `main.py` to include new tools in the tools list
-4. Extend TrustCall schema if structured memory is needed
 
 ### Modifying Conversation Flow
-- LangGraph workflow is defined in `main.py:build_graph()`
+- Orchestrator LangGraph workflow is defined in `src/orchestrator/main.py:build_orchestrator_graph()`
+- Agent-specific workflows are in their respective `src/agents/*/main.py` files
 - Conditional edges determine routing between nodes
 - State updates happen through return dictionaries from node functions
 
 ### Memory System Modifications
-- Session state via `StateManager` singleton
-- Conversation summaries trigger at message count thresholds
+- Conversation summaries trigger at configurable message count thresholds
 - Structured memory extraction uses TrustCall with defined schemas
+- Memory persistence handled by async storage adapters with circuit breakers
 
 ### Debugging
 - Use `-d` flag for comprehensive event logging

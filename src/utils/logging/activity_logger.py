@@ -38,8 +38,8 @@ def log_activity(component: str, operation_type: str, **data: Any) -> None:
             **safe_data
         }
         
-        # Determine log file path
-        log_file = Path(__file__).parent.parent.parent / "logs" / f"{component}.log"
+        # Determine log file path (project root logs directory)
+        log_file = Path(__file__).parent.parent.parent.parent / "logs" / f"{component}.log"
         log_file.parent.mkdir(exist_ok=True)
         
         # Write to log file

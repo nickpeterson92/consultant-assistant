@@ -9,7 +9,7 @@ import subprocess
 
 # Add project root to path for src imports
 sys.path.insert(0, '.')
-from src.utils.activity_logger import log_multi_agent_activity
+from src.utils.logging import log_orchestrator_activity
 
 import time
 import signal
@@ -56,7 +56,7 @@ def main():
     os.environ['DEBUG_MODE'] = 'true' if DEBUG_MODE else 'false'
     
     print("=== Consultant Assistant Multi-Agent System ===")
-    log_multi_agent_activity("SYSTEM_START", components=["orchestrator", "salesforce-agent"])
+    log_orchestrator_activity("SYSTEM_START", components=["orchestrator", "salesforce-agent"])
     print("Starting specialized agents and orchestrator...")
     if DEBUG_MODE:
         print("DEBUG MODE ENABLED - Detailed logging active")
@@ -124,7 +124,7 @@ def main():
                 orchestrator_process.kill()
         
         print("All components stopped.")
-        log_multi_agent_activity("SYSTEM_SHUTDOWN", graceful=True)
+        log_orchestrator_activity("SYSTEM_SHUTDOWN", graceful=True)
 
 if __name__ == "__main__":
     main()

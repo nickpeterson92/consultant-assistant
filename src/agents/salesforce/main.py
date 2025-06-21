@@ -41,11 +41,7 @@ os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
 # Add structured logging
 # Path manipulation no longer needed
-from src.utils.logging_config import get_logger, get_performance_tracker, get_cost_tracker
-
-
-# Import centralized logging
-from src.utils.activity_logger import log_salesforce_activity
+from src.utils.logging import get_logger, get_performance_tracker, get_cost_tracker, log_salesforce_activity
 
 # Logging function now imported from centralized activity_logger
 
@@ -140,8 +136,10 @@ IMPORTANT - Tool Result Interpretation:
 - If a tool returns {'match': {record}} - this means ONE record was found, present the data
 - If a tool returns {'multiple_matches': [records]} - this means MULTIPLE records were found, present all the data
 - If a tool returns [] (empty list) - this means NO records were found, only then say "no records found"
-- Never say "no records found" when you actually received data in match/multiple_matches format
-- Always present the actual data you receive from tools, don't dismiss valid results"""
+- NEVER say "no records found" when you actually received data in match/multiple_matches format
+- ALWAYS present the actual data you receive from tools, don't dismiss valid results
+- ALWAYS provide the Salesforce System Id of EVERY record you retrieve (along with record data) in YOUR RESPONSE. NO EXCEPTIONS!
+- Salesforce System Ids follow the REGEX PATTERN: /\b(?:[A-Za-z0-9]{15}|[A-Za-z0-9]{18})\b/"""
             
             # Add task context if available
             if task_context:
@@ -301,21 +299,40 @@ class SalesforceA2AHandler:
                 state_updates["memory_updates"] = result["memory"]
             
             # Extract any Salesforce entities created/updated
+            tool_results = []
             if "messages" in result:
-                # Look for tool call results that might contain Salesforce records
-                salesforce_entities = {}
+                # Look for tool messages that contain actual Salesforce data
                 for message in result["messages"]:
-                    if hasattr(message, 'tool_calls') and message.tool_calls:
-                        for tool_call in message.tool_calls:
-                            if any(sf_term in tool_call.get("name", "").lower() 
-                                  for sf_term in ["lead", "account", "opportunity", "contact", "case", "task"]):
-                                # This is a Salesforce operation
-                                entity_type = tool_call.get("name", "").replace("get_", "").replace("create_", "").replace("update_", "")
-                                if entity_type not in salesforce_entities:
-                                    salesforce_entities[entity_type] = []
+                    # Check for ToolMessage (which contains tool results)
+                    if hasattr(message, 'name') and hasattr(message, 'content'):
+                        # This is a ToolMessage with actual tool results
+                        tool_name = getattr(message, 'name', '')
+                        tool_content = getattr(message, 'content', '')
+                        
+                        if any(sf_term in tool_name.lower() for sf_term in ["lead", "account", "opportunity", "contact", "case", "task"]):
+                            # This is a Salesforce tool result with structured data
+                            try:
+                                import json
+                                if isinstance(tool_content, str) and tool_content.strip().startswith('{'):
+                                    parsed_content = json.loads(tool_content)
+                                    tool_results.append({
+                                        "tool_name": tool_name,
+                                        "tool_data": parsed_content
+                                    })
+                                elif isinstance(tool_content, dict):
+                                    tool_results.append({
+                                        "tool_name": tool_name,
+                                        "tool_data": tool_content
+                                    })
+                            except (json.JSONDecodeError, AttributeError):
+                                # If tool result isn't JSON, include as-is
+                                tool_results.append({
+                                    "tool_name": tool_name,
+                                    "tool_data": str(tool_content)
+                                })
                 
-                if salesforce_entities:
-                    state_updates["shared_entities"] = salesforce_entities
+                if tool_results:
+                    state_updates["tool_results"] = tool_results
             
             return {
                 "artifacts": [{
@@ -379,8 +396,8 @@ async def main():
     
     DEBUG_MODE = args.debug
     
-    # Setup logging
-    log_level = logging.DEBUG if DEBUG_MODE else logging.INFO
+    # Setup logging - suppress console output in non-debug mode
+    log_level = logging.DEBUG if DEBUG_MODE else logging.WARNING
     logging.basicConfig(level=log_level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
     # Suppress ALL HTTP noise comprehensively
@@ -409,6 +426,11 @@ async def main():
     for logger_name in logging.root.manager.loggerDict:
         if any(term in logger_name.lower() for term in ['http', 'request', 'urllib', 'connection']):
             logging.getLogger(logger_name).setLevel(logging.WARNING)
+    
+    # Suppress internal system component logging to console (keep file logging)
+    logging.getLogger('src.utils.circuit_breaker').setLevel(logging.WARNING)
+    logging.getLogger('src.utils.config').setLevel(logging.WARNING)
+    logging.getLogger('src.a2a.protocol').setLevel(logging.WARNING)
     
     # Suppress verbose HTTP request logging from third-party libraries
     # Always suppress HTTP noise regardless of debug mode

@@ -17,11 +17,11 @@ import sys
 import os
 
 # Add logging configuration
-from src.utils.logging_config import get_logger, get_performance_tracker
+from src.utils.logging import get_logger, get_performance_tracker
 
 
 # Import centralized logging
-from src.utils.activity_logger import log_a2a_activity, log_performance_activity
+from src.utils.logging import log_a2a_activity, log_performance_activity
 from src.utils.input_validation import AgentInputValidator, ValidationError
 from src.utils.circuit_breaker import get_circuit_breaker, CircuitBreakerConfig, RetryConfig, resilient_call
 from src.utils.config import get_a2a_config

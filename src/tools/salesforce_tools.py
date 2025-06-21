@@ -10,7 +10,7 @@ from typing import Optional
 from simple_salesforce import Salesforce
 
 # Import centralized logging
-from src.utils.activity_logger import log_tool_activity
+from src.utils.logging import log_tool_activity
 
 # All logging now handled by centralized activity_logger
 

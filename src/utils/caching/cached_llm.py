@@ -14,7 +14,7 @@ from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.outputs import ChatGeneration, ChatResult
 
 from .llm_cache import get_llm_cache
-from .config import get_llm_config
+from ..config import get_llm_config
 
 logger = logging.getLogger(__name__)
 

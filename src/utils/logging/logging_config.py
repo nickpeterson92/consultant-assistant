@@ -12,8 +12,8 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 from pathlib import Path
 
-# Create logs directory if it doesn't exist
-LOG_DIR = Path(__file__).parent.parent.parent / "logs"
+# Create logs directory at project root
+LOG_DIR = Path(__file__).parent.parent.parent.parent / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 
 class StructuredLogger:

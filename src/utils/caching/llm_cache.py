@@ -13,8 +13,9 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 import weakref
 
-from .async_store_adapter import get_async_store_adapter
-from .config import get_llm_config
+from ..storage import get_async_store_adapter
+from ..config import get_llm_config
+from .llm_cache_fix import serialize_message, deserialize_message, EnhancedJSONEncoder
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +35,20 @@ class CacheEntry:
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for storage"""
-        return asdict(self)
+        data = asdict(self)
+        # Serialize response if it's a message object
+        if hasattr(self.response, '__class__') and 'Message' in self.response.__class__.__name__:
+            data['response'] = serialize_message(self.response)
+            data['response_serialized'] = True
+        return data
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'CacheEntry':
         """Create from dictionary"""
+        # Deserialize response if it was serialized
+        if data.get('response_serialized'):
+            data['response'] = deserialize_message(data['response'])
+            del data['response_serialized']
         return cls(**data)
 
 class LLMCache:

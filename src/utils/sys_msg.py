@@ -29,7 +29,7 @@ def chatbot_sys_msg(summary: str, memory: str) -> str:
 
 def summary_sys_msg(summary: str, memory: str) -> str:      
     SUMMARY_SYSTEM_MESSAGE = f"""You a helpful assistant that supports users with various end systems.
-    CURENT INTERACTION SUMMARY:
+    CURRENT INTERACTION SUMMARY:
     {summary}
 
     MEMORY:
@@ -38,8 +38,8 @@ def summary_sys_msg(summary: str, memory: str) -> str:
     INSTRUCTIONS:
 
     TECHNICAL/SYSTEM INFORMATION:
-    1. Review the above chat history, CURENT INTERACTION SUMMARY and MEMORY carefully. Prioritize key:value pairs.
-    2. Identify new information about the CURENT INTERACTION SUMMARY, such as:
+    1. Review the above chat history, CURRENT INTERACTION SUMMARY and MEMORY carefully. Prioritize key:value pairs.
+    2. Identify new information about the CURRENT INTERACTION SUMMARY, such as:
         - Record Ids of any and all record types
         - New records of any type being created
         - Any updates to existing records
@@ -47,24 +47,24 @@ def summary_sys_msg(summary: str, memory: str) -> str:
     3. The relationship between records is CRITICAL and must be accurately established and maintained
 
     USER INTERACTION:
-    1. Review the chat history and CURENT INTERACTION SUMMARY carefully.
+    1. Review the chat history and CURRENT INTERACTION SUMMARY carefully.
     2. Identify any user requests, questions, actions or information about the user in general.
         - Record general information about the user like their name, role, location, etc.
         - Record any user requests for information or actions
         - Record any user questions or concerns
         - Note the user's general mood or attitude and adjust your responses accordingly
 
-    UPDATING THE CURENT INTERACTION SUMMARY:
+    UPDATING THE CURRENT INTERACTION SUMMARY:
     1. Keep both the TECHNICAL/SYSTEM INFORMATION and USER INTERACTION clearly separated
-    2. Record all new information in the CURENT INTERACTION SUMMARY
-    3. Merge any new information with existing CURENT INTERACTION SUMMARY
-    4. Format the CURENT INTERACTION SUMMARY as two clear, bulleted lists: one for TECHNICAL/SYSTEM INFORMATION and one for USER INTERACTION
-    5. If new infrmation conflicts with existing CURENT INTERACTION SUMMARY, use the most recent information.
+    2. Record all new information in the CURRENT INTERACTION SUMMARY
+    3. Merge any new information with existing CURRENT INTERACTION SUMMARY
+    4. Format the CURRENT INTERACTION SUMMARY as two clear, bulleted lists: one for TECHNICAL/SYSTEM INFORMATION and one for USER INTERACTION
+    5. If new information conflicts with existing CURRENT INTERACTION SUMMARY, use the most recent information.
 
     Remember: Only include factual information either stated by the user or returned from any end system the user is interacting with.
               Do not make assumptions or inferences.
 
-    Based on the above chat history and CURENT INTERACTION SUMMARY please update the CURENT INTERACTION SUMMARY with the most recent information.
+    Based on the above chat history and CURRENT INTERACTION SUMMARY please update the CURRENT INTERACTION SUMMARY with the most recent information.
     """
     return SUMMARY_SYSTEM_MESSAGE
 

@@ -18,7 +18,7 @@ from ..a2a import A2AClient, A2ATask, A2AException
 logger = logging.getLogger(__name__)
 
 # Import centralized logging
-from src.utils.activity_logger import log_orchestrator_activity
+from src.utils.logging import log_orchestrator_activity
 
 
 class AgentCallInput(BaseModel):
@@ -160,7 +160,10 @@ class SalesforceAgentTool(BaseTool):
                 )
                 
                 
-                # Extract the response
+                # Extract the response and any tool results
+                response_content = ""
+                tool_results_data = None
+                
                 if "artifacts" in result:
                     response = result["artifacts"]
                     
@@ -172,18 +175,35 @@ class SalesforceAgentTool(BaseTool):
                     if isinstance(response, dict) and "content" in response:
                         if debug_mode:
                             logger.info("Extracting content from artifact dict")
-                        response = response["content"]
-                        
-                    final_response = str(response)
+                        response_content = response["content"]
+                    else:
+                        response_content = str(response)
+                
+                # Check for tool results in state_updates
+                if "state_updates" in result and "tool_results" in result["state_updates"]:
+                    tool_results_data = result["state_updates"]["tool_results"]
                     if debug_mode:
-                        logger.info(f"Final response length: {len(final_response)}")
-                        logger.info(f"Final response preview: {final_response[:200]}...")
-                        logger.info(f"=== SALESFORCE AGENT TOOL SUCCESS ===")
-                    log_orchestrator_activity("A2A_RESPONSE_SUCCESS",
-                                            agent="salesforce-agent", 
-                                            task_id=task_id,
-                                            response_length=len(final_response))
-                    return final_response
+                        logger.info(f"Found tool results: {len(tool_results_data)} tools executed")
+                        for tr in tool_results_data:
+                            logger.info(f"  Tool: {tr.get('tool_name')} with data: {str(tr.get('tool_data', ''))[:100]}")
+                
+                # Combine conversational response with structured tool data for better summaries
+                if tool_results_data:
+                    final_response = response_content + "\n\n[STRUCTURED_TOOL_DATA]:\n" + json.dumps(tool_results_data, indent=2)
+                    if debug_mode:
+                        logger.info("Enhanced response with structured tool data")
+                else:
+                    final_response = response_content
+                
+                if debug_mode:
+                    logger.info(f"Final response length: {len(final_response)}")
+                    logger.info(f"Final response preview: {final_response[:200]}...")
+                    logger.info(f"=== SALESFORCE AGENT TOOL SUCCESS ===")
+                log_orchestrator_activity("A2A_RESPONSE_SUCCESS",
+                                        agent="salesforce-agent", 
+                                        task_id=task_id,
+                                        response_length=len(final_response))
+                return final_response
                 
                 fallback_response = str(result.get("result", "No response from Salesforce agent"))
                 if debug_mode:
