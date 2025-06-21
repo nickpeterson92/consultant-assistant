@@ -21,3 +21,4 @@ src/agents/salesforce/__pycache__/main.cpython-313.pyc
 src/a2a/__pycache__/__init__.cpython-313.pyc
 src/a2a/__pycache__/protocol.cpython-313.pyc
 src/agents/__pycache__/__init__.cpython-313.pyc
+salesforce_agent.log

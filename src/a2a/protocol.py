@@ -139,11 +139,18 @@ class A2AClient:
         """Make a JSON-RPC call to another agent"""
         try:
             if self.debug_mode:
-                logger.info(f"=== A2A CLIENT CALL START ===")
-                logger.info(f"Endpoint: {endpoint}")
-                logger.info(f"Method: {method}")
-                logger.info(f"Params keys: {list(params.keys()) if isinstance(params, dict) else 'not dict'}")
-                logger.info(f"Request ID: {request_id}")
+                logger.info(f"A2A call to {endpoint}: {method}")
+                print(f"\n🔥 A2A CLIENT NUCLEAR DEBUG 🔥")
+                print(f"📡 Calling endpoint: {endpoint}")
+                print(f"📡 Method: {method}")
+                print(f"📡 Request ID: {request_id}")
+                print(f"📡 Params structure: {list(params.keys())}")
+                if 'task' in params:
+                    task = params['task']
+                    print(f"📡 Task ID: {task.get('id')}")
+                    print(f"📡 Task instruction: {task.get('instruction')}")
+                    print(f"📡 Task context: {task.get('context')}")
+                    print(f"📡 Task state_snapshot: {task.get('state_snapshot')}")
             
             if not self.session:
                 if self.debug_mode:
@@ -151,66 +158,68 @@ class A2AClient:
                 raise RuntimeError("Client must be used as async context manager")
             
             request = A2ARequest(method, params, request_id)
-            if self.debug_mode:
-                logger.info(f"Created A2A request: {request.id}")
-            
             request_dict = request.to_dict()
-            if self.debug_mode:
-                logger.info(f"Request dict keys: {list(request_dict.keys())}")
-                logger.info(f"Request size: {len(str(request_dict))} chars")
             
             if self.debug_mode:
-                logger.info("Making HTTP POST request...")
+                print(f"📤 SENDING REQUEST PAYLOAD:")
+                print(f"   JSON-RPC version: {request_dict.get('jsonrpc')}")
+                print(f"   Method: {request_dict.get('method')}")
+                print(f"   ID: {request_dict.get('id')}")
+                print(f"   Params keys: {list(request_dict.get('params', {}).keys())}")
+                
             async with self.session.post(
                 endpoint,
                 json=request_dict,
                 headers={"Content-Type": "application/json"}
             ) as response:
-                if self.debug_mode:
-                    logger.info(f"HTTP response status: {response.status}")
-                
                 if response.status != 200:
                     error_text = await response.text()
                     if self.debug_mode:
-                        logger.error(f"HTTP error response: {error_text}")
+                        print(f"❌ HTTP ERROR {response.status}: {error_text}")
+                    logger.error(f"A2A HTTP error {response.status}: {error_text}")
                     raise A2AException(f"HTTP {response.status}: {error_text}")
                 
-                if self.debug_mode:
-                    logger.info("Parsing JSON response...")
                 result = await response.json()
+                
                 if self.debug_mode:
-                    logger.info(f"Response keys: {list(result.keys()) if isinstance(result, dict) else 'not dict'}")
-                    logger.info(f"Response size: {len(str(result))} chars")
+                    print(f"📥 RECEIVED RESPONSE:")
+                    print(f"   Response keys: {list(result.keys())}")
+                    print(f"   JSON-RPC version: {result.get('jsonrpc')}")
+                    print(f"   ID: {result.get('id')}")
+                    if 'result' in result:
+                        result_data = result['result']
+                        print(f"   Result keys: {list(result_data.keys())}")
+                        if 'artifacts' in result_data:
+                            artifacts = result_data['artifacts']
+                            print(f"   Artifacts count: {len(artifacts) if isinstance(artifacts, list) else 'not list'}")
+                            if isinstance(artifacts, list) and artifacts:
+                                first_artifact = artifacts[0]
+                                print(f"   First artifact keys: {list(first_artifact.keys()) if isinstance(first_artifact, dict) else 'not dict'}")
+                                if isinstance(first_artifact, dict) and 'content' in first_artifact:
+                                    content = first_artifact['content']
+                                    print(f"   Content preview: {str(content)[:200]}...")
                 
                 if "error" in result:
                     if self.debug_mode:
-                        logger.error(f"Agent returned error: {result['error']}")
+                        print(f"❌ AGENT ERROR: {result['error']}")
+                    logger.error(f"Agent returned error: {result['error']}")
                     raise A2AException(f"Agent error: {result['error']}")
                 
                 final_result = result.get("result", {})
                 if self.debug_mode:
-                    logger.info(f"Final result type: {type(final_result)}")
-                    logger.info(f"Final result keys: {list(final_result.keys()) if isinstance(final_result, dict) else 'not dict'}")
-                    logger.info(f"=== A2A CLIENT CALL SUCCESS ===")
+                    logger.info(f"A2A call success: {method}")
+                    print(f"✅ A2A CALL SUCCESSFUL")
+                    print(f"🔥 END A2A CLIENT NUCLEAR DEBUG 🔥\n")
                 return final_result
         
         except aiohttp.ClientError as e:
-            if self.debug_mode:
-                logger.error(f"=== A2A CLIENT NETWORK ERROR ===")
-                logger.error(f"Network error type: {type(e)}")
-                logger.error(f"Network error: {str(e)}")
-            else:
-                logger.error(f"A2A network error: {e}")
+            logger.error(f"A2A network error calling {endpoint}: {e}")
             raise A2AException(f"Network error: {str(e)}")
         except Exception as e:
+            logger.error(f"A2A unexpected error: {type(e).__name__}: {e}")
             if self.debug_mode:
-                logger.error(f"=== A2A CLIENT UNEXPECTED ERROR ===")
-                logger.error(f"Error type: {type(e)}")
-                logger.error(f"Error: {str(e)}")
                 import traceback
                 logger.error(f"Traceback: {traceback.format_exc()}")
-            else:
-                logger.error(f"A2A unexpected error: {e}")
             raise
     
     async def process_task(self, endpoint: str, task: A2ATask) -> Dict[str, Any]:

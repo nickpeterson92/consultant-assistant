@@ -123,15 +123,17 @@ ORCHESTRATOR TOOLS:
     def orchestrator(state: OrchestratorState, config: RunnableConfig):
         """Main orchestrator node that coordinates with specialized agents"""
         try:
-            # POST-SUMMARIZATION DEBUG: Log when we're called after summarization
-            if debug_mode and len(state.get('messages', [])) <= 3:
-                logger.info("=== ORCHESTRATOR POST-SUMMARIZATION CALL ===")
-                logger.info(f"Messages count: {len(state.get('messages', []))}")
-                logger.info(f"Turn: {state.get('turns', 0)}")
-                logger.info(f"Has summary: {bool(state.get('summary', '').strip())}")
-                for i, msg in enumerate(state.get('messages', [])):
-                    logger.info(f"Message {i}: {type(msg).__name__} - {str(msg.content)[:100]}...")
-                logger.info("=== END POST-SUMMARIZATION DEBUG ===")
+            # DUPLICATE DETECTION: Track when orchestrator is called
+            if debug_mode:
+                msg_count = len(state.get('messages', []))
+                last_msg = state.get('messages', [])[-1] if state.get('messages') else None
+                last_type = type(last_msg).__name__ if last_msg else "None"
+                
+                # Check for potential duplicate scenario
+                if last_type == "AIMessage" and hasattr(last_msg, 'content') and last_msg.content:
+                    logger.warning(f"DUPLICATE CHECK: Orchestrator called with AIMessage response already present")
+                    logger.warning(f"  Message count: {msg_count}, Turn: {state.get('turns', 0)}")
+                    logger.warning(f"  Last message preview: {str(last_msg.content)[:100]}...")
             
             # Load and manage memory like legacy system
             summary = state.get("summary", "No summary available")
@@ -199,16 +201,13 @@ ORCHESTRATOR TOOLS:
     
     # Node function: summarize_conversation (with smart preservation)
     def summarize_conversation(state: OrchestratorState):
-        """Summarize conversation using smart message preservation"""
+        """Summarize conversation using smart message preservation with cooldown protection"""
         if debug_mode:
-            logger.info("=== SUMMARIZE_CONVERSATION START ===")
-            logger.info(f"Input state keys: {list(state.keys())}")
-            logger.info(f"Messages in state: {len(state.get('messages', []))}")
-            logger.info(f"Turn: {state.get('turns', 0)}")
-            
-            # Show each message going into summarization
-            for i, msg in enumerate(state.get('messages', [])):
-                logger.info(f"Input Message {i}: {type(msg).__name__} - {str(msg.content)[:100]}...")
+            logger.info(f"Summarizing conversation: {len(state.get('messages', []))} messages, turn {state.get('turns', 0)}")
+        
+        # DOMINATION: Set summarization cooldown to prevent cascading
+        current_state = state.copy()
+        current_state["last_summarized_turn"] = state.get("turns", 0)
         
         summary = state.get("summary", "No summary available")
         memory_val = state.get("memory", "No memory available")
@@ -217,16 +216,9 @@ ORCHESTRATOR TOOLS:
         system_message = orchestrator_summary_sys_msg(summary, memory_val)
         messages = [SystemMessage(content=system_message)] + state["messages"]
         
-        if debug_mode:
-            logger.info(f"System message for summarization: {system_message[:200]}...")
-            logger.info(f"Total messages for LLM: {len(messages)}")
-            logger.info("Using smart preservation - no cleanup needed")
         
         response = llm.invoke(messages)
         
-        if debug_mode:
-            logger.info(f"LLM summary response type: {type(response)}")
-            logger.info(f"LLM summary content: {str(response.content)[:300]}...")
         
         # Update global state manager with new summary
         orchestrator_state_mgr.update_conversation_summary(response.content)
@@ -235,6 +227,20 @@ ORCHESTRATOR TOOLS:
         messages_to_preserve = smart_preserve_messages(state["messages"], keep_count=3)
         messages_to_delete = []
         
+        # DEBUG: Detailed preservation analysis
+        if debug_mode:
+            logger.warning("=== SMART PRESERVATION DEBUG ===")
+            logger.warning(f"Total messages before: {len(state['messages'])}")
+            logger.warning(f"Messages to preserve: {len(messages_to_preserve)}")
+            for i, msg in enumerate(messages_to_preserve):
+                msg_type = type(msg).__name__
+                if msg_type == "AIMessage" and hasattr(msg, 'tool_calls') and msg.tool_calls:
+                    logger.warning(f"  Preserved {i}: {msg_type} with {len(msg.tool_calls)} tool calls")
+                elif msg_type == "ToolMessage":
+                    logger.warning(f"  Preserved {i}: {msg_type} (call_id: {getattr(msg, 'tool_call_id', 'unknown')})")
+                else:
+                    logger.warning(f"  Preserved {i}: {msg_type}")
+        
         # Find messages that are NOT in the preserved list
         preserved_ids = {getattr(msg, 'id', None) for msg in messages_to_preserve if hasattr(msg, 'id')}
         for msg in state["messages"]:
@@ -242,14 +248,13 @@ ORCHESTRATOR TOOLS:
                 messages_to_delete.append(RemoveMessage(id=msg.id))
         
         if debug_mode:
-            logger.info(f"Messages to delete: {len(messages_to_delete)}")
-            logger.info(f"Messages to preserve: {len(messages_to_preserve)}")
-            logger.info("Smart preservation ensures no orphaned tool calls")
-            logger.info("=== SUMMARIZE_CONVERSATION END ===")
+            logger.info(f"Summary complete: deleting {len(messages_to_delete)}, preserving {len(messages_to_preserve)}")
+            logger.warning("=== END PRESERVATION DEBUG ===")
         
         return {
             "summary": response.content,
-            "messages": messages_to_delete
+            "messages": messages_to_delete,
+            "last_summarized_turn": state.get("turns", 0)  # Track when we last summarized
         }
     
     # Node function: memorize_records (legacy approach)
@@ -291,8 +296,20 @@ ORCHESTRATOR TOOLS:
     
     # Conditional functions (legacy approach)
     def needs_summary(state: OrchestratorState):
-        """Check if conversation needs summarization (legacy)"""
-        if len(state["messages"]) > 9:  # Legacy threshold
+        """Check if conversation needs summarization with multi-tool protection and cooldown"""
+        message_count = len(state["messages"])
+        current_turn = state.get("turns", 0)
+        last_summarized = state.get("last_summarized_turn", -1)
+        
+        # DOMINATION: Cooldown protection - don't summarize if we just did
+        if current_turn - last_summarized < 2:  # At least 2 turns between summaries
+            if debug_mode:
+                logger.warning(f"COOLDOWN BLOCK: Last summarized turn {last_summarized}, current turn {current_turn}")
+            return END
+        
+        # DOMINATION: Higher threshold to prevent multi-tool cascade
+        # Multi-tool scenarios can generate up to 15+ messages in one turn
+        if message_count > 18:  # Safe threshold after multi-tool execution
             return "summarize_conversation"
         return END
     
@@ -335,10 +352,16 @@ ORCHESTRATOR TOOLS:
     # Add sequential routing (fixes tool/summary timing issue)
     graph_builder.add_conditional_edges("conversation", smart_routing)
     
-    # Add standard edges - removed tools->conversation to prevent duplicate responses
+    # Add edges following LangGraph best practices:
+    # - tools->conversation: Continue conversation after tool execution
+    # - maintenance operations->END: Terminate after side effects (no duplicate responses)
     graph_builder.add_edge("tools", "conversation")
-    graph_builder.add_edge("summarize_conversation", "conversation")
-    graph_builder.add_edge("memorize_records", "conversation")
+    graph_builder.add_edge("summarize_conversation", END)
+    graph_builder.add_edge("memorize_records", END)
+    
+    # DEBUG: Log corrected graph structure in debug mode
+    if debug_mode:
+        logger.warning("GRAPH STRUCTURE: conversation -> smart_routing -> tools->conversation | summary/memory->END")
     
     # Set finish point
     graph_builder.set_finish_point("conversation")
@@ -404,6 +427,10 @@ async def main():
     logging.getLogger('requests').setLevel(logging.WARNING)
     logging.getLogger('aiohttp').setLevel(logging.WARNING)
     logging.getLogger('simple_salesforce').setLevel(logging.WARNING)
+    logging.getLogger('openai._base_client').setLevel(logging.WARNING)
+    logging.getLogger('httpcore').setLevel(logging.WARNING)
+    logging.getLogger('httpcore.connection').setLevel(logging.WARNING)
+    logging.getLogger('httpcore.http11').setLevel(logging.WARNING)
     
     # Initialize orchestrator
     await initialize_orchestrator()
@@ -440,28 +467,42 @@ async def main():
                 break
             
             if DEBUG_MODE:
-                # In debug mode, stream all events
+                # In debug mode, track duplicate responses
                 event_count = 0
+                ai_responses = []
+                
                 async for event in local_graph.astream(
                     {"messages": [{"role": "user", "content": user_input}]},
                     config,
                     stream_mode="values",
                 ):
                     event_count += 1
-                    logger.info(f"=== STREAM EVENT {event_count} ===")
-                    logger.info(f"Event keys: {list(event.keys())}")
                     
-                    if "messages" in event:
-                        logger.info(f"Messages in event: {len(event['messages'])}")
-                        if event["messages"]:
-                            last_msg = event["messages"][-1]
-                            logger.info(f"Last message type: {type(last_msg).__name__}")
-                            logger.info(f"Last message preview: {str(last_msg)[:100]}...")
-                            last_msg.pretty_print()
-                    
-                    logger.info(f"=== END STREAM EVENT {event_count} ===")
-                    
-                logger.info(f"Total stream events processed: {event_count}")
+                    if "messages" in event and event["messages"]:
+                        last_msg = event["messages"][-1]
+                        msg_type = type(last_msg).__name__
+                        
+                        # Track AI responses for duplicate detection
+                        if msg_type == "AIMessage" and hasattr(last_msg, 'content') and last_msg.content:
+                            ai_responses.append({
+                                'event': event_count,
+                                'content': last_msg.content[:100],
+                                'has_tool_calls': bool(getattr(last_msg, 'tool_calls', None))
+                            })
+                        
+                        # Log concisely
+                        logger.info(f"Event {event_count}: {msg_type} (msgs: {len(event['messages'])})")
+                        
+                        # Pretty print for visibility
+                        last_msg.pretty_print()
+                
+                # Duplicate detection summary
+                if len(ai_responses) > 1:
+                    logger.warning(f"DUPLICATE WARNING: {len(ai_responses)} AI responses detected!")
+                    for resp in ai_responses:
+                        logger.warning(f"  Event {resp['event']}: {resp['content']}... (tools: {resp['has_tool_calls']})")
+                
+                logger.info(f"Total events: {event_count}, AI responses: {len(ai_responses)}")
             else:
                 print("\nASSISTANT: ", end="", flush=True)
                 # In non-debug mode, get final result and show with animation

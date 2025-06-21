@@ -102,6 +102,17 @@ def build_salesforce_graph(debug_mode: bool = False):
                 logger.info(f"Message count: {len(state.get('messages', []))}")
                 logger.info(f"Task context: {task_context}")
                 logger.info(f"External context keys: {list(external_context.keys())}")
+                
+                # Log the actual incoming messages
+                for i, msg in enumerate(state.get('messages', [])):
+                    msg_type = type(msg).__name__ if hasattr(msg, '__class__') else type(msg)
+                    if hasattr(msg, 'content'):
+                        content_preview = str(msg.content)[:100]
+                    elif isinstance(msg, dict):
+                        content_preview = str(msg.get('content', msg))[:100]
+                    else:
+                        content_preview = str(msg)[:100]
+                    logger.info(f"  Message {i}: {msg_type} - {content_preview}...")
             
             # Create simple system message for Salesforce operations
             system_message_content = """You are a Salesforce CRM specialist agent. 
@@ -113,7 +124,14 @@ Key behaviors:
 - Do not maintain conversation memory or state - each request is independent
 - Focus on the specific task or query at hand
 - When retrieving records, provide complete details available
-- When creating/updating records, confirm the action taken"""
+- When creating/updating records, confirm the action taken
+
+IMPORTANT - Tool Result Interpretation:
+- If a tool returns {'match': {record}} - this means ONE record was found, present the data
+- If a tool returns {'multiple_matches': [records]} - this means MULTIPLE records were found, present all the data
+- If a tool returns [] (empty list) - this means NO records were found, only then say "no records found"
+- Never say "no records found" when you actually received data in match/multiple_matches format
+- Always present the actual data you receive from tools, don't dismiss valid results"""
             
             # Add task context if available
             if task_context:
@@ -129,19 +147,22 @@ Key behaviors:
             
             messages = [SystemMessage(content=system_message_content)] + state["messages"]
             if debug_mode:
-                logger.info(f"Total messages: {len(messages)}")
+                logger.info(f"Total messages being sent to LLM: {len(messages)}")
+                logger.info(f"System message length: {len(system_message_content)}")
                 logger.info("Invoking LLM with tools...")
             
             response = llm_with_tools.invoke(messages)
             
             if debug_mode:
                 logger.info(f"LLM response type: {type(response)}")
-                logger.info(f"Response content: {str(response)[:200]}...")
+                logger.info(f"Response content preview: {str(response.content)[:200] if hasattr(response, 'content') else 'No content'}...")
                 has_tool_calls = hasattr(response, 'tool_calls') and response.tool_calls
                 logger.info(f"Response has tool calls: {has_tool_calls}")
                 if has_tool_calls:
                     logger.info(f"Number of tool calls: {len(response.tool_calls)}")
-                logger.info(f"=== SALESFORCE AGENT SUCCESS ===")
+                    for i, tc in enumerate(response.tool_calls):
+                        logger.info(f"  Tool call {i}: {tc.get('name', 'unknown')} with args: {tc.get('args', {})}")
+                logger.info(f"=== SALESFORCE AGENT LLM SUCCESS ===")
             
             return {"messages": response}
             
@@ -166,7 +187,7 @@ Key behaviors:
     
     graph_builder.set_entry_point("conversation")
     graph_builder.add_conditional_edges("conversation", tools_condition)
-    graph_builder.add_edge("tools", "conversation")
+    graph_builder.add_edge("tools", "conversation")  # Go back to conversation to handle tool results
     graph_builder.set_finish_point("conversation")
     
     return graph_builder.compile()
@@ -196,7 +217,7 @@ class SalesforceA2AHandler:
             
             # Prepare initial state for the Salesforce graph
             initial_state = {
-                "messages": [{"role": "user", "content": instruction}],
+                "messages": [HumanMessage(content=instruction)],  # Use proper LangChain message objects!
                 "task_context": {
                     "task_id": task_data.get("id"),
                     "instruction": instruction

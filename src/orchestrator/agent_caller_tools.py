@@ -92,10 +92,7 @@ class SalesforceAgentTool(BaseTool):
         debug_mode = self.metadata.get("debug_mode", False)
         try:
             if debug_mode:
-                logger.info(f"=== SALESFORCE AGENT TOOL START ===")
-                logger.info(f"Instruction: {instruction[:200]}...")
-                logger.info(f"Context provided: {context is not None}")
-                logger.info(f"Kwargs: {list(kwargs.keys())}")
+                logger.info(f"Salesforce agent tool: {instruction[:100]}...")
             
             # Create a minimal state to avoid circular references
             state = {
@@ -103,86 +100,57 @@ class SalesforceAgentTool(BaseTool):
                 "memory": {},
                 "turns": 0
             }
-            if debug_mode:
-                logger.info("Created minimal state")
             
             # Find the Salesforce agent
             registry = self.metadata["registry"]
-            if debug_mode:
-                logger.info("Getting agent from registry...")
             agent = registry.find_agents_by_capability("salesforce_operations")
             if not agent:
-                if debug_mode:
-                    logger.info("Agent not found by capability, trying by name...")
+                logger.warning("Salesforce agent not found by capability, trying by name...")
                 agent = registry.get_agent("salesforce-agent")
             
-            if debug_mode:
-                logger.info(f"Found agent: {agent is not None}")
-                if agent:
-                    if isinstance(agent, list):
-                        logger.info(f"Agent is list with {len(agent)} items")
-                        agent = agent[0]
-                    logger.info(f"Agent endpoint: {getattr(agent, 'endpoint', 'no endpoint')}")
-            elif isinstance(agent, list):
+            if isinstance(agent, list) and agent:
+                if debug_mode:
+                    logger.info(f"Found {len(agent)} agents")
                 agent = agent[0]
             
-            if not agent or not agent[0] if isinstance(agent, list) else not agent:
-                if debug_mode:
-                    logger.error("Salesforce agent not available")
+            if not agent:
+                logger.error("Salesforce agent not available")
                 return "Error: Salesforce agent not available. Please ensure the Salesforce agent is running and registered."
             
             # Extract context and create state snapshot
-            if debug_mode:
-                logger.info("Extracting context...")
             extracted_context = self._extract_relevant_context(state)
             if context:
                 extracted_context.update(context)
-            if debug_mode:
-                logger.info(f"Extracted context keys: {list(extracted_context.keys())}")
             
-            if debug_mode:
-                logger.info("Creating state snapshot...")
             state_snapshot = self._create_state_snapshot(state)
-            if debug_mode:
-                logger.info(f"State snapshot keys: {list(state_snapshot.keys())}")
             
             # Create A2A task
             task_id = str(uuid.uuid4())
-            if debug_mode:
-                logger.info(f"Creating A2A task with ID: {task_id}")
             task = A2ATask(
                 id=task_id,
                 instruction=instruction,
                 context=extracted_context,
                 state_snapshot=state_snapshot
             )
-            if debug_mode:
-                logger.info(f"Task created: {task.id}")
             
             if debug_mode:
-                logger.info("Starting A2A client communication...")
+                print(f"🔥 ORCHESTRATOR A2A TASK DEBUG:")
+                print(f"  Task ID: {task_id}")
+                print(f"  Instruction: {instruction}")
+                print(f"  Context: {extracted_context}")
+                print(f"  State snapshot: {state_snapshot}")
             async with A2AClient(debug_mode=debug_mode) as client:
                 endpoint = agent.endpoint + "/a2a"
-                if debug_mode:
-                    logger.info(f"Calling endpoint: {endpoint}")
                 
                 result = await client.process_task(
                     endpoint=endpoint,
                     task=task
                 )
                 
-                if debug_mode:
-                    logger.info(f"A2A result type: {type(result)}")
-                    logger.info(f"A2A result keys: {list(result.keys()) if isinstance(result, dict) else 'not dict'}")
-                    logger.info(f"A2A result: {str(result)[:300]}...")
                 
                 # Extract the response
                 if "artifacts" in result:
-                    if debug_mode:
-                        logger.info("Processing artifacts from result...")
                     response = result["artifacts"]
-                    if debug_mode:
-                        logger.info(f"Artifacts type: {type(response)}")
                     
                     if isinstance(response, list) and len(response) > 0:
                         if debug_mode:
@@ -216,14 +184,10 @@ class SalesforceAgentTool(BaseTool):
                 logger.error(f"Failed to communicate with Salesforce agent: {e}")
             return f"Error: Failed to communicate with Salesforce agent - {str(e)}"
         except Exception as e:
+            logger.error(f"Unexpected error in Salesforce agent tool: {type(e).__name__}: {e}")
             if debug_mode:
-                logger.error(f"=== SALESFORCE AGENT TOOL UNEXPECTED ERROR ===")
-                logger.error(f"Exception type: {type(e)}")
-                logger.error(f"Exception message: {str(e)}")
                 import traceback
-                logger.error(f"Full traceback: {traceback.format_exc()}")
-            else:
-                logger.error(f"Unexpected error in Salesforce agent tool: {e}")
+                logger.error(f"Traceback: {traceback.format_exc()}")
             return f"Error: Unexpected error - {str(e)}"
     
     def _run(self, instruction: str, context: Optional[Dict[str, Any]] = None, **kwargs) -> str:
