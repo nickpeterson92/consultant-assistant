@@ -1,13 +1,21 @@
 .env
-src/agent/memory_store.db
-src/agent/store/__pycache__/__init__.cpython-313.pyc
-src/agent/store/__pycache__/memory_schemas.cpython-313.pyc
-src/agent/store/__pycache__/sqlite_store.cpython-313.pyc
-src/agent/tools/__pycache__/__init__.cpython-313.pyc
-src/agent/tools/__pycache__/attachment_tools.cpython-313.pyc
-src/agent/tools/__pycache__/salesforce_tools.cpython-313.pyc
-src/agent/utils/__pycache__/__init__.cpython-313.pyc
-src/agent/utils/__pycache__/helpers.cpython-313.pyc
-src/agent/utils/__pycache__/state_manager.cpython-313.pyc
-src/agent/utils/__pycache__/sys_msg.cpython-313.pyc
 .DS_Store
+# External log files - comprehensive logging
+*.log
+*.pyc
+__pycache__/
+**/__pycache__/
+*.db
+*.db-wal
+*.db-shm
+logs/
+# Exclude any other log directories that might be created
+src/logs/
+src/agents/logs/
+
+# Test and analysis files
+test_*.py
+*_test.py
+analyze_*.py
+inspect_*.py
+deep_*.py

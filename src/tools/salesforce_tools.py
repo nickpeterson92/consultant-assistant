@@ -8,7 +8,11 @@ from pydantic import BaseModel, field_validator
 from langchain.tools import BaseTool
 from typing import Optional
 from simple_salesforce import Salesforce
-from utils.state_manager import StateManager
+
+# Import centralized logging
+from src.utils.logging import log_tool_activity
+
+# All logging now handled by centralized activity_logger
 
 
 def get_salesforce_connection():
@@ -38,42 +42,41 @@ class GetLeadTool(BaseTool):
     args_schema: type = GetLeadInput
 
     def _run(self, **kwargs) -> dict:
-        state_mgr = StateManager()
-        state = state_mgr.get_state()
-        ai_msg = state.get("messages")
-
-        tool_calls = None
-        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
-            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
-
         data = GetLeadInput(**kwargs)
 
         try:
+            # Log tool activity
+            log_tool_activity("GetLeadTool", "RETRIEVE_LEAD", 
+                            search_params={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
+            # Escape all user inputs to prevent SOQL injection
             if data.lead_id:
-                query = f"SELECT Id, Name, Company, Email, Phone FROM Lead WHERE Id = '{data.lead_id}'"
+                escaped_id = sf.escape(data.lead_id)
+                query = f"SELECT Id, Name, Company, Email, Phone FROM Lead WHERE Id = '{escaped_id}'"
             else:
                 query_conditions = []
                 if data.email:
-                    query_conditions.append(f"Email LIKE '%{data.email}%'")
+                    escaped_email = sf.escape(data.email)
+                    query_conditions.append(f"Email LIKE '%{escaped_email}%'")
                 if data.name:
-                    query_conditions.append(f"Name LIKE '%{data.name}%'")
+                    escaped_name = sf.escape(data.name)
+                    query_conditions.append(f"Name LIKE '%{escaped_name}%'")
                 if data.phone:
-                    query_conditions.append(f"Phone LIKE '%{data.phone}%'")
+                    escaped_phone = sf.escape(data.phone)
+                    query_conditions.append(f"Phone LIKE '%{escaped_phone}%'")
                 if data.company:
-                    query_conditions.append(f"Company LIKE '%{data.company}%'")
+                    escaped_company = sf.escape(data.company)
+                    query_conditions.append(f"Company LIKE '%{escaped_company}%'")
 
                 if not query_conditions:
-                    return [{"role": "tool", "content":{"error": "No search criteria provided."}, "tool_call_id": call_id}]
+                    return {"error": "No search criteria provided."}
 
                 query = f"SELECT Id, Name, Company, Email, Phone FROM Lead WHERE {' OR '.join(query_conditions)}"
-                #print(f"DEBUG: Executing SOQL query: {query}")
 
             records = sf.query(query)['records']
 
             if not records:
-                return [{"role": "tool", "content": records, "tool_call_id": call_id}]
+                return records
                 
             if len(records) > 1:
                 multiple_matches = {
@@ -88,13 +91,12 @@ class GetLeadTool(BaseTool):
                         for rec in records
                     ]
                 }
-                return [{"role": "tool", "content": multiple_matches, "tool_call_id": call_id}]
+                return multiple_matches
             else:
                 match = {"match": records[0]}
-                return [{"role": "tool", "content": match, "tool_call_id": call_id}]
+                return match
         except Exception as e:
-            content = f"error: {str(e)}"
-            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
+            return {"error": str(e)}
 
 
 class CreateLeadInput(BaseModel):
@@ -112,16 +114,10 @@ class CreateLeadTool(BaseTool):
     args_schema: type = CreateLeadInput
 
     def _run(self, **kwargs) -> dict:
-        state_mgr = StateManager()
-        state = state_mgr.get_state()
-        ai_msg = state.get("messages")
-
-        tool_calls = None
-        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
-            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
-
         try:
+            # Log tool activity
+            log_tool_activity("CreateLeadTool", "CREATE_LEAD", 
+                            input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             data = CreateLeadInput(**kwargs)
             result = sf.Lead.create({
@@ -130,10 +126,9 @@ class CreateLeadTool(BaseTool):
                 "Email": data.email,
                 "Phone": data.phone
             })
-            return [{"role": "tool", "content": result, "tool_call_id": call_id}]
+            return result
         except Exception as e:
-            content = f"error: {str(e)}"
-            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
+            return {"error": str(e)}
     
 
 class UpdateLeadInput(BaseModel):
@@ -152,16 +147,10 @@ class UpdateLeadTool(BaseTool):
     args_schema: type = UpdateLeadInput
 
     def _run(self, **kwargs) -> dict:
-        state_mgr = StateManager()
-        state = state_mgr.get_state()
-        ai_msg = state.get("messages")
-
-        tool_calls = None
-        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
-            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
-
         try:
+            # Log tool activity
+            log_tool_activity("UpdateLeadTool", "UPDATE_LEAD", 
+                            input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             data = UpdateLeadInput(**kwargs)
             sf.Lead.update(data.lead_id, {
@@ -169,15 +158,19 @@ class UpdateLeadTool(BaseTool):
                 "Email": data.email,
                 "Phone": data.phone
             })
-            return [{"role": "tool", "content": "Successfully updated lead with Id: " + data.lead_id, "tool_call_id": call_id}]
+            
+            # Log successful update
+            log_tool_activity("UpdateLeadTool", "UPDATE_LEAD_SUCCESS", 
+                              record_id=data.lead_id)
+            return "Successfully updated lead with Id: " + data.lead_id
         except Exception as e:
-            content = f"error: {str(e)}"
-            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
+            return {"error": str(e)}
     
 
 class GetOpportunityInput(BaseModel):
     opportunity_id: Optional[str] = None
     account_name: Optional[str] = None
+    account_id: Optional[str] = None
     opportunity_name: Optional[str] = None
 
 
@@ -185,49 +178,61 @@ class GetOpportunityTool(BaseTool):
     name: str = "get_opportunity_tool"
     description: str = (
         "Retrieves Salesforce opportunities, always by opportunity_id if one is available. "
-        "If no opportunity_id is available the tool uses account_name, opportunity_name, or both. "
+        "If no opportunity_id is available the tool uses account_name, account_id, opportunity_name, or combinations. "
         "If multiple opportunities match, returns a list of options for user selection. "
         "Must be used in workflows involving tools that require an opportunity_id where one is not supplied."
     )
     args_schema: type = GetOpportunityInput
     
     def _run(self, **kwargs) -> dict:
-        state_mgr = StateManager()
-        state = state_mgr.get_state()
-        ai_msg = state.get("messages")
-
-        tool_calls = None
-        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
-            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
-
-        data = GetOpportunityInput(**kwargs)
+        try:
+            # Validate and sanitize inputs
+            validated_kwargs = validate_tool_input("get_opportunity_tool", **kwargs)
+            data = GetOpportunityInput(**validated_kwargs)
+        except ValidationError as e:
+            return {"error": f"Input validation failed: {str(e)}"}
+        except Exception as e:
+            return {"error": f"Input processing failed: {str(e)}"}
         
         account_name = data.account_name
+        account_id = data.account_id
         opportunity_name = data.opportunity_name
         opportunity_id = data.opportunity_id
 
+        # Escape all user inputs to prevent SOQL injection
+        sf = get_salesforce_connection()
         if opportunity_id:
-            query =f"SELECT Id, Name, StageName, Amount, Account.Name FROM Opportunity WHERE Id = '{opportunity_id}'"
+            escaped_opp_id = sf.escape(opportunity_id)
+            query = f"SELECT Id, Name, StageName, Amount, Account.Name FROM Opportunity WHERE Id = '{escaped_opp_id}'"
         else:
-            query_conditions = [f"Account.Name LIKE '%{account_name}%'"]
+            query_conditions = []
+            if account_name:
+                escaped_account_name = sf.escape(account_name)
+                query_conditions.append(f"Account.Name LIKE '%{escaped_account_name}%'")
+            if account_id:
+                escaped_account_id = sf.escape(account_id)
+                query_conditions.append(f"AccountId = '{escaped_account_id}'")
             if opportunity_name:
-                query_conditions.append(f"Name LIKE '%{opportunity_name}%'")
+                escaped_opp_name = sf.escape(opportunity_name)
+                query_conditions.append(f"Name LIKE '%{escaped_opp_name}%'")
+            
+            if not query_conditions:
+                return {"error": "No search criteria provided."}
     
-            query = f"SELECT Id, Name, StageName, Amount, Account.Name FROM Opportunity WHERE {' AND '.join(query_conditions)}"
-            #print(f"DEBUG: Executing SOQL query: {query}")
-
+            query = f"SELECT Id, Name, StageName, Amount, Account.Name FROM Opportunity WHERE {' OR '.join(query_conditions)}"
+            
         try:
-            sf = get_salesforce_connection()
+            # Log tool activity
+            log_tool_activity("GetOpportunityTool", "RETRIEVE_OPPORTUNITY", 
+                            search_params={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             result = sf.query(query)
         except Exception as e:
-            content = f"error: {str(e)}"
-            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
+            return {"error": str(e)}
         
         records = result.get("records", [])
 
         if not records:
-            return [{"role": "tool", "content": records, "tool_call_id": call_id}]
+            return records
             
         if len(records) > 1:
             multiple_matches = {
@@ -242,10 +247,10 @@ class GetOpportunityTool(BaseTool):
                     for rec in records
                 ]
             }
-            return [{"role": "tool", "content": multiple_matches, "tool_call_id": call_id}]
+            return multiple_matches
         else:
             match = {"match": records[0]}
-            return [{"role": "tool", "content": match, "tool_call_id": call_id}]
+            return match
     
 
 class CreateOpportunityInput(BaseModel):
@@ -265,15 +270,6 @@ class CreateOpportunityTool(BaseTool):
     args_schema: type = CreateOpportunityInput
 
     def _run(self, **kwargs) -> dict:
-        state_mgr = StateManager()
-        state = state_mgr.get_state()
-        ai_msg = state.get("messages")
-
-        tool_calls = None
-        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
-            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
-
         data = CreateOpportunityInput(**kwargs)
 
         opportunity_name = data.opportunity_name
@@ -283,6 +279,9 @@ class CreateOpportunityTool(BaseTool):
         close_date = data.close_date
 
         try:
+            # Log tool activity
+            log_tool_activity("CreateOpportunityTool", "CREATE_OPPORTUNITY", 
+                            input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             result = sf.Opportunity.create({
                 "Name": opportunity_name,
@@ -291,10 +290,9 @@ class CreateOpportunityTool(BaseTool):
                 "StageName": stage_name,
                 "CloseDate": close_date
             })
-            return [{"role": "tool", "content": result, "tool_call_id": call_id}]
+            return result
         except Exception as e:
-            content = f"error: {str(e)}"
-            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
+            return {"error": str(e)}
         
 
 class UpdateOpportunityInput(BaseModel):
@@ -330,15 +328,6 @@ class UpdateOpportunityTool(BaseTool):
     args_schema: type = UpdateOpportunityInput
 
     def _run(self, **kwargs) -> dict:
-        state_mgr = StateManager()
-        state = state_mgr.get_state()
-        ai_msg = state.get("messages")
-
-        tool_calls = None
-        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
-            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
-
         data = UpdateOpportunityInput(**kwargs)
 
         stage = data.stage
@@ -346,15 +335,21 @@ class UpdateOpportunityTool(BaseTool):
         opp_id = data.opportunity_id
         
         try:
+            # Log tool activity
+            log_tool_activity("UpdateOpportunityTool", "UPDATE_OPPORTUNITY", 
+                            input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             sf.Opportunity.update(opp_id, {
                 "StageName": stage,
                 "Amount": amount
             })
-            return [{"role": "tool", "content": "Successfully updated opportunity with Id: " + opp_id, "tool_call_id": call_id}]
+            
+            # Log successful update
+            log_tool_activity("UpdateOpportunityTool", "UPDATE_OPPORTUNITY_SUCCESS", 
+                              record_id=opp_id)
+            return "Successfully updated opportunity with Id: " + opp_id
         except Exception as e:
-            content = f"error: {str(e)}"
-            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
+            return {"error": str(e)}
 
 
 class GetAccountInput(BaseModel):
@@ -372,57 +367,49 @@ class GetAccountTool(BaseTool):
     args_schema: type = GetAccountInput
     
     def _run(self, **kwargs) -> dict:
-        state_mgr = StateManager()
-        state = state_mgr.get_state()
-        ai_msg = state.get("messages")
-
-        tool_calls = None
-        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
-            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
-            
         data = GetAccountInput(**kwargs)
         
         account_id = data.account_id
         account_name = data.account_name
 
+        # Escape all user inputs to prevent SOQL injection
+        sf = get_salesforce_connection()
         if account_id:
-            query =f"SELECT Id, Name FROM Account WHERE Id = '{account_id}'"
+            escaped_account_id = sf.escape(account_id)
+            query = f"SELECT Id, Name FROM Account WHERE Id = '{escaped_account_id}'"
         else:
-            query_conditions = [f"Account.Name LIKE '%{account_name}%'"]
+            escaped_account_name = sf.escape(account_name)
+            query_conditions = [f"Name LIKE '%{escaped_account_name}%'"]
     
             query = f"SELECT Id, Name FROM Account WHERE {' AND '.join(query_conditions)}"
-            #print(f"DEBUG: Executing SOQL query: {query}")
 
         try:
-            sf = get_salesforce_connection()
+            # Log tool activity
+            log_tool_activity("GetAccountTool", "RETRIEVE_ACCOUNT", 
+                            search_params={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             result = sf.query(query)
         except Exception as e:
-            content = f"error: {str(e)}"
-            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
+            return {"error": str(e)}
         
         records = result.get("records", [])
 
         if not records:
-            return [{"role": "tool", "content": records, "tool_call_id": call_id}]
+            return records
             
         if len(records) > 1:
             multiple_matches = {
                 "multiple_matches": [
                     {
                         "id": rec["Id"],
-                        "name": rec["Name"],
-                        "account": rec["Account"]["Name"],
-                        "stage": rec["StageName"],
-                        "amount": rec["Amount"],
+                        "name": rec["Name"]
                     }
                     for rec in records
                 ]
             }
-            return [{"role": "tool", "content": multiple_matches, "tool_call_id": call_id}]
+            return multiple_matches
         else:
             match = {"match": records[0]}
-            return [{"role": "tool", "content": match, "tool_call_id": call_id}]
+            return match
     
 
 class CreateAccountInput(BaseModel):
@@ -440,28 +427,21 @@ class CreateAccountTool(BaseTool):
     args_schema: type = CreateAccountInput
 
     def _run(self, **kwargs) -> dict:
-        state_mgr = StateManager()
-        state = state_mgr.get_state()
-        ai_msg = state.get("messages")
-
-        tool_calls = None
-        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
-            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
-
         data = CreateAccountInput(**kwargs)
 
         try:
+            # Log tool activity
+            log_tool_activity("CreateAccountTool", "CREATE_ACCOUNT", 
+                            input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             result = sf.Account.create({
                 "Name": data.account_name,
                 "Phone": data.phone,
                 "Website": data.website
             })
+            return result
         except Exception as e:
-            content = f"error: {str(e)}"
-            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
-        return [{"role": "tool", "content": result, "tool_call_id": call_id}]
+            return {"error": str(e)}
 
 
 class UpdateAccountInput(BaseModel):
@@ -479,26 +459,23 @@ class UpdateAccountTool(BaseTool):
     args_schema: type = UpdateAccountInput
 
     def _run(self, **kwargs) -> dict:
-        state_mgr = StateManager()
-        state = state_mgr.get_state()
-        ai_msg = state.get("messages")
-
-        tool_calls = None
-        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
-            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
-
         data = UpdateAccountInput(**kwargs)
         try:
+            # Log tool activity
+            log_tool_activity("UpdateAccountTool", "UPDATE_ACCOUNT", 
+                            input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             sf.Account.update(data.account_id, {
                 "Phone": data.phone,
                 "Website": data.website
             })
+            
+            # Log successful update
+            log_tool_activity("UpdateAccountTool", "UPDATE_ACCOUNT_SUCCESS", 
+                              record_id=data.account_id)
+            return "Successfully updated account with Id: " + data.account_id
         except Exception as e:
-            content = f"error: {str(e)}"
-            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
-        return [{"role": "tool", "content": "Successfully updated account with Id: " + data.account_id, "tool_call_id": call_id}]
+            return {"error": str(e)}
     
 
 class GetContactInput(BaseModel):
@@ -507,27 +484,19 @@ class GetContactInput(BaseModel):
     name: Optional[str] = None
     phone: Optional[str] = None
     account_name: Optional[str] = None
+    account_id: Optional[str] = None
 
 
 class GetContactTool(BaseTool):
     name: str = "get_contact_tool"
     description: str = (
-        "Retrieves Salesforce contacts by contact_id. If no contact_id is supplied the tool uses email, name, phone, or account_name. "
+        "Retrieves Salesforce contacts by contact_id. If no contact_id is supplied the tool uses email, name, phone, account_name, or account_id. "
         "If multiple contacts match, returns a list of options for user selection. "
         "Must be used in workflows involving tools that require a contact_id where one is not supplied."
     )
     args_schema: type = GetContactInput
     
     def _run(self, **kwargs) -> dict:
-        state_mgr = StateManager()
-        state = state_mgr.get_state()
-        ai_msg = state.get("messages")
-
-        tool_calls = None
-        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
-            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
-
         data = GetContactInput(**kwargs)
         
         contact_id = data.contact_id
@@ -535,34 +504,48 @@ class GetContactTool(BaseTool):
         name = data.name
         phone = data.phone
         account_name = data.account_name
+        account_id = data.account_id
 
+        # Escape all user inputs to prevent SOQL injection
+        sf = get_salesforce_connection()
         if contact_id:
-            query =f"SELECT Id, Name, Account.Name, Email, Phone FROM Contact WHERE Id = '{contact_id}'"
+            escaped_contact_id = sf.escape(contact_id)
+            query = f"SELECT Id, Name, Account.Name, Email, Phone FROM Contact WHERE Id = '{escaped_contact_id}'"
         else:
             query_conditions = []
             if email:
-                query_conditions.append(f"Email LIKE '%{email}%'")
+                escaped_email = sf.escape(email)
+                query_conditions.append(f"Email LIKE '%{escaped_email}%'")
             if name:
-                query_conditions.append(f"Name LIKE '%{name}%'")
+                escaped_name = sf.escape(name)
+                query_conditions.append(f"Name LIKE '%{escaped_name}%'")
             if phone:
-                query_conditions.append(f"Phone LIKE '%{phone}%'")
+                escaped_phone = sf.escape(phone)
+                query_conditions.append(f"Phone LIKE '%{escaped_phone}%'")
             if account_name:
-                query_conditions.append(f"Account.Name LIKE '%{account_name}%'")
+                escaped_account_name = sf.escape(account_name)
+                query_conditions.append(f"Account.Name LIKE '%{escaped_account_name}%'")
+            if account_id:
+                escaped_account_id = sf.escape(account_id)
+                query_conditions.append(f"AccountId = '{escaped_account_id}'")
+
+            if not query_conditions:
+                return {"error": "No search criteria provided."}
     
-            query = f"SELECT Id, Name, Account.Name, Email, Phone FROM Contact WHERE {' AND '.join(query_conditions)}"
-            #print(f"DEBUG: Executing SOQL query: {query}")
+            query = f"SELECT Id, Name, Account.Name, Email, Phone FROM Contact WHERE {' OR '.join(query_conditions)}"
 
         try:
-            sf = get_salesforce_connection()
+            # Log tool activity
+            log_tool_activity("GetContactTool", "RETRIEVE_CONTACT", 
+                            search_params={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             result = sf.query(query)
         except Exception as e:
-            content = f"error: {str(e)}"
-            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
+            return {"error": str(e)}
         
         records = result.get("records", [])
 
         if not records:
-            return [{"role": "tool", "content": records, "tool_call_id": call_id}]
+            return records
             
         if len(records) > 1:
             multiple_matches = {
@@ -570,17 +553,17 @@ class GetContactTool(BaseTool):
                     {
                         "id": rec["Id"],
                         "name": rec["Name"],
-                        "account": rec["Account"]["Name"],
+                        "account": rec["Account"]["Name"] if rec["Account"] else None,
                         "email": rec["Email"],
                         "phone": rec["Phone"]
                     }
                     for rec in records
                 ]
             }
-            return [{"role": "tool", "content": multiple_matches, "tool_call_id": call_id}]
+            return multiple_matches
         else:
             match = {"match": records[0]}
-            return [{"role": "tool", "content": match, "tool_call_id": call_id}]
+            return match
     
 
 class CreateContactInput(BaseModel):
@@ -598,18 +581,12 @@ class CreateContactTool(BaseTool):
     args_schema: type = CreateContactInput
 
     def _run(self, **kwargs) -> dict:
-        state_mgr = StateManager()
-        state = state_mgr.get_state()
-        ai_msg = state.get("messages")
-
-        tool_calls = None
-        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
-            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
-
         data = CreateContactInput(**kwargs)
 
         try:
+            # Log tool activity
+            log_tool_activity("CreateContactTool", "CREATE_CONTACT", 
+                            input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             result = sf.Contact.create({
                 "LastName": data.name,
@@ -617,10 +594,9 @@ class CreateContactTool(BaseTool):
                 "Email": data.email,
                 "Phone": data.phone
             })
+            return result
         except Exception as e:
-            content = f"error: {str(e)}"
-            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
-        return [{"role": "tool", "content": result, "tool_call_id": call_id}]
+            return {"error": str(e)}
 
 
 class UpdateContactInput(BaseModel):
@@ -638,75 +614,75 @@ class UpdateContactTool(BaseTool):
     args_schema: type = UpdateContactInput
 
     def _run(self, **kwargs) -> dict:
-        state_mgr = StateManager()
-        state = state_mgr.get_state()
-        ai_msg = state.get("messages")
-
-        tool_calls = None
-        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
-            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
-
         data = UpdateContactInput(**kwargs)
         try:
+            # Log tool activity
+            log_tool_activity("UpdateContactTool", "UPDATE_CONTACT", 
+                            input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             sf.Contact.update(data.contact_id, {
                 "Email": data.email,
                 "Phone": data.phone
             })
+            
+            # Log successful update
+            log_tool_activity("UpdateContactTool", "UPDATE_CONTACT_SUCCESS", 
+                              record_id=data.contact_id)
+            return "Successfully updated contact with Id: " + data.contact_id
         except Exception as e:
-            content = f"error: {str(e)}"
-            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
-        return [{"role": "tool", "content": "Successfully updated contact with Id: " + data.contact_id, "tool_call_id": call_id}]
+            return {"error": str(e)}
     
 
 class GetCaseInput(BaseModel):
     case_id: Optional[str] = None
     account_name: Optional[str] = None
+    account_id: Optional[str] = None
     contact_name: Optional[str] = None
 
 
 class GetCaseTool(BaseTool):
     name: str = "get_case_tool"
     description: str = (
-        "Retrieves Salesforce cases by case_id. If no case_id is supplied the tool uses subject, account_name, or contact_name. "
+        "Retrieves Salesforce cases by case_id. If no case_id is supplied the tool uses subject, account_name, account_id, or contact_name. "
         "If multiple cases match, returns a list of options for user selection. "
         "Must be used in workflows involving tools that require a case_id where one is not supplied."
     )
     args_schema: type = GetCaseInput
 
     def _run(self, **kwargs) -> dict:
-        state_mgr = StateManager()
-        state = state_mgr.get_state()
-        ai_msg = state.get("messages")
-
-        tool_calls = None
-        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
-            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
-
         data = GetCaseInput(**kwargs)
         try:
+            # Log tool activity
+            log_tool_activity("GetCaseTool", "RETRIEVE_CASE", 
+                            search_params={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
+            
+            # Escape all user inputs to prevent SOQL injection
             if data.case_id:
-                query = f"SELECT Id, Subject, Description, Account.Name, Contact.Name FROM Case WHERE Id = '{data.case_id}'"
+                escaped_case_id = sf.escape(data.case_id)
+                query = f"SELECT Id, Subject, Description, Account.Name, Contact.Name FROM Case WHERE Id = '{escaped_case_id}'"
             else:
                 query_conditions = []
                 if data.account_name:
-                    query_conditions.append(f"Account.Name LIKE '%{data.account_name}%'")
+                    escaped_account_name = sf.escape(data.account_name)
+                    query_conditions.append(f"Account.Name LIKE '%{escaped_account_name}%'")
+                if data.account_id:
+                    escaped_account_id = sf.escape(data.account_id)
+                    query_conditions.append(f"AccountId = '{escaped_account_id}'")
                 if data.contact_name:
-                    query_conditions.append(f"Contact.Name LIKE '%{data.contact_name}%'")
+                    escaped_contact_name = sf.escape(data.contact_name)
+                    query_conditions.append(f"Contact.Name LIKE '%{escaped_contact_name}%'")
 
                 if not query_conditions:
-                    return [{"role": "tool", "content":{"error": "No search criteria provided."}, "tool_call_id": call_id}]
+                    return {"error": "No search criteria provided."}
 
                 query = f"SELECT Id, Subject, Description, Account.Name, Contact.Name FROM Case WHERE {' OR '.join(query_conditions)}"
-                #print(f"DEBUG: Executing SOQL query: {query}")
-
-            records = sf.query(query)['records']
+            
+            result = sf.query(query)
+            records = result['records']
 
             if not records:
-                return [{"role": "tool", "content": records, "tool_call_id": call_id}]
+                return records
                 
             if len(records) > 1:
                 multiple_matches = {
@@ -714,19 +690,18 @@ class GetCaseTool(BaseTool):
                         {
                             "id": rec["Id"],
                             "subject": rec["Subject"],
-                            "account": rec["Account"]["Name"],
-                            "contact": rec["Contact"]["Name"]
+                            "account": rec["Account"]["Name"] if rec["Account"] else None,
+                            "contact": rec["Contact"]["Name"] if rec["Contact"] else None
                         }
                         for rec in records
                     ]
                 }
-                return [{"role": "tool", "content": multiple_matches, "tool_call_id": call_id}]
+                return multiple_matches
             else:
                 match = {"match": records[0]}
-                return [{"role": "tool", "content": match, "tool_call_id": call_id}]
+                return match
         except Exception as e:
-            content = f"error: {str(e)}"
-            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
+            return {"error": str(e)}
         
 
 class CreateCaseInput(BaseModel):
@@ -745,17 +720,11 @@ class CreateCaseTool(BaseTool):
     args_schema: type = CreateCaseInput
 
     def _run(self, **kwargs) -> dict:
-        state_mgr = StateManager()
-        state = state_mgr.get_state()
-        ai_msg = state.get("messages")
-
-        tool_calls = None
-        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
-            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
-
         data = CreateCaseInput(**kwargs)
         try:
+            # Log tool activity
+            log_tool_activity("CreateCaseTool", "CREATE_CASE", 
+                            input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             result = sf.Case.create({
                 "Subject": data.subject,
@@ -763,10 +732,9 @@ class CreateCaseTool(BaseTool):
                 "AccountId": data.account_id,
                 "ContactId": data.contact_id
             })
+            return result
         except Exception as e:
-            content = f"error: {str(e)}"
-            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
-        return [{"role": "tool", "content": result, "tool_call_id": call_id}]
+            return {"error": str(e)}
 
 
 class UpdateCaseInput(BaseModel):
@@ -784,78 +752,79 @@ class UpdateCaseTool(BaseTool):
     args_schema: type = UpdateCaseInput
 
     def _run(self, **kwargs) -> dict:
-        state_mgr = StateManager()
-        state = state_mgr.get_state()
-        ai_msg = state.get("messages")
-
-        tool_calls = None
-        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
-            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
-
         data = UpdateCaseInput(**kwargs)
         try:
+            # Log tool activity
+            log_tool_activity("UpdateCaseTool", "UPDATE_CASE", 
+                            input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             sf.Case.update(data.case_id, {
                 "Status": data.status,
                 "Description": data.description
             })
+            
+            # Log successful update
+            log_tool_activity("UpdateCaseTool", "UPDATE_CASE_SUCCESS", 
+                              record_id=data.case_id)
+            return "Successfully updated case with Id: " + data.case_id
         except Exception as e:
-            content = f"error: {str(e)}"
-            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
-        return [{"role": "tool", "content": "Successfully updated case with Id: " + data.case_id, "tool_call_id": call_id}]
+            return {"error": str(e)}
     
 
 class GetTaskInput(BaseModel):
     task_id: Optional[str] = None
     subject: Optional[str] = None
     account_name: Optional[str] = None
+    account_id: Optional[str] = None
     contact_name: Optional[str] = None
 
 
 class GetTaskTool(BaseTool):
     name: str = "get_task_tool"
     description: str = (
-        "Retrieves Salesforce tasks by task_id. If no task_id is supplied the tool uses subject, account_name, or contact_name. "
+        "Retrieves Salesforce tasks by task_id. If no task_id is supplied the tool uses subject, account_name, account_id, or contact_name. "
         "If multiple tasks match, returns a list of options for user selection. "
         "Must be used in workflows involving tools that require a task_id where one is not supplied."
     )
     args_schema: type = GetTaskInput
 
     def _run(self, **kwargs) -> dict:
-        state_mgr = StateManager()
-        state = state_mgr.get_state()
-        ai_msg = state.get("messages")
-
-        tool_calls = None
-        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
-            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
-
         data = GetTaskInput(**kwargs)
         try:
+            # Log tool activity
+            log_tool_activity("GetTaskTool", "RETRIEVE_TASK", 
+                            search_params={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
+            
+            # Escape all user inputs to prevent SOQL injection
             if data.task_id:
-                query = f"SELECT Id, Subject, Account.Name, Who.Name FROM Task WHERE Id = '{data.task_id}'"
+                escaped_task_id = sf.escape(data.task_id)
+                query = f"SELECT Id, Subject, Account.Name, Who.Name FROM Task WHERE Id = '{escaped_task_id}'"
             else:
                 query_conditions = []
                 if data.subject:
-                    query_conditions.append(f"Subject LIKE '%{data.subject}%'")
+                    escaped_subject = sf.escape(data.subject)
+                    query_conditions.append(f"Subject LIKE '%{escaped_subject}%'")
                 if data.account_name:
-                    query_conditions.append(f"Account.Name LIKE '%{data.account_name}%'")
+                    escaped_account_name = sf.escape(data.account_name)
+                    query_conditions.append(f"Account.Name LIKE '%{escaped_account_name}%'")
+                if data.account_id:
+                    escaped_account_id = sf.escape(data.account_id)
+                    query_conditions.append(f"WhatId = '{escaped_account_id}'")
                 if data.contact_name:
-                    query_conditions.append(f"Who.Name LIKE '%{data.contact_name}%'")
+                    escaped_contact_name = sf.escape(data.contact_name)
+                    query_conditions.append(f"Who.Name LIKE '%{escaped_contact_name}%'")
 
                 if not query_conditions:
-                    return [{"role": "tool", "content":{"error": "No search criteria provided."}, "tool_call_id": call_id}]
+                    return {"error": "No search criteria provided."}
 
                 query = f"SELECT Id, Subject, Account.Name, Who.Name FROM Task WHERE {' OR '.join(query_conditions)}"
-                #print(f"DEBUG: Executing SOQL query: {query}")
-
-            records = sf.query(query)['records']
+            
+            result = sf.query(query)
+            records = result['records']
 
             if not records:
-                return [{"role": "tool", "content": records, "tool_call_id": call_id}]
+                return records
                 
             if len(records) > 1:
                 multiple_matches = {
@@ -863,19 +832,18 @@ class GetTaskTool(BaseTool):
                         {
                             "id": rec["Id"],
                             "subject": rec["Subject"],
-                            "account": rec["Account"]["Name"],
-                            "contact": rec["Who"]["Name"]
+                            "account": rec["Account"]["Name"] if rec["Account"] else None,
+                            "contact": rec["Who"]["Name"] if rec["Who"] else None
                         }
                         for rec in records
                     ]
                 }
-                return [{"role": "tool", "content": multiple_matches, "tool_call_id": call_id}]
+                return multiple_matches
             else:
                 match = {"match": records[0]}
-                return [{"role": "tool", "content": match, "tool_call_id": call_id}]
+                return match
         except Exception as e:
-            content = f"error: {str(e)}"
-            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
+            return {"error": str(e)}
         
 
 class CreateTaskInput(BaseModel):
@@ -894,17 +862,11 @@ class CreateTaskTool(BaseTool):
     args_schema: type = CreateTaskInput
 
     def _run(self, **kwargs) -> dict:
-        state_mgr = StateManager()
-        state = state_mgr.get_state()
-        ai_msg = state.get("messages")
-
-        tool_calls = None
-        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
-            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
-
         data = CreateTaskInput(**kwargs)
         try:
+            # Log tool activity
+            log_tool_activity("CreateTaskTool", "CREATE_TASK", 
+                            input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             result = sf.Task.create({
                 "Subject": data.subject,
@@ -912,10 +874,9 @@ class CreateTaskTool(BaseTool):
                 "WhatId": data.account_id,
                 "WhoId": data.contact_id
             })
+            return result
         except Exception as e:
-            content = f"error: {str(e)}"
-            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
-        return [{"role": "tool", "content": result, "tool_call_id": call_id}]
+            return {"error": str(e)}
 
 
 class UpdateTaskInput(BaseModel):
@@ -933,24 +894,21 @@ class UpdateTaskTool(BaseTool):
     args_schema: type = UpdateTaskInput
 
     def _run(self, **kwargs) -> dict:
-        state_mgr = StateManager()
-        state = state_mgr.get_state()
-        ai_msg = state.get("messages")
-
-        tool_calls = None
-        if ai_msg and hasattr(ai_msg, "additional_kwargs"):
-            tool_calls = ai_msg.additional_kwargs.get("tool_calls")
-            call_id = tool_calls[0]["id"]
-
         data = UpdateTaskInput(**kwargs)
         try:
+            # Log tool activity
+            log_tool_activity("UpdateTaskTool", "UPDATE_TASK", 
+                            input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             sf.Task.update(data.task_id, {
                 "Status": data.status,
                 "Description": data.description
             })
+            
+            # Log successful update
+            log_tool_activity("UpdateTaskTool", "UPDATE_TASK_SUCCESS", 
+                              record_id=data.task_id)
+            return "Successfully updated task with Id: " + data.task_id
         except Exception as e:
-            content = f"error: {str(e)}"
-            return [{"role": "tool", "content": content, "tool_call_id": call_id}]
-        return [{"role": "tool", "content": "Successfully updated task with Id: " + data.task_id, "tool_call_id": call_id}]
+            return {"error": str(e)}
     
