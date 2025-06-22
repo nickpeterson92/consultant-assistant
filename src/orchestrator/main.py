@@ -62,6 +62,12 @@ os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
 
 from src.utils.logging import log_orchestrator_activity, log_cost_activity
+from src.utils.events import (
+    EventType, OrchestratorEvent, EventAnalyzer,
+    create_user_message_event, create_ai_response_event, 
+    create_tool_call_event, create_summary_triggered_event,
+    create_memory_update_triggered_event
+)
 
 
 
@@ -88,16 +94,13 @@ def create_azure_openai_chat():
         timeout=llm_config.timeout,
     )
 
-def build_orchestrator_graph(debug_mode: bool = False):
+def build_orchestrator_graph():
     """Build and compile the orchestrator LangGraph.
     
     Constructs the state graph that manages conversation flow, tool execution,
     and background tasks like summarization and memory extraction. The graph
     implements parallel processing for efficiency while maintaining conversation
     coherence.
-    
-    Args:
-        debug_mode: Enable verbose logging and diagnostic output
         
     Returns:
         CompiledStateGraph: Compiled LangGraph with checkpointing and storage
@@ -114,12 +117,11 @@ def build_orchestrator_graph(debug_mode: bool = False):
         messages: Annotated[list, add_messages]
         summary: str  # Conversation summary for context compression
         memory: dict  # Structured memory of extracted entities
-        turns: int
+        events: Annotated[List[Dict[str, Any]], operator.add]  # Event history
         active_agents: List[str]
         last_agent_interaction: Dict[str, Any]
         background_operations: Annotated[List[str], operator.add]
         background_results: Annotated[Dict[str, Any], lambda x, y: {**x, **y}]
-        last_summarized_turn: int  # Prevents summarization cascades
     
     memory = MemorySaver()
     # Configure persistent storage with resilience patterns
@@ -136,7 +138,7 @@ def build_orchestrator_graph(debug_mode: bool = False):
     
     # Initialize orchestrator tools
     tools = [
-        SalesforceAgentTool(agent_registry, debug_mode),
+        SalesforceAgentTool(agent_registry),
         GenericAgentTool(agent_registry),
         AgentRegistryTool(agent_registry)
     ]
@@ -218,31 +220,31 @@ ORCHESTRATOR TOOLS:
             msg_count = len(state.get('messages', []))
             last_msg = state.get('messages', [])[-1] if state.get('messages') else None
             
+            # Track events instead of turns
+            events = [OrchestratorEvent.from_dict(e) for e in state.get('events', [])]
+            
             # Log message types to track conversation flow
             if hasattr(last_msg, 'content'):
                 from langchain_core.messages import HumanMessage, AIMessage
                 if isinstance(last_msg, HumanMessage):
+                    # Create user message event
+                    event = create_user_message_event(
+                        str(last_msg.content), 
+                        msg_count
+                    )
+                    events.append(event)
                     log_orchestrator_activity("USER_REQUEST", 
                                              message=str(last_msg.content)[:200],
                                              message_count=msg_count,
-                                             turn=state.get('turns', 0))
+                                             event_count=len(events))
                 elif isinstance(last_msg, AIMessage):
                     log_orchestrator_activity("AI_RESPONSE_PROCESSING", 
                                              message=str(last_msg.content)[:200],
                                              message_count=msg_count,
-                                             turn=state.get('turns', 0))
+                                             event_count=len(events))
             
-            if debug_mode:
-                last_type = type(last_msg).__name__ if last_msg else "None"
-                
-                # Detect potential duplicate AI responses (graph routing issue)
-                if last_type == "AIMessage" and hasattr(last_msg, 'content') and last_msg.content:
-                    logger.warning(f"DUPLICATE CHECK: Orchestrator called with AIMessage response already present")
-                    logger.warning(f"  Message count: {msg_count}, Turn: {state.get('turns', 0)}")
-                    logger.warning(f"  Last message preview: {str(last_msg.content)[:100]}...")
             
             summary = state.get("summary", "No summary available")
-            turn = state.get("turns", 0)
             
             # Load persistent memory using flat schema for simplicity
             user_id = config["configurable"].get("user_id", "default")
@@ -258,16 +260,10 @@ ORCHESTRATOR TOOLS:
                     total_records = (len(validated_data.accounts) + len(validated_data.contacts) + 
                                    len(validated_data.opportunities) + len(validated_data.cases) + 
                                    len(validated_data.tasks) + len(validated_data.leads))
-                    if debug_mode:
-                        logger.info(f"Loaded existing memory with {total_records} total records")
                 except Exception as e:
-                    if debug_mode:
-                        logger.warning(f"Existing memory data invalid, using fresh schema: {e}")
                     existing_memory = {"SimpleMemory": SimpleMemory().model_dump()}
             else:
                 existing_memory = {"SimpleMemory": SimpleMemory().model_dump()}
-                if debug_mode:
-                    logger.info("No existing memory found, using fresh schema")
             
             # Update state memory before system message generation
             state["memory"] = existing_memory
@@ -287,78 +283,106 @@ ORCHESTRATOR TOOLS:
             
             if hasattr(response, 'tool_calls') and response.tool_calls:
                 for tool_call in response.tool_calls:
+                    # Create tool call event
+                    tool_event = create_tool_call_event(
+                        tool_call.get('name', 'unknown'),
+                        tool_call.get('args', {}),
+                        msg_count
+                    )
+                    events.append(tool_event)
                     log_orchestrator_activity("TOOL_CALL",
                                              tool_name=tool_call.get('name', 'unknown'),
                                              tool_args=tool_call.get('args', {}),
-                                             turn=state.get('turns', 0))
+                                             event_count=len(events))
+            
             response_content = str(response.content) if hasattr(response, 'content') else ""
+            
+            # Estimate token usage for cost tracking (rough 4 chars/token)
+            message_chars = sum(len(str(m.content if hasattr(m, 'content') else m)) for m in messages)
+            response_chars = len(response_content)
+            estimated_tokens = (message_chars + response_chars) // 4
+            
+            # Create AI response event
+            ai_event = create_ai_response_event(
+                response_content,
+                msg_count,
+                estimated_tokens
+            )
+            events.append(ai_event)
+            
             log_orchestrator_activity("LLM_RESPONSE", 
                                      response_length=len(response_content),
                                      response_content=response_content[:500],  # Truncate for readability
                                      has_tool_calls=bool(hasattr(response, 'tool_calls') and response.tool_calls),
-                                     turn=state.get('turns', 0))
+                                     event_count=len(events))
             
-            # Estimate token usage for cost tracking (rough 4 chars/token)
-            message_chars = sum(len(str(m.content if hasattr(m, 'content') else m)) for m in messages)
-            response_chars = len(str(response.content)) if hasattr(response, 'content') else 0
-            estimated_tokens = (message_chars + response_chars) // 4
             log_cost_activity("ORCHESTRATOR_LLM", estimated_tokens,
                             message_count=len(messages),
-                            turn=state.get('turns', 0))
-            turn = state.get("turns", 0)
-            new_turn = turn + 1
+                            event_count=len(events))
+            
+            # Convert events back to dicts for state storage
+            event_dicts = [e.to_dict() for e in events]
             
             updated_state = {
                 "messages": response,
                 "memory": existing_memory,
-                "turns": new_turn
+                "events": event_dicts  # Store event history
             }
             
-            # Trigger background tasks without blocking response
+            # Trigger background tasks based on events
             from src.utils.config import get_conversation_config
             conv_config = get_conversation_config()
-            summary_threshold = conv_config.summary_threshold
-            memory_turn_threshold = getattr(conv_config, 'memory_update_turn_threshold', 3)
             
-            # Summarize more frequently with cost-effective models
-            if len(state["messages"]) >= summary_threshold and new_turn % 2 == 0:
-                if debug_mode:
-                    logger.info(f"Starting fire-and-forget summary task for turn {new_turn}")
+            # Check if we should trigger summary based on events
+            if EventAnalyzer.should_trigger_summary(events, 
+                                                   user_message_threshold=5,
+                                                   time_threshold_seconds=300):
+                
+                # Create summary triggered event
+                summary_event = create_summary_triggered_event(
+                    msg_count,
+                    "Threshold reached based on user messages or time"
+                )
+                events.append(summary_event)
+                event_dicts.append(summary_event.to_dict())
+                
                 log_orchestrator_activity("SUMMARY_TRIGGER", 
                                         message_count=len(state["messages"]), 
-                                        turn=new_turn)
+                                        event_count=len(events))
                 import threading
                 threading.Thread(
                     target=_run_background_summary,
-                    args=(state["messages"], state.get("summary", ""), new_turn, existing_memory, debug_mode),
+                    args=(state["messages"], state.get("summary", ""), events, existing_memory),
                     daemon=True
                 ).start()
-            if new_turn > memory_turn_threshold:
-                if debug_mode:
-                    logger.info(f"Starting fire-and-forget memory task for turn {new_turn}")
+            
+            # Check if we should trigger memory update based on events
+            if EventAnalyzer.should_trigger_memory_update(events,
+                                                        tool_call_threshold=3,
+                                                        agent_call_threshold=2):
+                
+                # Create memory update triggered event
+                memory_event = create_memory_update_triggered_event(
+                    msg_count,
+                    "Threshold reached based on tool/agent calls"
+                )
+                events.append(memory_event)
+                event_dicts.append(memory_event.to_dict())
+                
                 log_orchestrator_activity("MEMORY_TRIGGER",
-                                        turn=new_turn,
+                                        event_count=len(events),
                                         message_count=len(state["messages"]))
                 import threading
                 threading.Thread(
                     target=_run_background_memory,
-                    args=(state["messages"], state.get("summary", ""), new_turn, existing_memory, debug_mode),
+                    args=(state["messages"], state.get("summary", ""), events, existing_memory),
                     daemon=True
                 ).start()
             
             return updated_state
             
         except Exception as e:
-            if debug_mode:
-                logger.error(f"=== ORCHESTRATOR ERROR ===")
-                logger.error(f"Error type: {type(e).__name__}")
-                logger.error(f"Error message: {str(e)}")
-                logger.error(f"State keys: {list(state.keys())}")
-                logger.error(f"Message count: {len(state.get('messages', []))}")
-                import traceback
-                logger.error(f"Traceback: {traceback.format_exc()}")
-            else:
-                logger.error(f"Error processing request: {e}")
+            logger.error(f"Error processing request: {e}")
             raise
     
     async def summarize_conversation(state: OrchestratorState):
@@ -376,14 +400,7 @@ ORCHESTRATOR TOOLS:
         """
         start_time = time.time()
         messages_count = len(state.get('messages', []))
-        turn = state.get('turns', 0)
-        
-        if debug_mode:
-            logger.info(f"Summarizing conversation: {messages_count} messages, turn {turn}")
-        
-        # Set cooldown to prevent cascading summarization
-        current_state = state.copy()
-        current_state["last_summarized_turn"] = turn
+        events = [OrchestratorEvent.from_dict(e) for e in state.get('events', [])]
         
         summary = state.get("summary", "No summary available")
         memory_val = state.get("memory", "No memory available")
@@ -394,8 +411,7 @@ ORCHESTRATOR TOOLS:
             messages_count=messages_count,
             current_summary=summary,
             memory_context=memory_val,
-            component="orchestrator",
-            turn=turn
+            component="orchestrator"
         )
         
         system_message = orchestrator_summary_sys_msg(summary, memory_val)
@@ -407,18 +423,6 @@ ORCHESTRATOR TOOLS:
         # Smart preservation maintains tool call/response integrity
         messages_to_preserve = smart_preserve_messages(state["messages"], keep_count=3)
         messages_to_delete = []
-        if debug_mode:
-            logger.warning("=== SMART PRESERVATION DEBUG ===")
-            logger.warning(f"Total messages before: {len(state['messages'])}")
-            logger.warning(f"Messages to preserve: {len(messages_to_preserve)}")
-            for i, msg in enumerate(messages_to_preserve):
-                msg_type = type(msg).__name__
-                if msg_type == "AIMessage" and hasattr(msg, 'tool_calls') and msg.tool_calls:
-                    logger.warning(f"  Preserved {i}: {msg_type} with {len(msg.tool_calls)} tool calls")
-                elif msg_type == "ToolMessage":
-                    logger.warning(f"  Preserved {i}: {msg_type} (call_id: {getattr(msg, 'tool_call_id', 'unknown')})")
-                else:
-                    logger.warning(f"  Preserved {i}: {msg_type}")
         
         # Mark non-preserved messages for deletion
         preserved_ids = {getattr(msg, 'id', None) for msg in messages_to_preserve if hasattr(msg, 'id')}
@@ -426,16 +430,12 @@ ORCHESTRATOR TOOLS:
             if hasattr(msg, 'id') and msg.id not in preserved_ids:
                 messages_to_delete.append(RemoveMessage(id=msg.id))
         
-        if debug_mode:
-            logger.info(f"Summary complete: deleting {len(messages_to_delete)}, preserving {len(messages_to_preserve)}")
-            logger.warning("=== END PRESERVATION DEBUG ===")
-        
         response_content = str(response.content) if hasattr(response, 'content') else ""
         log_orchestrator_activity("LLM_RESPONSE", 
                                  response_length=len(response_content),
                                  response_content=response_content[:500],
                                  operation="SUMMARIZATION",
-                                 turn=turn)
+                                 event_count=len(events))
         
         # Log token usage based on preserved message count
         message_chars = sum(len(str(m.content if hasattr(m, 'content') else m)) for m in messages)
@@ -443,7 +443,7 @@ ORCHESTRATOR TOOLS:
         log_cost_activity("ORCHESTRATOR_LLM_CALL", estimated_tokens,
                          message_count=len(messages_to_preserve),
                          response_length=len(str(response.content)) if hasattr(response, 'content') else 0,
-                         turn=turn)
+                         event_count=len(events))
         
         # Log summary response
         processing_time = time.time() - start_time
@@ -452,14 +452,24 @@ ORCHESTRATOR TOOLS:
             messages_preserved=len(messages_to_preserve),
             messages_deleted=len(messages_to_delete),
             component="orchestrator",
-            turn=turn,
             processing_time=processing_time
+        )
+        
+        # Create summary completed event
+        summary_completed_event = OrchestratorEvent(
+            event_type=EventType.SUMMARY_COMPLETED,
+            details={
+                "messages_preserved": len(messages_to_preserve),
+                "messages_deleted": len(messages_to_delete),
+                "processing_time": processing_time
+            },
+            message_count=messages_count
         )
         
         return {
             "summary": response.content,
             "messages": messages_to_delete,
-            "last_summarized_turn": state.get("turns", 0)
+            "events": [summary_completed_event.to_dict()]
         }
     
     async def memorize_records(state: OrchestratorState, config: RunnableConfig):
@@ -476,8 +486,6 @@ ORCHESTRATOR TOOLS:
         Returns:
             Dict with updated memory and reset turn counter
         """
-        if debug_mode:
-            logger.info("Updating memory with simplified approach")
         
         user_id = config["configurable"].get("user_id", "default")
         namespace = ("memory", user_id)
@@ -532,11 +540,6 @@ ORCHESTRATOR TOOLS:
         else:
             extraction_content += "No recent tool responses found."
         
-        if debug_mode:
-            logger.info(f"Memory extraction - Total content length: {len(extraction_content)}")
-            logger.info(f"Memory extraction - Tool responses found: {len(recent_tool_responses)}")
-            logger.info(f"Memory extraction - Content preview: {extraction_content[:300]}...")
-        
         # Invoke TrustCall with timeout for background safety
         try:
             from src.utils.config import get_llm_config
@@ -585,22 +588,49 @@ ORCHESTRATOR TOOLS:
                 
                 memory_store.sync_put(namespace, key, clean_data)
                 
-                if debug_mode:
-                    total_records = (len(clean_data.get('accounts', [])) + len(clean_data.get('contacts', [])) + 
-                                   len(clean_data.get('opportunities', [])) + len(clean_data.get('cases', [])) + 
-                                   len(clean_data.get('tasks', [])) + len(clean_data.get('leads', [])))
-                    logger.info(f"Memory updated successfully with {total_records} total records")
+                total_records = (len(clean_data.get('accounts', [])) + len(clean_data.get('contacts', [])) + 
+                               len(clean_data.get('opportunities', [])) + len(clean_data.get('cases', [])) + 
+                               len(clean_data.get('tasks', [])) + len(clean_data.get('leads', [])))
                 
-                return {"memory": {"SimpleMemory": clean_data}, "turns": 0}
+                # Create memory update completed event
+                memory_completed_event = OrchestratorEvent(
+                    event_type=EventType.MEMORY_UPDATE_COMPLETED,
+                    details={
+                        "total_records": total_records,
+                        "entity_counts": {k: len(v) for k, v in clean_data.items() if isinstance(v, list)}
+                    },
+                    message_count=len(state.get('messages', []))
+                )
+                
+                return {
+                    "memory": {"SimpleMemory": clean_data}, 
+                    "events": [memory_completed_event.to_dict()]
+                }
                 
         except asyncio.TimeoutError:
             logger.warning("Memory extraction timed out")
             empty_memory = SimpleMemory().model_dump()
-            return {"memory": {"SimpleMemory": empty_memory}, "turns": 0}
+            error_event = OrchestratorEvent(
+                event_type=EventType.ERROR,
+                details={"error": "Memory extraction timed out"},
+                message_count=len(state.get('messages', []))
+            )
+            return {
+                "memory": {"SimpleMemory": empty_memory}, 
+                "events": [error_event.to_dict()]
+            }
         except Exception as e:
             logger.warning(f"Memory extraction failed: {type(e).__name__}: {e}")
             empty_memory = SimpleMemory().model_dump()
-            return {"memory": {"SimpleMemory": empty_memory}, "turns": 0}
+            error_event = OrchestratorEvent(
+                event_type=EventType.ERROR,
+                details={"error": f"Memory extraction failed: {str(e)}"},
+                message_count=len(state.get('messages', []))
+            )
+            return {
+                "memory": {"SimpleMemory": empty_memory}, 
+                "events": [error_event.to_dict()]
+            }
     
     async def background_summary(state: OrchestratorState, config: RunnableConfig):
         """Background task for conversation summarization.
@@ -640,129 +670,48 @@ ORCHESTRATOR TOOLS:
                 "background_results": {"memory_error": str(e)}
             }
     
-    def needs_summary(state: OrchestratorState):
-        """Determine if conversation requires summarization.
-        
-        Implements cooldown to prevent cascading summaries in multi-tool
-        scenarios where many messages are generated in a single turn.
-        
-        Args:
-            state: Current orchestrator state
-            
-        Returns:
-            "summarize_conversation" or END
-        """
-        message_count = len(state["messages"])
-        current_turn = state.get("turns", 0)
-        last_summarized = state.get("last_summarized_turn", -1)
-        
-        # Enforce cooldown between summaries
-        if current_turn - last_summarized < 1:
-            if debug_mode:
-                logger.warning(f"COOLDOWN BLOCK: Last summarized turn {last_summarized}, current turn {current_turn}")
-            return END
-        from src.utils.config import get_conversation_config
-        conv_config = get_conversation_config()
-        
-        # Check threshold (multi-tool scenarios can generate many messages)
-        if message_count > conv_config.summary_threshold:
-            return "summarize_conversation"
-        return END
+    # Note: Background tasks (summary and memory) are triggered directly in the orchestrator function
+    # using fire-and-forget threads based on event analysis, not through graph edges.
     
-    def needs_memory(state: OrchestratorState):
-        """Determine if memory extraction is needed.
-        
-        Uses turn-based threshold for periodic memory updates.
-        
-        Args:
-            state: Current orchestrator state
-            
-        Returns:
-            "memorize_records" or END
-        """
-        from src.utils.config import get_conversation_config
-        conv_config = get_conversation_config()
-        memory_threshold = getattr(conv_config, 'memory_update_turn_threshold', 3)
-        
-        if state.get("turns", 0) > memory_threshold:
-            return "memorize_records"
-        return END
-
-    def _run_background_summary(messages, summary, turns, memory, debug_mode):
+    def _run_background_summary(messages, summary, events, memory):
         """Execute summarization in background thread.
         
         Creates new event loop for async execution in thread context.
         Logs progress and errors for monitoring.
         """
         try:
-            if debug_mode:
-                log_orchestrator_activity("BACKGROUND_SUMMARY_START",
-                                         message_count=len(messages),
-                                         turn=turns,
-                                         memory_keys=list(memory.keys()) if memory else [])
             mock_state = {
                 "messages": messages,
                 "summary": summary,
-                "turns": turns,
-                "memory": memory,
-                "last_summarized_turn": -1
+                "events": [e.to_dict() for e in events],
+                "memory": memory
             }
             mock_config = {"configurable": {"user_id": "user-1"}}
             import asyncio
             result = asyncio.run(background_summary(mock_state, mock_config))
-            if debug_mode:
-                log_orchestrator_activity("BACKGROUND_SUMMARY_COMPLETE",
-                                         result_keys=list(result.keys()) if result else [],
-                                         turn=turns)
         except Exception as e:
             import traceback
             log_orchestrator_activity("BACKGROUND_SUMMARY_ERROR",
                                      error=str(e),
                                      traceback=traceback.format_exc()[:500])
     
-    def _run_background_memory(messages, summary, turns, memory, debug_mode):
+    def _run_background_memory(messages, summary, events, memory):
         """Execute memory extraction in background thread.
         
         Analyzes tool messages for structured data extraction.
         Creates new event loop for async execution.
         """
         try:
-            if debug_mode:
-                # Analyze tool messages for extraction candidates
-                tool_messages = [m for m in messages if hasattr(m, 'name') and getattr(m, 'name', '')]
-                tool_message_details = []
-                for i, tm in enumerate(tool_messages[-3:]):
-                    content_preview = str(getattr(tm, 'content', ''))[:100]
-                    tool_message_details.append({
-                        "index": i,
-                        "name": getattr(tm, 'name', 'unknown'),
-                        "content_preview": content_preview
-                    })
-                log_orchestrator_activity("BACKGROUND_MEMORY_START",
-                                         message_count=len(messages),
-                                         turn=turns,
-                                         tool_message_count=len(tool_messages),
-                                         tool_message_details=tool_message_details)
                     
             mock_state = {
                 "messages": messages,
                 "summary": summary,
-                "turns": turns,
+                "events": [e.to_dict() for e in events],
                 "memory": memory
             }
             mock_config = {"configurable": {"user_id": "user-1"}}
             import asyncio
             result = asyncio.run(background_memory(mock_state, mock_config))
-            if debug_mode:
-                total_records = 0
-                if result and 'memory' in result:
-                    memory_data = result['memory'].get('SimpleMemory', {})
-                    total_records = sum(len(memory_data.get(k, [])) for k in ['accounts', 'contacts', 'opportunities', 'cases', 'tasks', 'leads'])
-                
-                log_orchestrator_activity("BACKGROUND_MEMORY_COMPLETE",
-                                         result_keys=list(result.keys()) if result else [],
-                                         turn=turns,
-                                         total_records_extracted=total_records)
         except Exception as e:
             import traceback
             log_orchestrator_activity("BACKGROUND_MEMORY_ERROR",
@@ -782,15 +731,12 @@ ORCHESTRATOR TOOLS:
     # Return to conversation after tool execution
     graph_builder.add_edge("tools", "conversation")
     
-    if debug_mode:
-        logger.info("GRAPH STRUCTURE: conversation -> tools_condition -> tools->conversation | background tasks in threads")
-    
     graph_builder.set_finish_point("conversation")
     
     return graph_builder.compile(checkpointer=memory, store=memory_store)
 
 # Create default orchestrator graph for module export
-orchestrator_graph = build_orchestrator_graph(debug_mode=False)
+orchestrator_graph = build_orchestrator_graph()
 
 async def initialize_orchestrator():
     """Initialize orchestrator and discover available agents.
@@ -834,27 +780,22 @@ async def initialize_orchestrator():
 async def main():
     """Main CLI interface for the orchestrator"""
     parser = argparse.ArgumentParser(description="Consultant Assistant Orchestrator")
-    parser.add_argument("-d", "--debug", action="store_true", help="Enable debug mode")
     args = parser.parse_args()
     
-    DEBUG_MODE = args.debug
-    
     # Setup comprehensive external logging
-    init_session_tracking(DEBUG_MODE)
+    init_session_tracking()
     
     # Get structured loggers
-    orchestrator_logger = get_logger('orchestrator', DEBUG_MODE)
-    perf_tracker = get_performance_tracker('orchestrator', DEBUG_MODE)
-    cost_tracker = get_cost_tracker(DEBUG_MODE)
+    orchestrator_logger = get_logger('orchestrator')
+    perf_tracker = get_performance_tracker('orchestrator')
+    cost_tracker = get_cost_tracker()
     
     # Setup basic logging for console output - only for user interface
-    # Suppress all INFO level logging to console in non-debug mode
-    log_level = logging.DEBUG if DEBUG_MODE else logging.WARNING
+    log_level = logging.WARNING
     logging.basicConfig(level=log_level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
     # Log session start
-    orchestrator_logger.info("ORCHESTRATOR_SESSION_START", 
-                           debug_mode=DEBUG_MODE,
+    orchestrator_logger.info("ORCHESTRATOR_SESSION_START",
                            components=['orchestrator', 'agents', 'a2a'])
     
     # Suppress verbose logging from third-party libraries and internal components
@@ -879,11 +820,8 @@ async def main():
     # Initialize orchestrator
     await initialize_orchestrator()
     
-    # Rebuild graph with debug mode if requested
-    if DEBUG_MODE:
-        local_graph = build_orchestrator_graph(debug_mode=True)
-    else:
-        local_graph = orchestrator_graph
+    # Use the default orchestrator graph
+    local_graph = orchestrator_graph
     
     print("\n=== Consultant Assistant Orchestrator ===")
     print("Multi-agent system ready. Available capabilities:")
@@ -920,78 +858,38 @@ async def main():
                 print(f"Error: Invalid input - {e}")
                 continue
             
-            if DEBUG_MODE:
-                # Debug mode: track events and detect duplicates
-                event_count = 0
-                ai_responses = []
-                
-                async for event in local_graph.astream(
-                    {
-                        "messages": [{"role": "user", "content": user_input}],
-                        "background_operations": [],
-                        "background_results": {},
-                        "last_summarized_turn": -1
-                    },
-                    config,
-                    stream_mode="values",
-                ):
-                    event_count += 1
-                    
-                    if "messages" in event and event["messages"]:
-                        last_msg = event["messages"][-1]
-                        msg_type = type(last_msg).__name__
-                        
-                        # Track AI responses for duplicate detection
-                        if msg_type == "AIMessage" and hasattr(last_msg, 'content') and last_msg.content:
-                            ai_responses.append({
-                                'event': event_count,
-                                'content': last_msg.content[:100],
-                                'has_tool_calls': bool(getattr(last_msg, 'tool_calls', None))
-                            })
-                        
-                        logger.info(f"Event {event_count}: {msg_type} (msgs: {len(event['messages'])})")
-                        last_msg.pretty_print()
-                
-                # Report duplicate AI responses if found
-                if len(ai_responses) > 1:
-                    logger.warning(f"DUPLICATE WARNING: {len(ai_responses)} AI responses detected!")
-                    for resp in ai_responses:
-                        logger.warning(f"  Event {resp['event']}: {resp['content']}... (tools: {resp['has_tool_calls']})")
-                
-                logger.info(f"Total events: {event_count}, AI responses: {len(ai_responses)}")
-            else:
-                print("\nASSISTANT: ", end="", flush=True)
-                # Production mode: stream response immediately
-                conversation_response = None
-                response_shown = False
-                
-                async for event in local_graph.astream(
-                    {
-                        "messages": [{"role": "user", "content": user_input}],
-                        "background_operations": [],
-                        "background_results": {},
-                        "last_summarized_turn": -1
-                    },
-                    config,
-                    stream_mode="values"
-                ):
-                    # Display AI response as soon as available
-                    if "messages" in event and event["messages"] and not response_shown:
-                        last_msg = event["messages"][-1]
-                        if hasattr(last_msg, 'content') and last_msg.content and hasattr(last_msg, 'type'):
-                            from langchain_core.messages import AIMessage
-                            if isinstance(last_msg, AIMessage) and not getattr(last_msg, 'tool_calls', None):
-                                conversation_response = last_msg.content
-                                log_orchestrator_activity("ASSISTANT_RESPONSE", 
-                                                        response=conversation_response[:1000],
-                                                        full_length=len(conversation_response))
-                                await type_out(conversation_response, delay=0.01)
-                                response_shown = True
-                                print("\n")
-                                # Continue processing for background tasks
-                
-                if not response_shown:
-                    print("Processing your request...\n")
+            print("\nASSISTANT: ", end="", flush=True)
+            # Stream response immediately
+            conversation_response = None
+            response_shown = False
+            
+            async for event in local_graph.astream(
+                {
+                    "messages": [{"role": "user", "content": user_input}],
+                    "background_operations": [],
+                    "background_results": {},
+                    "last_summarized_turn": -1
+                },
+                config,
+                stream_mode="values"
+            ):
+                # Display AI response as soon as available
+                if "messages" in event and event["messages"] and not response_shown:
+                    last_msg = event["messages"][-1]
+                    if hasattr(last_msg, 'content') and last_msg.content and hasattr(last_msg, 'type'):
+                        from langchain_core.messages import AIMessage
+                        if isinstance(last_msg, AIMessage) and not getattr(last_msg, 'tool_calls', None):
+                            conversation_response = last_msg.content
+                            log_orchestrator_activity("ASSISTANT_RESPONSE", 
+                                                    response=conversation_response[:1000],
+                                                    full_length=len(conversation_response))
+                            await type_out(conversation_response, delay=0.01)
+                            response_shown = True
+                            print("\n")
+                            # Continue processing for background tasks
+            
+            if not response_shown:
+                print("Processing your request...\n")
                         
         except KeyboardInterrupt:
             print("\nGoodbye!")

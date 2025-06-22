@@ -114,8 +114,8 @@ class SalesforceAgentTool(BaseTool):
     
     args_schema: type = AgentCallInput
     
-    def __init__(self, registry: AgentRegistry, debug_mode: bool = False):
-        super().__init__(metadata={"registry": registry, "debug_mode": debug_mode})
+    def __init__(self, registry: AgentRegistry):
+        super().__init__(metadata={"registry": registry})
     
     def _extract_relevant_context(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Extract relevant context from global state for the agent"""
@@ -173,10 +173,7 @@ class SalesforceAgentTool(BaseTool):
     
     async def _arun(self, instruction: str, context: Optional[Dict[str, Any]] = None, **kwargs) -> str:
         """Execute the Salesforce agent call"""
-        debug_mode = self.metadata.get("debug_mode", False)
         try:
-            if debug_mode:
-                logger.info(f"Salesforce agent tool: {instruction[:100]}...")
             
             # Create a minimal state to avoid circular references
             state = {
@@ -193,8 +190,6 @@ class SalesforceAgentTool(BaseTool):
                 agent = registry.get_agent("salesforce-agent")
             
             if isinstance(agent, list) and agent:
-                if debug_mode:
-                    logger.info(f"Found {len(agent)} agents")
                 agent = agent[0]
             
             if not agent:
@@ -217,13 +212,7 @@ class SalesforceAgentTool(BaseTool):
                 state_snapshot=state_snapshot
             )
             
-            if debug_mode:
-                print(f"🔥 ORCHESTRATOR A2A TASK DEBUG:")
-                print(f"  Task ID: {task_id}")
-                print(f"  Instruction: {instruction}")
-                print(f"  Context: {extracted_context}")
-                print(f"  State snapshot: {state_snapshot}")
-            async with A2AClient(debug_mode=debug_mode) as client:
+            async with A2AClient() as client:
                 endpoint = agent.endpoint + "/a2a"
                 
                                 
@@ -247,13 +236,9 @@ class SalesforceAgentTool(BaseTool):
                     response = result["artifacts"]
                     
                     if isinstance(response, list) and len(response) > 0:
-                        if debug_mode:
-                            logger.info(f"Artifacts is list with {len(response)} items")
                         response = response[0]
                         
                     if isinstance(response, dict) and "content" in response:
-                        if debug_mode:
-                            logger.info("Extracting content from artifact dict")
                         response_content = response["content"]
                     else:
                         response_content = str(response)
@@ -261,48 +246,23 @@ class SalesforceAgentTool(BaseTool):
                 # Check for tool results in state_updates
                 if "state_updates" in result and "tool_results" in result["state_updates"]:
                     tool_results_data = result["state_updates"]["tool_results"]
-                    if debug_mode:
-                        logger.info(f"Found tool results: {len(tool_results_data)} tools executed")
-                        for tr in tool_results_data:
-                            logger.info(f"  Tool: {tr.get('tool_name')} with data: {str(tr.get('tool_data', ''))[:100]}")
                 
                 # Combine conversational response with structured tool data for better summaries
                 if tool_results_data:
                     final_response = response_content + "\n\n[STRUCTURED_TOOL_DATA]:\n" + json.dumps(tool_results_data, indent=2)
-                    if debug_mode:
-                        logger.info("Enhanced response with structured tool data")
                 else:
                     final_response = response_content
-                
-                if debug_mode:
-                    logger.info(f"Final response length: {len(final_response)}")
-                    logger.info(f"Final response preview: {final_response[:200]}...")
-                    logger.info(f"=== SALESFORCE AGENT TOOL SUCCESS ===")
                 log_orchestrator_activity("A2A_RESPONSE_SUCCESS",
                                         agent="salesforce-agent", 
                                         task_id=task_id,
                                         response_length=len(final_response))
                 return final_response
-                
-                fallback_response = str(result.get("result", "No response from Salesforce agent"))
-                if debug_mode:
-                    logger.info(f"Using fallback response: {fallback_response[:200]}...")
-                    logger.info(f"=== SALESFORCE AGENT TOOL SUCCESS (FALLBACK) ===")
-                return fallback_response
         
         except A2AException as e:
-            if debug_mode:
-                logger.error(f"=== SALESFORCE AGENT TOOL A2A ERROR ===")
-                logger.error(f"A2AException: {str(e)}")
-                logger.error(f"A2AException type: {type(e)}")
-            else:
-                logger.error(f"Failed to communicate with Salesforce agent: {e}")
+            logger.error(f"Failed to communicate with Salesforce agent: {e}")
             return f"Error: Failed to communicate with Salesforce agent - {str(e)}"
         except Exception as e:
             logger.error(f"Unexpected error in Salesforce agent tool: {type(e).__name__}: {e}")
-            if debug_mode:
-                import traceback
-                logger.error(f"Traceback: {traceback.format_exc()}")
             return f"Error: Unexpected error - {str(e)}"
     
     def _run(self, instruction: str, context: Optional[Dict[str, Any]] = None, **kwargs) -> str:
@@ -444,7 +404,7 @@ class GenericAgentTool(BaseTool):
         )
         
         try:
-            async with A2AClient(debug_mode=debug_mode) as client:
+            async with A2AClient() as client:
                 result = await client.process_task(
                     endpoint=agent.endpoint + "/a2a",
                     task=task
