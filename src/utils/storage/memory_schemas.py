@@ -61,5 +61,4 @@ class AccountList(BaseModel):
     """Legacy container - DEPRECATED, use SimpleMemory instead"""
     accounts: List[dict] = Field(default_factory=list)
     
-    class Config:
-        extra = "forbid"
+    model_config = {"extra": "forbid"}

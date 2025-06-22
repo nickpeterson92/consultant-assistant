@@ -344,20 +344,23 @@ class A2AConnectionPool:
         parsed = urlparse(endpoint)
         base_url = f"{parsed.scheme}://{parsed.netloc}"
         
-        # Lazy lock creation avoids pre-allocating for all possible endpoints
-        if base_url not in self._pool_locks:
-            self._pool_locks[base_url] = asyncio.Lock()
+        # Include timeout in the pool key to avoid timeout mismatches
+        pool_key = f"{base_url}_timeout_{timeout}"
         
-        async with self._pool_locks[base_url]:
+        # Lazy lock creation avoids pre-allocating for all possible endpoints
+        if pool_key not in self._pool_locks:
+            self._pool_locks[pool_key] = asyncio.Lock()
+        
+        async with self._pool_locks[pool_key]:
             # Fast path: reuse existing session
-            if base_url in self._pools:
-                session = self._pools[base_url]
+            if pool_key in self._pools:
+                session = self._pools[pool_key]
                 if not session.closed:
-                    self._last_used[base_url] = time.time()
+                    self._last_used[pool_key] = time.time()
                     return session
                 else:
-                    logger.info(f"Removing closed session for {base_url}")
-                    del self._pools[base_url]
+                    logger.info(f"Removing closed session for {pool_key}")
+                    del self._pools[pool_key]
             
             # Create new session with optimized settings
             logger.info(f"Creating new session for {base_url} with timeout={timeout}s")
@@ -372,6 +375,10 @@ class A2AConnectionPool:
                 sock_read=a2a_config.sock_read_timeout,
                 sock_connect=a2a_config.sock_connect_timeout
             )
+            
+            # Log the actual timeout values for debugging
+            logger.info(f"Timeout config - total: {timeout}s, connect: {a2a_config.connect_timeout}s, "
+                       f"sock_read: {a2a_config.sock_read_timeout}s, sock_connect: {a2a_config.sock_connect_timeout}s")
             
             # Connection pooling configuration optimized for agent workloads:
             # - High per-host limit supports parallel tool execution (8+ concurrent)
@@ -393,8 +400,8 @@ class A2AConnectionPool:
                 connector_owner=True  # Session owns connector lifecycle
             )
             
-            self._pools[base_url] = session
-            self._last_used[base_url] = time.time()
+            self._pools[pool_key] = session
+            self._last_used[pool_key] = time.time()
             return session
     
     async def cleanup_idle_sessions(self):
@@ -618,13 +625,13 @@ class A2AClient:
             start_time = time.time()
             logger.info(f"A2A POST request starting to {endpoint} with timeout={self.timeout}s (pooled={self.use_pool})")
             
-            # Make HTTP POST request with proper timeout
-            # Note: We set timeout both at session and request level for defense in depth
+            # Make HTTP POST request
+            # Note: Timeout is already configured at the session level
+            # Avoid duplicate timeout parameter to prevent Python 3.13 compatibility issues
             async with session.post(
                 endpoint,
                 json=request_dict,
-                headers={"Content-Type": "application/json"},
-                timeout=aiohttp.ClientTimeout(total=self.timeout)
+                headers={"Content-Type": "application/json"}
             ) as response:
                 elapsed = time.time() - start_time
                 logger.info(f"A2A POST response received from {endpoint} in {elapsed:.2f}s with status={response.status}")
@@ -686,7 +693,7 @@ class A2AClient:
             # Timeout errors are common in distributed systems - handle gracefully
             # with clear error messages for debugging
             elapsed = time.time() - start_time if 'start_time' in locals() else 0
-            logger.error(f"A2A timeout error calling {endpoint} after {elapsed:.2f}s (timeout was {self.timeout}s)")
+            logger.error(f"A2A timeout error calling {endpoint} after {elapsed:.2f}s (timeout was {self.timeout}s, session timeout: {session.timeout if 'session' in locals() else 'unknown'})")
             if a2a_perf:
                 try:
                     a2a_perf.end_operation(operation_id, success=False, error_type="timeout_error")

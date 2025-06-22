@@ -970,7 +970,7 @@ class GetTaskTool(BaseTool):
             
             builder = SOQLQueryBuilder('Task').select([
                 'Id', 'Subject', 'Status', 'Priority', 'ActivityDate',
-                'WhatId', 'WhoId', 'Description', 'Type'
+                'WhatId', 'WhoId', 'Description'
             ])
             
             if data.task_id:
