@@ -858,22 +858,158 @@ query = AggregateQueryBuilder.top_sales_reps(min_revenue=500000)
 query = AggregateQueryBuilder.case_volume_by_priority()
 ```
 
-## Future Enhancements
+### Enterprise Analytics Tools Integration
 
-2. **Performance Improvements**
-   - Query result caching layer
-   - Query plan analysis
-   - Automatic query optimization
-   - Batch query execution
+The SOQL Query Builder now powers 5 advanced analytics tools in the Salesforce agent:
 
-3. **Developer Experience**
-   - Visual query builder UI
-   - IntelliSense/autocomplete for fields
-   - Query performance profiling
-   - Real-time query validation
+#### 1. Sales Pipeline Analysis (`GetSalesPipelineTool`)
+```python
+# Generated SOQL for pipeline analysis
+SELECT StageName, COUNT(Id) OpportunityCount, 
+       SUM(Amount) TotalAmount, AVG(Amount) AvgAmount 
+FROM Opportunity 
+GROUP BY StageName 
+HAVING SUM(Amount) > 0 
+ORDER BY SUM(Amount) DESC
+```
 
-4. **Integration Features**
-   - GraphQL-style query interface
-   - REST API query endpoint
-   - Webhook query triggers
-   - Cross-object relationship mapping
+#### 2. Performance Analytics (`GetTopPerformersTool`)
+```python
+# Top performers by revenue
+SELECT OwnerId, Owner.Name, COUNT(Id) DealsWon, SUM(Amount) TotalRevenue 
+FROM Opportunity 
+WHERE IsClosed = true AND IsWon = true 
+GROUP BY OwnerId, Owner.Name 
+HAVING SUM(Amount) > 100000 
+ORDER BY SUM(Amount) DESC LIMIT 10
+```
+
+#### 3. Cross-Object Search (`GlobalSearchTool`)
+```sosl
+FIND {search_term} IN ALL FIELDS 
+RETURNING Account(Id, Name, Industry, Phone LIMIT 20),
+         Contact(Id, Name, Email, Account.Name LIMIT 20),
+         Opportunity(Id, Name, Amount, StageName LIMIT 20),
+         Lead(Id, Name, Company, Status LIMIT 20)
+```
+
+#### 4. Account Intelligence (`GetAccountInsightsTool`)
+```python
+# Account 360 with subqueries
+SELECT Id, Name, Industry, AnnualRevenue,
+       (SELECT Id, Name, Amount, StageName FROM Opportunities LIMIT 10),
+       (SELECT Id, Name, Email, Title FROM Contacts LIMIT 5),
+       (SELECT Id, Subject, Status, Priority FROM Cases WHERE IsClosed = false LIMIT 5)
+FROM Account WHERE Name LIKE '%{account_name}%'
+```
+
+#### 5. Business Metrics (`GetBusinessMetricsTool`)
+```python
+# Revenue analysis by time period
+SELECT Account.Industry, COUNT(Id) DealCount, 
+       SUM(Amount) TotalRevenue, AVG(Amount) AvgDealSize 
+FROM Opportunity 
+WHERE IsClosed = true AND IsWon = true AND CloseDate = THIS_QUARTER 
+GROUP BY Account.Industry
+```
+
+### Advanced SOQL Syntax Handling
+
+The query builder handles complex SOQL syntax requirements:
+
+#### Date Literal Handling
+```python
+# Proper date literal formatting (no quotes)
+query = (SOQLQueryBuilder('Opportunity')
+    .select(['Id', 'Name', 'CloseDate'])
+    .where('CloseDate', SOQLOperator.EQUALS, 'THIS_QUARTER')  # No quotes added
+    .build())
+# Result: SELECT Id, Name, CloseDate FROM Opportunity WHERE CloseDate = THIS_QUARTER
+```
+
+#### Aggregate Expression Ordering
+```python
+# ORDER BY using aggregate expressions, not aliases
+query = (SOQLQueryBuilder('Opportunity')
+    .select(['StageName'])
+    .select_sum('Amount', 'TotalAmount')
+    .group_by('StageName')
+    .order_by('SUM(Amount)', descending=True)  # Use actual aggregate function
+    .build())
+# Result: SELECT StageName, SUM(Amount) TotalAmount FROM Opportunity 
+#         GROUP BY StageName ORDER BY SUM(Amount) DESC
+```
+
+#### Complex HAVING Clauses
+```python
+# HAVING with multiple conditions
+query = (SOQLQueryBuilder('Opportunity')
+    .select(['OwnerId'])
+    .select_count('Id', 'OpptyCount')
+    .select_sum('Amount', 'TotalRevenue')
+    .group_by('OwnerId')
+    .having('COUNT(Id)', SOQLOperator.GREATER_THAN, 5)
+    .having('SUM(Amount)', SOQLOperator.GREATER_THAN, 1000000)
+    .build())
+```
+
+## Implementation Status
+
+### ✅ Completed Features
+
+The following advanced features have been successfully implemented and are production-ready:
+
+1. **Aggregate Functions** - Full support for COUNT, SUM, AVG, MAX, MIN with proper aliases
+2. **GROUP BY Clauses** - Single and multiple field grouping with relationship support
+3. **HAVING Clauses** - Aggregate filtering with complex conditions
+4. **Subquery Support** - Nested queries with relationship-aware construction
+5. **SOSL Integration** - Cross-object search with flexible RETURNING clauses
+6. **Advanced Analytics Tools** - Pre-built patterns for common business intelligence queries
+7. **Security Hardening** - Enhanced SOQL injection prevention with comprehensive escaping
+8. **Performance Optimization** - Connection pooling, efficient pagination, and query optimization
+
+### 🚀 Recent Enhancements (v2.0)
+
+#### Enhanced Analytics Capabilities
+- **Pipeline Analysis**: Comprehensive sales pipeline reporting with stage-based aggregations
+- **Performance Metrics**: Sales rep ranking with revenue, deal count, and win rate calculations
+- **Business Intelligence**: KPI tracking with time-based analysis and industry segmentation
+- **Account 360**: Complete account views with subquery-driven related record retrieval
+
+#### Advanced Query Patterns
+- **Complex Aggregations**: Multi-level grouping with relationship field support
+- **Time-Based Analytics**: Calendar functions for trend analysis and period comparisons
+- **Cross-Object Search**: SOSL integration for global search across all Salesforce objects
+- **Dynamic Filtering**: Runtime query construction with flexible condition building
+
+#### Security & Performance
+- **Enhanced Escaping**: Comprehensive SOQL injection prevention with edge case handling
+- **Query Optimization**: Automatic query plan optimization and field selection efficiency
+- **Connection Management**: HTTP connection pooling with automatic cleanup
+- **Error Resilience**: Graceful degradation with circuit breaker pattern integration
+
+### 🔄 Future Enhancements
+
+#### Performance Improvements
+- Query result caching layer for frequently accessed data
+- Query plan analysis and optimization recommendations
+- ~~Automatic query optimization~~ ✅ **Basic implementation complete**
+- ~~Batch query execution~~ ✅ **Implemented in connection pooling**
+
+#### Developer Experience
+- Visual query builder UI for complex query construction
+- IntelliSense/autocomplete for Salesforce fields and objects
+- Query performance profiling with execution time analysis
+- Real-time query validation with syntax checking
+
+#### Integration Features
+- GraphQL-style query interface for modern API consumption
+- REST API query endpoint for external system integration
+- Webhook query triggers for real-time data processing
+- ~~Cross-object relationship mapping~~ ✅ **Implemented in subqueries**
+
+#### Advanced Analytics
+- Machine learning integration for predictive analytics
+- Custom dashboard generation from query results
+- Automated report scheduling and delivery
+- Data visualization integration with popular BI tools
