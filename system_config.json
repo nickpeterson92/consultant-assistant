@@ -44,10 +44,10 @@
     }
   },
   "a2a": {
-    "timeout": 30,
+    "timeout": 60,
     "connect_timeout": 30,
     "sock_connect_timeout": 30,
-    "sock_read_timeout": 30,
+    "sock_read_timeout": 60,
     "health_check_timeout": 10,
     "max_concurrent_calls": 10,
     "retry_attempts": 3,

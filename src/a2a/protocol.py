@@ -22,7 +22,6 @@ Architecture Components:
 import json
 import uuid
 import asyncio
-# import nest_asyncio  # Removed for Python 3.13 compatibility
 import time
 from typing import Dict, Any, Optional, List, Union
 from dataclasses import dataclass, asdict
@@ -32,9 +31,6 @@ from aiohttp import web
 import logging
 import sys
 import os
-
-# Note: Removed nest_asyncio.apply() for Python 3.13 compatibility
-# Python 3.13 has improved async handling that conflicts with nest_asyncio
 
 from src.utils.logging import get_logger, get_performance_tracker
 from src.utils.logging import log_a2a_activity, log_performance_activity
@@ -348,20 +344,23 @@ class A2AConnectionPool:
         parsed = urlparse(endpoint)
         base_url = f"{parsed.scheme}://{parsed.netloc}"
         
-        # Lazy lock creation avoids pre-allocating for all possible endpoints
-        if base_url not in self._pool_locks:
-            self._pool_locks[base_url] = asyncio.Lock()
+        # Include timeout in the pool key to avoid timeout mismatches
+        pool_key = f"{base_url}_timeout_{timeout}"
         
-        async with self._pool_locks[base_url]:
+        # Lazy lock creation avoids pre-allocating for all possible endpoints
+        if pool_key not in self._pool_locks:
+            self._pool_locks[pool_key] = asyncio.Lock()
+        
+        async with self._pool_locks[pool_key]:
             # Fast path: reuse existing session
-            if base_url in self._pools:
-                session = self._pools[base_url]
+            if pool_key in self._pools:
+                session = self._pools[pool_key]
                 if not session.closed:
-                    self._last_used[base_url] = time.time()
+                    self._last_used[pool_key] = time.time()
                     return session
                 else:
-                    logger.info(f"Removing closed session for {base_url}")
-                    del self._pools[base_url]
+                    logger.info(f"Removing closed session for {pool_key}")
+                    del self._pools[pool_key]
             
             # Create new session with optimized settings
             logger.info(f"Creating new session for {base_url} with timeout={timeout}s")
@@ -376,6 +375,10 @@ class A2AConnectionPool:
                 sock_read=a2a_config.sock_read_timeout,
                 sock_connect=a2a_config.sock_connect_timeout
             )
+            
+            # Log the actual timeout values for debugging
+            logger.info(f"Timeout config - total: {timeout}s, connect: {a2a_config.connect_timeout}s, "
+                       f"sock_read: {a2a_config.sock_read_timeout}s, sock_connect: {a2a_config.sock_connect_timeout}s")
             
             # Connection pooling configuration optimized for agent workloads:
             # - High per-host limit supports parallel tool execution (8+ concurrent)
@@ -397,8 +400,8 @@ class A2AConnectionPool:
                 connector_owner=True  # Session owns connector lifecycle
             )
             
-            self._pools[base_url] = session
-            self._last_used[base_url] = time.time()
+            self._pools[pool_key] = session
+            self._last_used[pool_key] = time.time()
             return session
     
     async def cleanup_idle_sessions(self):
@@ -690,7 +693,7 @@ class A2AClient:
             # Timeout errors are common in distributed systems - handle gracefully
             # with clear error messages for debugging
             elapsed = time.time() - start_time if 'start_time' in locals() else 0
-            logger.error(f"A2A timeout error calling {endpoint} after {elapsed:.2f}s (timeout was {self.timeout}s)")
+            logger.error(f"A2A timeout error calling {endpoint} after {elapsed:.2f}s (timeout was {self.timeout}s, session timeout: {session.timeout if 'session' in locals() else 'unknown'})")
             if a2a_perf:
                 try:
                     a2a_perf.end_operation(operation_id, success=False, error_type="timeout_error")

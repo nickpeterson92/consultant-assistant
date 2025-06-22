@@ -15,11 +15,7 @@ from dotenv import load_dotenv
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 
-# Use compatibility layer for LangGraph 0.4.x
-try:
-    from langgraph.prebuilt import ToolNode, tools_condition
-except ImportError:
-    from src.utils.langgraph_compat import ToolNode, tools_condition
+from langgraph.prebuilt import ToolNode, tools_condition
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig

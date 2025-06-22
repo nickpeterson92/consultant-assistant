@@ -26,9 +26,3 @@ pillow==11.1.0
 
 # Utilities
 python-dotenv==1.0.1
-
-# Optional: for enhanced logging and debugging
-colorlog==6.8.2
-
-# Required for LangGraph 0.4.x compatibility
-nest_asyncio==1.6.0

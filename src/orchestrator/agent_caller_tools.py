@@ -6,15 +6,11 @@ These tools enable the orchestrator to communicate with specialized agents via A
 import uuid
 import json
 import asyncio
-# import nest_asyncio  # Removed for Python 3.13 compatibility
 from typing import Dict, Any, Optional, List
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 import logging
 from pathlib import Path
-
-# Note: Removed nest_asyncio.apply() for Python 3.13 compatibility
-# Python 3.13 has improved async handling that conflicts with nest_asyncio
 
 from .agent_registry import AgentRegistry
 from ..a2a import A2AClient, A2ATask, A2AException
@@ -270,52 +266,8 @@ class SalesforceAgentTool(BaseTool):
             return f"Error: Unexpected error - {str(e)}"
     
     def _run(self, instruction: str, context: Optional[Dict[str, Any]] = None, **kwargs) -> str:
-        """Synchronous wrapper for async execution
-        
-        Note: This is a compatibility workaround for LangGraph 0.4.x with Python 3.13
-        """
-        # For Python 3.13 compatibility, avoid using nest_asyncio
-        # Instead, check if we're in an async context and handle appropriately
-        try:
-            # Try to get the current event loop
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # We're in a running event loop, but sync code called us
-                # Create a new thread to run the async code
-                import concurrent.futures
-                import threading
-                
-                result = None
-                exception = None
-                
-                def run_async():
-                    nonlocal result, exception
-                    try:
-                        # Create a new event loop in this thread
-                        new_loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(new_loop)
-                        try:
-                            result = new_loop.run_until_complete(
-                                self._arun(instruction, context, **kwargs)
-                            )
-                        finally:
-                            new_loop.close()
-                    except Exception as e:
-                        exception = e
-                
-                thread = threading.Thread(target=run_async)
-                thread.start()
-                thread.join()
-                
-                if exception:
-                    raise exception
-                return result
-            else:
-                # Event loop exists but not running, we can run normally
-                return loop.run_until_complete(self._arun(instruction, context, **kwargs))
-        except RuntimeError:
-            # No event loop at all, create one
-            return asyncio.run(self._arun(instruction, context, **kwargs))
+        """Synchronous wrapper for async execution"""
+        return asyncio.run(self._arun(instruction, context, **kwargs))
 
 class GenericAgentTool(BaseTool):
     """Orchestrator Tool for Dynamic Multi-Agent Task Delegation.
@@ -479,45 +431,8 @@ class GenericAgentTool(BaseTool):
     
     def _run(self, instruction: str, context: Optional[Dict[str, Any]] = None, 
            agent_name: Optional[str] = None, required_capabilities: Optional[List[str]] = None, **kwargs) -> str:
-        """Synchronous wrapper for async execution
-        
-        Note: This is a compatibility workaround for LangGraph 0.4.x with Python 3.13
-        """
-        # For Python 3.13 compatibility, avoid using nest_asyncio
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # Run in a new thread with its own event loop
-                import threading
-                result = None
-                exception = None
-                
-                def run_async():
-                    nonlocal result, exception
-                    try:
-                        new_loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(new_loop)
-                        try:
-                            result = new_loop.run_until_complete(
-                                self._arun(instruction, context, agent_name, required_capabilities, **kwargs)
-                            )
-                        finally:
-                            new_loop.close()
-                    except Exception as e:
-                        exception = e
-                
-                thread = threading.Thread(target=run_async)
-                thread.start()
-                thread.join()
-                
-                if exception:
-                    raise exception
-                return result
-            else:
-                return loop.run_until_complete(self._arun(instruction, context, agent_name, required_capabilities, **kwargs))
-        except RuntimeError:
-            return asyncio.run(self._arun(instruction, context, agent_name, required_capabilities, **kwargs))
-            raise
+        """Synchronous wrapper for async execution"""
+        return asyncio.run(self._arun(instruction, context, agent_name, required_capabilities, **kwargs))
 
 class AgentRegistryTool(BaseTool):
     """Orchestrator Tool for Multi-Agent System Management and Monitoring.
@@ -621,41 +536,5 @@ class AgentRegistryTool(BaseTool):
             return f"Unknown action: {action}. Available actions: list, health_check, stats"
     
     def _run(self, action: str, agent_name: Optional[str] = None) -> str:
-        """Synchronous wrapper for async execution
-        
-        Note: This is a compatibility workaround for LangGraph 0.4.x with Python 3.13
-        """
-        # For Python 3.13 compatibility, avoid using nest_asyncio
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # Run in a new thread with its own event loop
-                import threading
-                result = None
-                exception = None
-                
-                def run_async():
-                    nonlocal result, exception
-                    try:
-                        new_loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(new_loop)
-                        try:
-                            result = new_loop.run_until_complete(
-                                self._arun(action, agent_name)
-                            )
-                        finally:
-                            new_loop.close()
-                    except Exception as e:
-                        exception = e
-                
-                thread = threading.Thread(target=run_async)
-                thread.start()
-                thread.join()
-                
-                if exception:
-                    raise exception
-                return result
-            else:
-                return loop.run_until_complete(self._arun(action, agent_name))
-        except RuntimeError:
-            return asyncio.run(self._arun(action, agent_name))
+        """Synchronous wrapper for async execution"""
+        return asyncio.run(self._arun(action, agent_name))
