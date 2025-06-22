@@ -235,8 +235,10 @@ class AsyncStoreAdapter:
                     return store.get(namespace, key)
                 result = await loop.run_in_executor(self._executor, _thread_safe_get)
             
-            # Log the memory operation
+            # Log the memory operation with user_id from namespace
+            user_id = namespace[1] if namespace and len(namespace) > 1 else "unknown"
             memory_logger.log_memory_get(namespace, key, result, 
+                                       user_id=user_id,
                                        component="async_store_adapter")
             return result
         
@@ -244,8 +246,10 @@ class AsyncStoreAdapter:
     
     async def put(self, namespace: Tuple[str, ...], key: str, value: Any) -> None:
         """Put a value into the store asynchronously with retry and monitoring"""
-        # Log before the operation
+        # Log before the operation with user_id from namespace
+        user_id = namespace[1] if namespace and len(namespace) > 1 else "unknown"
         memory_logger.log_memory_put(namespace, key, value, 
+                                   user_id=user_id,
                                    component="async_store_adapter")
         
         async def _put_operation():
@@ -262,8 +266,10 @@ class AsyncStoreAdapter:
     
     async def delete(self, namespace: Tuple[str, ...], key: str) -> None:
         """Delete a value from the store asynchronously with retry and monitoring"""
-        # Log before the operation
+        # Log before the operation with user_id from namespace
+        user_id = namespace[1] if namespace and len(namespace) > 1 else "unknown"
         memory_logger.log_memory_delete(namespace, key, 
+                                      user_id=user_id,
                                       component="async_store_adapter")
         
         async def _delete_operation():
@@ -432,15 +438,19 @@ class AsyncStoreAdapter:
             store = self._get_thread_safe_store()
             result = store.get(namespace, key)
         
-        # Log the memory operation
+        # Log the memory operation with user_id from namespace
+        user_id = namespace[1] if namespace and len(namespace) > 1 else "unknown"
         memory_logger.log_memory_get(namespace, key, result, 
+                                   user_id=user_id,
                                    component="async_store_adapter_sync")
         return result
     
     def sync_put(self, namespace: Tuple[str, ...], key: str, value: Any) -> None:
         """Synchronous put for backward compatibility"""
-        # Log before the operation
+        # Log before the operation with user_id from namespace
+        user_id = namespace[1] if namespace and len(namespace) > 1 else "unknown"
         memory_logger.log_memory_put(namespace, key, value, 
+                                   user_id=user_id,
                                    component="async_store_adapter_sync")
         
         if self.use_async:

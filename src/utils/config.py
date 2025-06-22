@@ -207,6 +207,13 @@ class ConversationConfig:
     memory_extraction_delay: float = 0.5  # Avoid extraction during rapid exchanges
     memory_update_turn_threshold: int = 3  # Ensure conversation stability first
     max_event_history: int = 50  # Limit event history to prevent unbounded growth (50 is sufficient for trigger logic)
+    
+    # User and namespace configuration
+    default_user_id: str = "user-1"  # Default user ID for single-user mode
+    default_thread_id: str = "default"  # Default thread ID
+    memory_namespace_prefix: str = "memory"  # Prefix for memory namespaces
+    summary_key: str = "conversation_summary"  # Key for storing summaries
+    memory_key: str = "SimpleMemory"  # Key for storing structured memory
 
 @dataclass
 class SystemConfig:
@@ -429,6 +436,16 @@ class ConfigManager:
             self._load_config()
         return self._config
     
+    def reload_config(self):
+        """Force reload configuration from disk.
+        
+        Useful when configuration file has been modified and you want
+        to pick up changes without restarting the application.
+        """
+        logger.info(f"Reloading configuration from {self.config_path}")
+        self._config = None
+        self._load_config()
+    
     def update_config(self, updates: Dict[str, Any]):
         """Runtime configuration updates without restart.
         
@@ -475,8 +492,12 @@ def get_system_config() -> SystemConfig:
     """Primary API for configuration access throughout the system."""
     return get_config_manager().get_config()
 
+def reload_system_config():
+    """Reload configuration from disk to pick up changes."""
+    get_config_manager().reload_config()
+
 # Public API exports - other modules should use these accessors
-__all__ = ['ModelPricing', 'LLMConfig', 'SystemConfig', 'get_system_config', 'get_llm_config']
+__all__ = ['ModelPricing', 'LLMConfig', 'SystemConfig', 'get_system_config', 'get_llm_config', 'reload_system_config']
 
 # Convenience accessors provide type-safe configuration access
 def get_database_config() -> DatabaseConfig:
@@ -506,4 +527,19 @@ def get_conversation_config() -> ConversationConfig:
 def get_agent_config(agent_name: str) -> Optional[AgentConfig]:
     """Agent-specific configuration for dynamic discovery."""
     return get_config_manager().get_agent_config(agent_name)
+
+
+def get_memory_namespace(user_id: str = None) -> tuple:
+    """Get the namespace tuple for memory storage.
+    
+    Args:
+        user_id: Optional user ID, defaults to config default_user_id
+        
+    Returns:
+        Tuple of (namespace_prefix, user_id) for memory storage
+    """
+    conv_config = get_conversation_config()
+    if user_id is None:
+        user_id = conv_config.default_user_id
+    return (conv_config.memory_namespace_prefix, user_id)
 

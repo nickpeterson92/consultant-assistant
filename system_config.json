@@ -70,7 +70,13 @@
     "max_conversation_length": 50,
     "memory_extraction_enabled": true,
     "memory_extraction_delay": 0.5,
-    "memory_update_turn_threshold": 3
+    "memory_update_turn_threshold": 3,
+    "max_event_history": 50,
+    "default_user_id": "user-1",
+    "default_thread_id": "default",
+    "memory_namespace_prefix": "memory",
+    "summary_key": "conversation_summary",
+    "memory_key": "SimpleMemory"
   },
   "agents": {
     "salesforce-agent": {

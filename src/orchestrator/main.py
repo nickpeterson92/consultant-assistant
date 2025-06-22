@@ -19,7 +19,6 @@ Key responsibilities:
 """
 
 import os
-import json
 import asyncio
 import argparse
 import time
@@ -34,9 +33,8 @@ from src.utils.logging import get_logger, get_performance_tracker, get_cost_trac
 from trustcall import create_extractor
 
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import StateGraph, END
+from langgraph.graph import StateGraph
 from langgraph.graph.message import RemoveMessage, add_messages
-from langgraph.types import Send
 
 from langgraph.prebuilt import ToolNode, tools_condition
 
@@ -316,9 +314,10 @@ ORCHESTRATOR TOOLS:
             summary_in_state = state.get("summary", "No summary available")
             if summary_in_state == "No summary available":
                 # Try to load from store
-                user_id = config["configurable"].get("user_id", "default")
-                namespace = ("memory", user_id)
-                key = "conversation_summary"
+                conv_config = get_conversation_config()
+                user_id = config["configurable"].get("user_id", conv_config.default_user_id)
+                namespace = (conv_config.memory_namespace_prefix, user_id)
+                key = conv_config.summary_key
                 
                 try:
                     stored_summary = memory_store.sync_get(namespace, key)
@@ -540,9 +539,9 @@ ORCHESTRATOR TOOLS:
                                 response_preview=response_content[:300],
                                 response_length=len(response_content))
         
-        # If invalid format, log error and use a fallback
+        # If invalid format, log debug and use a fallback
         if not is_valid_format or has_conversational_intro:
-            logger.error(f"INVALID SUMMARY FORMAT DETECTED! Missing sections or conversational style.")
+            logger.debug(f"Invalid summary format detected - using fallback structured summary")
             log_orchestrator_activity("SUMMARY_FORMAT_ERROR",
                                     error="Invalid summary format",
                                     response_content=response_content[:500])
@@ -648,9 +647,10 @@ ORCHESTRATOR TOOLS:
             Dict with updated memory and reset turn counter
         """
         
-        user_id = config["configurable"].get("user_id", "default")
-        namespace = ("memory", user_id)
-        key = "SimpleMemory"
+        conv_config = get_conversation_config()
+        user_id = config["configurable"].get("user_id", conv_config.default_user_id)
+        namespace = (conv_config.memory_namespace_prefix, user_id)
+        key = conv_config.memory_key
         
         # Load existing memory for TrustCall context
         try:
@@ -845,8 +845,9 @@ ORCHESTRATOR TOOLS:
                                         summary_preview=new_summary[:200] if new_summary else "NO_SUMMARY")
                 
                 # Save directly to the persistent store
-                namespace = ("memory", user_id)
-                key = "conversation_summary"
+                conv_config = get_conversation_config()
+                namespace = (conv_config.memory_namespace_prefix, user_id)
+                key = conv_config.summary_key
                 memory_store.sync_put(namespace, key, {
                     "summary": new_summary,
                     "thread_id": thread_id,
@@ -872,7 +873,8 @@ ORCHESTRATOR TOOLS:
                 "events": [e.to_dict() for e in events],
                 "memory": memory
             }
-            mock_config = {"configurable": {"user_id": "user-1"}}
+            conv_config = get_conversation_config()
+            mock_config = {"configurable": {"user_id": conv_config.default_user_id}}
             import asyncio
             result = asyncio.run(memorize_records(mock_state, mock_config))
         except Exception as e:
@@ -921,12 +923,20 @@ async def initialize_orchestrator():
         
         # Clear summaries for all users
         # In production, you might want to clear only for specific users
-        namespace = ("memory", "user-1")
-        key = "conversation_summary"
-        memory_store.sync_delete(namespace, key)
+        conv_config = get_conversation_config()
+        users_to_clear = [conv_config.default_user_id, "default", "test_user"]
         
-        namespace = ("memory", "default")
-        memory_store.sync_delete(namespace, key)
+        for user in users_to_clear:
+            namespace = (conv_config.memory_namespace_prefix, user)
+            key = conv_config.summary_key
+            try:
+                # Try to delete if it exists
+                existing = memory_store.sync_get(namespace, key)
+                if existing:
+                    # Overwrite with empty value since delete might not be implemented
+                    memory_store.sync_put(namespace, key, None)
+            except:
+                pass  # If it doesn't exist, that's fine
         
         logger.info("Cleared conversation summaries for fresh start")
     except Exception as e:
@@ -1022,7 +1032,8 @@ async def main():
     
     print("\nType your request, or 'quit' to exit.\n")
     
-    config = {"configurable": {"thread_id": "orchestrator-1", "user_id": "user-1"}}
+    conv_config = get_conversation_config()
+    config = {"configurable": {"thread_id": "orchestrator-1", "user_id": conv_config.default_user_id}}
     
     while True:
         try:

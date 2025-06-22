@@ -33,11 +33,11 @@ The Consultant Assistant implements a sophisticated multi-agent architecture tha
                                 │
         ┌───────────────────────┼───────────────────────┐
         │                       │                       │
-┌───────▼────────┐     ┌───────▼────────┐     ┌───────▼────────┐
-│   Salesforce   │     │     Travel     │     │   Document     │
-│     Agent      │     │     Agent      │     │     Agent      │
-│                │     │   (Future)     │     │   (Future)     │
-└────────────────┘     └────────────────┘     └────────────────┘
+┌───────▼────────┐     ┌────────▼───────┐      ┌────────▼───────┐
+│   Salesforce   │     │     Travel     │      │   Document     │
+│     Agent      │     │     Agent      │      │     Agent      │
+│                │     │   (Future)     │      │   (Future)     │
+└────────────────┘     └────────────────┘      └────────────────┘
 ```
 
 ### Core Design Principles
