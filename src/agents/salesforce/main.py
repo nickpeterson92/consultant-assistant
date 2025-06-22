@@ -146,7 +146,18 @@ def build_salesforce_graph(debug_mode: bool = False):
                                    message_count=len(messages),
                                    task_id=state.get("task_context", {}).get("task_id", "unknown"))
             
+            # Estimate token usage for cost tracking
+            message_chars = sum(len(str(m.content if hasattr(m, 'content') else m)) for m in messages)
+            estimated_tokens = message_chars // 4  # Rough estimate: 4 chars per token
+            
             response = llm_with_tools.invoke(messages)
+            
+            # Log cost after response
+            from src.utils.logging.activity_logger import log_cost_activity
+            log_cost_activity("SALESFORCE_LLM_CALL", estimated_tokens,
+                             message_count=len(messages),
+                             response_length=len(str(response.content)) if hasattr(response, 'content') else 0,
+                             task_id=state.get("task_context", {}).get("task_id", "unknown"))
             
             if debug_mode:
                 logger.info(f"LLM response type: {type(response)}")

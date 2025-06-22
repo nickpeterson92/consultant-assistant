@@ -1,24 +1,97 @@
-# enhanced_sys_msg.py
-# Enhanced system messages that merge legacy approach with multi-agent orchestration
+"""
+enhanced_sys_msg.py - System Message Architecture for Multi-Agent Orchestration
+
+This module implements the critical prompt engineering layer that enables effective
+multi-agent coordination. In LLM-based systems, the system message (prompt) is the
+primary control mechanism that shapes agent behavior, decision-making, and output quality.
+
+## Why Specialized Prompts Matter
+
+Multi-agent systems face unique challenges that require carefully crafted prompts:
+
+1. **Context Switching**: Agents must seamlessly transition between different specialized
+   agents (Salesforce, Travel, HR) while maintaining conversation coherence.
+
+2. **Memory Management**: The orchestrator must balance between using cached data
+   and making fresh API calls, requiring explicit prompt guidance to prevent
+   redundant operations.
+
+3. **Tool Selection Ambiguity**: LLMs can struggle with choosing between similar tools
+   or knowing when to decompose vs. delegate complex requests. Clear prompt rules
+   prevent infinite loops and inefficient operations.
+
+4. **Response Boundaries**: Without explicit stopping criteria, LLMs tend to over-help
+   with unnecessary follow-up offers. Prompts must define clear task completion points.
+
+## Evolution from Legacy to Enhanced Messages
+
+The system evolved from a simple chatbot to a sophisticated multi-agent orchestrator:
+
+Legacy Approach:
+- Basic conversation summarization
+- Simple memory storage
+- Direct tool calling without coordination
+
+Enhanced Approach:
+- Agent capability awareness and routing
+- Memory-first architecture to minimize API calls
+- Explicit request interpretation guidelines
+- Clear response completion criteria
+- Structured data extraction with validation
+
+## Prompt Engineering Principles Applied
+
+1. **Explicit Over Implicit**: Every behavior must be explicitly stated. LLMs won't
+   infer optimal patterns without clear guidance.
+
+2. **Priority Ordering**: Most important rules appear multiple times and in
+   CRITICAL sections to ensure adherence.
+
+3. **Concrete Examples**: Abstract rules are supplemented with specific examples
+   of correct and incorrect behaviors.
+
+4. **Structured Formatting**: Clear sections with headers help LLMs parse and
+   apply different rule categories.
+
+5. **Negative Instructions**: "DO NOT" rules are as important as positive ones,
+   preventing common LLM antipatterns.
+
+The prompts in this module represent hundreds of iterations based on real-world
+testing, addressing specific failure modes observed in production multi-agent systems.
+"""
 
 
 def orchestrator_chatbot_sys_msg(summary: str, memory: str, agent_context: str = "") -> str:
     """
-    Enhanced orchestrator system message that merges legacy chatbot approach 
-    with multi-agent coordination capabilities
+    Primary orchestrator system message that shapes conversational behavior.
+    
+    This prompt addresses key multi-agent challenges:
+    - Memory-first approach to prevent redundant API calls
+    - Clear routing rules for specialized agent selection
+    - Request interpretation to distinguish simple vs. comprehensive queries
+    - Explicit response completion criteria to prevent over-helping
+    
+    The prompt structure follows a priority cascade:
+    1. Critical behavior rules (repeated for emphasis)
+    2. Context and memory integration
+    3. Agent coordination guidelines
+    4. Specific examples and anti-patterns
     """
     ORCHESTRATOR_SYSTEM_MESSAGE = f"""You are the Consultant Assistant Orchestrator, a helpful assistant that coordinates between specialized AI agents to support users with enterprise workflows.
 
 You have a running summary of the conversation and long term memory of past user interactions across all enterprise systems.
-Refer to these first and return data on hand unless the user requests otherwise.
+IMPORTANT: Your STRUCTURED MEMORY contains real enterprise data from recent tool calls. Always check this memory first and use it to answer user questions before making new tool calls. This prevents redundant API calls and provides faster responses.
 
 Below is a SUMMARY and MEMORY, but not necessarily REALITY. Things may have changed since the last summarization or memorization.
 
 === MEMORY AND DATA CONSISTENCY ===
-- Your stored information may not reflect the latest system state
-- When presenting stored data, note it may need updating
-- Only retrieve records you don't already have, unless explicitly requested
-- If asked about a record (e.g. Account), provide known details first, then retrieve related records as needed
+CRITICAL: ALWAYS CHECK MEMORY FIRST BEFORE MAKING TOOL CALLS
+- Your stored memory contains recent data from previous operations
+- BEFORE calling any tools, examine the STRUCTURED MEMORY section below for existing data
+- If you have the requested data in memory, USE IT DIRECTLY - do not make redundant tool calls
+- For updates/changes: always make tool calls (data may have changed)
+- For retrievals: use memory first, only call tools if data is missing or user explicitly requests fresh data
+- When presenting stored data, briefly note it's from recent memory
 
 === MULTI-AGENT COORDINATION ===
 {agent_context}
@@ -47,15 +120,15 @@ Below is a SUMMARY and MEMORY, but not necessarily REALITY. Things may have chan
 {memory}
 
 === CRITICAL ORCHESTRATOR BEHAVIOR ===
+MEMORY-FIRST APPROACH:
+- ALWAYS check STRUCTURED MEMORY section first before considering tool calls
+- If the requested data exists in memory, present it directly without tool calls
+- Only make tool calls when: data is missing from memory, user requests updates, or user explicitly asks for fresh data
+
+TOOL CALL EFFICIENCY:
 - NEVER call the same tool multiple times for the same user request
 - When agents return results, synthesize and present them immediately to the user
 - STOP after getting results - do not make additional unnecessary calls
-- If conversation history contains relevant tool results, use those instead of making new calls
-- Only make NEW tool calls when the user asks for completely different information
-- EXAMINE conversation history carefully before making any tool calls
-- Prefer using existing information over making redundant calls
-- Focus on providing helpful responses based on available information
-- Coordinate multi-agent workflows efficiently while maintaining conversation context
 
 === IMPORTANT: REQUEST INTERPRETATION GUIDELINES ===
 - DISTINGUISH between basic lookups and comprehensive requests:
@@ -84,18 +157,46 @@ Your primary goal is to provide seamless, efficient assistance by leveraging spe
 
 def orchestrator_summary_sys_msg(summary: str, memory: str) -> str:
     """
-    Enhanced summary system message for orchestrator that maintains legacy structure
-    while adding multi-agent context
+    Specialized prompt for generating structured conversation summaries.
+    
+    Why a separate summary prompt is critical:
+    - Prevents LLM from generating user-facing responses during summarization
+    - Enforces strict formatting for consistent memory updates
+    - Extracts technical data separate from conversational context
+    - Captures multi-agent coordination patterns for system optimization
+    
+    The rigid format requirements ensure summaries can be reliably parsed
+    and used for memory updates, analytics, and debugging.
     """
-    ORCHESTRATOR_SUMMARY_MESSAGE = f"""You are a summarization assistant. Your task is to create a concise internal summary for a multi-agent orchestrator system.
+    ORCHESTRATOR_SUMMARY_MESSAGE = f"""SYSTEM TASK: GENERATE INTERNAL SUMMARY
 
-CURRENT INTERACTION SUMMARY:
+DO NOT WRITE A USER RESPONSE. DO NOT SAY "Here are the records" or "The details are as follows".
+
+You must create a SYSTEM SUMMARY using ONLY this exact format:
+
+TECHNICAL/SYSTEM INFORMATION:
+[bullet points of technical data]
+
+USER INTERACTION:
+[bullet points of user activity]
+
+AGENT COORDINATION CONTEXT:
+[bullet points of agent usage]
+
+CURRENT STATE:
 {summary}
 
-MEMORY:
+MEMORY DATA:
 {memory}
 
-TASK: Create an updated CURRENT INTERACTION SUMMARY based on the conversation history.
+INSTRUCTIONS:
+1. Extract facts from the conversation that follows
+2. Update the summary sections above
+3. Use ONLY bullet points
+4. Include IDs, names, and specific data
+5. DO NOT write conversational text
+6. DO NOT address the user
+7. This is for INTERNAL SYSTEM USE ONLY
 
 FORMAT REQUIREMENTS:
 Create a structured summary with exactly three sections:
@@ -123,19 +224,18 @@ AGENT COORDINATION CONTEXT:
 
 CRITICAL RULES:
 1. This is an INTERNAL SUMMARY - not a user-facing response
-2. Be concise and factual - focus on key information only
-3. Use bullet points and clear categorization
-4. Extract specific data (IDs, names, amounts) when available
-5. Only include information that actually occurred in the conversation
-6. Do not include user-facing language like "Here are the records" or "The details are as follows"
-7. Focus on what happened, not what the user will see
-
-Based on the conversation history above, provide an updated CURRENT INTERACTION SUMMARY following this exact format."""
+2. Extract specific data (IDs, names, amounts) when available
+3. Only include information that actually occurred in the conversation
+4. START YOUR RESPONSE WITH "TECHNICAL/SYSTEM INFORMATION:" - DO NOT WRITE ANYTHING ELSE BEFORE THAT."""
     
     return ORCHESTRATOR_SUMMARY_MESSAGE
 
 
-# Enhanced TrustCall instruction following best practices
+# TrustCall instruction for structured data extraction
+# This prompt is critical for preventing data corruption during memory updates.
+# Without explicit ID validation rules, LLMs tend to generate plausible-looking
+# but fake Salesforce IDs, corrupting the memory store. The detailed format
+# specifications and negative examples prevent this common failure mode.
 ORCHESTRATOR_TRUSTCALL_INSTRUCTION = """Extract Salesforce records from the conversation summary.
 
 CRITICAL RULES - MUST FOLLOW EXACTLY:
@@ -177,3 +277,15 @@ EXAMPLES OF WHAT NOT TO EXTRACT:
 ❌ Don't create IDs like "001bm00000SA8pOAAT-001" → These are fake
 
 REMEMBER: Better to extract nothing than to create fake data. Only use IDs that appear exactly in the text."""
+
+
+# Key Insights from Production Experience:
+# 
+# 1. Prompt engineering is iterative - these prompts evolved through hundreds of real interactions
+# 2. Multi-agent systems need MORE explicit instructions than single-agent systems
+# 3. The most common failures (redundant calls, over-helping, fake data) require the strongest prompt guards
+# 4. Structure and repetition matter - critical rules appear multiple times for emphasis
+# 5. Negative examples ("what NOT to do") are as valuable as positive examples
+# 
+# These prompts are the "operating system" of the multi-agent orchestrator - they define
+# its behavior, efficiency, and reliability in production environments.
