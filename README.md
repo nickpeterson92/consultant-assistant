@@ -44,20 +44,20 @@ Traditional single-agent systems hit scalability walls. This architecture solves
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              USER INTERFACE                                  │
-│                           (orchestrator.py CLI)                             │
+┌────────────────────────────────────────────────────────────────────────────┐
+│                              USER INTERFACE                                │
+│                           (orchestrator.py CLI)                            │
 └────────────────────────────────────────────────────────────────────────────┘
                                      │
                                      ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         ORCHESTRATOR AGENT                                   │
+┌───────────────────────────────────────────────────────────────────────────┐
+│                         ORCHESTRATOR AGENT                                │
 │  ┌─────────────────┐  ┌──────────────────┐  ┌─────────────────────────┐   │
-│  │  LangGraph      │  │  Agent Registry   │  │  Memory & State Mgmt    │   │
-│  │  State Machine  │  │  Service Discovery │  │  TrustCall Extraction   │   │
+│  │  LangGraph      │  │  Agent Registry  │  │  Memory & State Mgmt    │   │
+│  │  State Machine  │  │  Service Discovery  │  TrustCall Extraction   │   │
 │  └────────┬────────┘  └──────────────────┘  └─────────────────────────┘   │
-│           │              🧠 Coordination & Intelligence                     │
-└────────────────────────────────────────┬────────────────────────────────────┘
+│           │              🧠 Coordination & Intelligence                   │
+└────────────────────────────────────────┬──────────────────────────────────┘
                                          │
                             ┌────────────┴────────────┐
                             │   A2A Protocol Layer    │
