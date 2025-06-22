@@ -50,14 +50,14 @@ Traditional single-agent systems hit scalability walls. This architecture solves
 └────────────────────────────────────────────────────────────────────────────┘
                                          │
                                          ▼
-┌───────────────────────────────────────────────────────────────────────────┐
-│                             ORCHESTRATOR AGENT                            │
-│  ┌─────────────────┐  ┌──────────────────┐  ┌─────────────────────────┐   │
-│  │  LangGraph      │  │  Agent Registry  │  │  Memory & State Mgmt    │   │
-│  │  State Machine  │  │  Service Discovery  │  TrustCall Extraction   │   │
-│  └────────┬────────┘  └──────────────────┘  └─────────────────────────┘   │
-│           │               Coordination & Intelligence                     │
-└────────────────────────────────────────┬──────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────┐
+│                             ORCHESTRATOR AGENT                             │
+│  ┌─────────────────┐  ┌───────────────────┐  ┌─────────────────────────┐   │
+│  │  LangGraph      │  │  Agent Registry   │  │  Memory & State Mgmt    │   │
+│  │  State Machine  │  │  Service Discovery|  │  TrustCall Extraction   │   │
+│  └─────────────────┘  └───────────────────┘  └─────────────────────────┘   │
+│                          Coordination & Intelligence                       │
+└────────────────────────────────────────┬───────────────────────────────────┘
                                          │
                             ┌────────────┴────────────┐
                             │   A2A Protocol Layer    │
@@ -67,7 +67,7 @@ Traditional single-agent systems hit scalability walls. This architecture solves
                             └────────────┬────────────┘
                                          │
                     ┌────────────────────┴─────────────────────┐
-                    ▼                                           ▼
+                    ▼                                          ▼
 ┌─────────────────────────────────┐    ┌──────────────────────────────┐
 │     SALESFORCE AGENT            │    │    EXTENSIBLE AGENTS         │
 │  - 15 Specialized CRM Tools     │    │  - Travel Management         │
