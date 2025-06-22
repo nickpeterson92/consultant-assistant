@@ -751,13 +751,114 @@ def test_query_builder_with_salesforce():
    - Test query logic with sample data
    - Debug by examining generated SOQL
 
-## Future Enhancements
+## Advanced Query Features (Implemented)
 
-1. **Advanced Query Features**
-   - Aggregate functions (COUNT, SUM, AVG)
-   - GROUP BY and HAVING clauses
-   - Subquery support
-   - SOSL (Salesforce Object Search Language) integration
+### Aggregate Functions
+
+The query builder now supports all major aggregate functions:
+
+```python
+# Example: Sales pipeline analysis
+query = (SOQLQueryBuilder('Opportunity')
+    .select(['StageName'])
+    .select_count('Id', 'OpportunityCount')
+    .select_sum('Amount', 'TotalAmount')
+    .select_avg('Amount', 'AvgAmount')
+    .select_max('Amount', 'MaxDeal')
+    .select_min('Amount', 'MinDeal')
+    .group_by('StageName')
+    .having('SUM(Amount)', SOQLOperator.GREATER_THAN, 0)
+    .order_by('TotalAmount', descending=True)
+    .build())
+# Result: SELECT StageName, COUNT(Id) OpportunityCount, SUM(Amount) TotalAmount, 
+#         AVG(Amount) AvgAmount, MAX(Amount) MaxDeal, MIN(Amount) MinDeal 
+#         FROM Opportunity GROUP BY StageName HAVING SUM(Amount) > 0 
+#         ORDER BY TotalAmount DESC
+```
+
+### GROUP BY and HAVING Clauses
+
+Support for complex grouping and filtering of aggregated data:
+
+```python
+# Example: Top performing sales reps
+query = (SOQLQueryBuilder('Opportunity')
+    .select(['OwnerId', 'Owner.Name'])
+    .select_count('Id', 'DealsWon')
+    .select_sum('Amount', 'TotalRevenue')
+    .where('IsClosed', SOQLOperator.EQUALS, True)
+    .where('IsWon', SOQLOperator.EQUALS, True)
+    .group_by(['OwnerId', 'Owner.Name'])
+    .having('SUM(Amount)', SOQLOperator.GREATER_THAN, 1000000)
+    .order_by('TotalRevenue', descending=True)
+    .limit(10)
+    .build())
+```
+
+### Subquery Support
+
+Build complex queries with nested subqueries:
+
+```python
+# Example: Accounts with their top opportunities
+query = (SOQLQueryBuilder('Account')
+    .select(['Id', 'Name', 'Industry'])
+    .with_subquery('Opportunities', 'Opportunity', lambda sq: sq
+        .select(['Id', 'Name', 'Amount', 'StageName'])
+        .where('IsClosed', SOQLOperator.EQUALS, False)
+        .order_by('Amount', descending=True)
+        .limit(5))
+    .where('Industry', SOQLOperator.EQUALS, 'Technology')
+    .build())
+# Result: SELECT Id, Name, Industry, 
+#         (SELECT Id, Name, Amount, StageName FROM Opportunities 
+#          WHERE IsClosed = false ORDER BY Amount DESC LIMIT 5) 
+#         FROM Account WHERE Industry = 'Technology'
+```
+
+### SOSL (Salesforce Object Search Language)
+
+Cross-object search capabilities:
+
+```python
+# Example: Search across multiple objects
+query = (SOSLQueryBuilder()
+    .find('Acme')
+    .returning('Account', ['Id', 'Name', 'Industry'], 
+              where_clause="Industry = 'Technology'")
+    .returning('Contact', ['Id', 'Name', 'Email', 'Account.Name'])
+    .returning('Opportunity', ['Id', 'Name', 'Amount'], 
+              where_clause='Amount > 50000')
+    .returning('Lead', ['Id', 'Name', 'Company'])
+    .limit(50)
+    .build())
+# Result: FIND {Acme} IN ALL FIELDS 
+#         RETURNING Account(Id, Name, Industry WHERE Industry = 'Technology'), 
+#                   Contact(Id, Name, Email, Account.Name), 
+#                   Opportunity(Id, Name, Amount WHERE Amount > 50000), 
+#                   Lead(Id, Name, Company) 
+#         LIMIT 50
+```
+
+### Pre-built Aggregate Patterns
+
+Common analytical queries available out-of-the-box:
+
+```python
+# Opportunity pipeline by stage
+query = AggregateQueryBuilder.opportunity_pipeline_by_stage()
+
+# Account metrics by industry
+query = AggregateQueryBuilder.account_summary_by_industry()
+
+# Top sales representatives
+query = AggregateQueryBuilder.top_sales_reps(min_revenue=500000)
+
+# Case volume analysis
+query = AggregateQueryBuilder.case_volume_by_priority()
+```
+
+## Future Enhancements
 
 2. **Performance Improvements**
    - Query result caching layer

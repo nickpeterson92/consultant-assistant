@@ -1148,6 +1148,564 @@ class UpdateTaskTool(BaseTool):
             return {"error": str(e)}
 
 
+# Analytics Tools - Advanced SOQL Features
+
+class GetSalesPipelineInput(BaseModel):
+    """Input schema for sales pipeline analysis."""
+    group_by: str = "StageName"
+    min_amount: Optional[float] = None
+
+    @field_validator("group_by")
+    def validate_group_by(cls, v):
+        valid_options = ["StageName", "OwnerId", "CloseDate"]
+        if v not in valid_options:
+            raise ValueError(f"group_by must be one of: {', '.join(valid_options)}")
+        return v
+
+
+class GetSalesPipelineTool(BaseTool):
+    """Salesforce Pipeline Analysis Tool with Aggregate Functions."""
+    name: str = "get_sales_pipeline"
+    description: str = (
+        "Analyzes the sales pipeline with aggregated metrics. "
+        "Returns opportunity counts, total amounts, and averages grouped by stage, owner, or month. "
+        "Perfect for: 'show me pipeline by stage', 'top sales reps', 'monthly revenue trends'."
+    )
+    args_schema: type = GetSalesPipelineInput
+    
+    def _run(self, **kwargs) -> dict:
+        data = GetSalesPipelineInput(**kwargs)
+        
+        try:
+            log_tool_activity("GetSalesPipelineTool", "ANALYZE_PIPELINE", 
+                            params={"group_by": data.group_by})
+            sf = get_salesforce_connection()
+            
+            # Build aggregate query based on grouping
+            if data.group_by == "StageName":
+                # Group opportunities by sales stage with aggregate metrics
+                query = (SOQLQueryBuilder("Opportunity")
+                    .select(["StageName"])
+                    .select_count("Id", "OpportunityCount")
+                    .select_sum("Amount", "TotalAmount")
+                    .select_avg("Amount", "AvgAmount")
+                    .group_by("StageName")
+                    .having("SUM(Amount)", SOQLOperator.GREATER_THAN, 0)
+                    .order_by("SUM(Amount)", descending=True)  # Use aggregate function, not alias
+                    .build())
+            elif data.group_by == "OwnerId":
+                # Group opportunities by owner (sales rep) with open pipeline only
+                query_builder = (SOQLQueryBuilder("Opportunity")
+                    .select(["OwnerId", "Owner.Name"])
+                    .select_count("Id", "OpportunityCount")
+                    .select_sum("Amount", "TotalPipeline")
+                    .select_avg("Amount", "AvgDealSize")
+                    .where("IsClosed", SOQLOperator.EQUALS, False))  # Open opportunities only
+                
+                # Apply optional minimum amount filter
+                if data.min_amount:
+                    query_builder = query_builder.where("Amount", SOQLOperator.GREATER_OR_EQUAL, data.min_amount)
+                
+                query = (query_builder
+                    .group_by(["OwnerId", "Owner.Name"])
+                    .having("SUM(Amount)", SOQLOperator.GREATER_THAN, 0)
+                    .order_by("SUM(Amount)", descending=True)  # Use aggregate function, not alias
+                    .limit(20)
+                    .build())
+            else:  # CloseDate monthly
+                # Group opportunities by month/year for trend analysis
+                query_builder = (SOQLQueryBuilder("Opportunity")
+                    .select(["CALENDAR_MONTH(CloseDate) Month", "CALENDAR_YEAR(CloseDate) Year"])
+                    .select_count("Id", "OpportunityCount")
+                    .select_sum("Amount", "Revenue")
+                    .where("CloseDate", SOQLOperator.GREATER_OR_EQUAL, "LAST_N_MONTHS:12"))  # Last 12 months
+                
+                # Apply optional minimum amount filter
+                if data.min_amount:
+                    query_builder = query_builder.where("Amount", SOQLOperator.GREATER_OR_EQUAL, data.min_amount)
+                
+                query = (query_builder
+                    .group_by(["CALENDAR_MONTH(CloseDate)", "CALENDAR_YEAR(CloseDate)"])
+                    .order_by(["CALENDAR_YEAR(CloseDate)", "CALENDAR_MONTH(CloseDate)"])  # Use functions, not aliases
+                    .build())
+            
+            results = sf.query(query)
+            
+            # Return results in same format as other tools
+            if not results["records"]:
+                return []
+            
+            # Add metadata to each record for context
+            for record in results["records"]:
+                record["_query_type"] = "pipeline_by_" + data.group_by
+            
+            return results["records"]
+            
+        except Exception as e:
+            # Return empty list like other tools to prevent looping
+            log_tool_activity("GetSalesPipelineTool", "ERROR", error=str(e))
+            return []
+
+
+class GetTopPerformersInput(BaseModel):
+    """Input schema for top performers analysis."""
+    metric: str = "revenue"
+    min_threshold: Optional[float] = 100000
+    limit: int = 10
+
+    @field_validator("metric")
+    def validate_metric(cls, v):
+        valid_metrics = ["revenue", "deal_count", "win_rate"]
+        if v not in valid_metrics:
+            raise ValueError(f"metric must be one of: {', '.join(valid_metrics)}")
+        return v
+
+
+class GetTopPerformersTool(BaseTool):
+    """Salesforce Top Performers Analysis Tool."""
+    name: str = "get_top_performers"
+    description: str = (
+        "Identifies top performers using advanced analytics. "
+        "Can rank by total revenue, deal count, or win rate. "
+        "Use for: 'top 10 sales reps', 'best performing accounts', 'highest win rates'."
+    )
+    args_schema: type = GetTopPerformersInput
+    
+    def _run(self, **kwargs) -> dict:
+        data = GetTopPerformersInput(**kwargs)
+        
+        try:
+            log_tool_activity("GetTopPerformersTool", "ANALYZE_PERFORMERS",
+                            params={"metric": data.metric, "limit": data.limit})
+            sf = get_salesforce_connection()
+            
+            if data.metric == "revenue":
+                query = (SOQLQueryBuilder('Opportunity')
+                    .select(['OwnerId', 'Owner.Name'])
+                    .select_count('Id', 'DealsWon')
+                    .select_sum('Amount', 'TotalRevenue')
+                    .where('IsClosed', SOQLOperator.EQUALS, True)
+                    .where('IsWon', SOQLOperator.EQUALS, True)
+                    .group_by(['OwnerId', 'Owner.Name'])
+                    .having('SUM(Amount)', SOQLOperator.GREATER_THAN, data.min_threshold)
+                    .order_by('SUM(Amount)', descending=True)  # Use aggregate function, not alias
+                    .limit(data.limit)
+                    .build())
+            elif data.metric == "deal_count":
+                query = (SOQLQueryBuilder('Opportunity')
+                    .select(['OwnerId', 'Owner.Name'])
+                    .select_count('Id', 'TotalDeals')
+                    .select_sum('Amount', 'TotalRevenue')
+                    .where('IsClosed', SOQLOperator.EQUALS, True)
+                    .group_by(['OwnerId', 'Owner.Name'])
+                    .having('COUNT(Id)', SOQLOperator.GREATER_THAN, 5)
+                    .order_by('COUNT(Id)', descending=True)  # Use aggregate function, not alias
+                    .limit(data.limit)
+                    .build())
+            else:  # win_rate - Calculate in post-processing since SOQL doesn't support CASE in aggregates
+                # Get total opportunities and won opportunities separately
+                query = (SOQLQueryBuilder('Opportunity')
+                    .select(['OwnerId', 'Owner.Name'])
+                    .select_count('Id', 'TotalOpps')
+                    .where('IsClosed', SOQLOperator.EQUALS, True)
+                    .group_by(['OwnerId', 'Owner.Name'])
+                    .having('COUNT(Id)', SOQLOperator.GREATER_THAN, 10)
+                    .order_by('COUNT(Id)', descending=True)  # Order by total opportunities
+                    .limit(data.limit * 2)  # Get more records to filter after win rate calculation
+                    .build())
+                
+                # Need a second query to get won deals count
+                won_query = (SOQLQueryBuilder('Opportunity')
+                    .select(['OwnerId', 'Owner.Name'])
+                    .select_count('Id', 'WonDeals')
+                    .where('IsClosed', SOQLOperator.EQUALS, True)
+                    .where('IsWon', SOQLOperator.EQUALS, True)
+                    .group_by(['OwnerId', 'Owner.Name'])
+                    .build())
+            
+            results = sf.query(query)
+            
+            # Calculate win rate if needed
+            if data.metric == "win_rate":
+                # Get won deals data
+                won_results = sf.query(won_query)
+                won_map = {r['OwnerId']: r['WonDeals'] for r in won_results['records']}
+                
+                # Calculate win rate for each record
+                for record in results['records']:
+                    total = record.get('TotalOpps', 0)
+                    won = won_map.get(record['OwnerId'], 0)
+                    record['WonDeals'] = won
+                    record['WinRate'] = (won / total * 100) if total > 0 else 0
+                
+                # Sort by win rate and limit
+                results['records'] = sorted(results['records'], 
+                                          key=lambda x: x['WinRate'], 
+                                          reverse=True)[:data.limit]
+            
+            # Return results in same format as other tools
+            if not results["records"]:
+                return []
+                
+            # Add metadata to each record
+            for record in results["records"]:
+                record["_metric_type"] = data.metric
+                
+            return results["records"]
+            
+        except Exception as e:
+            # Return empty list like other tools to prevent looping
+            log_tool_activity("GetTopPerformersTool", "ERROR", error=str(e))
+            return []
+
+
+class GlobalSearchInput(BaseModel):
+    """Input schema for global cross-object search using SOSL."""
+    search_term: str
+    object_types: Optional[List[str]] = ["Account", "Contact", "Opportunity", "Lead"]
+    limit: int = 20
+
+
+class GlobalSearchTool(BaseTool):
+    """Salesforce Global Search Tool using SOSL."""
+    name: str = "global_search"
+    description: str = (
+        "Searches across multiple Salesforce objects simultaneously using SOSL. "
+        "Finds accounts, contacts, opportunities, and leads matching the search term. "
+        "Use for: 'find anything related to Acme', 'search for john@example.com everywhere'."
+    )
+    args_schema: type = GlobalSearchInput
+    
+    def _run(self, **kwargs) -> dict:
+        data = GlobalSearchInput(**kwargs)
+        
+        try:
+            log_tool_activity("GlobalSearchTool", "GLOBAL_SEARCH",
+                            params={"term": data.search_term, "objects": data.object_types})
+            sf = get_salesforce_connection()
+            
+            # Build SOSL (Salesforce Object Search Language) query
+            search_term = escape_soql(data.search_term)
+            
+            # Build returning clauses for each object type
+            returning_clauses = []
+            
+            if "Account" in data.object_types:
+                # Account fields: basic info for company records
+                returning_clauses.append(
+                    f"Account(Id, Name, Industry, Phone, Website LIMIT {data.limit})"
+                )
+            
+            if "Contact" in data.object_types:
+                # Contact fields: include parent account relationship
+                returning_clauses.append(
+                    f"Contact(Id, Name, Email, Phone, Title, Account.Name LIMIT {data.limit})"
+                )
+            
+            if "Opportunity" in data.object_types:
+                # Opportunity fields: filter for real opportunities with amounts
+                returning_clauses.append(
+                    f"Opportunity(Id, Name, Amount, StageName, CloseDate, Account.Name "
+                    f"WHERE Amount > 0 ORDER BY Amount DESC LIMIT {data.limit})"
+                )
+            
+            if "Lead" in data.object_types:
+                # Lead fields: only active/workable leads
+                returning_clauses.append(
+                    f"Lead(Id, Name, Company, Email, Phone, Status "
+                    f"WHERE Status IN ('New', 'Working', 'Qualified') LIMIT {data.limit})"
+                )
+            
+            # Construct SOSL query - searches all fields across specified objects
+            query = f"FIND {{{search_term}}} IN ALL FIELDS RETURNING {', '.join(returning_clauses)}"
+            
+            # Use search() for SOSL queries
+            results = sf.search(query)
+            
+            # Group results by object type for organized presentation
+            grouped_results = {}
+            for record in results.get("searchRecords", []):
+                obj_type = record["attributes"]["type"]
+                if obj_type not in grouped_results:
+                    grouped_results[obj_type] = []
+                grouped_results[obj_type].append(record)
+            
+            # Return results in same format as other tools
+            search_records = results.get("searchRecords", [])
+            if not search_records:
+                return []
+            
+            # Add search term to each record for context
+            for record in search_records:
+                record["_search_term"] = data.search_term
+                
+            return search_records
+            
+        except Exception as e:
+            # Return empty list like other tools to prevent looping
+            log_tool_activity("GlobalSearchTool", "ERROR", error=str(e))
+            return []
+
+
+class GetAccountInsightsInput(BaseModel):
+    """Input schema for comprehensive account insights."""
+    account_id: Optional[str] = None
+    account_name: Optional[str] = None
+    include_subqueries: bool = True
+
+
+class GetAccountInsightsTool(BaseTool):
+    """Salesforce Account 360 View Tool with Subqueries."""
+    name: str = "get_account_insights"
+    description: str = (
+        "Provides comprehensive account insights including related opportunities, contacts, and cases. "
+        "Uses subqueries to fetch related data efficiently in a single call. "
+        "Use for: 'tell me everything about Acme account', '360 view of customer'."
+    )
+    args_schema: type = GetAccountInsightsInput
+    
+    def _run(self, **kwargs) -> dict:
+        data = GetAccountInsightsInput(**kwargs)
+        
+        try:
+            log_tool_activity("GetAccountInsightsTool", "GET_INSIGHTS",
+                            params={"account_id": data.account_id, "account_name": data.account_name})
+            sf = get_salesforce_connection()
+            
+            # Build main query
+            query_builder = SOQLQueryBuilder('Account').select([
+                'Id', 'Name', 'Industry', 'AnnualRevenue', 'NumberOfEmployees',
+                'Website', 'Phone', 'BillingCity', 'BillingState'
+            ])
+            
+            # Add subqueries if requested - fetch related records in single API call
+            if data.include_subqueries:
+                # Related opportunities - top 10 by value
+                query_builder.fields.extend([
+                    "(SELECT Id, Name, Amount, StageName, CloseDate FROM Opportunities ORDER BY Amount DESC LIMIT 10)",
+                    # Related contacts - most recently active with email
+                    "(SELECT Id, Name, Title, Email, Phone FROM Contacts WHERE Email != null ORDER BY LastActivityDate DESC LIMIT 5)",
+                    # Open cases - prioritized by urgency
+                    "(SELECT Id, CaseNumber, Subject, Status, Priority FROM Cases WHERE IsClosed = false ORDER BY Priority LIMIT 5)"
+                ])
+            
+            # Add search criteria
+            if data.account_id:
+                query_builder.where_id(data.account_id)
+            elif data.account_name:
+                query_builder.where_like('Name', f'%{data.account_name}%')
+            else:
+                return {"error": "Either account_id or account_name must be provided"}
+            
+            query = query_builder.build()
+            results = sf.query(query)
+            
+            if not results['records']:
+                return {"error": "No matching account found"}
+            
+            account_data = results['records'][0]
+            
+            # Calculate summary metrics and add to account data
+            account_data["_summary"] = {
+                "total_opportunities": len(account_data.get("Opportunities", {}).get("records", [])),
+                "pipeline_value": sum(opp.get("Amount", 0) for opp in 
+                                    account_data.get("Opportunities", {}).get("records", [])),
+                "total_contacts": len(account_data.get("Contacts", {}).get("records", [])),
+                "open_cases": len(account_data.get("Cases", {}).get("records", []))
+            }
+            
+            # Return single account record like other tools
+            return account_data
+            
+        except Exception as e:
+            # Return empty list like other tools to prevent looping
+            log_tool_activity("GetAccountInsightsTool", "ERROR", error=str(e))
+            return []
+
+
+class GetBusinessMetricsInput(BaseModel):
+    """Input schema for business metrics and KPI analysis."""
+    metric_type: str = "revenue"
+    time_period: str = "THIS_QUARTER"
+    group_by: Optional[str] = None
+
+    @field_validator("metric_type")
+    def validate_metric_type(cls, v):
+        valid_types = ["revenue", "accounts", "leads", "cases"]
+        if v not in valid_types:
+            raise ValueError(f"metric_type must be one of: {', '.join(valid_types)}")
+        return v
+
+    @field_validator("time_period")
+    def validate_time_period(cls, v):
+        valid_periods = ["THIS_MONTH", "LAST_MONTH", "THIS_QUARTER", "THIS_YEAR"]
+        if v not in valid_periods:
+            raise ValueError(f"time_period must be one of: {', '.join(valid_periods)}")
+        return v
+
+
+class GetBusinessMetricsTool(BaseTool):
+    """Salesforce Business Metrics and KPI Tool."""
+    name: str = "get_business_metrics"
+    description: str = (
+        "Calculates business metrics and KPIs using aggregate functions. "
+        "Can analyze revenue trends, account distribution, lead sources, and case volumes. "
+        "Use for: 'revenue this quarter', 'lead conversion by source', 'case volume trends'."
+    )
+    args_schema: type = GetBusinessMetricsInput
+    
+    def _run(self, **kwargs) -> dict:
+        data = GetBusinessMetricsInput(**kwargs)
+        
+        try:
+            log_tool_activity("GetBusinessMetricsTool", "CALCULATE_METRICS",
+                            params={"metric": data.metric_type, "period": data.time_period})
+            sf = get_salesforce_connection()
+            
+            if data.metric_type == "revenue":
+                query_builder = SOQLQueryBuilder('Opportunity')
+                
+                if data.group_by == "Industry":
+                    query_builder = (query_builder
+                        .select(['Account.Industry'])
+                        .group_by('Account.Industry'))
+                else:
+                    query_builder.select([])
+                
+                # Build base query without date filter
+                base_query = (query_builder
+                    .select_count('Id', 'DealCount')
+                    .select_sum('Amount', 'TotalRevenue')
+                    .select_avg('Amount', 'AvgDealSize')
+                    .where('IsClosed', SOQLOperator.EQUALS, True)
+                    .where('IsWon', SOQLOperator.EQUALS, True)
+                    .build())
+                
+                # Add date filter manually to avoid quoting issues
+                query = base_query.replace('WHERE', f'WHERE CloseDate = {data.time_period} AND')
+                
+            elif data.metric_type == "accounts":
+                query = (SOQLQueryBuilder('Account')
+                    .select(['Industry'])
+                    .select_count('Id', 'AccountCount')
+                    .select_avg('AnnualRevenue', 'AvgRevenue')
+                    .where_not_null('Industry')
+                    .group_by('Industry')
+                    .order_by('COUNT(Id)', descending=True)  # Use aggregate function, not alias
+                    .build())
+                
+            elif data.metric_type == "leads":
+                query_builder = SOQLQueryBuilder('Lead')
+                
+                if data.group_by == "LeadSource":
+                    query_builder = (query_builder
+                        .select(['LeadSource'])
+                        .group_by('LeadSource'))
+                else:
+                    query_builder.select([])
+                
+                # Build base query without date filter
+                base_query = (query_builder
+                    .select_count('Id', 'TotalLeads')
+                    .build())
+                
+                # Add date filter manually to avoid quoting issues
+                if 'WHERE' in base_query:
+                    query = base_query.replace('WHERE', f'WHERE CreatedDate = {data.time_period} AND')
+                else:
+                    query = base_query.replace('FROM Lead', f'FROM Lead WHERE CreatedDate = {data.time_period}')
+                
+                # Separate query for converted leads
+                converted_query_builder = SOQLQueryBuilder('Lead')
+                if data.group_by == "LeadSource":
+                    converted_query_builder = (converted_query_builder
+                        .select(['LeadSource'])
+                        .group_by('LeadSource'))
+                else:
+                    converted_query_builder.select([])
+                    
+                # Build base query for converted leads
+                base_converted_query = (converted_query_builder
+                    .select_count('Id', 'ConvertedLeads')
+                    .where('IsConverted', SOQLOperator.EQUALS, True)
+                    .build())
+                
+                # Add date filter manually
+                converted_query = base_converted_query.replace('WHERE', f'WHERE CreatedDate = {data.time_period} AND')
+                
+            else:  # cases
+                query_builder = SOQLQueryBuilder('Case')
+                
+                if data.group_by == "Priority":
+                    query_builder = (query_builder
+                        .select(['Priority', 'Status'])
+                        .group_by(['Priority', 'Status']))
+                else:
+                    query_builder.select(['Status']).group_by('Status')
+                
+                # Build base query without date filter
+                base_query = (query_builder
+                    .select_count('Id', 'CaseCount')
+                    .order_by('COUNT(Id)', descending=True)  # Use aggregate function, not alias
+                    .build())
+                
+                # Add date filter manually to avoid quoting issues
+                if 'WHERE' in base_query:
+                    query = base_query.replace('WHERE', f'WHERE CreatedDate = {data.time_period} AND')
+                else:
+                    query = base_query.replace('FROM Case', f'FROM Case WHERE CreatedDate = {data.time_period}')
+            
+            results = sf.query(query)
+            
+            # Calculate additional metrics like conversion rates
+            if data.metric_type == "leads" and results["records"]:
+                # Get converted leads data
+                converted_results = sf.query(converted_query)
+                
+                if data.group_by == "LeadSource":
+                    # Map by LeadSource
+                    converted_map = {r["LeadSource"]: r["ConvertedLeads"] 
+                                   for r in converted_results["records"]}
+                    for record in results["records"]:
+                        total = record.get("TotalLeads", 0)
+                        converted = converted_map.get(record.get("LeadSource"), 0)
+                        record["ConvertedLeads"] = converted
+                        record["ConversionRate"] = (converted / total * 100) if total > 0 else 0
+                else:
+                    # Single result without grouping
+                    converted_count = converted_results["records"][0]["ConvertedLeads"] if converted_results["records"] else 0
+                    for record in results["records"]:
+                        total = record.get("TotalLeads", 0)
+                        record["ConvertedLeads"] = converted_count
+                        record["ConversionRate"] = (converted_count / total * 100) if total > 0 else 0
+            
+            # Return results in same format as other tools
+            if not results["records"]:
+                return []
+                
+            # Add metadata to each record
+            for record in results["records"]:
+                record["_metric_type"] = data.metric_type
+                record["_time_period"] = data.time_period
+                
+            return results["records"]
+            
+        except Exception as e:
+            # Return empty list like other tools to prevent looping
+            log_tool_activity("GetBusinessMetricsTool", "ERROR", error=str(e))
+            return []
+
+
+# Export all analytics tools
+SALESFORCE_ANALYTICS_TOOLS = [
+    GetSalesPipelineTool(),
+    GetTopPerformersTool(),
+    GlobalSearchTool(),
+    GetAccountInsightsTool(),
+    GetBusinessMetricsTool()
+]
+
+
 # Export all tools
 __all__ = [
     'GetLeadTool', 'CreateLeadTool', 'UpdateLeadTool',
@@ -1155,5 +1713,8 @@ __all__ = [
     'GetOpportunityTool', 'CreateOpportunityTool', 'UpdateOpportunityTool',
     'GetContactTool', 'CreateContactTool', 'UpdateContactTool',
     'GetCaseTool', 'CreateCaseTool', 'UpdateCaseTool',
-    'GetTaskTool', 'CreateTaskTool', 'UpdateTaskTool'
+    'GetTaskTool', 'CreateTaskTool', 'UpdateTaskTool',
+    'GetSalesPipelineTool', 'GetTopPerformersTool', 'GlobalSearchTool',
+    'GetAccountInsightsTool', 'GetBusinessMetricsTool',
+    'SALESFORCE_ANALYTICS_TOOLS'
 ]

@@ -6,7 +6,7 @@
       "agent_card": {
         "name": "salesforce-agent",
         "version": "1.0.0",
-        "description": "Specialized agent for Salesforce CRM operations including leads, accounts, opportunities, contacts, cases, and tasks",
+        "description": "Specialized agent for Salesforce CRM operations including leads, accounts, opportunities, contacts, cases, tasks, and advanced analytics",
         "capabilities": [
           "salesforce_operations",
           "lead_management",
@@ -15,7 +15,12 @@
           "contact_management",
           "case_handling",
           "task_management",
-          "crm_operations"
+          "crm_operations",
+          "sales_analytics",
+          "pipeline_analysis",
+          "business_metrics",
+          "global_search",
+          "aggregate_reporting"
         ],
         "endpoints": {
           "process_task": "/a2a",
@@ -27,12 +32,12 @@
         ],
         "metadata": {
           "framework": "langgraph",
-          "tools_count": 15,
+          "tools_count": 20,
           "memory_type": "sqlite_with_trustcall"
         }
       },
       "status": "online",
-      "last_health_check": 1129606.434240875
+      "last_health_check": 1133647.045894916
     }
   ]
 }
