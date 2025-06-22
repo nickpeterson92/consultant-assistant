@@ -19,3 +19,6 @@ test_*.py
 analyze_*.py
 inspect_*.py
 deep_*.py
+
+# Agent registry (contains test agents that accumulate)
+agent_registry.json

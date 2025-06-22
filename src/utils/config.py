@@ -206,6 +206,7 @@ class ConversationConfig:
     memory_extraction_enabled: bool = True
     memory_extraction_delay: float = 0.5  # Avoid extraction during rapid exchanges
     memory_update_turn_threshold: int = 3  # Ensure conversation stability first
+    max_event_history: int = 50  # Limit event history to prevent unbounded growth (50 is sufficient for trigger logic)
 
 @dataclass
 class SystemConfig:

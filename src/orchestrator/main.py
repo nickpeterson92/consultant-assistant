@@ -25,7 +25,7 @@ import argparse
 import time
 from typing import Annotated, Dict, Any, List
 import operator
-from typing_extensions import TypedDict
+from typing_extensions import TypedDict, Optional
 
 from dotenv import load_dotenv
 
@@ -51,7 +51,7 @@ from src.utils.storage import get_async_store_adapter
 from src.utils.storage.memory_schemas import SimpleMemory
 from src.utils.logging import get_summary_logger
 from .enhanced_sys_msg import orchestrator_chatbot_sys_msg, orchestrator_summary_sys_msg
-from src.utils.config import get_llm_config
+from src.utils.config import get_llm_config, get_conversation_config
 from src.utils.sys_msg import TRUSTCALL_INSTRUCTION
 
 import logging
@@ -75,6 +75,32 @@ logger = logging.getLogger(__name__)
 
 # Initialize global agent registry for service discovery
 agent_registry = AgentRegistry()
+
+def load_events_with_limit(state: dict, limit: Optional[int] = None) -> List[OrchestratorEvent]:
+    """Load events from state with automatic limiting to prevent unbounded growth.
+    
+    Args:
+        state: Orchestrator state containing events
+        limit: Maximum number of recent events to keep (default: from config)
+        
+    Returns:
+        List of OrchestratorEvent objects, limited to most recent 'limit' events
+        
+    Note: Default limit (50) is sufficient because:
+    - Summary triggers every 5 user messages
+    - Each interaction creates ~3-5 events (user, AI, tools)
+    - We need at most 25 events to find the last trigger
+    - 50 provides a safety margin
+    """
+    if limit is None:
+        limit = get_conversation_config().max_event_history
+        
+    stored_events = state.get('events', [])
+    if len(stored_events) > limit:
+        # Keep only recent events
+        stored_events = stored_events[-limit:]
+        logger.info(f"Trimmed event history from {len(state.get('events', []))} to {limit} events")
+    return [OrchestratorEvent.from_dict(e) for e in stored_events]
 
 def create_azure_openai_chat():
     """Create and configure Azure OpenAI chat instance.
@@ -220,8 +246,8 @@ ORCHESTRATOR TOOLS:
             msg_count = len(state.get('messages', []))
             last_msg = state.get('messages', [])[-1] if state.get('messages') else None
             
-            # Track events instead of turns
-            events = [OrchestratorEvent.from_dict(e) for e in state.get('events', [])]
+            # Track events instead of turns - with automatic limiting
+            events = load_events_with_limit(state)
             
             # Log message types to track conversation flow
             if hasattr(last_msg, 'content'):
@@ -310,7 +336,7 @@ ORCHESTRATOR TOOLS:
             )
             events.append(ai_event)
             
-            log_orchestrator_activity("LLM_RESPONSE", 
+            log_orchestrator_activity("LLM_GENERATION_COMPLETE", 
                                      response_length=len(response_content),
                                      response_content=response_content[:500],  # Truncate for readability
                                      has_tool_calls=bool(hasattr(response, 'tool_calls') and response.tool_calls),
@@ -321,16 +347,26 @@ ORCHESTRATOR TOOLS:
                             event_count=len(events))
             
             # Convert events back to dicts for state storage
-            event_dicts = [e.to_dict() for e in events]
+            # IMPORTANT: Only keep recent events to prevent unbounded growth
+            conv_config = get_conversation_config()
+            max_events = conv_config.max_event_history
+            recent_events = events[-max_events:] if len(events) > max_events else events
+            event_dicts = [e.to_dict() for e in recent_events]
+            
+            # Log if we're trimming events
+            if len(events) > max_events:
+                log_orchestrator_activity("EVENT_HISTORY_TRIMMED", 
+                                        total_events=len(events),
+                                        kept_events=max_events,
+                                        trimmed_events=len(events) - max_events)
             
             updated_state = {
                 "messages": response,
                 "memory": existing_memory,
-                "events": event_dicts  # Store event history
+                "events": event_dicts  # Store trimmed event history
             }
             
             # Trigger background tasks based on events
-            from src.utils.config import get_conversation_config
             conv_config = get_conversation_config()
             
             # Check if we should trigger summary based on events
@@ -400,7 +436,8 @@ ORCHESTRATOR TOOLS:
         """
         start_time = time.time()
         messages_count = len(state.get('messages', []))
-        events = [OrchestratorEvent.from_dict(e) for e in state.get('events', [])]
+        # Load events with automatic limiting
+        events = load_events_with_limit(state)
         
         summary = state.get("summary", "No summary available")
         memory_val = state.get("memory", "No memory available")
@@ -431,7 +468,7 @@ ORCHESTRATOR TOOLS:
                 messages_to_delete.append(RemoveMessage(id=msg.id))
         
         response_content = str(response.content) if hasattr(response, 'content') else ""
-        log_orchestrator_activity("LLM_RESPONSE", 
+        log_orchestrator_activity("LLM_GENERATION_COMPLETE", 
                                  response_length=len(response_content),
                                  response_content=response_content[:500],
                                  operation="SUMMARIZATION",
@@ -542,7 +579,6 @@ ORCHESTRATOR TOOLS:
         
         # Invoke TrustCall with timeout for background safety
         try:
-            from src.utils.config import get_llm_config
             llm_config = get_llm_config()
             
             import asyncio
@@ -880,7 +916,7 @@ async def main():
                         from langchain_core.messages import AIMessage
                         if isinstance(last_msg, AIMessage) and not getattr(last_msg, 'tool_calls', None):
                             conversation_response = last_msg.content
-                            log_orchestrator_activity("ASSISTANT_RESPONSE", 
+                            log_orchestrator_activity("USER_MESSAGE_DISPLAYED", 
                                                     response=conversation_response[:1000],
                                                     full_length=len(conversation_response))
                             await type_out(conversation_response, delay=0.01)
