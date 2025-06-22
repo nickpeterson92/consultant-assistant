@@ -148,31 +148,44 @@ Based on the above chat history and CURRENT INTERACTION SUMMARY please update th
 
 
 # Enhanced TrustCall instruction following best practices
-ORCHESTRATOR_TRUSTCALL_INSTRUCTION = """You are tasked with extracting and updating Salesforce records from the conversation summary.
+ORCHESTRATOR_TRUSTCALL_INSTRUCTION = """Extract Salesforce records from the conversation summary.
 
-CRITICAL: NEVER CREATE FAKE IDs - ONLY USE REAL IDs FROM THE SUMMARY
+CRITICAL RULES - MUST FOLLOW EXACTLY:
+1. NEVER generate, create, or invent fake IDs 
+2. ONLY extract records that have BOTH a real name AND a real Salesforce ID found in the text
+3. If a record has no real ID in the text, DO NOT include it at all
+4. Real Salesforce IDs are 15-18 characters starting with specific prefixes
 
-EXTRACTION RULES:
-1. Extract ALL Salesforce records mentioned anywhere in the summary
-2. For each record found, look for its REAL Salesforce ID in the text
-3. If you find a real ID (like 00Qbm00000BOOndEAH), use that EXACT ID
-4. If you cannot find a real ID for a record, do NOT create a fake one - omit the record
-5. Account IDs start with 001, Contact IDs start with 003, Opportunity IDs start with 006, Lead IDs start with 00Q, Case IDs start with 500, Task IDs start with 00T
+VALID ID FORMATS:
+- Account IDs: Start with "001" (e.g., 001bm00000SA8pSAAT)
+- Contact IDs: Start with "003" (e.g., 003bm00000HJmaDAAT) 
+- Opportunity IDs: Start with "006" (e.g., 006bm000004R9oCAAS)
+- Case IDs: Start with "500" (e.g., 500bm00000cqA8fAAE)
+- Task IDs: Start with "00T" (e.g., 00Tbm000004VKg5EAG)
+- Lead IDs: Start with "00Q" (e.g., 00Qbm00000BOOndEAH)
 
-RECORD TYPES TO EXTRACT:
-- Accounts: Extract name and real ID (001xxxxxxxxxx format)
-- Contacts: Extract name, email, phone, and real ID (003xxxxxxxxxx format) 
-- Opportunities: Extract name, stage, amount, and real ID (006xxxxxxxxxx format)
-- Leads: Extract name, company, email, phone, and real ID (00Qxxxxxxxxxx format)
-- Cases: Extract subject, description, and real ID (500xxxxxxxxxx format)
-- Tasks: Extract subject, description, and real ID (00Txxxxxxxxxx format)
+EXTRACTION REQUIREMENTS:
+ONLY extract if you find BOTH name/subject AND real ID in the text:
+- Accounts: name + real ID starting with "001"
+- Contacts: name + real ID starting with "003" + email + phone (if available) + account_id if mentioned
+- Opportunities: name + real ID starting with "006" + stage + amount (if available) + account_id if mentioned
+- Cases: subject + real ID starting with "500" + description (if available) + account_id/contact_id if mentioned
+- Tasks: subject + real ID starting with "00T" + account_id/contact_id if mentioned
+- Leads: name + real ID starting with "00Q" + status (if available)
 
-IMPORTANT: 
-- Search the ENTIRE summary text for Salesforce IDs, not just the TECHNICAL section
-- Look for patterns like "ID: 00Qbm00000BOOndEAH" or "- ID: 003xxxxxxxxxx"
-- NEVER generate IDs like "001bm00000SA8pOAAT-001" - these are FAKE
-- If the summary mentions a record but doesn't include its real ID, skip that record
-- Only use EXACT IDs found in the summary text
+PARENT-CHILD RELATIONSHIPS:
+- Include account_id for contacts, opportunities, cases, tasks if parent account ID is mentioned
+- Include contact_id for cases, tasks if parent contact ID is mentioned
+- ONLY use real IDs that appear in the text - don't guess or create relationships
 
-You will be presented a summary of a conversation in the subsequent HumanMessage.
-Extract ALL Salesforce records with their REAL IDs:"""
+EXAMPLES OF VALID EXTRACTIONS:
+✅ "Account: GenePoint (ID: 001bm00000SA8pSAAT)" → Extract this account
+✅ "**Contact ID:** 003bm00000HJmaDAAT" with name → Extract this contact
+✅ "Contact belongs to Account 001bm00000SA8pSAAT" → Include account_id in contact
+
+EXAMPLES OF WHAT NOT TO EXTRACT:
+❌ Just a name without an ID → Skip entirely
+❌ Generic mentions without specific IDs → Skip entirely
+❌ Don't create IDs like "001bm00000SA8pOAAT-001" → These are fake
+
+REMEMBER: Better to extract nothing than to create fake data. Only use IDs that appear exactly in the text."""

@@ -6,7 +6,7 @@ Provides a single source of truth for all system configuration
 import os
 import json
 from typing import Dict, Any, Optional, List
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 import logging
 
@@ -31,16 +31,66 @@ class LoggingConfig:
     buffer_size: int = 1000
 
 @dataclass
+class ModelPricing:
+    """Pricing information for a model"""
+    input_per_1k: float
+    output_per_1k: float
+    
+    @property
+    def average_per_1k(self) -> float:
+        """Calculate average cost per 1K tokens"""
+        return (self.input_per_1k + self.output_per_1k) / 2
+
+@dataclass
 class LLMConfig:
     """LLM configuration settings"""
-    model: str = "gpt-4"
-    temperature: float = 0.1
+    model: str = "gpt-4o-mini"
+    temperature: float = 0.0
     max_tokens: int = 4000
     timeout: int = 120
     retry_attempts: int = 3
     retry_delay: float = 1.0
     cache_enabled: bool = True
     cache_ttl: int = 3600  # 1 hour
+    azure_deployment: str = "gpt-4o-mini"
+    api_version: str = "2024-06-01"
+    
+    # Model pricing map  
+    pricing: Dict[str, ModelPricing] = field(default_factory=dict)
+    
+    def __post_init__(self):
+        # Only set default pricing if no pricing data was provided
+        # This prevents overwriting pricing loaded from config file
+        if not self.pricing:
+            self.pricing = {
+                "gpt-4": ModelPricing(input_per_1k=0.03, output_per_1k=0.06),
+                "gpt-4o": ModelPricing(input_per_1k=0.005, output_per_1k=0.015),
+                "gpt-4o-mini": ModelPricing(input_per_1k=0.00015, output_per_1k=0.00060),
+                "gpt-3.5-turbo": ModelPricing(input_per_1k=0.0005, output_per_1k=0.0015),
+            }
+    
+    def get_pricing(self, model: str = None) -> ModelPricing:
+        """Get pricing for a specific model or the configured model"""
+        model_name = model or self.model
+        model_lower = model_name.lower()
+        
+        # First try exact match
+        if model_lower in self.pricing:
+            return self.pricing[model_lower]
+        
+        # Then try case-insensitive exact match
+        for key in self.pricing:
+            if key.lower() == model_lower:
+                return self.pricing[key]
+        
+        # Finally try substring matching (longest match first to prefer specific models)
+        sorted_keys = sorted(self.pricing.keys(), key=len, reverse=True)
+        for key in sorted_keys:
+            if key.lower() in model_lower:
+                return self.pricing[key]
+        
+        # Default fallback
+        return ModelPricing(input_per_1k=0.001, output_per_1k=0.001)
 
 @dataclass
 class A2AConfig:
@@ -99,7 +149,27 @@ class SystemConfig:
         # Handle nested dataclasses
         database = DatabaseConfig(**data.get('database', {}))
         logging_cfg = LoggingConfig(**data.get('logging', {}))
-        llm = LLMConfig(**data.get('llm', {}))
+        
+        # Handle LLM config with pricing
+        llm_data = data.get('llm', {})
+        # Extract pricing data if present
+        pricing_data = llm_data.pop('pricing', None)
+        
+        # Create LLMConfig without calling __post_init__ yet
+        llm = LLMConfig(**llm_data)
+        
+        # If pricing data was provided in config, set it before __post_init__
+        if pricing_data:
+            llm.pricing = {}
+            for model_name, prices in pricing_data.items():
+                llm.pricing[model_name] = ModelPricing(
+                    input_per_1k=prices['input_per_1k'],
+                    output_per_1k=prices['output_per_1k']
+                )
+        else:
+            # If no pricing data in config, let __post_init__ set defaults
+            llm.pricing = {}
+        
         a2a = A2AConfig(**data.get('a2a', {}))
         security = SecurityConfig(**data.get('security', {}))
         
@@ -278,6 +348,9 @@ def get_config_manager(config_path: Optional[str] = None) -> ConfigManager:
 def get_system_config() -> SystemConfig:
     """Get the current system configuration"""
     return get_config_manager().get_config()
+
+# Export ModelPricing for external use
+__all__ = ['ModelPricing', 'LLMConfig', 'SystemConfig', 'get_system_config', 'get_llm_config']
 
 def get_database_config() -> DatabaseConfig:
     """Get database configuration"""

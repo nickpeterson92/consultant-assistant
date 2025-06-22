@@ -117,12 +117,18 @@ class CostTracker:
         self.session_cost = 0.0
     
     def log_token_usage(self, operation: str, input_tokens: int, output_tokens: int, 
-                       model: str = "gpt-4", **context):
-        """Log token usage for cost tracking"""
+                       model: str = None, **context):
+        """Log token usage for cost tracking using global configuration"""
+        from ..config import get_llm_config
         
-        # Approximate costs (update based on actual pricing)
-        cost_per_input_token = 0.00003  # $0.03/1K tokens
-        cost_per_output_token = 0.00006  # $0.06/1K tokens
+        # Get pricing from global config
+        llm_config = get_llm_config()
+        model_name = model or llm_config.model
+        pricing = llm_config.get_pricing(model_name)
+        
+        # Convert per 1K to per token
+        cost_per_input_token = pricing.input_per_1k / 1000
+        cost_per_output_token = pricing.output_per_1k / 1000
         
         operation_cost = (input_tokens * cost_per_input_token + 
                          output_tokens * cost_per_output_token)

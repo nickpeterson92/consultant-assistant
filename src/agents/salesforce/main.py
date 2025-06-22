@@ -42,6 +42,8 @@ os.environ["LANGCHAIN_TRACING_V2"] = "false"
 # Add structured logging
 # Path manipulation no longer needed
 from src.utils.logging import get_logger, get_performance_tracker, get_cost_tracker, log_salesforce_activity
+from src.utils.config import get_llm_config
+from src.utils.sys_msg import salesforce_agent_sys_msg
 
 # Logging function now imported from centralized activity_logger
 
@@ -58,13 +60,16 @@ logging.getLogger('httpcore.connection').setLevel(logging.WARNING)
 # Salesforce agent is now "dumb" - no state management or memory
 
 def create_azure_openai_chat():
-    """Create Azure OpenAI chat instance"""
+    """Create Azure OpenAI chat instance using global config"""
+    llm_config = get_llm_config()
     return AzureChatOpenAI(
-        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"], 
-        azure_deployment=os.environ["AZURE_OPENAI_CHAT_DEPLOYMENT_NAME"],
-        openai_api_version=os.environ["AZURE_OPENAI_API_VERSION"],
-        openai_api_key=os.environ["AZURE_OPENAI_API_KEY"],
-        temperature=0.0,
+        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],  # Keep sensitive info in env
+        azure_deployment=llm_config.azure_deployment,
+        openai_api_version=llm_config.api_version,
+        openai_api_key=os.environ["AZURE_OPENAI_API_KEY"],  # Keep sensitive info in env
+        temperature=llm_config.temperature,
+        max_tokens=llm_config.max_tokens,
+        timeout=llm_config.timeout,
     )
 
 def build_salesforce_graph(debug_mode: bool = False):
@@ -120,37 +125,13 @@ def build_salesforce_graph(debug_mode: bool = False):
                         content_preview = str(msg)[:100]
                     logger.info(f"  Message {i}: {msg_type} - {content_preview}...")
             
-            # Create simple system message for Salesforce operations
-            system_message_content = """You are a Salesforce CRM specialist agent. 
-Your role is to execute Salesforce operations (leads, accounts, opportunities, contacts, cases, tasks) as requested.
-
-Key behaviors:
-- Execute the requested Salesforce operations using available tools
-- Provide clear, factual responses about Salesforce data
-- Do not maintain conversation memory or state - each request is independent
-- Focus on the specific task or query at hand
-- When retrieving records, provide complete details available
-- When creating/updating records, confirm the action taken
-
-IMPORTANT - Tool Result Interpretation:
-- If a tool returns {'match': {record}} - this means ONE record was found, present the data
-- If a tool returns {'multiple_matches': [records]} - this means MULTIPLE records were found, present all the data
-- If a tool returns [] (empty list) - this means NO records were found, only then say "no records found"
-- NEVER say "no records found" when you actually received data in match/multiple_matches format
-- ALWAYS present the actual data you receive from tools, don't dismiss valid results
-- ALWAYS provide the Salesforce System Id of EVERY record you retrieve (along with record data) in YOUR RESPONSE. NO EXCEPTIONS!
-- Salesforce System Ids follow the REGEX PATTERN: /\b(?:[A-Za-z0-9]{15}|[A-Za-z0-9]{18})\b/"""
+            # Create system message for Salesforce operations using centralized function
+            system_message_content = salesforce_agent_sys_msg(task_context, external_context)
             
-            # Add task context if available
-            if task_context:
-                system_message_content += f"\n\nTASK CONTEXT:\n{json.dumps(task_context, indent=2)}"
-                if debug_mode:
+            if debug_mode:
+                if task_context:
                     logger.info("Added task context to system message")
-            
-            # Add external context if available
-            if external_context:
-                system_message_content += f"\n\nEXTERNAL CONTEXT:\n{json.dumps(external_context, indent=2)}"
-                if debug_mode:
+                if external_context:
                     logger.info("Added external context to system message")
             
             messages = [SystemMessage(content=system_message_content)] + state["messages"]
@@ -306,10 +287,10 @@ class SalesforceA2AHandler:
                     # Check for ToolMessage (which contains tool results)
                     if hasattr(message, 'name') and hasattr(message, 'content'):
                         # This is a ToolMessage with actual tool results
-                        tool_name = getattr(message, 'name', '')
+                        tool_name = getattr(message, 'name', '') or ''  # Handle None case
                         tool_content = getattr(message, 'content', '')
                         
-                        if any(sf_term in tool_name.lower() for sf_term in ["lead", "account", "opportunity", "contact", "case", "task"]):
+                        if tool_name and any(sf_term in tool_name.lower() for sf_term in ["lead", "account", "opportunity", "contact", "case", "task"]):
                             # This is a Salesforce tool result with structured data
                             try:
                                 import json

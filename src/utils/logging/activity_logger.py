@@ -73,14 +73,22 @@ def log_tool_activity(tool_name: str, operation: str, **data: Any) -> None:
     log_activity("tools", operation, tool=tool_name, **data)
 
 
-def log_cost_activity(operation: str, tokens_used: int, model: str = "gpt-4", **data: Any) -> None:
-    """Log cost tracking activity"""
-    # Calculate estimated cost (rough estimate: $0.03 per 1000 tokens for GPT-4)
-    estimated_cost = f"${(tokens_used * 0.03 / 1000):.4f}"
+def log_cost_activity(operation: str, tokens_used: int, model: str = None, **data: Any) -> None:
+    """Log cost tracking activity using global configuration"""
+    from ..config import get_llm_config
+    
+    # Get pricing from global config
+    llm_config = get_llm_config()
+    model_name = model or llm_config.model
+    pricing = llm_config.get_pricing(model_name)
+    
+    # Use average cost for simplicity (could be enhanced to track input/output separately)
+    cost_per_1k = pricing.average_per_1k
+    estimated_cost = f"${(tokens_used * cost_per_1k / 1000):.4f}"
     
     log_activity("cost_tracking", "LLM_USAGE", 
                 operation=operation,
-                model=model,
+                model=model_name,
                 tokens_used=tokens_used,
                 estimated_cost=estimated_cost,
                 **data)
