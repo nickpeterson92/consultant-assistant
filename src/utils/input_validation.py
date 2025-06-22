@@ -322,7 +322,13 @@ class AgentInputValidator:
             
             if "instruction" not in task_data:
                 raise ValidationError("Task instruction is required")
-            validated["instruction"] = sanitizer.sanitize_string(task_data["instruction"], max_length=10000)
+            # A2A instructions are natural language - only apply basic sanitization, not SQL injection checks
+            instruction = task_data["instruction"]
+            if not isinstance(instruction, str):
+                raise ValidationError(f"Instruction must be string, got {type(instruction)}")
+            if len(instruction) > 10000:
+                raise ValidationError(f"Instruction too long: {len(instruction)} > 10000")
+            validated["instruction"] = instruction.strip().replace('\x00', '')
             
             # Optional fields
             if "context" in task_data:

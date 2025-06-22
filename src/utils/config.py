@@ -95,13 +95,19 @@ class LLMConfig:
 @dataclass
 class A2AConfig:
     """Agent-to-Agent protocol configuration"""
-    timeout: int = 30
+    timeout: int = 30  # Total timeout
+    connect_timeout: int = 30  # Connection establishment timeout
+    sock_connect_timeout: int = 30  # Socket connection timeout
+    sock_read_timeout: int = 30  # Socket read timeout
+    health_check_timeout: int = 10  # Timeout for health checks
     max_concurrent_calls: int = 10
     retry_attempts: int = 3
     retry_delay: float = 1.0
     circuit_breaker_threshold: int = 5
     circuit_breaker_timeout: int = 30
     connection_pool_size: int = 20
+    connection_pool_ttl: int = 300  # Connection pool TTL in seconds
+    connection_pool_max_idle: int = 300  # Max idle time for connections
 
 @dataclass
 class SecurityConfig:
@@ -124,8 +130,17 @@ class AgentConfig:
     port: int
     enabled: bool = True
     health_check_interval: int = 60
+    heartbeat_interval: int = 30  # Heartbeat log interval in seconds
     max_memory_usage: int = 512  # MB
     timeout: int = 120
+
+@dataclass
+class ConversationConfig:
+    """Conversation management configuration"""
+    summary_threshold: int = 12  # Message count before summarization
+    max_conversation_length: int = 100  # Maximum messages before forced summary
+    memory_extraction_enabled: bool = True
+    memory_extraction_delay: float = 0.5  # Delay before extraction starts
 
 @dataclass
 class SystemConfig:
@@ -135,6 +150,7 @@ class SystemConfig:
     llm: LLMConfig
     a2a: A2AConfig
     security: SecurityConfig
+    conversation: ConversationConfig
     agents: Dict[str, AgentConfig]
     debug_mode: bool = False
     environment: str = "development"  # development, production, testing
@@ -172,6 +188,7 @@ class SystemConfig:
         
         a2a = A2AConfig(**data.get('a2a', {}))
         security = SecurityConfig(**data.get('security', {}))
+        conversation = ConversationConfig(**data.get('conversation', {}))
         
         # Handle agents dict
         agents_data = data.get('agents', {})
@@ -185,6 +202,7 @@ class SystemConfig:
             llm=llm,
             a2a=a2a,
             security=security,
+            conversation=conversation,
             agents=agents,
             debug_mode=data.get('debug_mode', False),
             environment=data.get('environment', 'development')
@@ -227,6 +245,7 @@ class ConfigManager:
             "llm": {},
             "a2a": {},
             "security": {},
+            "conversation": {},
             "agents": {
                 "salesforce-agent": {
                     "endpoint": "http://localhost",
@@ -371,6 +390,10 @@ def get_a2a_config() -> A2AConfig:
 def get_security_config() -> SecurityConfig:
     """Get security configuration"""
     return get_system_config().security
+
+def get_conversation_config() -> ConversationConfig:
+    """Get conversation configuration"""
+    return get_system_config().conversation
 
 def get_agent_config(agent_name: str) -> Optional[AgentConfig]:
     """Get configuration for a specific agent"""

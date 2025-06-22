@@ -271,13 +271,11 @@ ORCHESTRATOR TOOLS:
             
             # Fire-and-forget background tasks (don't block response)
             if len(state["messages"]) >= 6 and new_turn % 3 == 0:
-                # Always log to console for debugging
-                print(f"\n[DEBUG] SUMMARY TRIGGER: {len(state['messages'])} messages, turn {new_turn} (turn % 3 = {new_turn % 3})")
                 if debug_mode:
                     logger.info(f"Starting fire-and-forget summary task for turn {new_turn}")
-                    log_orchestrator_activity("SUMMARY_TRIGGER", 
-                                            message_count=len(state["messages"]), 
-                                            turn=new_turn)
+                log_orchestrator_activity("SUMMARY_TRIGGER", 
+                                        message_count=len(state["messages"]), 
+                                        turn=new_turn)
                 # Run summary in background thread without blocking
                 import threading
                 threading.Thread(
@@ -287,13 +285,11 @@ ORCHESTRATOR TOOLS:
                 ).start()
             
             if new_turn > 5:
-                # Always log to console for debugging
-                print(f"\n[DEBUG] MEMORY TRIGGER: turn {new_turn} > 5")
                 if debug_mode:
                     logger.info(f"Starting fire-and-forget memory task for turn {new_turn}")
-                    log_orchestrator_activity("MEMORY_TRIGGER",
-                                            turn=new_turn,
-                                            message_count=len(state["messages"]))
+                log_orchestrator_activity("MEMORY_TRIGGER",
+                                        turn=new_turn,
+                                        message_count=len(state["messages"]))
                 # Run memory extraction in background thread without blocking
                 import threading
                 threading.Thread(
@@ -448,7 +444,6 @@ ORCHESTRATOR TOOLS:
     # SIMPLE: Simplified memory extraction with flat schema
     async def memorize_records(state: OrchestratorState, config: RunnableConfig):
         """Simple memory extraction using flat schema"""
-        print(f"[MEMORIZE] Starting memory extraction...")
         if debug_mode:
             logger.info("Updating memory with simplified approach")
         
@@ -469,6 +464,11 @@ ORCHESTRATOR TOOLS:
         # FIX: Extract Salesforce data from actual tool messages, not just summary
         recent_tool_responses = []
         messages = state.get("messages", [])
+        
+        # Log memory extraction start
+        log_orchestrator_activity("MEMORY_EXTRACTION_START",
+                                message_count=len(messages),
+                                user_id=user_id)
         
         # Get recent tool responses containing Salesforce data (same logic as summarize_conversation)
         for msg in reversed(messages[-10:]):  # Last 10 messages
@@ -509,8 +509,9 @@ ORCHESTRATOR TOOLS:
         
         # SIMPLE: Enhanced TrustCall invocation with actual data
         try:
-            print(f"[MEMORIZE] Calling TrustCall with {len(extraction_content)} chars of content")
-            print(f"[MEMORIZE] Content preview: {extraction_content[:200]}...")
+            # Get LLM config for timeout
+            from src.utils.config import get_llm_config
+            llm_config = get_llm_config()
             
             # Add timeout to prevent hanging in background threads
             import asyncio
@@ -522,9 +523,8 @@ ORCHESTRATOR TOOLS:
                     ],
                     "existing": existing_records
                 }),
-                timeout=30.0  # 30 second timeout
+                timeout=float(llm_config.timeout)  # Use LLM timeout from config
             )
-            print(f"[MEMORIZE] TrustCall returned: {response}")
             
             if response and response.get("responses"):
                 extracted_data = response["responses"][0]
@@ -534,6 +534,29 @@ ORCHESTRATOR TOOLS:
                     clean_data = extracted_data.model_dump()
                 else:
                     clean_data = extracted_data
+                
+                # DEDUPLICATION: Merge with existing data to prevent duplicates
+                if stored and isinstance(stored, dict):
+                    # Merge each entity type, removing duplicates by ID
+                    for entity_type in ['accounts', 'contacts', 'opportunities', 'cases', 'tasks', 'leads']:
+                        existing_items = stored.get(entity_type, [])
+                        new_items = clean_data.get(entity_type, [])
+                        
+                        # Create a dict keyed by ID for deduplication
+                        merged_dict = {}
+                        
+                        # Add existing items
+                        for item in existing_items:
+                            if isinstance(item, dict) and 'id' in item:
+                                merged_dict[item['id']] = item
+                        
+                        # Add/update with new items
+                        for item in new_items:
+                            if isinstance(item, dict) and 'id' in item:
+                                merged_dict[item['id']] = item
+                        
+                        # Convert back to list
+                        clean_data[entity_type] = list(merged_dict.values())
                 
                 memory_store.sync_put(namespace, key, clean_data)
                 
@@ -546,13 +569,11 @@ ORCHESTRATOR TOOLS:
                 return {"memory": {"SimpleMemory": clean_data}, "turns": 0}
                 
         except asyncio.TimeoutError:
-            print(f"[MEMORIZE] TrustCall timed out after 30 seconds")
             logger.warning("Memory extraction timed out after 30 seconds")
             # Simple fallback - return empty structure
             empty_memory = SimpleMemory().model_dump()
             return {"memory": {"SimpleMemory": empty_memory}, "turns": 0}
         except Exception as e:
-            print(f"[MEMORIZE] Error during TrustCall: {type(e).__name__}: {str(e)}")
             logger.warning(f"Memory extraction failed: {type(e).__name__}: {e}")
             # Simple fallback - return empty structure
             empty_memory = SimpleMemory().model_dump()
@@ -605,9 +626,13 @@ ORCHESTRATOR TOOLS:
             return END
         
         # Higher threshold to prevent multi-tool cascade
+        # Get conversation config
+        from src.utils.config import get_conversation_config
+        conv_config = get_conversation_config()
+        
         # Multi-tool scenarios can generate up to 15+ messages in one turn
         # Balanced threshold for better memory capture
-        if message_count > 12:  # Balanced threshold to capture Salesforce data
+        if message_count > conv_config.summary_threshold:
             return "summarize_conversation"
         return END
     
@@ -621,7 +646,6 @@ ORCHESTRATOR TOOLS:
     # Fire-and-forget background functions (run in separate threads with async support)
     def _run_background_summary(messages, summary, turns, memory, debug_mode):
         """Run summary task in background thread - fire and forget"""
-        print(f"\n[BACKGROUND] Summary thread started - {len(messages)} messages, turn {turns}, debug_mode={debug_mode}")
         try:
             if debug_mode:
                 # Use activity logger for structured logging to files
@@ -653,7 +677,6 @@ ORCHESTRATOR TOOLS:
     
     def _run_background_memory(messages, summary, turns, memory, debug_mode):
         """Run memory extraction task in background thread - fire and forget"""
-        print(f"\n[BACKGROUND] Memory thread started - {len(messages)} messages, turn {turns}, debug_mode={debug_mode}")
         try:
             if debug_mode:
                 # Count tool messages to verify we have data to extract
@@ -684,15 +707,12 @@ ORCHESTRATOR TOOLS:
             mock_config = {"configurable": {"user_id": "user-1"}}
             # Run async function in new event loop
             import asyncio
-            print(f"[BACKGROUND] Memory thread calling background_memory function...")
             result = asyncio.run(background_memory(mock_state, mock_config))
-            print(f"[BACKGROUND] Memory thread got result: {list(result.keys()) if result else 'None'}")
             if debug_mode:
                 total_records = 0
                 if result and 'memory' in result:
                     memory_data = result['memory'].get('SimpleMemory', {})
                     total_records = sum(len(memory_data.get(k, [])) for k in ['accounts', 'contacts', 'opportunities', 'cases', 'tasks', 'leads'])
-                    print(f"[BACKGROUND] Memory thread extracted {total_records} total records")
                 
                 log_orchestrator_activity("BACKGROUND_MEMORY_COMPLETE",
                                          result_keys=list(result.keys()) if result else [],
@@ -721,7 +741,7 @@ ORCHESTRATOR TOOLS:
     
     # DEBUG: Log simplified graph structure in debug mode
     if debug_mode:
-        logger.warning("GRAPH STRUCTURE: conversation -> tools_condition -> tools->conversation | background_tasks run as fire-and-forget threads")
+        logger.info("GRAPH STRUCTURE: conversation -> tools_condition -> tools->conversation | background_tasks run as fire-and-forget threads")
     
     # Set finish point
     graph_builder.set_finish_point("conversation")
@@ -843,8 +863,13 @@ async def main():
     while True:
         try:
             user_input = input("USER: ")
+            
+            # Log raw user input
+            log_orchestrator_activity("USER_INPUT_RAW", input=user_input[:1000])  # Limit to 1000 chars
+            
             if user_input.lower() in ["quit", "exit", "q"]:
                 print("Goodbye!")
+                log_orchestrator_activity("USER_QUIT")
                 break
             
             # Validate user input for security
@@ -921,6 +946,10 @@ async def main():
                             from langchain_core.messages import AIMessage
                             if isinstance(last_msg, AIMessage) and not getattr(last_msg, 'tool_calls', None):
                                 conversation_response = last_msg.content
+                                # Log assistant response
+                                log_orchestrator_activity("ASSISTANT_RESPONSE", 
+                                                        response=conversation_response[:1000],  # Limit logged length
+                                                        full_length=len(conversation_response))
                                 # Type out the response immediately
                                 await type_out(conversation_response, delay=0.01)
                                 response_shown = True

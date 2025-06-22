@@ -45,12 +45,18 @@
   },
   "a2a": {
     "timeout": 30,
+    "connect_timeout": 30,
+    "sock_connect_timeout": 30,
+    "sock_read_timeout": 30,
+    "health_check_timeout": 10,
     "max_concurrent_calls": 10,
     "retry_attempts": 3,
     "retry_delay": 1.0,
     "circuit_breaker_threshold": 5,
     "circuit_breaker_timeout": 30,
-    "connection_pool_size": 20
+    "connection_pool_size": 20,
+    "connection_pool_ttl": 300,
+    "connection_pool_max_idle": 300
   },
   "security": {
     "input_validation_enabled": true,
@@ -58,6 +64,12 @@
     "max_requests_per_minute": 100,
     "max_input_length": 50000,
     "allowed_file_types": [".txt", ".pdf", ".docx", ".csv", ".json"]
+  },
+  "conversation": {
+    "summary_threshold": 12,
+    "max_conversation_length": 100,
+    "memory_extraction_enabled": true,
+    "memory_extraction_delay": 0.5
   },
   "agents": {
     "salesforce-agent": {

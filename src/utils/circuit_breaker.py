@@ -51,13 +51,15 @@ class CircuitBreaker:
             # Check if we should transition from OPEN to HALF_OPEN
             if (self.state == CircuitBreakerState.OPEN and 
                 current_time - self.last_failure_time >= self.config.timeout):
+                time_in_open = current_time - self.last_failure_time
                 self.state = CircuitBreakerState.HALF_OPEN
                 self.half_open_calls = 0
-                logger.info(f"Circuit breaker {self.name} transitioning to HALF_OPEN")
+                logger.info(f"Circuit breaker {self.name} transitioning OPEN -> HALF_OPEN after {time_in_open:.1f}s (timeout={self.config.timeout}s)")
             
             # Fast fail if circuit is open
             if self.state == CircuitBreakerState.OPEN:
-                logger.warning(f"Circuit breaker {self.name} is OPEN - failing fast")
+                time_since_failure = current_time - self.last_failure_time
+                logger.warning(f"Circuit breaker {self.name} is OPEN - failing fast (failures={self.failure_count}, time_since_last_failure={time_since_failure:.1f}s)")
                 raise CircuitBreakerException(f"Circuit breaker {self.name} is open")
             
             # Limit calls in half-open state
@@ -94,7 +96,7 @@ class CircuitBreaker:
                 self.state = CircuitBreakerState.CLOSED
                 self.failure_count = 0
                 self.success_count = 0
-                logger.info(f"Circuit breaker {self.name} transitioning to CLOSED")
+                logger.info(f"Circuit breaker {self.name} transitioning HALF_OPEN -> CLOSED after {self.success_count} successes")
         elif self.state == CircuitBreakerState.CLOSED:
             # Reset failure count on success in closed state
             self.failure_count = 0
@@ -107,13 +109,13 @@ class CircuitBreaker:
         if self.state == CircuitBreakerState.CLOSED:
             if self.failure_count >= self.config.failure_threshold:
                 self.state = CircuitBreakerState.OPEN
-                logger.warning(f"Circuit breaker {self.name} transitioning to OPEN (failures: {self.failure_count})")
+                logger.warning(f"Circuit breaker {self.name} transitioning CLOSED -> OPEN (failures={self.failure_count}/{self.config.failure_threshold})")
         
         elif self.state == CircuitBreakerState.HALF_OPEN:
             # Any failure in half-open goes back to open
             self.state = CircuitBreakerState.OPEN
             self.success_count = 0
-            logger.warning(f"Circuit breaker {self.name} back to OPEN from HALF_OPEN")
+            logger.warning(f"Circuit breaker {self.name} transitioning HALF_OPEN -> OPEN after failure (had {self.success_count} successes)")
     
     def get_state(self) -> Dict[str, Any]:
         """Get current circuit breaker state"""
@@ -223,7 +225,7 @@ async def retry_with_exponential_backoff(func: Callable, config: RetryConfig,
             if config.jitter:
                 delay *= (0.5 + random.random() * 0.5)
             
-            logger.warning(f"Attempt {attempt + 1} failed, retrying in {delay:.2f}s: {e}")
+            logger.warning(f"Attempt {attempt + 1} failed, retrying in {delay:.2f}s: {type(e).__name__}: {str(e)}")
             await asyncio.sleep(delay)
     
     # All attempts failed

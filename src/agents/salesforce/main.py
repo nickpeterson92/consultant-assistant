@@ -193,10 +193,10 @@ def build_salesforce_graph(debug_mode: bool = False):
         if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
             return "tools"
         
-        # If we have more than 10 messages, force end to prevent loops
-        if len(messages) > 10:
+        # If we have more than 15 messages, force end to prevent loops (increased from 10)
+        if len(messages) > 15:
             if debug_mode:
-                logger.warning("Forcing END due to message count > 10")
+                logger.warning("Forcing END due to message count > 15")
             return END
             
         # Otherwise end
@@ -264,7 +264,8 @@ class SalesforceA2AHandler:
                 "configurable": {
                     "thread_id": f"sf-task-{task_data.get('id', 'default')}",
                     "user_id": context.get("user_context", {}).get("user_id", "default")
-                }
+                },
+                "recursion_limit": 50  # Increase from default 25 to handle complex queries
             }
             
             # Process the task through the Salesforce graph
