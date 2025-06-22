@@ -103,6 +103,8 @@ class SOQLQueryBuilder:
     fields: List[str] = field(default_factory=list)
     conditions: List[tuple] = field(default_factory=list)  # (condition, logical_operator)
     order_fields: List[tuple] = field(default_factory=list)  # (field, direction)
+    group_by_fields: List[str] = field(default_factory=list)
+    having_conditions: List[tuple] = field(default_factory=list)  # (condition, logical_operator)
     limit_value: Optional[int] = None
     offset_value: Optional[int] = None
     
@@ -146,6 +148,31 @@ class SOQLQueryBuilder:
         """Convenience method for NOT NULL checks"""
         return self.where(field, SOQLOperator.NOT_EQUALS, None)
     
+    def select_count(self, field: str = 'Id', alias: str = 'recordCount') -> 'SOQLQueryBuilder':
+        """Add COUNT aggregate function"""
+        self.fields.append(f"COUNT({field}) {alias}")
+        return self
+    
+    def select_sum(self, field: str, alias: str) -> 'SOQLQueryBuilder':
+        """Add SUM aggregate function"""
+        self.fields.append(f"SUM({field}) {alias}")
+        return self
+    
+    def select_avg(self, field: str, alias: str) -> 'SOQLQueryBuilder':
+        """Add AVG aggregate function"""
+        self.fields.append(f"AVG({field}) {alias}")
+        return self
+    
+    def select_max(self, field: str, alias: str) -> 'SOQLQueryBuilder':
+        """Add MAX aggregate function"""
+        self.fields.append(f"MAX({field}) {alias}")
+        return self
+    
+    def select_min(self, field: str, alias: str) -> 'SOQLQueryBuilder':
+        """Add MIN aggregate function"""
+        self.fields.append(f"MIN({field}) {alias}")
+        return self
+    
     def order_by(self, field: str, descending: bool = False) -> 'SOQLQueryBuilder':
         """Add ORDER BY clause"""
         direction = "DESC" if descending else "ASC"
@@ -160,6 +187,35 @@ class SOQLQueryBuilder:
     def offset(self, count: int) -> 'SOQLQueryBuilder':
         """Add OFFSET clause for pagination"""
         self.offset_value = count
+        return self
+    
+    def group_by(self, field: Union[str, List[str]]) -> 'SOQLQueryBuilder':
+        """Add GROUP BY clause"""
+        if isinstance(field, str):
+            self.group_by_fields.append(field)
+        else:
+            self.group_by_fields.extend(field)
+        return self
+    
+    def having(self, aggregate_expr: str, operator: SOQLOperator, value: Any) -> 'SOQLQueryBuilder':
+        """Add HAVING condition"""
+        condition = SOQLCondition(aggregate_expr, operator, value)
+        self.having_conditions.append((condition, LogicalOperator.AND))
+        return self
+    
+    def or_having(self, aggregate_expr: str, operator: SOQLOperator, value: Any) -> 'SOQLQueryBuilder':
+        """Add HAVING condition with OR"""
+        condition = SOQLCondition(aggregate_expr, operator, value)
+        self.having_conditions.append((condition, LogicalOperator.OR))
+        return self
+    
+    def with_subquery(self, relationship: str, child_object: str, 
+                     builder_fn: callable) -> 'SOQLQueryBuilder':
+        """Add a subquery to SELECT fields"""
+        # Create a SubqueryBuilder instance (defined later in this file)
+        subquery_builder = SubqueryBuilder(relationship, child_object)
+        builder_fn(subquery_builder)
+        self.fields.append(subquery_builder.build())
         return self
     
     def build(self) -> str:
@@ -188,6 +244,20 @@ class SOQLQueryBuilder:
                 else:
                     where_parts.append(f"{logical_op.value} {condition.to_soql()}")
             query_parts.append(f"WHERE {' '.join(where_parts)}")
+        
+        # Build GROUP BY clause
+        if self.group_by_fields:
+            query_parts.append(f"GROUP BY {', '.join(self.group_by_fields)}")
+        
+        # Build HAVING clause
+        if self.having_conditions:
+            having_parts = []
+            for i, (condition, logical_op) in enumerate(self.having_conditions):
+                if i == 0:
+                    having_parts.append(condition.to_soql())
+                else:
+                    having_parts.append(f"{logical_op.value} {condition.to_soql()}")
+            query_parts.append(f"HAVING {' '.join(having_parts)}")
         
         # Build ORDER BY clause
         if self.order_fields:
@@ -361,3 +431,171 @@ class QueryTemplates:
             builder.where('Amount', SOQLOperator.GREATER_OR_EQUAL, min_amount)
         
         return builder.order_by('CloseDate').build()
+    
+    @staticmethod
+    def get_top_opportunities_by_owner() -> str:
+        """Get top opportunities grouped by owner using aggregate functions"""
+        return (SOQLQueryBuilder('Opportunity')
+            .select(['OwnerId', 'Owner.Name'])
+            .select_count('Id', 'OpportunityCount')
+            .select_sum('Amount', 'TotalPipeline')
+            .where('IsClosed', SOQLOperator.EQUALS, False)
+            .group_by(['OwnerId', 'Owner.Name'])
+            .having('SUM(Amount)', SOQLOperator.GREATER_THAN, 100000)
+            .order_by('TotalPipeline', descending=True)
+            .limit(10)
+            .build())
+    
+    @staticmethod
+    def search_across_objects(search_term: str) -> str:
+        """Search across multiple objects using SOSL"""
+        return (SOSLQueryBuilder()
+            .find(search_term)
+            .returning('Account', ['Id', 'Name', 'Industry'])
+            .returning('Contact', ['Id', 'Name', 'Email', 'Account.Name'])
+            .returning('Opportunity', ['Id', 'Name', 'Amount', 'StageName'])
+            .returning('Lead', ['Id', 'Name', 'Company', 'Email'])
+            .limit(20)
+            .build())
+    
+    @staticmethod
+    def get_accounts_with_opportunities() -> str:
+        """Get accounts with their opportunity summary using subquery"""
+        return (SOQLQueryBuilder('Account')
+            .select(['Id', 'Name', 'Industry', 'AnnualRevenue'])
+            .with_subquery('Opportunities', 'Opportunity', lambda sq: sq
+                .select(['Id', 'Name', 'Amount', 'StageName'])
+                .where('IsClosed', SOQLOperator.EQUALS, False)
+                .order_by('Amount', descending=True)
+                .limit(5))
+            .where_not_null('Industry')
+            .order_by('AnnualRevenue', descending=True)
+            .limit(20)
+            .build())
+
+
+class SubqueryBuilder(SOQLQueryBuilder):
+    """Builder for SOQL subqueries"""
+    
+    def __init__(self, parent_relationship: str, child_object: str):
+        super().__init__(child_object)
+        self.parent_relationship = parent_relationship
+    
+    def build(self) -> str:
+        """Build subquery with parentheses"""
+        query = super().build()
+        # Replace object name with relationship name
+        query = query.replace(f"FROM {self.object_name}", f"FROM {self.parent_relationship}")
+        return f"({query})"
+
+
+class SOSLQueryBuilder:
+    """Builder for Salesforce Object Search Language queries"""
+    
+    def __init__(self):
+        self.search_term = ""
+        self.search_scope = "ALL FIELDS"
+        self.returning_objects = {}
+        self.limit_value = None
+    
+    def find(self, term: str) -> 'SOSLQueryBuilder':
+        """Set search term"""
+        self.search_term = escape_soql(term)
+        return self
+    
+    def in_scope(self, scope: str) -> 'SOSLQueryBuilder':
+        """Set search scope (ALL FIELDS, NAME FIELDS, etc.)"""
+        self.search_scope = scope
+        return self
+    
+    def returning(self, object_name: str, fields: List[str], 
+                 where_clause: str = None, order_by: str = None, 
+                 limit: int = None) -> 'SOSLQueryBuilder':
+        """Add RETURNING clause for an object"""
+        returning_def = f"{object_name}({', '.join(fields)}"
+        
+        if where_clause:
+            returning_def += f" WHERE {where_clause}"
+        
+        if order_by:
+            returning_def += f" ORDER BY {order_by}"
+            
+        if limit:
+            returning_def += f" LIMIT {limit}"
+            
+        returning_def += ")"
+        self.returning_objects[object_name] = returning_def
+        return self
+    
+    def limit(self, count: int) -> 'SOSLQueryBuilder':
+        """Set overall result limit"""
+        self.limit_value = count
+        return self
+    
+    def build(self) -> str:
+        """Build SOSL query"""
+        query = f"FIND '{{{self.search_term}}}' IN {self.search_scope}"
+        
+        if self.returning_objects:
+            returning_parts = list(self.returning_objects.values())
+            query += f" RETURNING {', '.join(returning_parts)}"
+        
+        if self.limit_value:
+            query += f" LIMIT {self.limit_value}"
+        
+        return query
+
+
+class AggregateQueryBuilder:
+    """Specialized builder for aggregate queries with common patterns"""
+    
+    @staticmethod
+    def opportunity_pipeline_by_stage(sf_object: str = 'Opportunity') -> str:
+        """Get opportunity pipeline grouped by stage"""
+        return (SOQLQueryBuilder(sf_object)
+            .select(['StageName'])
+            .select_count('Id', 'OpportunityCount')
+            .select_sum('Amount', 'TotalAmount')
+            .select_avg('Amount', 'AvgAmount')
+            .group_by('StageName')
+            .having('SUM(Amount)', SOQLOperator.GREATER_THAN, 0)
+            .order_by('TotalAmount', descending=True)
+            .build())
+    
+    @staticmethod
+    def account_summary_by_industry() -> str:
+        """Get account metrics grouped by industry"""
+        return (SOQLQueryBuilder('Account')
+            .select(['Industry'])
+            .select_count('Id', 'AccountCount')
+            .select_sum('AnnualRevenue', 'TotalRevenue')
+            .where_not_null('Industry')
+            .group_by('Industry')
+            .having('COUNT(Id)', SOQLOperator.GREATER_THAN, 5)
+            .build())
+    
+    @staticmethod
+    def top_sales_reps(min_revenue: float = 100000) -> str:
+        """Get top performing sales reps by closed revenue"""
+        return (SOQLQueryBuilder('Opportunity')
+            .select(['OwnerId', 'Owner.Name'])
+            .select_count('Id', 'DealsWon')
+            .select_sum('Amount', 'TotalRevenue')
+            .where('IsClosed', SOQLOperator.EQUALS, True)
+            .where('IsWon', SOQLOperator.EQUALS, True)
+            .group_by(['OwnerId', 'Owner.Name'])
+            .having('SUM(Amount)', SOQLOperator.GREATER_THAN, min_revenue)
+            .order_by('TotalRevenue', descending=True)
+            .limit(10)
+            .build())
+    
+    @staticmethod
+    def case_volume_by_priority() -> str:
+        """Get case distribution by priority and status"""
+        return (SOQLQueryBuilder('Case')
+            .select(['Priority', 'Status'])
+            .select_count('Id', 'CaseCount')
+            .select_avg('(CASE WHEN IsClosed = true THEN 1 ELSE 0 END)', 'CloseRate')
+            .group_by(['Priority', 'Status'])
+            .order_by(['Priority', 'Status'])
+            .build())

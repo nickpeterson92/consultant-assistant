@@ -32,7 +32,8 @@ from src.tools.salesforce_tools import (
     GetAccountTool, CreateAccountTool, UpdateAccountTool,
     GetContactTool, CreateContactTool, UpdateContactTool,
     GetCaseTool, CreateCaseTool, UpdateCaseTool,
-    GetTaskTool, CreateTaskTool, UpdateTaskTool
+    GetTaskTool, CreateTaskTool, UpdateTaskTool,
+    SALESFORCE_ANALYTICS_TOOLS
 )
 
 import logging
@@ -86,15 +87,16 @@ def build_salesforce_graph():
     
     graph_builder = StateGraph(SalesforceState)
     
-    # All Salesforce tools
+    # All Salesforce tools including analytics
     tools = [
+        # Basic CRUD tools
         CreateLeadTool(), GetLeadTool(), UpdateLeadTool(),
         GetOpportunityTool(), UpdateOpportunityTool(), CreateOpportunityTool(),
         GetAccountTool(), CreateAccountTool(), UpdateAccountTool(),
         GetContactTool(), CreateContactTool(), UpdateContactTool(),
         GetCaseTool(), CreateCaseTool(), UpdateCaseTool(),
         GetTaskTool(), CreateTaskTool(), UpdateTaskTool()
-    ]
+    ] + SALESFORCE_ANALYTICS_TOOLS  # Add advanced analytics tools
     
     llm = create_azure_openai_chat()
     llm_with_tools = llm.bind_tools(tools)
@@ -324,7 +326,7 @@ class SalesforceA2AHandler:
         return {
             "name": "salesforce-agent",
             "version": "1.0.0",
-            "description": "Specialized agent for Salesforce CRM operations including leads, accounts, opportunities, contacts, cases, and tasks",
+            "description": "Specialized agent for Salesforce CRM operations including leads, accounts, opportunities, contacts, cases, tasks, and advanced analytics",
             "capabilities": [
                 "salesforce_operations",
                 "lead_management", 
@@ -333,7 +335,12 @@ class SalesforceA2AHandler:
                 "contact_management",
                 "case_handling",
                 "task_management",
-                "crm_operations"
+                "crm_operations",
+                "sales_analytics",
+                "pipeline_analysis",
+                "business_metrics",
+                "global_search",
+                "aggregate_reporting"
             ],
             "endpoints": {
                 "process_task": "/a2a",
@@ -342,7 +349,7 @@ class SalesforceA2AHandler:
             "communication_modes": ["sync", "streaming"],
             "metadata": {
                 "framework": "langgraph",
-                "tools_count": 15,
+                "tools_count": 20,
                 "memory_type": "sqlite_with_trustcall"
             }
         }
@@ -404,10 +411,12 @@ async def main():
     agent_card = AgentCard(
         name="salesforce-agent",
         version="1.0.0", 
-        description="Specialized agent for Salesforce CRM operations",
+        description="Specialized agent for Salesforce CRM operations including advanced analytics",
         capabilities=[
             "salesforce_operations", "lead_management", "account_management",
-            "opportunity_tracking", "contact_management", "case_handling", "task_management"
+            "opportunity_tracking", "contact_management", "case_handling", 
+            "task_management", "sales_analytics", "pipeline_analysis",
+            "business_metrics", "global_search", "aggregate_reporting"
         ],
         endpoints={
             "process_task": f"http://{args.host}:{args.port}/a2a",

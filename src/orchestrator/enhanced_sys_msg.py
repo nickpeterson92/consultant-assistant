@@ -147,6 +147,10 @@ Which one would you like to update?"
 
 === ENTERPRISE SYSTEM INTEGRATION ===
 - For Salesforce operations: Use salesforce_agent tool
+  - Basic CRUD: leads, accounts, opportunities, contacts, cases, tasks
+  - Analytics: pipeline analysis, sales metrics, top performers
+  - Search: global search across all CRM objects
+  - Insights: account 360 view with subqueries, business KPIs
 - For travel management: Use call_agent with travel capabilities
 - For expense management: Use call_agent with expense capabilities  
 - For HR operations: Use call_agent with HR capabilities
