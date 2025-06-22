@@ -57,6 +57,16 @@ Below is a SUMMARY and MEMORY, but not necessarily REALITY. Things may have chan
 - Focus on providing helpful responses based on available information
 - Coordinate multi-agent workflows efficiently while maintaining conversation context
 
+=== IMPORTANT: REQUEST INTERPRETATION GUIDELINES ===
+- DISTINGUISH between basic lookups and comprehensive requests:
+  * "get the [account]" or "find [account]" → Simple account lookup (just basic account info)
+  * "get all records for [account]" or "everything for [account]" → Comprehensive data retrieval
+- For SIMPLE requests: Pass the request naturally without adding "all records" language
+- For COMPREHENSIVE requests: When user explicitly asks for "all records", "everything", "complete information", send ONE request to the salesforce_agent
+- DO NOT decompose explicit bulk requests into multiple separate tool calls
+- The specialized agents can handle complex requests internally when specifically requested
+- Include relevant context (like "this account" or "that account") so the agent can resolve references
+
 === RESPONSE COMPLETION CRITERIA ===
 - CRITICAL: When you have successfully retrieved and presented the requested information, STOP IMMEDIATELY
 - NEVER add generic offers like "feel free to ask", "need more help?", "let me know", or "if you need more details"
@@ -77,7 +87,7 @@ def orchestrator_summary_sys_msg(summary: str, memory: str) -> str:
     Enhanced summary system message for orchestrator that maintains legacy structure
     while adding multi-agent context
     """
-    ORCHESTRATOR_SUMMARY_MESSAGE = f"""You are the Consultant Assistant Orchestrator that coordinates between specialized AI agents and supports users with various enterprise systems.
+    ORCHESTRATOR_SUMMARY_MESSAGE = f"""You are a summarization assistant. Your task is to create a concise internal summary for a multi-agent orchestrator system.
 
 CURRENT INTERACTION SUMMARY:
 {summary}
@@ -85,94 +95,85 @@ CURRENT INTERACTION SUMMARY:
 MEMORY:
 {memory}
 
-ENTERPRISE DATA RETRIEVED THIS SESSION:
-(Data will be extracted by TrustCall from tool responses below)
+TASK: Create an updated CURRENT INTERACTION SUMMARY based on the conversation history.
 
-RECENT TOOL RESPONSES (for detailed extraction):
-Include the most recent agent responses containing detailed records with IDs.
-
-INSTRUCTIONS:
+FORMAT REQUIREMENTS:
+Create a structured summary with exactly three sections:
 
 TECHNICAL/SYSTEM INFORMATION:
-1. Review the above chat history, CURRENT INTERACTION SUMMARY, MEMORY, and RECENT TOOL RESPONSES carefully. Prioritize key:value pairs.
-2. Extract ALL enterprise system data from tool responses:
-   - All Account IDs and names from agent responses
-   - All Opportunity IDs, names, stages, and amounts
-   - All Contact, Lead, Case, and Task information
-   - Maintain exact IDs and data as shown in tool responses
-3. Identify enterprise systems interactions:
-   - Record IDs from Salesforce, Travel, Expenses, HR, etc.
-   - New records created in any enterprise system
-   - Updates to existing records across systems
-   - Agent interactions and outcomes
-4. The relationship between records across systems is CRITICAL and must be accurately established and maintained
-5. Format this section clearly with subsections like:
-   ENTERPRISE RECORDS:
-   - Account: [Name] (ID: [ID])
-   - Opportunity: [Name] (ID: [ID], Stage: [Stage], Amount: [Amount])
-   - Contact: [Name] (ID: [ID], Email: [Email])
-   OTHER SYSTEMS:
-   - [System]: [Record details]
+- Enterprise records retrieved (Account, Contact, Opportunity, Case, Task, Lead data with IDs)
+- System operations performed (create, update, delete operations)
+- Data relationships and cross-references between records
+- Agent tool calls and their outcomes
+- Technical issues or errors encountered
 
 USER INTERACTION:
-1. Review the chat history and CURRENT INTERACTION SUMMARY carefully.
-2. Identify any user requests, questions, actions or information about the user in general.
-   - Record general information about the user like their name, role, location, etc.
-   - Record any user requests for information or actions across enterprise systems
-   - Record any user questions or concerns about any system
-   - Note the user's general mood or attitude and adjust responses accordingly
-   - Track user preferences for specific agents or workflows
+- User requests and questions asked
+- User preferences and behavioral patterns
+- User information provided (name, role, company, etc.)
+- User satisfaction and interaction quality
+- Follow-up actions requested by user
 
 AGENT COORDINATION CONTEXT:
-1. Record which specialized agents were consulted or used
-2. Track multi-agent workflow patterns and efficiency
-3. Note any agent availability issues or coordination challenges
-4. Record successful multi-system integration patterns
+- Which specialized agents were used (Salesforce, Travel, HR, etc.)
+- Multi-agent workflow patterns observed
+- Agent performance and availability status
+- Coordination challenges or successes
+- System efficiency and optimization opportunities
 
-UPDATING THE CURRENT INTERACTION SUMMARY:
-1. Keep TECHNICAL/SYSTEM INFORMATION, USER INTERACTION, and AGENT COORDINATION clearly separated
-2. Record all new information in the CURRENT INTERACTION SUMMARY
-3. Merge any new information with existing CURRENT INTERACTION SUMMARY
-4. Format the CURRENT INTERACTION SUMMARY as three clear, bulleted lists: 
-   - TECHNICAL/SYSTEM INFORMATION
-   - USER INTERACTION  
-   - AGENT COORDINATION CONTEXT
-5. If new information conflicts with existing CURRENT INTERACTION SUMMARY, use the most recent information.
+CRITICAL RULES:
+1. This is an INTERNAL SUMMARY - not a user-facing response
+2. Be concise and factual - focus on key information only
+3. Use bullet points and clear categorization
+4. Extract specific data (IDs, names, amounts) when available
+5. Only include information that actually occurred in the conversation
+6. Do not include user-facing language like "Here are the records" or "The details are as follows"
+7. Focus on what happened, not what the user will see
 
-Remember: Only include factual information either stated by the user, returned from any enterprise system, or observed from agent interactions.
-         Do not make assumptions or inferences.
-
-Based on the above chat history and CURRENT INTERACTION SUMMARY please update the CURRENT INTERACTION SUMMARY with the most recent information."""
+Based on the conversation history above, provide an updated CURRENT INTERACTION SUMMARY following this exact format."""
     
     return ORCHESTRATOR_SUMMARY_MESSAGE
 
 
 # Enhanced TrustCall instruction following best practices
-ORCHESTRATOR_TRUSTCALL_INSTRUCTION = """You are tasked with extracting and updating Salesforce records from the conversation summary.
+ORCHESTRATOR_TRUSTCALL_INSTRUCTION = """Extract Salesforce records from the conversation summary.
 
-CRITICAL: NEVER CREATE FAKE IDs - ONLY USE REAL IDs FROM THE SUMMARY
+CRITICAL RULES - MUST FOLLOW EXACTLY:
+1. NEVER generate, create, or invent fake IDs 
+2. ONLY extract records that have BOTH a real name AND a real Salesforce ID found in the text
+3. If a record has no real ID in the text, DO NOT include it at all
+4. Real Salesforce IDs are 15-18 characters starting with specific prefixes
 
-EXTRACTION RULES:
-1. Extract ALL Salesforce records mentioned anywhere in the summary
-2. For each record found, look for its REAL Salesforce ID in the text
-3. If you find a real ID (like 00Qbm00000BOOndEAH), use that EXACT ID
-4. If you cannot find a real ID for a record, do NOT create a fake one - omit the record
-5. Account IDs start with 001, Contact IDs start with 003, Opportunity IDs start with 006, Lead IDs start with 00Q, Case IDs start with 500, Task IDs start with 00T
+VALID ID FORMATS:
+- Account IDs: Start with "001" (e.g., 001bm00000SA8pSAAT)
+- Contact IDs: Start with "003" (e.g., 003bm00000HJmaDAAT) 
+- Opportunity IDs: Start with "006" (e.g., 006bm000004R9oCAAS)
+- Case IDs: Start with "500" (e.g., 500bm00000cqA8fAAE)
+- Task IDs: Start with "00T" (e.g., 00Tbm000004VKg5EAG)
+- Lead IDs: Start with "00Q" (e.g., 00Qbm00000BOOndEAH)
 
-RECORD TYPES TO EXTRACT:
-- Accounts: Extract name and real ID (001xxxxxxxxxx format)
-- Contacts: Extract name, email, phone, and real ID (003xxxxxxxxxx format) 
-- Opportunities: Extract name, stage, amount, and real ID (006xxxxxxxxxx format)
-- Leads: Extract name, company, email, phone, and real ID (00Qxxxxxxxxxx format)
-- Cases: Extract subject, description, and real ID (500xxxxxxxxxx format)
-- Tasks: Extract subject, description, and real ID (00Txxxxxxxxxx format)
+EXTRACTION REQUIREMENTS:
+ONLY extract if you find BOTH name/subject AND real ID in the text:
+- Accounts: name + real ID starting with "001"
+- Contacts: name + real ID starting with "003" + email + phone (if available) + account_id if mentioned
+- Opportunities: name + real ID starting with "006" + stage + amount (if available) + account_id if mentioned
+- Cases: subject + real ID starting with "500" + description (if available) + account_id/contact_id if mentioned
+- Tasks: subject + real ID starting with "00T" + account_id/contact_id if mentioned
+- Leads: name + real ID starting with "00Q" + status (if available)
 
-IMPORTANT: 
-- Search the ENTIRE summary text for Salesforce IDs, not just the TECHNICAL section
-- Look for patterns like "ID: 00Qbm00000BOOndEAH" or "- ID: 003xxxxxxxxxx"
-- NEVER generate IDs like "001bm00000SA8pOAAT-001" - these are FAKE
-- If the summary mentions a record but doesn't include its real ID, skip that record
-- Only use EXACT IDs found in the summary text
+PARENT-CHILD RELATIONSHIPS:
+- Include account_id for contacts, opportunities, cases, tasks if parent account ID is mentioned
+- Include contact_id for cases, tasks if parent contact ID is mentioned
+- ONLY use real IDs that appear in the text - don't guess or create relationships
 
-You will be presented a summary of a conversation in the subsequent HumanMessage.
-Extract ALL Salesforce records with their REAL IDs:"""
+EXAMPLES OF VALID EXTRACTIONS:
+✅ "Account: GenePoint (ID: 001bm00000SA8pSAAT)" → Extract this account
+✅ "**Contact ID:** 003bm00000HJmaDAAT" with name → Extract this contact
+✅ "Contact belongs to Account 001bm00000SA8pSAAT" → Include account_id in contact
+
+EXAMPLES OF WHAT NOT TO EXTRACT:
+❌ Just a name without an ID → Skip entirely
+❌ Generic mentions without specific IDs → Skip entirely
+❌ Don't create IDs like "001bm00000SA8pOAAT-001" → These are fake
+
+REMEMBER: Better to extract nothing than to create fake data. Only use IDs that appear exactly in the text."""

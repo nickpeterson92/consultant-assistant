@@ -97,6 +97,12 @@ class AgentRegistry:
         )
         
         self.agents[name] = registered_agent
+        
+        # Log agent registration
+        log_orchestrator_activity("AGENT_REGISTERED",
+                                agent_name=name,
+                                endpoint=endpoint,
+                                capabilities=agent_card.capabilities if agent_card else [])
         logger.info(f"Registered agent: {name} at {endpoint}")
         
         # Save to config
@@ -155,10 +161,20 @@ class AgentRegistry:
         """Check if an agent is healthy and update its status"""
         agent = self.get_agent(agent_name)
         if not agent:
+            logger.warning(f"Health check failed: agent {agent_name} not found in registry")
             return False
         
+        start_time = asyncio.get_event_loop().time()
+        previous_status = agent.status
+        
         try:
-            async with A2AClient() as client:
+            logger.info(f"Starting health check for agent {agent_name} at {agent.endpoint} (current status: {previous_status})")
+            
+            # Get health check timeout from config
+            from src.utils.config import get_a2a_config
+            a2a_config = get_a2a_config()
+            
+            async with A2AClient(timeout=a2a_config.health_check_timeout) as client:
                 # Try to get agent card to verify it's responding
                 agent_card = await client.get_agent_card(agent.endpoint + "/a2a")
                 
@@ -167,21 +183,32 @@ class AgentRegistry:
                 agent.status = "online"
                 agent.last_health_check = asyncio.get_event_loop().time()
                 
-                logger.debug(f"Health check passed for agent: {agent_name}")
+                elapsed = asyncio.get_event_loop().time() - start_time
+                logger.info(f"Health check PASSED for agent {agent_name} in {elapsed:.2f}s (status: {previous_status} -> online)")
                 return True
                 
         except A2AException as e:
             agent.status = "error"
-            logger.warning(f"Health check failed for agent {agent_name}: {e}")
+            elapsed = asyncio.get_event_loop().time() - start_time
+            logger.warning(f"Health check FAILED for agent {agent_name} in {elapsed:.2f}s (status: {previous_status} -> error): A2A error - {e}")
+            return False
+        except asyncio.TimeoutError:
+            agent.status = "offline"
+            elapsed = asyncio.get_event_loop().time() - start_time
+            logger.warning(f"Health check FAILED for agent {agent_name} in {elapsed:.2f}s (status: {previous_status} -> offline): Timeout")
             return False
         except Exception as e:
             agent.status = "offline"
-            logger.warning(f"Health check failed for agent {agent_name}: {e}")
+            elapsed = asyncio.get_event_loop().time() - start_time
+            logger.warning(f"Health check FAILED for agent {agent_name} in {elapsed:.2f}s (status: {previous_status} -> offline): {type(e).__name__} - {e}")
             return False
     
     async def health_check_all_agents(self) -> Dict[str, bool]:
         """Check health of all registered agents"""
         results = {}
+        
+        logger.info(f"Starting health check for {len(self.agents)} registered agents")
+        start_time = asyncio.get_event_loop().time()
         
         # Run health checks concurrently
         tasks = []
@@ -198,6 +225,10 @@ class AgentRegistry:
         
         # Save updated statuses
         self.save_config()
+        
+        elapsed = asyncio.get_event_loop().time() - start_time
+        online_count = sum(1 for status in results.values() if status)
+        logger.info(f"Health check completed in {elapsed:.2f}s: {online_count}/{len(results)} agents online")
         
         return results
     

@@ -1,0 +1,63 @@
+{
+  "connection_pool": {
+    "status": "passed",
+    "details": {
+      "session_creation": "passed",
+      "session_reuse": "passed",
+      "multiple_endpoints": "passed",
+      "cleanup": "passed"
+    }
+  },
+  "circuit_breaker": {
+    "status": "passed",
+    "details": {
+      "normal_operation": "passed",
+      "failure_handling": "passed",
+      "fast_fail": "passed"
+    }
+  },
+  "memory_storage": {
+    "status": "passed",
+    "details": {
+      "storage": "passed",
+      "retrieval": "passed",
+      "deduplication": "passed"
+    }
+  },
+  "agent_registry": {
+    "status": "failed",
+    "details": {
+      "error": ""
+    }
+  },
+  "a2a_communication": {
+    "status": "skipped",
+    "details": {
+      "error": "Salesforce agent not running"
+    }
+  },
+  "salesforce_tools": {
+    "status": "failed",
+    "details": {
+      "error": "Network error: Cannot connect to host localhost:8001 ssl:default [Multiple exceptions: [Errno 61] Connect call failed ('127.0.0.1', 8001), [Errno 61] Connect call failed ('::1', 8001, 0, 0)]"
+    }
+  },
+  "memory_extraction": {
+    "status": "failed",
+    "details": {
+      "error": "1 validation error for AzureChatOpenAI\n  Value error, Must provide either the `api_version` argument or the `OPENAI_API_VERSION` environment variable [type=value_error, input_value={'azure_deployment': 'gpt...0.0, 'model_kwargs': {}}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.10/v/value_error"
+    }
+  },
+  "summarization": {
+    "status": "failed",
+    "details": {
+      "error": "cannot import name 'orchestrator_summary_sys_msg' from 'src.utils.sys_msg' (/Users/nick.peterson/consultant-assistant/src/utils/sys_msg.py)"
+    }
+  },
+  "full_integration": {
+    "status": "manual",
+    "details": {
+      "note": "Requires manual testing with live orchestrator"
+    }
+  }
+}

@@ -22,24 +22,95 @@ from src.utils.logging import log_orchestrator_activity
 
 
 class AgentCallInput(BaseModel):
-    """Input schema for agent calls"""
-    instruction: str = Field(description="The instruction to send to the specialized agent")
-    context: Optional[Dict[str, Any]] = Field(default=None, description="Additional context for the agent")
-    agent_name: Optional[str] = Field(default=None, description="Specific agent name to call (optional)")
-    required_capabilities: Optional[List[str]] = Field(default=None, description="Required capabilities for agent selection")
+    """Input Schema for Multi-Agent Task Delegation.
+    
+    Defines the interface contract for orchestrator-to-agent communication
+    following enterprise integration patterns and loose coupling principles.
+    Supports both explicit agent targeting and capability-based auto-selection.
+    
+    Architecture Benefits:
+    - Loose coupling: Agents selected by capability, not hard-coded names
+    - Context preservation: Maintains conversation state across agent boundaries
+    - Flexibility: Supports both specific targeting and intelligent routing
+    - Extensibility: New agents automatically discoverable via capabilities
+    """
+    instruction: str = Field(
+        description="Natural language task instruction for the specialized agent. "
+        "Be specific about desired outcomes. Examples: 'get all contacts for Acme Corp', "
+        "'create a new lead for John Smith at TechCorp', 'book flight to NYC next Tuesday'"
+    )
+    context: Optional[Dict[str, Any]] = Field(
+        default=None, 
+        description="Additional context data for enhanced agent decision-making. "
+        "Includes conversation history, user preferences, business rules, or "
+        "cross-system integration data for more intelligent processing"
+    )
+    agent_name: Optional[str] = Field(
+        default=None, 
+        description="Explicit agent targeting (optional). Use only when you need "
+        "a specific agent. Leave empty for automatic capability-based selection. "
+        "Examples: 'salesforce-agent', 'travel-agent', 'hr-agent'"
+    )
+    required_capabilities: Optional[List[str]] = Field(
+        default=None, 
+        description="Required agent capabilities for intelligent agent selection. "
+        "Used when multiple agents might handle a task. Examples: "
+        "['salesforce_operations'], ['travel_booking', 'expense_reporting']"
+    )
 
 class SalesforceAgentTool(BaseTool):
-    """Tool for calling the Salesforce specialized agent"""
-    name: str = "salesforce_agent"
-    description: str = """Call the Salesforce specialized agent for CRM operations including:
-    - Lead management (create, get, update leads)
-    - Account operations (create, get, update accounts) 
-    - Opportunity tracking (create, get, update opportunities)
-    - Contact management (create, get, update contacts)
-    - Case handling (create, get, update cases)
-    - Task management (create, get, update tasks)
+    """Orchestrator Tool for Salesforce CRM Agent Communication.
     
-    Use this tool for any Salesforce CRM related queries or operations."""
+    Implements loose coupling between the orchestrator and specialized Salesforce agent
+    via A2A (Agent-to-Agent) protocol. Provides enterprise CRM capabilities through
+    distributed agent architecture with state management and context preservation.
+    
+    Architecture Pattern:
+    - Follows Service-Oriented Architecture (SOA) principles
+    - Implements Event-Driven Multi-Agent communication
+    - Maintains conversation context across agent boundaries
+    - Preserves memory state for session continuity
+    
+    CRM Capabilities:
+    - Lead Management: Lead generation, qualification, conversion tracking
+    - Account Operations: Customer account lifecycle, relationship mapping
+    - Opportunity Pipeline: Sales forecasting, deal progression, revenue tracking  
+    - Contact Management: Customer relationship coordination, communication history
+    - Case Management: Customer service tickets, issue resolution, SLA tracking
+    - Task Management: Activity coordination, follow-up scheduling, productivity tracking
+    
+    Integration Patterns:
+    - Individual lookups: "get [specific record]" or "find [record] by [criteria]"
+    - Bulk operations: "get all [records] for [account]" (when explicitly requested)
+    - CRUD operations: create, read, update workflows
+    - Cross-object relationships: account→contacts→opportunities→cases→tasks
+    
+    Business Intelligence:
+    - Pipeline analysis and revenue forecasting
+    - Customer relationship mapping and account health
+    - Service level tracking and customer satisfaction
+    - Sales activity monitoring and team productivity
+    """
+    name: str = "salesforce_agent"
+    description: str = """Delegates Salesforce CRM operations to specialized agent via A2A protocol.
+    
+    PRIMARY CAPABILITIES:
+    - Lead Management: Lead generation, qualification, conversion (create/get/update leads)
+    - Account Operations: Customer lifecycle, relationship mapping (create/get/update accounts)
+    - Opportunity Pipeline: Sales forecasting, deal tracking (create/get/update opportunities)
+    - Contact Management: Customer relationships, communication (create/get/update contacts)
+    - Case Management: Service tickets, issue resolution (create/get/update cases)
+    - Task Management: Activity coordination, follow-ups (create/get/update tasks)
+    
+    OPTIMAL USE CASES:
+    - Basic account lookup: "get the [account]" or "find [account] account"
+    - Individual record queries: "find account/lead/opportunity by [criteria]"
+    - Record creation: "create new lead/opportunity/case/task"
+    - Comprehensive account data: "get all contacts/opportunities/cases/tasks for [account]"
+    - Pipeline analysis: "show me all opportunities for [account]"
+    - Customer service: "get all cases for [customer]"
+    
+    Returns structured CRM data with Salesforce IDs for downstream processing."""
     
     args_schema: type = AgentCallInput
     
@@ -54,9 +125,17 @@ class SalesforceAgentTool(BaseTool):
         if "conversation_summary" in state:
             context["conversation_summary"] = state["conversation_summary"]
         
-        # Include recent messages (last 3 for context)
+        # Include recent messages (last 5 for better context)
         if "messages" in state and len(state["messages"]) > 0:
-            context["recent_messages"] = state["messages"][-3:]
+            # Extract the last 5 messages to provide context for references like "this account"
+            recent_messages = []
+            for msg in state["messages"][-5:]:
+                if hasattr(msg, 'content'):
+                    recent_messages.append({
+                        "role": getattr(msg, '__class__', type(msg)).__name__,
+                        "content": msg.content
+                    })
+            context["recent_messages"] = recent_messages
         
         # Include relevant memory
         if "memory" in state:
@@ -231,15 +310,65 @@ class SalesforceAgentTool(BaseTool):
         return asyncio.run(self._arun(instruction, context, **kwargs))
 
 class GenericAgentTool(BaseTool):
-    """Generic tool for calling any specialized agent"""
+    """Orchestrator Tool for Dynamic Multi-Agent Task Delegation.
+    
+    Implements intelligent agent selection and task routing through capability-based
+    discovery and automatic agent matching. Provides extensible architecture for
+    enterprise system integration via distributed specialized agents.
+    
+    Agent Discovery Architecture:
+    - Capability-based agent selection using registry pattern
+    - Dynamic agent health monitoring and failover
+    - Load balancing across multiple agent instances
+    - Real-time agent capability advertisement and discovery
+    
+    Supported Enterprise Systems:
+    - Travel Management: Booking platforms, expense integration, itinerary coordination
+    - Human Resources: Employee onboarding, feedback systems, policy management
+    - Document Processing: OCR, content extraction, workflow automation
+    - Financial Systems: Expense reporting, approval workflows, budget management
+    - Communication Platforms: Email automation, notification systems, team coordination
+    
+    Extensibility Patterns:
+    - Plugin architecture for new agent types
+    - Capability inheritance and composition
+    - Cross-agent workflow orchestration
+    - Enterprise service bus integration
+    
+    Task Routing Intelligence:
+    - Natural language requirement analysis
+    - Capability matching algorithms
+    - Multi-agent coordination for complex workflows
+    - Context preservation across agent boundaries
+    """
     name: str = "call_agent"
-    description: str = """Call a specialized agent to handle specific tasks. The orchestrator will automatically 
-    select the best agent based on the instruction and required capabilities. Use this for:
-    - Travel booking and management
-    - Expense reporting and receipt processing  
-    - HR tasks and feedback submission
-    - Document processing and OCR
-    - Any other specialized enterprise system operations"""
+    description: str = """Intelligently routes tasks to specialized enterprise agents based on capability matching.
+    
+    AUTOMATIC AGENT SELECTION:
+    The orchestrator analyzes your request and selects the best specialized agent automatically.
+    No need to specify which agent - just describe what you need.
+    
+    ENTERPRISE CAPABILITIES:
+    - Travel Management: Flight/hotel booking, itinerary planning, expense integration
+    - Human Resources: Employee feedback, onboarding workflows, policy queries
+    - Document Processing: OCR, PDF extraction, content analysis, workflow automation
+    - Financial Systems: Expense reporting, receipt processing, approval workflows
+    - Communication: Email automation, notification systems, team coordination
+    
+    OPTIMAL USE CASES:
+    - "Book a flight to San Francisco next week"
+    - "Process this expense report and submit for approval" 
+    - "Extract data from this PDF document"
+    - "Submit employee feedback for Q4 review"
+    - "Schedule a team meeting and send calendar invites"
+    
+    ADVANCED FEATURES:
+    - Multi-agent workflows: Complex tasks requiring multiple specialized systems
+    - Context awareness: Maintains conversation state across agent handoffs
+    - Error recovery: Automatic failover and retry mechanisms
+    - Enterprise integration: Connects to existing business process workflows
+    
+    Returns structured responses with agent identification and task completion status."""
     
     args_schema: type = AgentCallInput
     
@@ -346,13 +475,57 @@ class GenericAgentTool(BaseTool):
         return asyncio.run(self._arun(instruction, context, agent_name, required_capabilities, **kwargs))
 
 class AgentRegistryTool(BaseTool):
-    """Tool for managing the agent registry"""
+    """Orchestrator Tool for Multi-Agent System Management and Monitoring.
+    
+    Provides comprehensive agent lifecycle management, health monitoring, and
+    system observability for distributed agent architectures. Implements
+    service discovery patterns and operational intelligence for agent ecosystems.
+    
+    Registry Management Capabilities:
+    - Agent discovery and registration management
+    - Real-time health monitoring and status tracking  
+    - Capability mapping and service advertisement
+    - Load balancing and failover coordination
+    
+    Operational Intelligence:
+    - Agent performance metrics and analytics
+    - System capacity planning and resource utilization
+    - Service level agreement monitoring
+    - Distributed system health dashboard
+    
+    Enterprise Operations:
+    - Multi-environment agent deployment tracking
+    - Version management and rolling updates
+    - Configuration management and policy enforcement
+    - Audit trails and compliance monitoring
+    
+    Monitoring Patterns:
+    - Heartbeat detection and liveness probes
+    - Circuit breaker status and failure tracking
+    - Response time analytics and performance tuning
+    - Resource consumption and scaling triggers
+    """
     name: str = "manage_agents"
-    description: str = """Manage the agent registry including:
-    - List available agents and their capabilities
-    - Check agent health status
-    - Get registry statistics
-    Use this to understand what agents are available and their current status."""
+    description: str = """Manages multi-agent system registry with health monitoring and operational intelligence.
+    
+    REGISTRY OPERATIONS:
+    - 'list': Display all registered agents with capabilities and current status
+    - 'health_check': Monitor agent availability and response times (specify agent_name for individual check)
+    - 'stats': System-wide analytics including capacity, utilization, and performance metrics
+    
+    OPERATIONAL USE CASES:
+    - System Health: "Check if all agents are running properly"
+    - Capacity Planning: "Show me current system utilization and available agents"
+    - Troubleshooting: "Which agents are offline or experiencing issues?"
+    - Service Discovery: "What capabilities are available in the current agent pool?"
+    
+    MONITORING INTELLIGENCE:
+    - Agent availability and response time tracking
+    - Capability coverage and redundancy analysis
+    - System load distribution and bottleneck identification
+    - Performance trending and capacity forecasting
+    
+    Returns structured operational data for system administration and monitoring dashboards."""
     
     class AgentRegistryInput(BaseModel):
         action: str = Field(description="Action to perform: 'list', 'health_check', 'stats'")

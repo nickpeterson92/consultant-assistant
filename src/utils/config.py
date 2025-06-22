@@ -6,7 +6,7 @@ Provides a single source of truth for all system configuration
 import os
 import json
 from typing import Dict, Any, Optional, List
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 import logging
 
@@ -31,27 +31,83 @@ class LoggingConfig:
     buffer_size: int = 1000
 
 @dataclass
+class ModelPricing:
+    """Pricing information for a model"""
+    input_per_1k: float
+    output_per_1k: float
+    
+    @property
+    def average_per_1k(self) -> float:
+        """Calculate average cost per 1K tokens"""
+        return (self.input_per_1k + self.output_per_1k) / 2
+
+@dataclass
 class LLMConfig:
     """LLM configuration settings"""
-    model: str = "gpt-4"
-    temperature: float = 0.1
+    model: str = "gpt-4o-mini"
+    temperature: float = 0.0
     max_tokens: int = 4000
     timeout: int = 120
     retry_attempts: int = 3
     retry_delay: float = 1.0
     cache_enabled: bool = True
     cache_ttl: int = 3600  # 1 hour
+    azure_deployment: str = "gpt-4o-mini"
+    api_version: str = "2024-06-01"
+    
+    # Model pricing map  
+    pricing: Dict[str, ModelPricing] = field(default_factory=dict)
+    
+    def __post_init__(self):
+        # Only set default pricing if no pricing data was provided
+        # This prevents overwriting pricing loaded from config file
+        if not self.pricing:
+            self.pricing = {
+                "gpt-4": ModelPricing(input_per_1k=0.03, output_per_1k=0.06),
+                "gpt-4o": ModelPricing(input_per_1k=0.005, output_per_1k=0.015),
+                "gpt-4o-mini": ModelPricing(input_per_1k=0.00015, output_per_1k=0.00060),
+                "gpt-3.5-turbo": ModelPricing(input_per_1k=0.0005, output_per_1k=0.0015),
+            }
+    
+    def get_pricing(self, model: str = None) -> ModelPricing:
+        """Get pricing for a specific model or the configured model"""
+        model_name = model or self.model
+        model_lower = model_name.lower()
+        
+        # First try exact match
+        if model_lower in self.pricing:
+            return self.pricing[model_lower]
+        
+        # Then try case-insensitive exact match
+        for key in self.pricing:
+            if key.lower() == model_lower:
+                return self.pricing[key]
+        
+        # Finally try substring matching (longest match first to prefer specific models)
+        sorted_keys = sorted(self.pricing.keys(), key=len, reverse=True)
+        for key in sorted_keys:
+            if key.lower() in model_lower:
+                return self.pricing[key]
+        
+        # Default fallback
+        return ModelPricing(input_per_1k=0.001, output_per_1k=0.001)
 
 @dataclass
 class A2AConfig:
     """Agent-to-Agent protocol configuration"""
-    timeout: int = 30
+    timeout: int = 30  # Total timeout
+    connect_timeout: int = 30  # Connection establishment timeout
+    sock_connect_timeout: int = 30  # Socket connection timeout
+    sock_read_timeout: int = 30  # Socket read timeout
+    health_check_timeout: int = 10  # Timeout for health checks
     max_concurrent_calls: int = 10
     retry_attempts: int = 3
     retry_delay: float = 1.0
     circuit_breaker_threshold: int = 5
     circuit_breaker_timeout: int = 30
     connection_pool_size: int = 20
+    connection_pool_ttl: int = 300  # Connection pool TTL in seconds
+    connection_pool_max_idle: int = 300  # Max idle time for connections
 
 @dataclass
 class SecurityConfig:
@@ -74,8 +130,17 @@ class AgentConfig:
     port: int
     enabled: bool = True
     health_check_interval: int = 60
+    heartbeat_interval: int = 30  # Heartbeat log interval in seconds
     max_memory_usage: int = 512  # MB
     timeout: int = 120
+
+@dataclass
+class ConversationConfig:
+    """Conversation management configuration"""
+    summary_threshold: int = 12  # Message count before summarization
+    max_conversation_length: int = 100  # Maximum messages before forced summary
+    memory_extraction_enabled: bool = True
+    memory_extraction_delay: float = 0.5  # Delay before extraction starts
 
 @dataclass
 class SystemConfig:
@@ -85,6 +150,7 @@ class SystemConfig:
     llm: LLMConfig
     a2a: A2AConfig
     security: SecurityConfig
+    conversation: ConversationConfig
     agents: Dict[str, AgentConfig]
     debug_mode: bool = False
     environment: str = "development"  # development, production, testing
@@ -99,9 +165,30 @@ class SystemConfig:
         # Handle nested dataclasses
         database = DatabaseConfig(**data.get('database', {}))
         logging_cfg = LoggingConfig(**data.get('logging', {}))
-        llm = LLMConfig(**data.get('llm', {}))
+        
+        # Handle LLM config with pricing
+        llm_data = data.get('llm', {})
+        # Extract pricing data if present
+        pricing_data = llm_data.pop('pricing', None)
+        
+        # Create LLMConfig without calling __post_init__ yet
+        llm = LLMConfig(**llm_data)
+        
+        # If pricing data was provided in config, set it before __post_init__
+        if pricing_data:
+            llm.pricing = {}
+            for model_name, prices in pricing_data.items():
+                llm.pricing[model_name] = ModelPricing(
+                    input_per_1k=prices['input_per_1k'],
+                    output_per_1k=prices['output_per_1k']
+                )
+        else:
+            # If no pricing data in config, let __post_init__ set defaults
+            llm.pricing = {}
+        
         a2a = A2AConfig(**data.get('a2a', {}))
         security = SecurityConfig(**data.get('security', {}))
+        conversation = ConversationConfig(**data.get('conversation', {}))
         
         # Handle agents dict
         agents_data = data.get('agents', {})
@@ -115,6 +202,7 @@ class SystemConfig:
             llm=llm,
             a2a=a2a,
             security=security,
+            conversation=conversation,
             agents=agents,
             debug_mode=data.get('debug_mode', False),
             environment=data.get('environment', 'development')
@@ -157,6 +245,7 @@ class ConfigManager:
             "llm": {},
             "a2a": {},
             "security": {},
+            "conversation": {},
             "agents": {
                 "salesforce-agent": {
                     "endpoint": "http://localhost",
@@ -279,6 +368,9 @@ def get_system_config() -> SystemConfig:
     """Get the current system configuration"""
     return get_config_manager().get_config()
 
+# Export ModelPricing for external use
+__all__ = ['ModelPricing', 'LLMConfig', 'SystemConfig', 'get_system_config', 'get_llm_config']
+
 def get_database_config() -> DatabaseConfig:
     """Get database configuration"""
     return get_system_config().database
@@ -298,6 +390,10 @@ def get_a2a_config() -> A2AConfig:
 def get_security_config() -> SecurityConfig:
     """Get security configuration"""
     return get_system_config().security
+
+def get_conversation_config() -> ConversationConfig:
+    """Get conversation configuration"""
+    return get_system_config().conversation
 
 def get_agent_config(agent_name: str) -> Optional[AgentConfig]:
     """Get configuration for a specific agent"""

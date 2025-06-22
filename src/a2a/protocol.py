@@ -24,7 +24,7 @@ from src.utils.logging import get_logger, get_performance_tracker
 from src.utils.logging import log_a2a_activity, log_performance_activity
 from src.utils.input_validation import AgentInputValidator, ValidationError
 from src.utils.circuit_breaker import get_circuit_breaker, CircuitBreakerConfig, RetryConfig, resilient_call
-from src.utils.config import get_a2a_config
+from src.utils.config import get_a2a_config, get_system_config
 
 # A2A logging now handled by centralized activity_logger
 
@@ -154,17 +154,158 @@ class A2AResponse:
             response["result"] = self.result
         return response
 
+class A2AConnectionPool:
+    """Connection pool for A2A clients to reuse sessions"""
+    _instance = None
+    _lock = asyncio.Lock()
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
+    def __init__(self):
+        if not hasattr(self, '_initialized'):
+            self._initialized = True
+            self._pools = {}  # endpoint -> session
+            self._pool_locks = {}  # endpoint -> lock
+            self._last_used = {}  # endpoint -> timestamp
+            # Get config settings
+            a2a_config = get_a2a_config()
+            self._max_idle_time = a2a_config.connection_pool_max_idle
+            logger.info(f"A2AConnectionPool initialized with max_idle_time={self._max_idle_time}s")
+    
+    async def get_session(self, endpoint: str, timeout: Optional[int] = None) -> aiohttp.ClientSession:
+        """Get or create a session for an endpoint"""
+        # Get config settings
+        a2a_config = get_a2a_config()
+        if timeout is None:
+            timeout = a2a_config.timeout
+        
+        # Extract base URL from endpoint
+        from urllib.parse import urlparse
+        parsed = urlparse(endpoint)
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
+        
+        # Create lock for this endpoint if needed
+        if base_url not in self._pool_locks:
+            self._pool_locks[base_url] = asyncio.Lock()
+        
+        async with self._pool_locks[base_url]:
+            # Check if we have a valid session
+            if base_url in self._pools:
+                session = self._pools[base_url]
+                if not session.closed:
+                    self._last_used[base_url] = time.time()
+                    return session
+                else:
+                    # Session was closed, remove it
+                    logger.info(f"Removing closed session for {base_url}")
+                    del self._pools[base_url]
+            
+            # Create new session
+            logger.info(f"Creating new session for {base_url} with timeout={timeout}s")
+            # Use config values for all timeout components
+            timeout_config = aiohttp.ClientTimeout(
+                total=timeout,
+                connect=a2a_config.connect_timeout,
+                sock_read=a2a_config.sock_read_timeout,
+                sock_connect=a2a_config.sock_connect_timeout
+            )
+            connector = aiohttp.TCPConnector(
+                limit=a2a_config.connection_pool_size,
+                limit_per_host=max(20, a2a_config.connection_pool_size),  # Allow many concurrent connections per host (support 8+ tools)
+                ttl_dns_cache=a2a_config.connection_pool_ttl,
+                enable_cleanup_closed=True,
+                force_close=False,
+                keepalive_timeout=min(30, a2a_config.connection_pool_max_idle)
+            )
+            session = aiohttp.ClientSession(
+                timeout=timeout_config,
+                connector=connector,
+                connector_owner=True
+            )
+            
+            self._pools[base_url] = session
+            self._last_used[base_url] = time.time()
+            return session
+    
+    async def cleanup_idle_sessions(self):
+        """Clean up idle sessions"""
+        current_time = time.time()
+        to_remove = []
+        
+        for endpoint, last_used in self._last_used.items():
+            if current_time - last_used > self._max_idle_time:
+                to_remove.append(endpoint)
+        
+        for endpoint in to_remove:
+            async with self._pool_locks[endpoint]:
+                if endpoint in self._pools:
+                    session = self._pools[endpoint]
+                    await session.close()
+                    del self._pools[endpoint]
+                    del self._last_used[endpoint]
+                    logger.info(f"Cleaned up idle session for {endpoint}")
+    
+    async def close_all(self):
+        """Close all sessions in the pool"""
+        for endpoint, session in list(self._pools.items()):
+            try:
+                await session.close()
+                logger.info(f"Closed session for {endpoint}")
+            except Exception as e:
+                logger.warning(f"Error closing session for {endpoint}: {e}")
+        self._pools.clear()
+        self._last_used.clear()
+
+# Global connection pool
+_connection_pool = None
+
+def get_connection_pool() -> A2AConnectionPool:
+    """Get the global connection pool instance"""
+    global _connection_pool
+    if _connection_pool is None:
+        _connection_pool = A2AConnectionPool()
+    return _connection_pool
+
 class A2AClient:
     """A2A Protocol Client for making calls to other agents"""
     
-    def __init__(self, timeout: int = 30, debug_mode: bool = False):
-        self.timeout = timeout
-        self.debug_mode = debug_mode
+    def __init__(self, timeout: Optional[int] = None, debug_mode: Optional[bool] = None, use_pool: bool = True):
+        # Get config settings
+        a2a_config = get_a2a_config()
+        system_config = get_system_config()
+        
+        self.timeout = timeout if timeout is not None else a2a_config.timeout
+        self.debug_mode = debug_mode if debug_mode is not None else system_config.debug_mode
+        self.use_pool = use_pool
         self.session = None
         self._closed = False
+        self._pool = get_connection_pool() if use_pool else None
+        logger.info(f"A2AClient initialized with timeout={self.timeout}s, debug_mode={self.debug_mode}, use_pool={use_pool}")
     
     async def __aenter__(self):
-        self.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout))
+        if not self.use_pool:
+            # Get config settings
+            a2a_config = get_a2a_config()
+            # Create dedicated session if not using pool
+            timeout_config = aiohttp.ClientTimeout(
+                total=self.timeout,
+                connect=a2a_config.connect_timeout,
+                sock_read=a2a_config.sock_read_timeout,
+                sock_connect=a2a_config.sock_connect_timeout
+            )
+            connector = aiohttp.TCPConnector(
+                limit=a2a_config.connection_pool_size,
+                limit_per_host=max(20, a2a_config.connection_pool_size),  # Allow many concurrent connections per host (support 8+ tools)
+                ttl_dns_cache=a2a_config.connection_pool_ttl
+            )
+            self.session = aiohttp.ClientSession(
+                timeout=timeout_config,
+                connector=connector
+            )
+            logger.info(f"A2AClient created dedicated session with timeout={self.timeout}s")
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -172,9 +313,10 @@ class A2AClient:
     
     async def close(self):
         """Properly close the client session"""
-        if self.session and not self._closed:
+        if not self.use_pool and self.session and not self._closed:
             try:
                 await self.session.close()
+                logger.info("Closed dedicated A2A client session")
             except Exception as e:
                 logger.warning(f"Error closing A2A client session: {e}")
             finally:
@@ -240,10 +382,15 @@ class A2AClient:
                     print(f"📡 Task context: {task.get('context')}")
                     print(f"📡 Task state_snapshot: {task.get('state_snapshot')}")
 
-            if not self.session or self._closed:
-                if self.debug_mode:
-                    logger.error("Client session not initialized or already closed")
-                raise RuntimeError("Client must be used as async context manager and not closed")
+            # Get session from pool or use dedicated session
+            if self.use_pool:
+                session = await self._pool.get_session(endpoint, self.timeout)
+            else:
+                if not self.session or self._closed:
+                    if self.debug_mode:
+                        logger.error("Client session not initialized or already closed")
+                    raise RuntimeError("Client must be used as async context manager and not closed")
+                session = self.session
 
             request = A2ARequest(method, params, request_id)
             request_dict = request.to_dict()
@@ -255,11 +402,17 @@ class A2AClient:
                 print(f"   ID: {request_dict.get('id')}")
                 print(f"   Params keys: {list(request_dict.get('params', {}).keys())}")
 
-            async with self.session.post(
+            start_time = time.time()
+            logger.info(f"A2A POST request starting to {endpoint} with timeout={self.timeout}s (pooled={self.use_pool})")
+            
+            async with session.post(
                 endpoint,
                 json=request_dict,
-                headers={"Content-Type": "application/json"}
+                headers={"Content-Type": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=self.timeout)  # Ensure timeout is applied to the request
             ) as response:
+                elapsed = time.time() - start_time
+                logger.info(f"A2A POST response received from {endpoint} in {elapsed:.2f}s with status={response.status}")
                 if response.status != 200:
                     error_text = await response.text()
                     if self.debug_mode:
@@ -338,8 +491,28 @@ class A2AClient:
 
                 return final_result
 
+        except asyncio.TimeoutError as e:
+            # Specific handling for timeout errors
+            elapsed = time.time() - start_time if 'start_time' in locals() else 0
+            logger.error(f"A2A timeout error calling {endpoint} after {elapsed:.2f}s (timeout was {self.timeout}s)")
+            if a2a_perf:
+                try:
+                    a2a_perf.end_operation(operation_id, success=False, error_type="timeout_error")
+                except:
+                    pass
+            if a2a_logger:
+                try:
+                    a2a_logger.error("A2A_CALL_TIMEOUT",
+                                    operation_id=operation_id,
+                                    endpoint=endpoint,
+                                    elapsed_seconds=elapsed,
+                                    timeout_seconds=self.timeout)
+                except:
+                    pass
+            raise A2AException(f"Request timed out after {elapsed:.2f}s")
         except aiohttp.ClientError as e:
             # Log network error
+            elapsed = time.time() - start_time if 'start_time' in locals() else 0
             if a2a_perf:
                 try:
                     a2a_perf.end_operation(operation_id, success=False, error_type="network_error")
@@ -350,16 +523,17 @@ class A2AClient:
                     a2a_logger.error("A2A_CALL_NETWORK_ERROR",
                                     operation_id=operation_id,
                                     endpoint=endpoint,
-                                    error=str(e))
+                                    error=str(e),
+                                    elapsed_seconds=elapsed)
                 except:
                     pass
-            logger.error(f"A2A network error calling {endpoint}: {e}")
+            logger.error(f"A2A network error calling {endpoint} after {elapsed:.2f}s: {e}")
             # Don't re-raise if session was closed during shutdown
-            if not self._closed:
-                raise A2AException(f"Network error: {str(e)}")
-            else:
+            if not self.use_pool and self._closed:
                 logger.info("Ignoring network error during client shutdown")
                 return {"error": "Client shutdown during operation"}
+            else:
+                raise A2AException(f"Network error: {str(e)}")
         except Exception as e:
             # Log unexpected error
             if a2a_perf:

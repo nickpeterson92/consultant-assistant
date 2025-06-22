@@ -5,12 +5,14 @@ import sqlite3
 import json
 import asyncio
 from langgraph.store.base import BaseStore  # Adjust this import as needed
+from src.utils.logging import log_performance_activity
 
 class SQLiteStore(BaseStore):
     def __init__(self, db_path: str = "memory_store.db"):
         self.db_path = db_path
         self.conn = sqlite3.connect(self.db_path)
         self._create_table()
+        log_performance_activity("SQLITE_INIT", db_path=db_path)
 
     def get_connection(self, db_path: str = None):
         path = db_path or self.db_path
@@ -37,9 +39,12 @@ class SQLiteStore(BaseStore):
             (json.dumps(namespace), key)
         )
         row = cursor.fetchone()
-        if row:
-            return json.loads(row[0])
-        return None
+        result = json.loads(row[0]) if row else None
+        log_performance_activity("SQLITE_GET", 
+                               namespace=namespace, 
+                               key=key, 
+                               found=result is not None)
+        return result
 
     def put(self, namespace, key, value):
         self.conn.execute(
@@ -47,6 +52,9 @@ class SQLiteStore(BaseStore):
             (json.dumps(namespace), key, json.dumps(value))
         )
         self.conn.commit()
+        log_performance_activity("SQLITE_PUT", 
+                               namespace=namespace, 
+                               key=key)
 
     def delete(self, namespace, key):
         self.conn.execute(

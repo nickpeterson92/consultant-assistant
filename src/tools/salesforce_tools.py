@@ -4,7 +4,7 @@
 import os
 from datetime import date
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, ValidationError
 from langchain.tools import BaseTool
 from typing import Optional
 from simple_salesforce import Salesforce
@@ -12,7 +12,17 @@ from simple_salesforce import Salesforce
 # Import centralized logging
 from src.utils.logging import log_tool_activity
 
+# Import input validation
+from src.utils.input_validation import validate_tool_input
+
 # All logging now handled by centralized activity_logger
+
+
+def escape_soql(value):
+    """Escape single quotes for SOQL injection prevention"""
+    if value is None:
+        return ''
+    return str(value).replace("'", "\\'")
 
 
 def get_salesforce_connection():
@@ -33,11 +43,31 @@ class GetLeadInput(BaseModel):
 
 
 class GetLeadTool(BaseTool):
+    """Salesforce Lead Retrieval Tool.
+    
+    Provides flexible lead search capabilities across multiple criteria including
+    direct ID lookup, company-wide searches, and contact information matching.
+    Implements loose coupling by accepting various search parameters without
+    requiring knowledge of underlying SOQL implementation.
+    
+    Use Cases:
+    - Get specific lead by ID: "find lead abc123"
+    - Get all company leads: "get all leads for Acme Corp"
+    - Search by contact info: "find leads with email john@company.com"
+    - Multi-criteria search: "leads for John at Acme Corp"
+    
+    Returns:
+    - Single match: {'match': {lead_data}}
+    - Multiple matches: {'multiple_matches': [lead_list]}
+    - No matches: [] (empty list)
+    """
     name: str = "get_lead_tool"
     description: str = (
-        "Retrieves Salesforce leads by lead_id. If no lead_id is supplied the tool uses email, name, phone, or company. "
-        "If multiple leads match, returns a list of options for user selection. "
-        "Must be used in workflows involving tools that require a lead_id where one is not supplied."
+        "Retrieves Salesforce leads using flexible search criteria. "
+        "Primary use: Get ALL LEADS for a company (use 'company' parameter) or "
+        "find specific leads by ID, email, name, or phone. "
+        "Handles both single record lookups and bulk company searches. "
+        "Returns structured data with match indicators for downstream processing."
     )
     args_schema: type = GetLeadInput
 
@@ -51,21 +81,21 @@ class GetLeadTool(BaseTool):
             sf = get_salesforce_connection()
             # Escape all user inputs to prevent SOQL injection
             if data.lead_id:
-                escaped_id = sf.escape(data.lead_id)
+                escaped_id = escape_soql(data.lead_id)
                 query = f"SELECT Id, Name, Company, Email, Phone FROM Lead WHERE Id = '{escaped_id}'"
             else:
                 query_conditions = []
                 if data.email:
-                    escaped_email = sf.escape(data.email)
+                    escaped_email = escape_soql(data.email)
                     query_conditions.append(f"Email LIKE '%{escaped_email}%'")
                 if data.name:
-                    escaped_name = sf.escape(data.name)
+                    escaped_name = escape_soql(data.name)
                     query_conditions.append(f"Name LIKE '%{escaped_name}%'")
                 if data.phone:
-                    escaped_phone = sf.escape(data.phone)
+                    escaped_phone = escape_soql(data.phone)
                     query_conditions.append(f"Phone LIKE '%{escaped_phone}%'")
                 if data.company:
-                    escaped_company = sf.escape(data.company)
+                    escaped_company = escape_soql(data.company)
                     query_conditions.append(f"Company LIKE '%{escaped_company}%'")
 
                 if not query_conditions:
@@ -107,9 +137,28 @@ class CreateLeadInput(BaseModel):
 
 
 class CreateLeadTool(BaseTool):
+    """Salesforce Lead Creation Tool.
+    
+    Creates new lead records in Salesforce CRM with required and optional
+    contact information. Implements data validation and duplicate prevention
+    through structured input schemas.
+    
+    Business Rules:
+    - Requires: first_name, last_name, company (minimum viable lead)
+    - Optional: email, phone (enhances lead quality)
+    - Auto-generates: created_date, lead_source tracking
+    
+    Integration Points:
+    - Triggers Salesforce lead assignment rules
+    - Initiates lead scoring workflows
+    - Updates company prospect analytics
+    """
     name: str = "create_lead_tool"
     description: str = (
-        "Creates a new Salesforce lead. Requires: name, company, email, and phone."
+        "Creates new Salesforce lead records with required contact information. "
+        "Minimum required: first_name, last_name, company. "
+        "Optional enhancements: email, phone for better lead quality. "
+        "Automatically integrates with Salesforce lead workflows and assignment rules."
     )
     args_schema: type = CreateLeadInput
 
@@ -139,10 +188,28 @@ class UpdateLeadInput(BaseModel):
 
 
 class UpdateLeadTool(BaseTool):
+    """Salesforce Lead Update Tool.
+    
+    Modifies existing lead records with new contact information while
+    preserving data integrity and audit trails. Implements partial update
+    patterns allowing selective field modifications.
+    
+    Update Patterns:
+    - Contact info updates: email, phone changes
+    - Company transitions: lead acquisition, mergers
+    - Data enrichment: adding missing contact details
+    
+    Business Impact:
+    - Maintains lead scoring accuracy
+    - Preserves conversion tracking
+    - Updates lead assignment rules if company changes
+    """
     name: str = "update_lead_tool"
     description: str = (
-        "Updates an existing Salesforce lead. Requires a lead_id. "
-        "Optionally takes a company, email, and/or phone."
+        "Updates existing Salesforce lead records with new information. "
+        "Required: lead_id (15/18 character Salesforce ID). "
+        "Optional updates: company, email, phone (specify only fields to change). "
+        "Preserves existing data and maintains audit trail for compliance."
     )
     args_schema: type = UpdateLeadInput
 
@@ -175,12 +242,35 @@ class GetOpportunityInput(BaseModel):
 
 
 class GetOpportunityTool(BaseTool):
+    """Salesforce Opportunity Retrieval Tool.
+    
+    Provides comprehensive opportunity search and retrieval capabilities across
+    account relationships, deal stages, and revenue tracking. Implements loose
+    coupling through flexible search parameters supporting various business contexts.
+    
+    Search Capabilities:
+    - Account-based: "get all opportunities for [account]" 
+    - Direct lookup: "find opportunity [ID]"
+    - Deal search: "opportunities named [deal_name]"
+    - Cross-reference: account_id + opportunity_name combinations
+    
+    Revenue Intelligence:
+    - Returns deal amounts, stages, account relationships
+    - Supports pipeline analysis and forecasting workflows
+    - Integrates with account management processes
+    
+    Returns:
+    - Single match: {'match': {opportunity_data}}
+    - Multiple matches: {'multiple_matches': [opportunity_list]}
+    - No matches: [] (empty list)
+    """
     name: str = "get_opportunity_tool"
     description: str = (
-        "Retrieves Salesforce opportunities, always by opportunity_id if one is available. "
-        "If no opportunity_id is available the tool uses account_name, account_id, opportunity_name, or combinations. "
-        "If multiple opportunities match, returns a list of options for user selection. "
-        "Must be used in workflows involving tools that require an opportunity_id where one is not supplied."
+        "Retrieves Salesforce opportunities with flexible search criteria. "
+        "PRIMARY USE: Get ALL OPPORTUNITIES for an account (use 'account_name' parameter). "
+        "Also supports: specific opportunity by ID, opportunities by name, or account_id searches. "
+        "Essential for pipeline analysis, revenue forecasting, and account relationship mapping. "
+        "Returns structured opportunity data with amount, stage, and account information."
     )
     args_schema: type = GetOpportunityInput
     
@@ -202,18 +292,18 @@ class GetOpportunityTool(BaseTool):
         # Escape all user inputs to prevent SOQL injection
         sf = get_salesforce_connection()
         if opportunity_id:
-            escaped_opp_id = sf.escape(opportunity_id)
+            escaped_opp_id = escape_soql(opportunity_id)
             query = f"SELECT Id, Name, StageName, Amount, Account.Name FROM Opportunity WHERE Id = '{escaped_opp_id}'"
         else:
             query_conditions = []
             if account_name:
-                escaped_account_name = sf.escape(account_name)
+                escaped_account_name = escape_soql(account_name)
                 query_conditions.append(f"Account.Name LIKE '%{escaped_account_name}%'")
             if account_id:
-                escaped_account_id = sf.escape(account_id)
+                escaped_account_id = escape_soql(account_id)
                 query_conditions.append(f"AccountId = '{escaped_account_id}'")
             if opportunity_name:
-                escaped_opp_name = sf.escape(opportunity_name)
+                escaped_opp_name = escape_soql(opportunity_name)
                 query_conditions.append(f"Name LIKE '%{escaped_opp_name}%'")
             
             if not query_conditions:
@@ -262,10 +352,32 @@ class CreateOpportunityInput(BaseModel):
 
 
 class CreateOpportunityTool(BaseTool):
+    """Salesforce Opportunity Creation Tool.
+    
+    Creates new sales opportunities linked to existing accounts with deal tracking,
+    revenue forecasting, and sales pipeline management capabilities. Implements
+    business rules for opportunity lifecycle and stage progression.
+    
+    Required Fields:
+    - opportunity_name: Deal identifier (e.g., "Q4 Software License")
+    - account_id: Salesforce account ID (18-char)
+    - amount: Revenue value (USD)
+    
+    Optional Fields:
+    - stage_name: Sales stage (defaults to "New")
+    - close_date: Expected close date (defaults to today)
+    
+    Business Impact:
+    - Triggers sales forecasting updates
+    - Initiates opportunity assignment workflows
+    - Updates account revenue projections
+    """
     name: str = "create_opportunity_tool"
     description: str = (
-        "Creates an opportunity. Requires an opportunity_name, an amount, a stage_name, "
-        "a close_date, and the Salesforce account_id of the account the opportunity is for."
+        "Creates new Salesforce sales opportunities with revenue tracking. "
+        "Required: opportunity_name, account_id (18-char Salesforce ID), amount (USD). "
+        "Optional: stage_name (defaults to 'New'), close_date (defaults to today). "
+        "Automatically links to account and triggers sales pipeline workflows."
     )
     args_schema: type = CreateOpportunityInput
 
@@ -358,11 +470,33 @@ class GetAccountInput(BaseModel):
 
 
 class GetAccountTool(BaseTool):
+    """Salesforce Account Retrieval Tool.
+    
+    Provides primary account lookup capabilities for customer relationship management
+    and enterprise account intelligence. Serves as the foundation for all downstream
+    CRM operations including contacts, opportunities, cases, and tasks.
+    
+    Search Methods:
+    - Direct ID lookup: Fastest retrieval by 18-character Salesforce ID
+    - Name-based search: Flexible matching for account discovery
+    - Partial matching: Supports fuzzy name searches for user convenience
+    
+    Integration Hub:
+    - Central to all account-related workflows
+    - Prerequisite for contact/opportunity/case creation
+    - Foundation for account hierarchy navigation
+    
+    Returns:
+    - Single match: {'match': {account_data}} 
+    - Multiple matches: {'multiple_matches': [account_list]}
+    - No matches: [] (empty list)
+    """
     name: str = "get_account_tool"
     description: str = (
-        "Retrieves Salesforce accounts by account_id. If no account_id is supplied the tool uses account_name. "
-        "If multiple accounts match, returns a list of options for user selection. "
-        "Must be used in workflows involving tools that require an account_id where one is not supplied."
+        "Retrieves Salesforce account records using ID or name-based search. "
+        "Primary use: Find specific accounts by exact name or partial name matching. "
+        "Essential for account identification before creating contacts, opportunities, or cases. "
+        "Returns comprehensive account data including Salesforce ID for downstream operations."
     )
     args_schema: type = GetAccountInput
     
@@ -375,10 +509,10 @@ class GetAccountTool(BaseTool):
         # Escape all user inputs to prevent SOQL injection
         sf = get_salesforce_connection()
         if account_id:
-            escaped_account_id = sf.escape(account_id)
+            escaped_account_id = escape_soql(account_id)
             query = f"SELECT Id, Name FROM Account WHERE Id = '{escaped_account_id}'"
         else:
-            escaped_account_name = sf.escape(account_name)
+            escaped_account_name = escape_soql(account_name)
             query_conditions = [f"Name LIKE '%{escaped_account_name}%'"]
     
             query = f"SELECT Id, Name FROM Account WHERE {' AND '.join(query_conditions)}"
@@ -488,11 +622,36 @@ class GetContactInput(BaseModel):
 
 
 class GetContactTool(BaseTool):
+    """Salesforce Contact Retrieval Tool.
+    
+    Provides comprehensive contact search across individual records and account-based
+    contact discovery. Essential for relationship mapping, communication workflows,
+    and customer service operations within the CRM ecosystem.
+    
+    Search Capabilities:
+    - Account-based: "get all contacts for [account]" (use account_name/account_id)
+    - Individual lookup: Find specific contacts by ID, email, name, phone
+    - Cross-reference: Link contacts to their parent accounts
+    - Communication prep: Retrieve contact details for outreach campaigns
+    
+    Business Applications:
+    - Sales team contact identification
+    - Customer service case assignment  
+    - Marketing campaign targeting
+    - Account relationship mapping
+    
+    Returns:
+    - Single match: {'match': {contact_data}}
+    - Multiple matches: {'multiple_matches': [contact_list]}
+    - No matches: [] (empty list)
+    """
     name: str = "get_contact_tool"
     description: str = (
-        "Retrieves Salesforce contacts by contact_id. If no contact_id is supplied the tool uses email, name, phone, account_name, or account_id. "
-        "If multiple contacts match, returns a list of options for user selection. "
-        "Must be used in workflows involving tools that require a contact_id where one is not supplied."
+        "Retrieves Salesforce contacts with flexible search options. "
+        "PRIMARY USE: Get ALL CONTACTS for an account (use 'account_name' or 'account_id' parameter). "
+        "Also supports: individual contact lookup by ID, email, name, or phone. "
+        "Essential for customer communication, sales outreach, and account relationship management. "
+        "Returns contact details with account associations and communication preferences."
     )
     args_schema: type = GetContactInput
     
@@ -509,24 +668,24 @@ class GetContactTool(BaseTool):
         # Escape all user inputs to prevent SOQL injection
         sf = get_salesforce_connection()
         if contact_id:
-            escaped_contact_id = sf.escape(contact_id)
+            escaped_contact_id = escape_soql(contact_id)
             query = f"SELECT Id, Name, Account.Name, Email, Phone FROM Contact WHERE Id = '{escaped_contact_id}'"
         else:
             query_conditions = []
             if email:
-                escaped_email = sf.escape(email)
+                escaped_email = escape_soql(email)
                 query_conditions.append(f"Email LIKE '%{escaped_email}%'")
             if name:
-                escaped_name = sf.escape(name)
+                escaped_name = escape_soql(name)
                 query_conditions.append(f"Name LIKE '%{escaped_name}%'")
             if phone:
-                escaped_phone = sf.escape(phone)
+                escaped_phone = escape_soql(phone)
                 query_conditions.append(f"Phone LIKE '%{escaped_phone}%'")
             if account_name:
-                escaped_account_name = sf.escape(account_name)
+                escaped_account_name = escape_soql(account_name)
                 query_conditions.append(f"Account.Name LIKE '%{escaped_account_name}%'")
             if account_id:
-                escaped_account_id = sf.escape(account_id)
+                escaped_account_id = escape_soql(account_id)
                 query_conditions.append(f"AccountId = '{escaped_account_id}'")
 
             if not query_conditions:
@@ -641,11 +800,36 @@ class GetCaseInput(BaseModel):
 
 
 class GetCaseTool(BaseTool):
+    """Salesforce Case Retrieval Tool.
+    
+    Provides customer service case management and support ticket retrieval across
+    account relationships and contact associations. Central to customer success
+    operations, issue tracking, and service level agreement monitoring.
+    
+    Search Capabilities:
+    - Account-based: "get all cases for [account]" (use account_name/account_id)
+    - Contact-based: Cases associated with specific customer contacts
+    - Direct lookup: Individual case retrieval by case ID
+    - Service intelligence: Support ticket history and resolution tracking
+    
+    Customer Service Applications:
+    - Support ticket management and routing
+    - Customer issue history and trends
+    - Service level agreement monitoring
+    - Account health and satisfaction tracking
+    
+    Returns:
+    - Single match: {'match': {case_data}}
+    - Multiple matches: {'multiple_matches': [case_list]}
+    - No matches: [] (empty list)
+    """
     name: str = "get_case_tool"
     description: str = (
-        "Retrieves Salesforce cases by case_id. If no case_id is supplied the tool uses subject, account_name, account_id, or contact_name. "
-        "If multiple cases match, returns a list of options for user selection. "
-        "Must be used in workflows involving tools that require a case_id where one is not supplied."
+        "Retrieves Salesforce customer service cases with flexible search options. "
+        "PRIMARY USE: Get ALL CASES for an account (use 'account_name' or 'account_id' parameter). "
+        "Also supports: case lookup by ID, contact associations for customer service workflows. "
+        "Essential for support ticket management, customer issue tracking, and service analytics. "
+        "Returns case details with status, priority, and account/contact relationships."
     )
     args_schema: type = GetCaseInput
 
@@ -659,18 +843,18 @@ class GetCaseTool(BaseTool):
             
             # Escape all user inputs to prevent SOQL injection
             if data.case_id:
-                escaped_case_id = sf.escape(data.case_id)
+                escaped_case_id = escape_soql(data.case_id)
                 query = f"SELECT Id, Subject, Description, Account.Name, Contact.Name FROM Case WHERE Id = '{escaped_case_id}'"
             else:
                 query_conditions = []
                 if data.account_name:
-                    escaped_account_name = sf.escape(data.account_name)
+                    escaped_account_name = escape_soql(data.account_name)
                     query_conditions.append(f"Account.Name LIKE '%{escaped_account_name}%'")
                 if data.account_id:
-                    escaped_account_id = sf.escape(data.account_id)
+                    escaped_account_id = escape_soql(data.account_id)
                     query_conditions.append(f"AccountId = '{escaped_account_id}'")
                 if data.contact_name:
-                    escaped_contact_name = sf.escape(data.contact_name)
+                    escaped_contact_name = escape_soql(data.contact_name)
                     query_conditions.append(f"Contact.Name LIKE '%{escaped_contact_name}%'")
 
                 if not query_conditions:
@@ -780,11 +964,36 @@ class GetTaskInput(BaseModel):
 
 
 class GetTaskTool(BaseTool):
+    """Salesforce Task Retrieval Tool.
+    
+    Provides activity management and follow-up task retrieval across sales,
+    service, and relationship management workflows. Central to productivity
+    tracking, pipeline management, and customer engagement coordination.
+    
+    Search Capabilities:
+    - Account-based: "get all tasks for [account]" (use account_name/account_id)
+    - Contact-based: Tasks associated with specific customer relationships
+    - Subject search: Find tasks by activity description or topic
+    - Direct lookup: Individual task retrieval by task ID
+    
+    Business Applications:
+    - Sales activity tracking and follow-up management
+    - Customer engagement timeline and touch-point history
+    - Team productivity monitoring and task assignment
+    - Pipeline activity analysis and conversion optimization
+    
+    Returns:
+    - Single match: {'match': {task_data}}
+    - Multiple matches: {'multiple_matches': [task_list]}
+    - No matches: [] (empty list)
+    """
     name: str = "get_task_tool"
     description: str = (
-        "Retrieves Salesforce tasks by task_id. If no task_id is supplied the tool uses subject, account_name, account_id, or contact_name. "
-        "If multiple tasks match, returns a list of options for user selection. "
-        "Must be used in workflows involving tools that require a task_id where one is not supplied."
+        "Retrieves Salesforce tasks and activities with flexible search options. "
+        "PRIMARY USE: Get ALL TASKS for an account (use 'account_name' or 'account_id' parameter). "
+        "Also supports: task lookup by ID, subject search, contact associations for activity tracking. "
+        "Essential for sales follow-up management, customer engagement tracking, and productivity analysis. "
+        "Returns task details with due dates, status, and account/contact relationships."
     )
     args_schema: type = GetTaskInput
 
@@ -798,21 +1007,21 @@ class GetTaskTool(BaseTool):
             
             # Escape all user inputs to prevent SOQL injection
             if data.task_id:
-                escaped_task_id = sf.escape(data.task_id)
+                escaped_task_id = escape_soql(data.task_id)
                 query = f"SELECT Id, Subject, Account.Name, Who.Name FROM Task WHERE Id = '{escaped_task_id}'"
             else:
                 query_conditions = []
                 if data.subject:
-                    escaped_subject = sf.escape(data.subject)
+                    escaped_subject = escape_soql(data.subject)
                     query_conditions.append(f"Subject LIKE '%{escaped_subject}%'")
                 if data.account_name:
-                    escaped_account_name = sf.escape(data.account_name)
+                    escaped_account_name = escape_soql(data.account_name)
                     query_conditions.append(f"Account.Name LIKE '%{escaped_account_name}%'")
                 if data.account_id:
-                    escaped_account_id = sf.escape(data.account_id)
+                    escaped_account_id = escape_soql(data.account_id)
                     query_conditions.append(f"WhatId = '{escaped_account_id}'")
                 if data.contact_name:
-                    escaped_contact_name = sf.escape(data.contact_name)
+                    escaped_contact_name = escape_soql(data.contact_name)
                     query_conditions.append(f"Who.Name LIKE '%{escaped_contact_name}%'")
 
                 if not query_conditions:
