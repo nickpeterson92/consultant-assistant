@@ -22,8 +22,9 @@ def smart_preserve_messages(messages: list, keep_count: int = 2):
         def simple_token_counter(messages):
             return len(messages) * 400  # Calibrated from logs: 717 avg with ~1.5K tool overhead
         
-        # CALIBRATED: Token budget based on real multi-tool conversation analysis  
-        max_tokens = keep_count * 1200  # Calibrated for tool-heavy conversations with A2A overhead
+        # CALIBRATED: Token budget based on real multi-tool conversation analysis
+        # More aggressive since we're summarizing more frequently
+        max_tokens = keep_count * 800  # Reduced from 1200 - tighter token budget
         
         # Use trim_messages with tool call preservation
         preserved = trim_messages(

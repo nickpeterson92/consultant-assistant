@@ -168,9 +168,30 @@ def orchestrator_summary_sys_msg(summary: str, memory: str) -> str:
     The rigid format requirements ensure summaries can be reliably parsed
     and used for memory updates, analytics, and debugging.
     """
-    ORCHESTRATOR_SUMMARY_MESSAGE = f"""SYSTEM TASK: GENERATE INTERNAL SUMMARY
+    ORCHESTRATOR_SUMMARY_MESSAGE = f"""You are a SYSTEM COMPONENT generating an INTERNAL DATA STRUCTURE.
+You are NOT talking to a user. You are NOT providing help or assistance.
 
-DO NOT WRITE A USER RESPONSE. DO NOT SAY "Here are the records" or "The details are as follows".
+YOUR ONLY JOB: Output the following format EXACTLY:
+
+TECHNICAL/SYSTEM INFORMATION:
+- [data point 1]
+- [data point 2]
+
+USER INTERACTION:
+- [interaction 1]
+- [interaction 2]
+
+AGENT COORDINATION CONTEXT:
+- [agent usage 1]
+- [agent usage 2]
+
+FORBIDDEN RESPONSES (DO NOT WRITE THESE):
+- "No action is required..."
+- "Please provide any requests..."
+- "If you have any questions..."
+- Any conversational text
+
+START YOUR RESPONSE WITH: TECHNICAL/SYSTEM INFORMATION:
 
 You must create a SYSTEM SUMMARY using ONLY this exact format:
 
@@ -226,7 +247,26 @@ CRITICAL RULES:
 1. This is an INTERNAL SUMMARY - not a user-facing response
 2. Extract specific data (IDs, names, amounts) when available
 3. Only include information that actually occurred in the conversation
-4. START YOUR RESPONSE WITH "TECHNICAL/SYSTEM INFORMATION:" - DO NOT WRITE ANYTHING ELSE BEFORE THAT."""
+4. START YOUR RESPONSE WITH "TECHNICAL/SYSTEM INFORMATION:" - DO NOT WRITE ANYTHING ELSE BEFORE THAT.
+
+EXAMPLE OF CORRECT FORMAT:
+TECHNICAL/SYSTEM INFORMATION:
+- No enterprise records retrieved
+- No system operations performed
+- User sent test messages without specific requests
+
+USER INTERACTION:
+- User sent 4 test messages
+- No specific requests made
+
+AGENT COORDINATION CONTEXT:
+- No agents were invoked
+- System remained idle
+
+EXAMPLE OF WRONG FORMAT (DO NOT DO THIS):
+No action is required for this test message. Please provide any requests...
+
+The conversation shows test messages being sent..."""
     
     return ORCHESTRATOR_SUMMARY_MESSAGE
 
@@ -277,6 +317,44 @@ EXAMPLES OF WHAT NOT TO EXTRACT:
 ❌ Don't create IDs like "001bm00000SA8pOAAT-001" → These are fake
 
 REMEMBER: Better to extract nothing than to create fake data. Only use IDs that appear exactly in the text."""
+
+
+def get_fallback_summary(message_count: int = 0, has_tool_calls: bool = False, 
+                        agent_names: list = None, error_count: int = 0) -> str:
+    """Generate a structured fallback summary when LLM fails to follow format.
+    
+    This ensures we always have a properly structured summary even when the LLM
+    returns conversational responses instead of following instructions.
+    
+    Args:
+        message_count: Number of messages in the conversation
+        has_tool_calls: Whether any tools were called
+        agent_names: List of agents that were invoked
+        error_count: Number of errors encountered
+        
+    Returns:
+        Properly formatted summary string
+    """
+    # Build dynamic content based on actual conversation
+    tool_info = "Tool calls were made" if has_tool_calls else "No tool calls made"
+    agent_info = f"Agents invoked: {', '.join(agent_names)}" if agent_names else "No specialized agents were invoked"
+    error_info = f"{error_count} errors encountered" if error_count > 0 else "No errors encountered"
+    
+    return f"""TECHNICAL/SYSTEM INFORMATION:
+- No enterprise records retrieved during this conversation
+- {tool_info}
+- Messages exchanged: {message_count}
+- {error_info}
+
+USER INTERACTION:
+- User sent messages without specific Salesforce requests
+- No CRM operations were performed
+- Conversation did not involve enterprise data
+
+AGENT COORDINATION CONTEXT:
+- {agent_info}
+- Orchestrator handled responses directly
+- System operated in standard mode"""
 
 
 # Key Insights from Production Experience:

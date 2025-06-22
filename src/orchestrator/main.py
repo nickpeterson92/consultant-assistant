@@ -51,7 +51,7 @@ from src.utils.helpers import type_out, smart_preserve_messages
 from src.utils.storage import get_async_store_adapter
 from src.utils.storage.memory_schemas import SimpleMemory
 from src.utils.logging import get_summary_logger
-from .enhanced_sys_msg import orchestrator_chatbot_sys_msg, orchestrator_summary_sys_msg
+from .enhanced_sys_msg import orchestrator_chatbot_sys_msg, orchestrator_summary_sys_msg, get_fallback_summary
 from src.utils.config import get_llm_config, get_conversation_config
 from src.utils.sys_msg import TRUSTCALL_INSTRUCTION
 
@@ -181,7 +181,7 @@ def build_orchestrator_graph():
         enable_inserts=True
     )
     
-    def invoke_llm(messages, use_tools=False):
+    def invoke_llm(messages, use_tools=False, temperature=None):
         """Invoke LLM with optional tool binding.
         
         Azure OpenAI automatically caches prompts for efficiency.
@@ -189,10 +189,27 @@ def build_orchestrator_graph():
         Args:
             messages: List of conversation messages
             use_tools: Whether to bind tools for function calling
+            temperature: Override temperature for this call
             
         Returns:
             AI response message with optional tool calls
         """
+        if temperature is not None:
+            # Create a new LLM with custom temperature for this call
+            llm_config = get_llm_config()
+            temp_llm = AzureChatOpenAI(
+                azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+                azure_deployment=llm_config.azure_deployment,
+                openai_api_version=llm_config.api_version,
+                openai_api_key=os.environ["AZURE_OPENAI_API_KEY"],
+                temperature=temperature,  # Use the override temperature
+                max_tokens=llm_config.max_tokens,
+                timeout=llm_config.timeout,
+            )
+            if use_tools:
+                temp_llm = temp_llm.bind_tools(tools)
+            return temp_llm.invoke(messages)
+        
         if use_tools:
             return llm_with_tools.invoke(messages)
         else:
@@ -295,6 +312,31 @@ ORCHESTRATOR TOOLS:
             # Update state memory before system message generation
             state["memory"] = existing_memory
             
+            # Load summary from persistent store if not in state
+            summary_in_state = state.get("summary", "No summary available")
+            if summary_in_state == "No summary available":
+                # Try to load from store
+                user_id = config["configurable"].get("user_id", "default")
+                namespace = ("memory", user_id)
+                key = "conversation_summary"
+                
+                try:
+                    stored_summary = memory_store.sync_get(namespace, key)
+                    if stored_summary and "summary" in stored_summary:
+                        state["summary"] = stored_summary["summary"]
+                        summary_in_state = stored_summary["summary"]
+                        log_orchestrator_activity("SUMMARY_LOADED_FROM_STORE",
+                                                summary_preview=summary_in_state[:200],
+                                                timestamp=stored_summary.get("timestamp"))
+                except Exception as e:
+                    log_orchestrator_activity("SUMMARY_LOAD_ERROR", error=str(e))
+            
+            log_orchestrator_activity("SUMMARY_STATE_CHECK",
+                                    operation="conversation_node_entry",
+                                    has_summary=bool(summary_in_state and summary_in_state != "No summary available"),
+                                    summary_length=len(summary_in_state) if summary_in_state else 0,
+                                    summary_preview=summary_in_state[:200] if summary_in_state else "NO_SUMMARY")
+            
             system_message = get_orchestrator_system_message(state)
             messages = [SystemMessage(content=system_message)] + state["messages"]
             
@@ -367,13 +409,20 @@ ORCHESTRATOR TOOLS:
                 "events": event_dicts  # Store trimmed event history
             }
             
-            # Trigger background tasks based on events
+            # Check if we need to initialize summary
+            if "summary" not in state or not state.get("summary"):
+                updated_state["summary"] = "No summary available"
+                log_orchestrator_activity("SUMMARY_INITIALIZED",
+                                        operation="setting_default_summary")
+            
+            # Check and mark if we need background tasks
             conv_config = get_conversation_config()
             
             # Check if we should trigger summary based on events
+            # More aggressive summarization since we have good memory extraction
             if EventAnalyzer.should_trigger_summary(events, 
-                                                   user_message_threshold=5,
-                                                   time_threshold_seconds=300):
+                                                   user_message_threshold=3,  # Reduced from 5
+                                                   time_threshold_seconds=180):  # Reduced from 300 (3 min instead of 5)
                 
                 # Create summary triggered event
                 summary_event = create_summary_triggered_event(
@@ -386,10 +435,14 @@ ORCHESTRATOR TOOLS:
                 log_orchestrator_activity("SUMMARY_TRIGGER", 
                                         message_count=len(state["messages"]), 
                                         event_count=len(events))
+                
+                # Fire and forget background summarization
                 import threading
+                user_id = config["configurable"].get("user_id", "default")
+                thread_id = config["configurable"].get("thread_id", "default")
                 threading.Thread(
                     target=_run_background_summary,
-                    args=(state["messages"], state.get("summary", ""), events, existing_memory),
+                    args=(state["messages"], state.get("summary", ""), events, existing_memory, user_id, thread_id),
                     daemon=True
                 ).start()
             
@@ -409,6 +462,8 @@ ORCHESTRATOR TOOLS:
                 log_orchestrator_activity("MEMORY_TRIGGER",
                                         event_count=len(events),
                                         message_count=len(state["messages"]))
+                
+                # Fire and forget background memory extraction
                 import threading
                 threading.Thread(
                     target=_run_background_memory,
@@ -456,10 +511,78 @@ ORCHESTRATOR TOOLS:
         # System message format must remain pure - tool responses stay in conversation
         messages = [SystemMessage(content=system_message)] + state["messages"]
         
+        # Use standard config temperature (already 0.0)
         response = invoke_llm(messages, use_tools=False)
         
+        # VALIDATE SUMMARY FORMAT
+        response_content = str(response.content) if hasattr(response, 'content') else ""
+        
+        # Check if summary follows the required format
+        has_technical_section = "TECHNICAL/SYSTEM INFORMATION:" in response_content
+        has_user_section = "USER INTERACTION:" in response_content
+        has_agent_section = "AGENT COORDINATION CONTEXT:" in response_content
+        is_valid_format = has_technical_section and has_user_section and has_agent_section
+        
+        # Check for common invalid patterns
+        has_conversational_intro = any(phrase in response_content.lower() for phrase in [
+            "here are", "the records", "i found", "the details", "let me", 
+            "based on", "according to", "shows that", "indicates"
+        ])
+        
+        # Log format validation
+        log_orchestrator_activity("SUMMARY_FORMAT_VALIDATION",
+                                operation="format_check",
+                                is_valid_format=is_valid_format,
+                                has_technical_section=has_technical_section,
+                                has_user_section=has_user_section,
+                                has_agent_section=has_agent_section,
+                                has_conversational_intro=has_conversational_intro,
+                                response_preview=response_content[:300],
+                                response_length=len(response_content))
+        
+        # If invalid format, log error and use a fallback
+        if not is_valid_format or has_conversational_intro:
+            logger.error(f"INVALID SUMMARY FORMAT DETECTED! Missing sections or conversational style.")
+            log_orchestrator_activity("SUMMARY_FORMAT_ERROR",
+                                    error="Invalid summary format",
+                                    response_content=response_content[:500])
+            
+            # Use a fallback structured summary with dynamic data
+            # Extract relevant data from the conversation
+            messages = state.get('messages', [])
+            message_count = len(messages)
+            
+            # Check for tool calls
+            has_tool_calls = any(
+                hasattr(msg, 'tool_calls') and msg.tool_calls 
+                for msg in messages if hasattr(msg, 'tool_calls')
+            )
+            
+            # Check for agent invocations
+            agent_names = []
+            for msg in messages:
+                if hasattr(msg, 'name') and msg.name:
+                    if 'salesforce' in msg.name.lower():
+                        agent_names.append('salesforce-agent')
+                    elif 'agent' in msg.name.lower():
+                        agent_names.append(msg.name)
+            agent_names = list(set(agent_names))  # Remove duplicates
+            
+            # Count errors from events
+            events = load_events_with_limit(state)
+            error_count = sum(1 for e in events if e.event_type == EventType.ERROR)
+            
+            # Generate fallback with actual data
+            response_content = get_fallback_summary(
+                message_count=message_count,
+                has_tool_calls=has_tool_calls,
+                agent_names=agent_names,
+                error_count=error_count
+            )
+        
         # Smart preservation maintains tool call/response integrity
-        messages_to_preserve = smart_preserve_messages(state["messages"], keep_count=3)
+        # Can be more aggressive with culling since we summarize more frequently
+        messages_to_preserve = smart_preserve_messages(state["messages"], keep_count=2)  # Reduced from 3
         messages_to_delete = []
         
         # Mark non-preserved messages for deletion
@@ -468,7 +591,7 @@ ORCHESTRATOR TOOLS:
             if hasattr(msg, 'id') and msg.id not in preserved_ids:
                 messages_to_delete.append(RemoveMessage(id=msg.id))
         
-        response_content = str(response.content) if hasattr(response, 'content') else ""
+        # Don't overwrite response_content - it may have been updated with fallback
         log_orchestrator_activity("LLM_GENERATION_COMPLETE", 
                                  response_length=len(response_content),
                                  response_content=response_content[:500],
@@ -486,7 +609,7 @@ ORCHESTRATOR TOOLS:
         # Log summary response
         processing_time = time.time() - start_time
         summary_logger.log_summary_response(
-            new_summary=response.content,
+            new_summary=response_content,
             messages_preserved=len(messages_to_preserve),
             messages_deleted=len(messages_to_delete),
             component="orchestrator",
@@ -505,7 +628,7 @@ ORCHESTRATOR TOOLS:
         )
         
         return {
-            "summary": response.content,
+            "summary": response_content,  # Use validated/fallback content
             "messages": messages_to_delete,
             "events": [summary_completed_event.to_dict()]
         }
@@ -569,14 +692,40 @@ ORCHESTRATOR TOOLS:
         
         # Build extraction prompt with tool responses and summary
         summary_content = state.get("summary", "")
+        
+        # DEBUG LOGGING: Track summary extraction issue
+        log_orchestrator_activity("MEMORY_EXTRACTION_DEBUG",
+                                operation="summary_retrieval",
+                                summary_exists=bool(summary_content),
+                                summary_length=len(summary_content) if summary_content else 0,
+                                summary_preview=summary_content[:200] if summary_content else "NO_SUMMARY",
+                                tool_responses_count=len(recent_tool_responses))
+        
         extraction_content = f"CONVERSATION SUMMARY:\n{summary_content}\n\n"
         
         if recent_tool_responses:
             extraction_content += "RECENT SALESFORCE TOOL RESPONSES WITH DATA TO EXTRACT:\n"
             for i, response in enumerate(recent_tool_responses):
                 extraction_content += f"\nTool Response {i+1}:\n{response}\n"
+                # Log each tool response being added
+                log_orchestrator_activity("MEMORY_EXTRACTION_DEBUG",
+                                        operation="tool_response_added",
+                                        response_index=i,
+                                        response_length=len(response),
+                                        response_preview=response[:100])
         else:
             extraction_content += "No recent tool responses found."
+            log_orchestrator_activity("MEMORY_EXTRACTION_DEBUG",
+                                    operation="no_tool_responses",
+                                    message="No recent tool responses found for extraction")
+        
+        # Log final extraction content
+        log_orchestrator_activity("MEMORY_EXTRACTION_DEBUG",
+                                operation="final_extraction_content",
+                                content_length=len(extraction_content),
+                                content_preview=extraction_content[:500],
+                                has_summary=bool(summary_content),
+                                has_tool_responses=bool(recent_tool_responses))
         
         # Invoke TrustCall with timeout for background safety
         try:
@@ -669,52 +818,14 @@ ORCHESTRATOR TOOLS:
                 "events": [error_event.to_dict()]
             }
     
-    async def background_summary(state: OrchestratorState, config: RunnableConfig):
-        """Background task for conversation summarization.
-        
-        Runs asynchronously to avoid blocking main conversation flow.
-        Tracks completion status for monitoring.
-        """
-        try:
-            result = await summarize_conversation(state)
-            # Add background operation tracking
-            result["background_operations"] = ["summary_completed"]
-            result["background_results"] = {"summary_time": time.time()}
-            return result
-        except Exception as e:
-            logger.error(f"Background summary failed: {e}")
-            return {
-                "background_operations": ["summary_failed"], 
-                "background_results": {"summary_error": str(e)}
-            }
     
-    async def background_memory(state: OrchestratorState, config: RunnableConfig):
-        """Background task for memory extraction.
-        
-        Runs asynchronously to extract and persist structured data
-        without blocking conversation flow.
-        """
-        try:
-            result = await memorize_records(state, config)
-            # Add background operation tracking
-            result["background_operations"] = ["memory_completed"]
-            result["background_results"] = {"memory_time": time.time()}
-            return result
-        except Exception as e:
-            logger.error(f"Background memory failed: {e}")
-            return {
-                "background_operations": ["memory_failed"],
-                "background_results": {"memory_error": str(e)}
-            }
     
-    # Note: Background tasks (summary and memory) are triggered directly in the orchestrator function
-    # using fire-and-forget threads based on event analysis, not through graph edges.
-    
-    def _run_background_summary(messages, summary, events, memory):
-        """Execute summarization in background thread.
+    # Background task helpers that save directly to persistent store
+    def _run_background_summary(messages, summary, events, memory, user_id, thread_id):
+        """Execute summarization in background thread and save to store.
         
         Creates new event loop for async execution in thread context.
-        Logs progress and errors for monitoring.
+        Saves summary directly to the persistent store.
         """
         try:
             mock_state = {
@@ -723,9 +834,25 @@ ORCHESTRATOR TOOLS:
                 "events": [e.to_dict() for e in events],
                 "memory": memory
             }
-            mock_config = {"configurable": {"user_id": "user-1"}}
+            mock_config = {"configurable": {"user_id": user_id, "thread_id": thread_id}}
             import asyncio
-            result = asyncio.run(background_summary(mock_state, mock_config))
+            result = asyncio.run(summarize_conversation(mock_state))
+            
+            if result and "summary" in result:
+                new_summary = result["summary"]
+                log_orchestrator_activity("BACKGROUND_SUMMARY_SAVE",
+                                        operation="saving_summary_to_store",
+                                        summary_preview=new_summary[:200] if new_summary else "NO_SUMMARY")
+                
+                # Save directly to the persistent store
+                namespace = ("memory", user_id)
+                key = "conversation_summary"
+                memory_store.sync_put(namespace, key, {
+                    "summary": new_summary,
+                    "thread_id": thread_id,
+                    "timestamp": time.time()
+                })
+                
         except Exception as e:
             import traceback
             log_orchestrator_activity("BACKGROUND_SUMMARY_ERROR",
@@ -739,7 +866,6 @@ ORCHESTRATOR TOOLS:
         Creates new event loop for async execution.
         """
         try:
-                    
             mock_state = {
                 "messages": messages,
                 "summary": summary,
@@ -748,13 +874,13 @@ ORCHESTRATOR TOOLS:
             }
             mock_config = {"configurable": {"user_id": "user-1"}}
             import asyncio
-            result = asyncio.run(background_memory(mock_state, mock_config))
+            result = asyncio.run(memorize_records(mock_state, mock_config))
         except Exception as e:
             import traceback
             log_orchestrator_activity("BACKGROUND_MEMORY_ERROR",
                                      error=str(e),
                                      traceback=traceback.format_exc()[:500])
-
+    
     # Build graph with tool integration
     tool_node = ToolNode(tools=tools)
     graph_builder.add_node("tools", tool_node)
@@ -782,6 +908,29 @@ async def initialize_orchestrator():
     auto-discovery of unregistered agents on standard ports.
     """
     logger.info("Initializing Consultant Assistant Orchestrator...")
+    
+    # Clear any existing conversation summaries for fresh start
+    try:
+        memory_store = get_async_store_adapter(
+            db_path="memory_store.db",
+            use_async=False,
+            max_workers=4,
+            max_connections=10,
+            enable_circuit_breaker=True
+        )
+        
+        # Clear summaries for all users
+        # In production, you might want to clear only for specific users
+        namespace = ("memory", "user-1")
+        key = "conversation_summary"
+        memory_store.sync_delete(namespace, key)
+        
+        namespace = ("memory", "default")
+        memory_store.sync_delete(namespace, key)
+        
+        logger.info("Cleared conversation summaries for fresh start")
+    except Exception as e:
+        logger.warning(f"Could not clear summaries: {e}")
     
     logger.info("Checking agent health...")
     health_results = await agent_registry.health_check_all_agents()
