@@ -60,12 +60,35 @@ class GetLeadInput(BaseModel):
 
 
 class GetLeadTool(BaseTool):
-    """Salesforce Lead Retrieval Tool with Query Builder."""
+    """Salesforce Lead Retrieval Tool.
+    
+    Provides flexible lead search capabilities across multiple criteria including
+    direct ID lookup, company-wide searches, and contact information matching.
+    Implements loose coupling by accepting various search parameters without
+    requiring knowledge of underlying SOQL implementation.
+    
+    Use Cases:
+    - Get specific lead by ID: "find lead abc123"
+    - Get all company leads: "get all leads for Acme Corp"  
+    - Search by contact info: "find leads with email john@company.com"
+    - Multi-criteria search: "leads for John at Acme Corp"
+    
+    Security Features:
+    - All inputs sanitized through escape_soql() to prevent SOQL injection
+    - Flexible OR condition support for maximum search coverage
+    - Graceful error handling with structured responses
+    
+    Returns:
+    - Single match: Direct lead object with core fields
+    - Multiple matches: Array of lead objects
+    - No matches: [] (empty list)
+    """
     name: str = "get_lead_tool"
     description: str = (
-        "Retrieves Salesforce lead records using flexible search criteria. "
-        "Can search by: lead_id (exact match), email, name, phone, or company (partial match). "
-        "Returns lead details including contact information and status."
+        "LOOKUP: Individual lead records by ID, email, name, phone, or company. "
+        "Use for: 'get lead 003abc123', 'find lead john@company.com', 'leads for Acme Corp'. "
+        "Returns specific lead records - NOT aggregated analytics or metrics. "
+        "For lead analytics/trends, use GetBusinessMetricsTool instead."
     )
     args_schema: type = GetLeadInput
 
@@ -144,12 +167,34 @@ class CreateLeadInput(BaseModel):
 
 
 class CreateLeadTool(BaseTool):
-    """Salesforce Lead Creation Tool."""
+    """Salesforce Lead Creation Tool.
+    
+    Creates new lead records in Salesforce with validation and audit logging.
+    Implements enterprise lead capture patterns with status management and
+    data quality controls for sales pipeline integrity.
+    
+    Use Cases:
+    - Web form lead capture: "create lead from contact form submission"
+    - Manual lead entry: "add new prospect John Smith at TechCorp"
+    - Lead import: "bulk create leads from trade show list"
+    - API integration: "create lead from external system data"
+    
+    Validation Features:
+    - Required field validation (name, company)
+    - Lead status validation against Salesforce picklist values
+    - Automatic audit trail creation with timestamps
+    - Error handling with structured responses
+    
+    Returns:
+    - Success: {'id': 'new_lead_id', 'success': True}
+    - Failure: {'error': 'detailed_error_message'}
+    """
     name: str = "create_lead_tool"
     description: str = (
-        "Creates a new lead in Salesforce CRM. "
-        "Required: name, company. "
-        "Optional: email, phone, lead_status (defaults to 'New')."
+        "CREATE: New lead record with name, company, and optional contact details. "
+        "Use for: 'create lead for John Smith at TechCorp', 'add new prospect'. "
+        "Creates single lead record - NOT for bulk operations or analytics. "
+        "Returns new lead ID for follow-up workflows."
     )
     args_schema: type = CreateLeadInput
 
@@ -182,11 +227,40 @@ class UpdateLeadInput(BaseModel):
 
 
 class UpdateLeadTool(BaseTool):
-    """Salesforce Lead Update Tool."""
+    """Salesforce Lead Update Tool.
+    
+    Updates existing lead records with new information while maintaining data integrity
+    and audit trails. Implements selective field updates to preserve existing data
+    and support progressive lead qualification workflows.
+    
+    Use Cases:
+    - Lead enrichment: "update lead with new contact information"
+    - Data correction: "fix email address for lead abc123"
+    - Progressive qualification: "add company details to existing lead"
+    - Bulk data updates: "update multiple lead fields from enrichment source"
+    
+    Update Strategy:
+    - Selective field updates preserve existing data
+    - Only specified fields are modified in the update operation
+    - Automatic audit trail with timestamps and change tracking
+    - Validation ensures data quality during updates
+    
+    Security Features:
+    - Lead ID validation prevents unauthorized record access
+    - Input sanitization for all optional fields
+    - Structured error responses without sensitive data exposure
+    - Operation logging for compliance and troubleshooting
+    
+    Returns:
+    - Success: {'success': True, 'id': 'lead_id'}
+    - Failure: {'error': 'detailed_error_message'}
+    """
     name: str = "update_lead_tool"
     description: str = (
-        "Updates existing Salesforce lead records with new information. "
-        "Required: lead_id. Optional: company, email, phone."
+        "UPDATE: Existing lead record with new company, email, or phone information. "
+        "Use for: 'update lead abc123 email', 'change company for lead', 'fix lead phone'. "
+        "Updates single lead record - NOT for bulk operations or status changes. "
+        "Requires lead_id and preserves existing data."
     )
     args_schema: type = UpdateLeadInput
 
@@ -221,11 +295,41 @@ class GetAccountInput(BaseModel):
 
 
 class GetAccountTool(BaseTool):
-    """Salesforce Account Retrieval Tool with Query Builder."""
+    """Salesforce Account Retrieval Tool.
+    
+    Provides flexible account search capabilities with support for both direct ID
+    lookups and fuzzy name-based searches. Implements enterprise account discovery
+    patterns for comprehensive customer relationship management.
+    
+    Use Cases:
+    - Direct account lookup: "get account 001abc123"
+    - Company search: "find Acme Corporation account"
+    - Partial name matching: "search for accounts containing 'Tech'"
+    - Account verification: "verify account details before opportunity creation"
+    
+    Search Strategy:
+    - Primary: Direct ID lookup for known accounts (fastest)
+    - Secondary: Partial name matching with LIKE operator (flexible)
+    - Returns comprehensive account profile including industry and revenue data
+    - Token-optimized response format for cost efficiency
+    
+    Account Data Returned:
+    - Core identifiers (ID, Name)
+    - Contact information (Phone, Website)
+    - Business intelligence (Industry, Annual Revenue, Employee Count)
+    - Formatted for downstream processing and relationship mapping
+    
+    Returns:
+    - Single match: Direct account object with complete profile
+    - Multiple matches: Array of account objects
+    - No matches: [] (empty list)
+    """
     name: str = "get_account_tool"
     description: str = (
-        "Retrieves Salesforce account information. "
-        "Search by: account_id (exact) or account_name (partial match)."
+        "LOOKUP: Individual account records by ID or name (partial matching). "
+        "Use for: 'get account 001abc123', 'find Acme Corporation account'. "
+        "Returns specific account records - NOT comprehensive analytics or related data. "
+        "For 360-degree account analysis, use GetAccountInsightsTool instead."
     )
     args_schema: type = GetAccountInput
 
@@ -282,11 +386,40 @@ class CreateAccountInput(BaseModel):
 
 
 class CreateAccountTool(BaseTool):
-    """Salesforce Account Creation Tool."""
+    """Salesforce Account Creation Tool.
+    
+    Creates new customer account records with comprehensive business profile data.
+    Implements enterprise account management patterns for customer onboarding
+    and relationship establishment workflows.
+    
+    Use Cases:
+    - New customer onboarding: "create account for TechStart Industries"
+    - Lead conversion: "convert qualified lead to account"
+    - Partner registration: "add new vendor account with industry classification"
+    - Manual account entry: "create account from trade show contact"
+    
+    Account Creation Strategy:
+    - Required company name for account identification
+    - Optional business intelligence fields for segmentation
+    - Industry classification for targeted marketing and sales
+    - Contact information for communication and engagement
+    
+    Data Quality Features:
+    - Name validation for required field compliance
+    - Industry standardization for consistent reporting
+    - Website URL validation and formatting
+    - Phone number formatting and validation
+    
+    Returns:
+    - Success: {'id': 'new_account_id', 'success': True}
+    - Failure: {'error': 'detailed_error_message'}
+    """
     name: str = "create_account_tool"
     description: str = (
-        "Creates a new account in Salesforce. "
-        "Required: name. Optional: phone, website, industry."
+        "CREATE: New account record with company name and optional business profile. "
+        "Use for: 'create account for TechStart Inc', 'add new customer account'. "
+        "Creates single account record - NOT for bulk operations or analytics. "
+        "Returns new account ID for relationship building."
     )
     args_schema: type = CreateAccountInput
 
@@ -323,11 +456,40 @@ class UpdateAccountInput(BaseModel):
 
 
 class UpdateAccountTool(BaseTool):
-    """Salesforce Account Update Tool."""
+    """Salesforce Account Update Tool.
+    
+    Updates existing customer account records with new business information while
+    preserving data integrity and maintaining complete audit trails for compliance.
+    Supports selective field updates for progressive data enrichment.
+    
+    Use Cases:
+    - Business profile updates: "update account with new industry classification"
+    - Contact information changes: "change phone number for account"
+    - Data enrichment: "add website and industry data to existing account"
+    - Merger/acquisition updates: "update account name after company acquisition"
+    
+    Update Features:
+    - Selective field modification preserves existing data
+    - Business intelligence field updates for segmentation
+    - Contact information maintenance for communication
+    - Industry classification updates for targeted campaigns
+    
+    Data Integrity:
+    - Account ID validation ensures authorized access
+    - Field-level validation for data quality
+    - Audit trail creation for change tracking
+    - Rollback capability through change history
+    
+    Returns:
+    - Success: {'success': True, 'id': 'account_id'}
+    - Failure: {'error': 'detailed_error_message'}
+    """
     name: str = "update_account_tool"
     description: str = (
-        "Updates existing Salesforce account. "
-        "Required: account_id. Optional: name, phone, website, industry."
+        "UPDATE: Existing account record with new business information or contact details. "
+        "Use for: 'update account abc123 phone', 'change industry for account', 'add website'. "
+        "Updates single account record - NOT for bulk operations or relationship changes. "
+        "Requires account_id and preserves existing data."
     )
     args_schema: type = UpdateAccountInput
 
@@ -366,11 +528,41 @@ class GetOpportunityInput(BaseModel):
 
 
 class GetOpportunityTool(BaseTool):
-    """Salesforce Opportunity Retrieval Tool with Query Builder."""
+    """Salesforce Opportunity Retrieval Tool.
+    
+    Provides comprehensive opportunity discovery with flexible search criteria across
+    multiple relationship types. Implements intelligent account relationship resolution
+    for complex opportunity-to-account mapping and pipeline analysis.
+    
+    Use Cases:
+    - Direct opportunity lookup: "get opportunity 006abc123"
+    - Deal name search: "find Enterprise Software License opportunity"
+    - Account-based pipeline: "show all opportunities for Acme Corp"
+    - Account ID filtering: "opportunities for account 001abc123"
+    
+    Search Strategy:
+    - Primary: Direct opportunity ID lookup (fastest)
+    - Secondary: Opportunity name partial matching
+    - Tertiary: Account relationship resolution (name-to-ID mapping)
+    - Quaternary: Direct account ID filtering
+    
+    Relationship Intelligence:
+    - Automatic account name-to-ID resolution using SearchQueryBuilder
+    - Support for multiple account matches with IN clause filtering
+    - Revenue-based ordering for priority pipeline visibility
+    - Complete opportunity lifecycle data (stage, amount, close date)
+    
+    Returns:
+    - Single match: Direct opportunity object with relationship data
+    - Multiple matches: Revenue-ordered opportunity array
+    - No matches: [] (empty list)
+    """
     name: str = "get_opportunity_tool"
     description: str = (
-        "Retrieves Salesforce opportunities using flexible search. "
-        "Search by: opportunity_id, opportunity_name, account_name, or account_id."
+        "LOOKUP: Individual opportunity records by ID, name, or account relationship. "
+        "Use for: 'get opportunity 006abc123', 'find deals for Acme Corp', 'Enterprise License opportunity'. "
+        "Returns specific opportunity records - NOT pipeline analytics or aggregated metrics. "
+        "For pipeline analysis/trends, use GetSalesPipelineTool instead."
     )
     args_schema: type = GetOpportunityInput
 
@@ -465,12 +657,40 @@ class CreateOpportunityInput(BaseModel):
 
 
 class CreateOpportunityTool(BaseTool):
-    """Salesforce Opportunity Creation Tool."""
+    """Salesforce Opportunity Creation Tool.
+    
+    Creates new revenue opportunities with complete sales cycle tracking and validation.
+    Implements enterprise opportunity management with stage validation and forecasting
+    integration for accurate pipeline reporting and sales analytics.
+    
+    Use Cases:
+    - New deal creation: "create opportunity for Enterprise Software License"
+    - Lead conversion: "convert qualified lead to opportunity"
+    - Upsell tracking: "add expansion opportunity for existing customer"
+    - Renewal management: "create renewal opportunity with updated terms"
+    
+    Opportunity Lifecycle:
+    - Stage validation against Salesforce picklist values
+    - Close date requirements for forecasting accuracy
+    - Account relationship establishment for customer mapping
+    - Amount tracking for revenue recognition and reporting
+    
+    Validation Features:
+    - Sales stage validation ensures data consistency
+    - Close date format validation (YYYY-MM-DD)
+    - Account ID verification for relationship integrity
+    - Optional amount handling for preliminary opportunities
+    
+    Returns:
+    - Success: {'id': 'new_opportunity_id', 'success': True}
+    - Failure: {'error': 'detailed_error_message'}
+    """
     name: str = "create_opportunity_tool"
     description: str = (
-        "Creates a new opportunity in Salesforce. "
-        "Required: name, stage, close_date (YYYY-MM-DD), account_id. "
-        "Optional: amount."
+        "CREATE: New opportunity record with name, stage, close date, and account relationship. "
+        "Use for: 'create Enterprise License opportunity for Acme', 'add new deal'. "
+        "Creates single opportunity record - NOT for bulk operations or pipeline analytics. "
+        "Returns new opportunity ID for sales tracking."
     )
     args_schema: type = CreateOpportunityInput
 
@@ -520,11 +740,40 @@ class UpdateOpportunityInput(BaseModel):
 
 
 class UpdateOpportunityTool(BaseTool):
-    """Salesforce Opportunity Update Tool."""
+    """Salesforce Opportunity Update Tool.
+    
+    Updates existing opportunities with sales progression tracking and revenue adjustments.
+    Implements opportunity lifecycle management with stage progression validation
+    and forecasting updates for accurate pipeline reporting.
+    
+    Use Cases:
+    - Stage progression: "move opportunity to Closed Won"
+    - Amount updates: "increase opportunity value to $500K"
+    - Timeline changes: "extend close date to next quarter"
+    - Deal modifications: "update terms and conditions"
+    
+    Update Strategy:
+    - Selective field updates preserve opportunity history
+    - Stage progression validation ensures logical sales flow
+    - Amount adjustments trigger forecasting recalculations
+    - Close date modifications update pipeline projections
+    
+    Sales Process Integration:
+    - Stage validation against configured sales process
+    - Probability updates based on stage progression
+    - Revenue recognition impact calculation
+    - Pipeline reporting refresh triggers
+    
+    Returns:
+    - Success: {'success': True, 'id': 'opportunity_id'}
+    - Failure: {'error': 'detailed_error_message'}
+    """
     name: str = "update_opportunity_tool"
     description: str = (
-        "Updates an existing opportunity. "
-        "Required: opportunity_id. Optional: stage, amount, close_date."
+        "UPDATE: Existing opportunity with stage progression, amount, or close date changes. "
+        "Use for: 'move opportunity to Closed Won', 'increase deal amount', 'extend close date'. "
+        "Updates single opportunity record - NOT for bulk operations or pipeline analytics. "
+        "Requires opportunity_id for sales progression tracking."
     )
     args_schema: type = UpdateOpportunityInput
 
@@ -563,11 +812,42 @@ class GetContactInput(BaseModel):
 
 
 class GetContactTool(BaseTool):
-    """Salesforce Contact Retrieval Tool with Query Builder."""
+    """Salesforce Contact Retrieval Tool.
+    
+    Provides comprehensive contact discovery with intelligent account relationship mapping
+    and flexible search criteria. Implements contact-to-account relationship resolution
+    for complete customer relationship visibility and engagement tracking.
+    
+    Use Cases:
+    - Direct contact lookup: "get contact 003abc123"
+    - Email-based search: "find contact john@company.com"
+    - Name-based discovery: "search for John Smith contacts"
+    - Account relationship mapping: "all contacts at Acme Corp"
+    
+    Search Strategy:
+    - Primary: Direct contact ID lookup (fastest)
+    - Secondary: Email exact and partial matching
+    - Tertiary: Name fuzzy matching with LIKE operators
+    - Quaternary: Phone number search with formatting flexibility
+    - Advanced: Account name-to-contact relationship mapping
+    
+    Relationship Intelligence:
+    - Automatic account name-to-ID resolution
+    - Complex OR condition support for multi-field searches
+    - Account relationship prioritization for organized results
+    - Contact hierarchy and reporting structure visibility
+    
+    Returns:
+    - Single match: Direct contact object with account relationship
+    - Multiple matches: Contact array with relationship context
+    - No matches: [] (empty list)
+    """
     name: str = "get_contact_tool"
     description: str = (
-        "Retrieves Salesforce contacts using flexible search. "
-        "Search by: contact_id, email, name, phone, or account_name."
+        "LOOKUP: Individual contact records by ID, email, name, phone, or account. "
+        "Use for: 'get contact 003abc123', 'find john@company.com', 'contacts at Acme Corp'. "
+        "Returns specific contact records - NOT relationship analytics or engagement metrics. "
+        "For comprehensive account contacts, use GetAccountInsightsTool instead."
     )
     args_schema: type = GetContactInput
 
@@ -661,12 +941,40 @@ class CreateContactInput(BaseModel):
 
 
 class CreateContactTool(BaseTool):
-    """Salesforce Contact Creation Tool."""
+    """Salesforce Contact Creation Tool.
+    
+    Creates new contact records with account relationship establishment and comprehensive
+    contact profile data. Implements enterprise contact management patterns for customer
+    relationship building and engagement tracking.
+    
+    Use Cases:
+    - New contact creation: "add John Smith as contact for Acme Corp"
+    - Lead conversion: "convert lead to contact under existing account"
+    - Stakeholder mapping: "add decision maker contact with title"
+    - Relationship expansion: "create additional contact for customer account"
+    
+    Contact Creation Strategy:
+    - Required name fields for contact identification
+    - Account relationship establishment for customer mapping
+    - Optional communication fields for engagement
+    - Title/role information for stakeholder analysis
+    
+    Relationship Management:
+    - Account ID validation ensures relationship integrity
+    - Contact hierarchy establishment within account structure
+    - Communication preference setup for engagement
+    - Role-based access and visibility configuration
+    
+    Returns:
+    - Success: {'id': 'new_contact_id', 'success': True}
+    - Failure: {'error': 'detailed_error_message'}
+    """
     name: str = "create_contact_tool"
     description: str = (
-        "Creates a new contact in Salesforce. "
-        "Required: first_name, last_name, account_id. "
-        "Optional: email, phone, title."
+        "CREATE: New contact record with name, account relationship, and optional details. "
+        "Use for: 'create contact John Smith for Acme account', 'add new contact'. "
+        "Creates single contact record - NOT for bulk operations or relationship analytics. "
+        "Returns new contact ID for customer engagement."
     )
     args_schema: type = CreateContactInput
 
@@ -706,11 +1014,40 @@ class UpdateContactInput(BaseModel):
 
 
 class UpdateContactTool(BaseTool):
-    """Salesforce Contact Update Tool."""
+    """Salesforce Contact Update Tool.
+    
+    Updates existing contact records with new communication information and role changes.
+    Implements contact lifecycle management with data integrity preservation and
+    engagement history maintenance for customer relationship continuity.
+    
+    Use Cases:
+    - Contact information updates: "update email for contact abc123"
+    - Role changes: "promote contact to VP Sales title"
+    - Communication preferences: "add mobile phone number"
+    - Data enrichment: "update contact with complete profile information"
+    
+    Update Strategy:
+    - Selective field updates preserve contact history
+    - Communication field updates maintain engagement continuity
+    - Title changes reflect organizational structure updates
+    - Contact relationship preservation during modifications
+    
+    Data Integrity:
+    - Contact ID validation ensures authorized access
+    - Email format validation for communication reliability
+    - Phone number formatting for consistent data
+    - Title standardization for role-based analytics
+    
+    Returns:
+    - Success: {'success': True, 'id': 'contact_id'}
+    - Failure: {'error': 'detailed_error_message'}
+    """
     name: str = "update_contact_tool"
     description: str = (
-        "Updates existing Salesforce contact. "
-        "Required: contact_id. Optional: email, phone, title."
+        "UPDATE: Existing contact record with new email, phone, or title information. "
+        "Use for: 'update contact abc123 email', 'change title for contact', 'add phone number'. "
+        "Updates single contact record - NOT for bulk operations or relationship changes. "
+        "Requires contact_id and preserves relationship data."
     )
     args_schema: type = UpdateContactInput
 
@@ -748,11 +1085,43 @@ class GetCaseInput(BaseModel):
 
 
 class GetCaseTool(BaseTool):
-    """Salesforce Case Retrieval Tool with Query Builder."""
+    """Salesforce Case Retrieval Tool.
+    
+    Provides comprehensive customer service case discovery with intelligent relationship
+    mapping across accounts and contacts. Implements enterprise support case management
+    with flexible search patterns for complete customer service visibility.
+    
+    Use Cases:
+    - Direct case lookup: "get case 500abc123"
+    - Case number search: "find case 00001234"
+    - Subject-based discovery: "search cases about 'installation issues'"
+    - Account support history: "all cases for Acme Corp"
+    - Contact-specific cases: "cases reported by John Smith"
+    
+    Search Strategy:
+    - Primary: Direct case ID lookup (fastest)
+    - Secondary: Case number exact matching
+    - Tertiary: Subject partial matching for issue discovery
+    - Quaternary: Account relationship mapping for customer history
+    - Advanced: Contact relationship mapping for personal support history
+    
+    Support Intelligence:
+    - Automatic account and contact relationship resolution
+    - Case priority and status visibility for triage
+    - Chronological ordering for case progression tracking
+    - Customer service history mapping for context
+    
+    Returns:
+    - Single match: Direct case object with relationship context
+    - Multiple matches: Chronologically ordered case array
+    - No matches: [] (empty list)
+    """
     name: str = "get_case_tool"
     description: str = (
-        "Retrieves Salesforce cases using flexible search. "
-        "Search by: case_id, case_number, subject, account_name, or contact_name."
+        "LOOKUP: Individual case records by ID, number, subject, or account/contact. "
+        "Use for: 'get case 500abc123', 'find installation issue cases', 'cases for Acme Corp'. "
+        "Returns specific case records - NOT support analytics or volume trends. "
+        "For case analytics/trends, use GetBusinessMetricsTool instead."
     )
     args_schema: type = GetCaseInput
 
@@ -852,12 +1221,40 @@ class CreateCaseInput(BaseModel):
 
 
 class CreateCaseTool(BaseTool):
-    """Salesforce Case Creation Tool."""
+    """Salesforce Case Creation Tool.
+    
+    Creates new customer service cases with comprehensive issue tracking and relationship
+    mapping. Implements enterprise support case management with priority classification
+    and customer relationship establishment for efficient service delivery.
+    
+    Use Cases:
+    - Customer issue reporting: "create case for software installation problem"
+    - Support ticket creation: "log technical support request"
+    - Service request tracking: "create case for feature enhancement request"
+    - Incident management: "create high priority case for system outage"
+    
+    Case Creation Strategy:
+    - Required issue description for problem documentation
+    - Priority classification for support queue management
+    - Account/contact relationship for customer context
+    - Automatic case routing based on priority and type
+    
+    Support Process Integration:
+    - Priority validation against support SLA requirements
+    - Account relationship for customer service history
+    - Contact assignment for personalized support
+    - Case routing and escalation triggers
+    
+    Returns:
+    - Success: {'id': 'new_case_id', 'success': True}
+    - Failure: {'error': 'detailed_error_message'}
+    """
     name: str = "create_case_tool"
     description: str = (
-        "Creates a new case in Salesforce. "
-        "Required: subject, description. "
-        "Optional: account_id, contact_id, priority (defaults to 'Medium')."
+        "CREATE: New customer service case with subject, description, and optional relationships. "
+        "Use for: 'create case for installation issue', 'log support ticket'. "
+        "Creates single case record - NOT for bulk operations or support analytics. "
+        "Returns new case ID for support tracking."
     )
     args_schema: type = CreateCaseInput
 
@@ -913,11 +1310,40 @@ class UpdateCaseInput(BaseModel):
 
 
 class UpdateCaseTool(BaseTool):
-    """Salesforce Case Update Tool."""
+    """Salesforce Case Update Tool.
+    
+    Updates existing customer service cases with status progression and priority adjustments.
+    Implements support case lifecycle management with SLA tracking and escalation
+    procedures for enterprise customer service operations.
+    
+    Use Cases:
+    - Case resolution: "close case as resolved"
+    - Priority escalation: "increase case priority to High"
+    - Status progression: "move case to In Progress"
+    - Case routing: "update case assignment and priority"
+    
+    Update Strategy:
+    - Status progression validation for case lifecycle
+    - Priority adjustments for SLA compliance
+    - Selective field updates preserve case history
+    - Automatic escalation triggers based on updates
+    
+    Service Level Management:
+    - Status validation against support process workflows
+    - Priority changes trigger SLA recalculation
+    - Case progression tracking for performance metrics
+    - Customer notification triggers for status changes
+    
+    Returns:
+    - Success: {'success': True, 'id': 'case_id'}
+    - Failure: {'error': 'detailed_error_message'}
+    """
     name: str = "update_case_tool"
     description: str = (
-        "Updates existing Salesforce case. "
-        "Required: case_id. Optional: status, priority."
+        "UPDATE: Existing case record with status changes or priority adjustments. "
+        "Use for: 'close case abc123', 'escalate case priority', 'mark case in progress'. "
+        "Updates single case record - NOT for bulk operations or support analytics. "
+        "Requires case_id for support lifecycle management."
     )
     args_schema: type = UpdateCaseInput
 
@@ -952,11 +1378,41 @@ class GetTaskInput(BaseModel):
 
 
 class GetTaskTool(BaseTool):
-    """Salesforce Task Retrieval Tool with Query Builder."""
+    """Salesforce Task Retrieval Tool.
+    
+    Provides comprehensive activity and task discovery with intelligent relationship mapping
+    across accounts and contacts. Implements enterprise activity management with flexible
+    search patterns for complete sales and service activity visibility.
+    
+    Use Cases:
+    - Direct task lookup: "get task 00Tabc123"
+    - Subject-based search: "find tasks about 'follow up call'"
+    - Account activity history: "all tasks related to Acme Corp"
+    - Contact activity tracking: "tasks assigned to John Smith"
+    
+    Search Strategy:
+    - Primary: Direct task ID lookup (fastest)
+    - Secondary: Subject partial matching for activity discovery
+    - Tertiary: Account relationship mapping (WhatId) for customer activities
+    - Quaternary: Contact relationship mapping (WhoId) for personal activities
+    
+    Activity Intelligence:
+    - WhatId/WhoId relationship resolution for complete context
+    - Account and contact relationship mapping
+    - Activity date ordering for timeline visibility
+    - Task priority and status tracking for workflow management
+    
+    Returns:
+    - Single match: Direct task object with relationship context
+    - Multiple matches: Date-ordered task array for timeline view
+    - No matches: [] (empty list)
+    """
     name: str = "get_task_tool"
     description: str = (
-        "Retrieves Salesforce tasks using flexible search. "
-        "Search by: task_id, subject, account_name, or contact_name."
+        "LOOKUP: Individual task/activity records by ID, subject, or account/contact. "
+        "Use for: 'get task 00Tabc123', 'find follow-up tasks', 'tasks for Acme Corp'. "
+        "Returns specific task records - NOT activity analytics or productivity metrics. "
+        "For activity trends/analysis, use other analytics tools."
     )
     args_schema: type = GetTaskInput
 
@@ -1055,12 +1511,40 @@ class CreateTaskInput(BaseModel):
 
 
 class CreateTaskTool(BaseTool):
-    """Salesforce Task Creation Tool."""
+    """Salesforce Task Creation Tool.
+    
+    Creates new activity tasks with comprehensive relationship mapping and workflow integration.
+    Implements enterprise activity management with priority classification and due date
+    tracking for sales and service process automation.
+    
+    Use Cases:
+    - Follow-up scheduling: "create follow-up call task for next week"
+    - Activity planning: "schedule demo task for prospect"
+    - Service reminders: "create customer check-in task"
+    - Sales process automation: "create proposal review task"
+    
+    Task Creation Strategy:
+    - Required activity description and timeline
+    - Priority classification for workflow management
+    - Account/contact relationship establishment
+    - Automatic workflow and reminder integration
+    
+    Workflow Integration:
+    - WhatId (account) and WhoId (contact) relationship mapping
+    - Priority-based task routing and assignment
+    - Due date integration with calendar and reminder systems
+    - Activity history tracking for customer engagement
+    
+    Returns:
+    - Success: {'id': 'new_task_id', 'success': True}
+    - Failure: {'error': 'detailed_error_message'}
+    """
     name: str = "create_task_tool"
     description: str = (
-        "Creates a new task in Salesforce. "
-        "Required: subject, due_date (YYYY-MM-DD). "
-        "Optional: priority, account_id, contact_id, description."
+        "CREATE: New task/activity record with subject, due date, and optional relationships. "
+        "Use for: 'create follow-up task for next week', 'schedule demo task'. "
+        "Creates single task record - NOT for bulk operations or activity analytics. "
+        "Returns new task ID for activity tracking."
     )
     args_schema: type = CreateTaskInput
 
@@ -1118,11 +1602,40 @@ class UpdateTaskInput(BaseModel):
 
 
 class UpdateTaskTool(BaseTool):
-    """Salesforce Task Update Tool."""
+    """Salesforce Task Update Tool.
+    
+    Updates existing activity tasks with status progression and priority adjustments.
+    Implements activity lifecycle management with completion tracking and workflow
+    integration for enterprise sales and service process automation.
+    
+    Use Cases:
+    - Task completion: "mark task as completed"
+    - Priority escalation: "increase task priority to High"
+    - Status progression: "move task to In Progress"
+    - Activity management: "update task assignment and timeline"
+    
+    Update Strategy:
+    - Status progression validation for activity lifecycle
+    - Priority adjustments for workflow prioritization
+    - Selective field updates preserve activity history
+    - Automatic workflow triggers based on status changes
+    
+    Activity Management:
+    - Status validation against activity workflow states
+    - Priority changes affect task routing and assignment
+    - Completion tracking for performance metrics
+    - Activity timeline maintenance for customer engagement history
+    
+    Returns:
+    - Success: {'success': True, 'id': 'task_id'}
+    - Failure: {'error': 'detailed_error_message'}
+    """
     name: str = "update_task_tool"
     description: str = (
-        "Updates existing Salesforce task. "
-        "Required: task_id. Optional: status, priority."
+        "UPDATE: Existing task record with status completion or priority changes. "
+        "Use for: 'mark task abc123 completed', 'change task priority', 'update task status'. "
+        "Updates single task record - NOT for bulk operations or activity analytics. "
+        "Requires task_id for activity lifecycle management."
     )
     args_schema: type = UpdateTaskInput
 
@@ -1148,15 +1661,16 @@ class UpdateTaskTool(BaseTool):
             return {"error": str(e)}
 
 
-# Analytics Tools - Advanced SOQL Features
+# Analytics Tools - Advanced SOQL Aggregate Functions
 
 class GetSalesPipelineInput(BaseModel):
-    """Input schema for sales pipeline analysis."""
+    """Input validation for sales pipeline analysis parameters."""
     group_by: str = "StageName"
     min_amount: Optional[float] = None
 
     @field_validator("group_by")
     def validate_group_by(cls, v):
+        """Validate group_by parameter against supported SOQL grouping options."""
         valid_options = ["StageName", "OwnerId", "CloseDate"]
         if v not in valid_options:
             raise ValueError(f"group_by must be one of: {', '.join(valid_options)}")
@@ -1164,12 +1678,35 @@ class GetSalesPipelineInput(BaseModel):
 
 
 class GetSalesPipelineTool(BaseTool):
-    """Salesforce Pipeline Analysis Tool with Aggregate Functions."""
+    """Salesforce Sales Pipeline Analysis Tool.
+    
+    Provides comprehensive pipeline analytics using SOQL aggregate functions
+    including COUNT(), SUM(), and AVG() with GROUP BY clauses for business intelligence.
+    Implements enterprise-grade SOQL patterns for performance and data insights.
+    
+    Use Cases:
+    - Pipeline by stage: "show me pipeline by sales stage"
+    - Rep performance: "pipeline by sales rep with totals"
+    - Monthly trends: "revenue trends by month for forecasting"
+    - Filtered analysis: "pipeline over $100K grouped by owner"
+    
+    SOQL Features Used:
+    - Aggregate functions: COUNT(Id), SUM(Amount), AVG(Amount)
+    - GROUP BY clauses for dimensional analysis
+    - HAVING clauses for filtered aggregations
+    - ORDER BY with aggregate expressions for ranking
+    
+    Returns:
+    - Grouped metrics with counts, totals, and averages
+    - Sorted by total value (highest first) for priority insights
+    - Metadata tags for downstream processing context
+    """
     name: str = "get_sales_pipeline"
     description: str = (
-        "Analyzes the sales pipeline with aggregated metrics. "
-        "Returns opportunity counts, total amounts, and averages grouped by stage, owner, or month. "
-        "Perfect for: 'show me pipeline by stage', 'top sales reps', 'monthly revenue trends'."
+        "ANALYTICS: Sales pipeline analysis with aggregate functions (COUNT, SUM, AVG). "
+        "Use for: 'pipeline breakdown by stage', 'revenue totals by owner', 'monthly trends'. "
+        "Groups and aggregates opportunities - NOT for individual opportunity lookup. "
+        "Returns summary metrics and business intelligence dashboards."
     )
     args_schema: type = GetSalesPipelineInput
     
@@ -1248,13 +1785,14 @@ class GetSalesPipelineTool(BaseTool):
 
 
 class GetTopPerformersInput(BaseModel):
-    """Input schema for top performers analysis."""
+    """Input validation for top performers analysis parameters."""
     metric: str = "revenue"
     min_threshold: Optional[float] = 100000
     limit: int = 10
 
     @field_validator("metric")
     def validate_metric(cls, v):
+        """Validate metric type against supported performance measurements."""
         valid_metrics = ["revenue", "deal_count", "win_rate"]
         if v not in valid_metrics:
             raise ValueError(f"metric must be one of: {', '.join(valid_metrics)}")
@@ -1262,12 +1800,40 @@ class GetTopPerformersInput(BaseModel):
 
 
 class GetTopPerformersTool(BaseTool):
-    """Salesforce Top Performers Analysis Tool."""
+    """Salesforce Top Performers Analysis Tool.
+    
+    Identifies and ranks top performing sales representatives using comprehensive
+    performance metrics including revenue totals, deal counts, and win rates.
+    Implements sophisticated SOQL aggregation with post-processing calculations.
+    
+    Use Cases:
+    - Revenue leaders: "top 10 sales reps by closed revenue"
+    - Activity analysis: "most active reps by deal count"
+    - Efficiency metrics: "highest win rate performers"
+    - Threshold filtering: "reps with over $500K in sales"
+    
+    Analytics Features:
+    - Multi-metric analysis (revenue, deals, win rates)
+    - Minimum threshold filtering for qualified performers
+    - Separate query execution for complex win rate calculations
+    - Ranked results with performance indicators
+    
+    SOQL Complexity:
+    - Win rate calculation requires multiple queries due to SOQL limitations
+    - Post-processing combines total opportunities with won opportunities
+    - Implements business logic for percentage calculations
+    
+    Returns:
+    - Ranked performer list with key metrics
+    - Performance metadata tags for context
+    - Threshold-filtered results for executive reporting
+    """
     name: str = "get_top_performers"
     description: str = (
-        "Identifies top performers using advanced analytics. "
-        "Can rank by total revenue, deal count, or win rate. "
-        "Use for: 'top 10 sales reps', 'best performing accounts', 'highest win rates'."
+        "ANALYTICS: Top performer rankings using aggregated performance metrics. "
+        "Use for: 'top 10 sales reps', 'best win rates', 'most deals closed'. "
+        "Calculates rankings and statistics - NOT for individual rep lookup. "
+        "Returns ranked performance leaderboards with calculated metrics."
     )
     args_schema: type = GetTopPerformersInput
     
@@ -1360,19 +1926,48 @@ class GetTopPerformersTool(BaseTool):
 
 
 class GlobalSearchInput(BaseModel):
-    """Input schema for global cross-object search using SOSL."""
+    """Input validation for global cross-object search parameters."""
     search_term: str
     object_types: Optional[List[str]] = ["Account", "Contact", "Opportunity", "Lead"]
     limit: int = 20
 
 
 class GlobalSearchTool(BaseTool):
-    """Salesforce Global Search Tool using SOSL."""
+    """Salesforce Global Search Tool using SOSL.
+    
+    Performs comprehensive cross-object searches using Salesforce Object Search Language (SOSL)
+    to find related records across multiple object types in a single operation.
+    Implements enterprise search patterns with intelligent result grouping.
+    
+    Use Cases:
+    - Universal search: "find everything related to 'solar panel'"
+    - Email discovery: "search for john@company.com across all objects"
+    - Company intelligence: "find all Acme Corp related records"
+    - Keyword analysis: "search for 'enterprise software' mentions"
+    
+    SOSL Features:
+    - Cross-object searching in single API call
+    - Field-specific search scoping (ALL FIELDS, NAME FIELDS, EMAIL FIELDS)
+    - Per-object result limiting and filtering
+    - Intelligent result ordering by relevance and value
+    
+    Search Strategy:
+    - Searches across Account, Contact, Opportunity, and Lead objects
+    - Applies object-specific filtering (e.g., Amount > 0 for Opportunities)
+    - Orders results by business importance (revenue, status, activity)
+    - Groups results by object type for organized presentation
+    
+    Returns:
+    - Grouped search results by object type
+    - Search term metadata for context tracking
+    - Relevance-ordered results for maximum business value
+    """
     name: str = "global_search"
     description: str = (
-        "Searches across multiple Salesforce objects simultaneously using SOSL. "
-        "Finds accounts, contacts, opportunities, and leads matching the search term. "
-        "Use for: 'find anything related to Acme', 'search for john@example.com everywhere'."
+        "SEARCH: Cross-object global search using SOSL across multiple Salesforce objects. "
+        "Use for: 'find everything related to solar', 'search for john@company.com everywhere'. "
+        "Searches ALL object types simultaneously - NOT for single object searches. "
+        "Returns grouped results from Accounts, Contacts, Opportunities, and Leads."
     )
     args_schema: type = GlobalSearchInput
     
@@ -1448,19 +2043,48 @@ class GlobalSearchTool(BaseTool):
 
 
 class GetAccountInsightsInput(BaseModel):
-    """Input schema for comprehensive account insights."""
+    """Input validation for comprehensive account analysis parameters."""
     account_id: Optional[str] = None
     account_name: Optional[str] = None
     include_subqueries: bool = True
 
 
 class GetAccountInsightsTool(BaseTool):
-    """Salesforce Account 360 View Tool with Subqueries."""
+    """Salesforce Account 360 Intelligence Tool.
+    
+    Delivers comprehensive account intelligence by leveraging SOQL subqueries
+    to retrieve complete customer data relationships in a single API call.
+    Implements enterprise customer analytics with performance optimization.
+    
+    Use Cases:
+    - Customer 360 view: "complete analysis of Acme Corp account"
+    - Executive briefing: "tell me everything about our biggest client"
+    - Relationship mapping: "show me all touchpoints for this account"
+    - Pipeline review: "account health check with all related data"
+    
+    Technical Implementation:
+    - Subquery utilization for related record retrieval
+    - Single API call efficiency vs. multiple round trips
+    - Automatic summary metrics calculation in post-processing
+    - Relationship navigation (Opportunities, Contacts, Cases)
+    
+    Subquery Strategy:
+    - Opportunities: Top 10 by value with stage and close date
+    - Contacts: Most recent 5 with email addresses and activity
+    - Cases: Open cases only, prioritized by severity
+    - Summary metrics: Calculated totals and counts for dashboard view
+    
+    Returns:
+    - Complete account record with relationship data
+    - Calculated summary metrics (pipeline value, contact count, open cases)
+    - Structured subquery results for relationship analysis
+    """
     name: str = "get_account_insights"
     description: str = (
-        "Provides comprehensive account insights including related opportunities, contacts, and cases. "
-        "Uses subqueries to fetch related data efficiently in a single call. "
-        "Use for: 'tell me everything about Acme account', '360 view of customer'."
+        "ANALYTICS: Complete 360-degree account intelligence with related records. "
+        "Use for: 'everything about Acme Corp', 'complete customer analysis', 'account dashboard'. "
+        "Retrieves account + ALL related data in one call - NOT for basic account lookup. "
+        "Returns comprehensive account profile with opportunities, contacts, cases, and metrics."
     )
     args_schema: type = GetAccountInsightsInput
     
@@ -1524,13 +2148,14 @@ class GetAccountInsightsTool(BaseTool):
 
 
 class GetBusinessMetricsInput(BaseModel):
-    """Input schema for business metrics and KPI analysis."""
+    """Input validation for business metrics and KPI analysis parameters."""
     metric_type: str = "revenue"
     time_period: str = "THIS_QUARTER"
     group_by: Optional[str] = None
 
     @field_validator("metric_type")
     def validate_metric_type(cls, v):
+        """Validate metric type against supported business intelligence categories."""
         valid_types = ["revenue", "accounts", "leads", "cases"]
         if v not in valid_types:
             raise ValueError(f"metric_type must be one of: {', '.join(valid_types)}")
@@ -1538,6 +2163,7 @@ class GetBusinessMetricsInput(BaseModel):
 
     @field_validator("time_period")
     def validate_time_period(cls, v):
+        """Validate time period against supported Salesforce date literals."""
         valid_periods = ["THIS_MONTH", "LAST_MONTH", "THIS_QUARTER", "THIS_YEAR"]
         if v not in valid_periods:
             raise ValueError(f"time_period must be one of: {', '.join(valid_periods)}")
@@ -1545,12 +2171,46 @@ class GetBusinessMetricsInput(BaseModel):
 
 
 class GetBusinessMetricsTool(BaseTool):
-    """Salesforce Business Metrics and KPI Tool."""
+    """Salesforce Business Intelligence and KPI Analytics Tool.
+    
+    Delivers comprehensive business metrics and key performance indicators using
+    advanced SOQL aggregate functions with time-based analysis and dimensional grouping.
+    Implements enterprise reporting patterns for executive dashboards.
+    
+    Use Cases:
+    - Revenue analytics: "quarterly revenue by industry breakdown"
+    - Lead performance: "lead conversion rates by source channel"
+    - Customer metrics: "account distribution and growth analysis"
+    - Support analytics: "case volume trends and resolution metrics"
+    
+    Analytics Capabilities:
+    - Multi-dimensional analysis with GROUP BY operations
+    - Time-based filtering using Salesforce date literals
+    - Conversion rate calculations with multiple query orchestration
+    - Industry/source/priority segmentation for business insights
+    
+    Technical Implementation:
+    - Handles SOQL date literal restrictions through manual query construction
+    - Executes separate queries for conversion rate calculations
+    - Post-processes results for percentage and ratio calculations
+    - Implements workarounds for SOQL aggregate function limitations
+    
+    Date Handling Strategy:
+    - Bypasses SOQL query builder date quoting issues
+    - Manual query construction for date literal support
+    - Supports THIS_QUARTER, THIS_MONTH, THIS_YEAR, LAST_MONTH
+    
+    Returns:
+    - Aggregated business metrics with dimensional breakdowns
+    - Calculated KPIs (conversion rates, averages, totals)
+    - Time period and metric type metadata for context
+    """
     name: str = "get_business_metrics"
     description: str = (
-        "Calculates business metrics and KPIs using aggregate functions. "
-        "Can analyze revenue trends, account distribution, lead sources, and case volumes. "
-        "Use for: 'revenue this quarter', 'lead conversion by source', 'case volume trends'."
+        "ANALYTICS: Business KPIs and metrics with time-based aggregate analysis. "
+        "Use for: 'revenue this quarter', 'lead conversion rates', 'case volume trends'. "
+        "Calculates KPIs and trends over time periods - NOT for individual record metrics. "
+        "Returns calculated business metrics, conversion rates, and trend analysis."
     )
     args_schema: type = GetBusinessMetricsInput
     
