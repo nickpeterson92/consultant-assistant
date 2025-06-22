@@ -25,8 +25,8 @@ The Circuit Breaker acts like an electrical circuit breaker - it "trips" when to
 │        │ ^                                           │          │
 │        │ │                                           │          │
 │        │ │ success           timeout elapsed         │          │
-│        │ └───────────────┐                          │           │
-│        │                 │                          ▼           │
+│        │ └───────────────┐                           │          │
+│        │                 │                           ▼          │
 │        │                 │                   ┌──────────────┐   │
 │        │ failure         │                   │  HALF_OPEN   │   │
 │        └─────────────────┴───────────────────│   (Test)     │   │

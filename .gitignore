@@ -1,5 +1,6 @@
 .env
 .DS_Store
+
 # External log files - comprehensive logging
 *.log
 *.pyc
@@ -9,6 +10,7 @@ __pycache__/
 *.db-wal
 *.db-shm
 logs/
+
 # Exclude any other log directories that might be created
 src/logs/
 src/agents/logs/

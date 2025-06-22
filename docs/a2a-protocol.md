@@ -213,7 +213,7 @@ Orchestrator                    A2A Protocol                    Specialized Agen
      ├──POST /a2a───────────────────>│                                  │
      │  {method: "process_task",     │                                  │
      │   params: {task: {...}}}      │                                  │
-     │                               ├──VALIDATE REQUEST────────────────>│
+     │                               ├──VALIDATE REQUEST───────────────>│
      │                               │                                  │
      │                               │<─────PROCESS TASK────────────────┤
      │                               │                                  │
@@ -232,7 +232,7 @@ Orchestrator                    A2A Protocol                    Agent Registry
      │<──RETURN CAPABILITIES─────────┤                                  │
      │  {name, capabilities, ...}    │                                  │
      │                               │                                  │
-     ├──REGISTER AGENT──────────────────────────────────────────────>│
+     ├──REGISTER AGENT─────────────────────────────────────────────────>│
      │                               │                                  │
 ```
 
