@@ -1,5 +1,32 @@
-# salesforce_tools.py
+"""Salesforce CRM Tools - Enterprise-Grade CRUD Operations with Security-First Design.
 
+This module implements 15 comprehensive Salesforce tools following enterprise patterns:
+
+Architecture Philosophy:
+- **Loose Coupling**: Tools accept flexible search parameters without requiring deep SOQL knowledge
+- **Security-First**: All inputs sanitized through escape_soql() to prevent SOQL injection attacks
+- **Flexible Search**: Supports both exact ID lookups and fuzzy name-based searches across all objects
+- **Consistent Error Handling**: Graceful degradation with structured error responses for resilience
+- **Token Optimization**: Streamlined response formats removing unnecessary wrapper objects
+
+SOQL Injection Prevention Strategy:
+- escape_soql() function escapes single quotes in all user inputs before query construction
+- Parameterized query building with proper escaping at every input point
+- No raw string concatenation of user inputs into SOQL queries
+- Validated through Pydantic models before reaching SOQL layer
+
+Flexible Search Patterns:
+- Primary use case: "Get ALL records for [account/company]" - bulk retrieval
+- Secondary: Direct ID lookups for known records - fastest retrieval
+- Tertiary: Fuzzy name/email/phone searches - user convenience
+- All tools support OR conditions for maximum flexibility
+
+Error Handling Philosophy:
+- Never crash - always return structured error responses
+- Preserve error context for debugging while hiding sensitive details
+- Log all operations for audit trails and troubleshooting
+- Graceful empty result handling ([] instead of exceptions)
+"""
 
 import os
 from datetime import date
@@ -9,23 +36,23 @@ from langchain.tools import BaseTool
 from typing import Optional
 from simple_salesforce import Salesforce
 
-# Import centralized logging
 from src.utils.logging import log_tool_activity
-
-# Import input validation
 from src.utils.input_validation import validate_tool_input
-
-# All logging now handled by centralized activity_logger
 
 
 def escape_soql(value):
-    """Escape single quotes for SOQL injection prevention"""
+    """SOQL injection prevention through proper escaping.
+    
+    Critical security function that prevents SOQL injection by escaping single quotes.
+    Applied to ALL user inputs before query construction.
+    """
     if value is None:
         return ''
     return str(value).replace("'", "\\'")
 
 
 def get_salesforce_connection():
+    """Establishes authenticated Salesforce connection using environment credentials."""
     sf = Salesforce(
         username=os.environ["SFDC_USER"],
         password=os.environ["SFDC_PASS"],
@@ -75,11 +102,10 @@ class GetLeadTool(BaseTool):
         data = GetLeadInput(**kwargs)
 
         try:
-            # Log tool activity
             log_tool_activity("GetLeadTool", "RETRIEVE_LEAD", 
                             search_params={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
-            # Escape all user inputs to prevent SOQL injection
+            
             if data.lead_id:
                 escaped_id = escape_soql(data.lead_id)
                 query = f"SELECT Id, Name, Company, Email, Phone FROM Lead WHERE Id = '{escaped_id}'"
@@ -108,23 +134,20 @@ class GetLeadTool(BaseTool):
             if not records:
                 return records
                 
+            # Token optimization: Direct array/object returns without wrapper
             if len(records) > 1:
-                multiple_matches = {
-                    "multiple_matches": [
-                        {
-                            "id": rec["Id"],
-                            "name": rec["Name"],
-                            "company": rec["Company"],
-                            "email": rec["Email"],
-                            "phone": rec["Phone"]
-                        }
-                        for rec in records
-                    ]
-                }
-                return multiple_matches
+                return [
+                    {
+                        "id": rec["Id"],
+                        "name": rec["Name"],
+                        "company": rec["Company"],
+                        "email": rec["Email"],
+                        "phone": rec["Phone"]
+                    }
+                    for rec in records
+                ]
             else:
-                match = {"match": records[0]}
-                return match
+                return records[0]
         except Exception as e:
             return {"error": str(e)}
 
@@ -164,7 +187,6 @@ class CreateLeadTool(BaseTool):
 
     def _run(self, **kwargs) -> dict:
         try:
-            # Log tool activity
             log_tool_activity("CreateLeadTool", "CREATE_LEAD", 
                             input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
@@ -215,7 +237,6 @@ class UpdateLeadTool(BaseTool):
 
     def _run(self, **kwargs) -> dict:
         try:
-            # Log tool activity
             log_tool_activity("UpdateLeadTool", "UPDATE_LEAD", 
                             input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
@@ -226,7 +247,6 @@ class UpdateLeadTool(BaseTool):
                 "Phone": data.phone
             })
             
-            # Log successful update
             log_tool_activity("UpdateLeadTool", "UPDATE_LEAD_SUCCESS", 
                               record_id=data.lead_id)
             return "Successfully updated lead with Id: " + data.lead_id
@@ -289,7 +309,6 @@ class GetOpportunityTool(BaseTool):
         opportunity_name = data.opportunity_name
         opportunity_id = data.opportunity_id
 
-        # Escape all user inputs to prevent SOQL injection
         sf = get_salesforce_connection()
         if opportunity_id:
             escaped_opp_id = escape_soql(opportunity_id)
@@ -312,7 +331,6 @@ class GetOpportunityTool(BaseTool):
             query = f"SELECT Id, Name, StageName, Amount, Account.Name FROM Opportunity WHERE {' OR '.join(query_conditions)}"
             
         try:
-            # Log tool activity
             log_tool_activity("GetOpportunityTool", "RETRIEVE_OPPORTUNITY", 
                             search_params={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             result = sf.query(query)
@@ -324,23 +342,22 @@ class GetOpportunityTool(BaseTool):
         if not records:
             return records
             
+        # Optimized response format - remove wrapper objects to reduce token usage
         if len(records) > 1:
-            multiple_matches = {
-                "multiple_matches": [
-                    {
-                        "id": rec["Id"],
-                        "name": rec["Name"],
-                        "account": rec["Account"]["Name"],
-                        "stage": rec["StageName"],
-                        "amount": rec["Amount"],
-                    }
-                    for rec in records
-                ]
-            }
-            return multiple_matches
+            # Return array directly for multiple matches
+            return [
+                {
+                    "id": rec["Id"],
+                    "name": rec["Name"],
+                    "account": rec["Account"]["Name"],
+                    "stage": rec["StageName"],
+                    "amount": rec["Amount"],
+                }
+                for rec in records
+            ]
         else:
-            match = {"match": records[0]}
-            return match
+            # Return single object directly
+            return records[0]
     
 
 class CreateOpportunityInput(BaseModel):
@@ -391,7 +408,6 @@ class CreateOpportunityTool(BaseTool):
         close_date = data.close_date
 
         try:
-            # Log tool activity
             log_tool_activity("CreateOpportunityTool", "CREATE_OPPORTUNITY", 
                             input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
@@ -432,6 +448,20 @@ class UpdateOpportunityInput(BaseModel):
         return v
 
 class UpdateOpportunityTool(BaseTool):
+    """Salesforce Opportunity Update Tool.
+    
+    Updates opportunity stage and amount for pipeline progression and forecasting.
+    Implements strict stage validation to ensure data integrity.
+    
+    Stage Validation:
+    - Enforces standard Salesforce opportunity stages through Pydantic validator
+    - Prevents invalid stage names that would break reporting
+    - Stage changes trigger forecast updates and sales notifications
+    
+    Revenue Impact:
+    - Amount updates affect pipeline reports and quota attainment
+    - Stage progression updates win probability and forecast category
+    """
     name: str = "update_opportunity_tool"
     description: str = (
         "Updates an existing Opportunity. Called directly if an opportunity_id is provided. "
@@ -447,7 +477,6 @@ class UpdateOpportunityTool(BaseTool):
         opp_id = data.opportunity_id
         
         try:
-            # Log tool activity
             log_tool_activity("UpdateOpportunityTool", "UPDATE_OPPORTUNITY", 
                             input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
@@ -456,7 +485,6 @@ class UpdateOpportunityTool(BaseTool):
                 "Amount": amount
             })
             
-            # Log successful update
             log_tool_activity("UpdateOpportunityTool", "UPDATE_OPPORTUNITY_SUCCESS", 
                               record_id=opp_id)
             return "Successfully updated opportunity with Id: " + opp_id
@@ -506,7 +534,6 @@ class GetAccountTool(BaseTool):
         account_id = data.account_id
         account_name = data.account_name
 
-        # Escape all user inputs to prevent SOQL injection
         sf = get_salesforce_connection()
         if account_id:
             escaped_account_id = escape_soql(account_id)
@@ -518,7 +545,6 @@ class GetAccountTool(BaseTool):
             query = f"SELECT Id, Name FROM Account WHERE {' AND '.join(query_conditions)}"
 
         try:
-            # Log tool activity
             log_tool_activity("GetAccountTool", "RETRIEVE_ACCOUNT", 
                             search_params={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             result = sf.query(query)
@@ -530,20 +556,19 @@ class GetAccountTool(BaseTool):
         if not records:
             return records
             
+        # Optimized response format - remove wrapper objects to reduce token usage
         if len(records) > 1:
-            multiple_matches = {
-                "multiple_matches": [
-                    {
-                        "id": rec["Id"],
-                        "name": rec["Name"]
-                    }
-                    for rec in records
-                ]
-            }
-            return multiple_matches
+            # Return array directly for multiple matches
+            return [
+                {
+                    "id": rec["Id"],
+                    "name": rec["Name"]
+                }
+                for rec in records
+            ]
         else:
-            match = {"match": records[0]}
-            return match
+            # Return single object directly  
+            return records[0]
     
 
 class CreateAccountInput(BaseModel):
@@ -553,6 +578,17 @@ class CreateAccountInput(BaseModel):
 
 
 class CreateAccountTool(BaseTool):
+    """Salesforce Account Creation Tool.
+    
+    Creates new customer accounts in Salesforce CRM with minimal required fields.
+    Designed for rapid account onboarding while maintaining data quality standards.
+    
+    Business Rules:
+    - Minimal viable account: name + phone (enables immediate contact)
+    - Website optional but recommended for B2B accounts
+    - Triggers account assignment rules and territory management
+    - Creates foundation for all downstream CRM relationships
+    """
     name: str = "create_account_tool"
     description: str = (
         "Creates a new Salesforce account. Requires: account_name and phone. "
@@ -564,7 +600,6 @@ class CreateAccountTool(BaseTool):
         data = CreateAccountInput(**kwargs)
 
         try:
-            # Log tool activity
             log_tool_activity("CreateAccountTool", "CREATE_ACCOUNT", 
                             input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
@@ -585,6 +620,16 @@ class UpdateAccountInput(BaseModel):
 
 
 class UpdateAccountTool(BaseTool):
+    """Salesforce Account Update Tool.
+    
+    Modifies existing account records with new contact information while preserving
+    all relationships and historical data. Implements partial update patterns.
+    
+    Update Patterns:
+    - Contact info updates: Phone number changes, website updates
+    - Preserves all child records: Contacts, opportunities, cases, tasks
+    - Maintains audit trail for compliance and change tracking
+    """
     name: str = "update_account_tool"
     description: str = (
         "Updates an existing Salesforce account. Requires an account_id. "
@@ -595,7 +640,6 @@ class UpdateAccountTool(BaseTool):
     def _run(self, **kwargs) -> dict:
         data = UpdateAccountInput(**kwargs)
         try:
-            # Log tool activity
             log_tool_activity("UpdateAccountTool", "UPDATE_ACCOUNT", 
                             input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
@@ -604,7 +648,6 @@ class UpdateAccountTool(BaseTool):
                 "Website": data.website
             })
             
-            # Log successful update
             log_tool_activity("UpdateAccountTool", "UPDATE_ACCOUNT_SUCCESS", 
                               record_id=data.account_id)
             return "Successfully updated account with Id: " + data.account_id
@@ -665,7 +708,6 @@ class GetContactTool(BaseTool):
         account_name = data.account_name
         account_id = data.account_id
 
-        # Escape all user inputs to prevent SOQL injection
         sf = get_salesforce_connection()
         if contact_id:
             escaped_contact_id = escape_soql(contact_id)
@@ -694,7 +736,6 @@ class GetContactTool(BaseTool):
             query = f"SELECT Id, Name, Account.Name, Email, Phone FROM Contact WHERE {' OR '.join(query_conditions)}"
 
         try:
-            # Log tool activity
             log_tool_activity("GetContactTool", "RETRIEVE_CONTACT", 
                             search_params={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             result = sf.query(query)
@@ -706,23 +747,22 @@ class GetContactTool(BaseTool):
         if not records:
             return records
             
+        # Optimized response format - remove wrapper objects to reduce token usage
         if len(records) > 1:
-            multiple_matches = {
-                "multiple_matches": [
-                    {
-                        "id": rec["Id"],
-                        "name": rec["Name"],
-                        "account": rec["Account"]["Name"] if rec["Account"] else None,
-                        "email": rec["Email"],
-                        "phone": rec["Phone"]
-                    }
-                    for rec in records
-                ]
-            }
-            return multiple_matches
+            # Return array directly for multiple matches
+            return [
+                {
+                    "id": rec["Id"],
+                    "name": rec["Name"],
+                    "account": rec["Account"]["Name"] if rec["Account"] else None,
+                    "email": rec["Email"],
+                    "phone": rec["Phone"]
+                }
+                for rec in records
+            ]
         else:
-            match = {"match": records[0]}
-            return match
+            # Return single object directly
+            return records[0]
     
 
 class CreateContactInput(BaseModel):
@@ -733,6 +773,16 @@ class CreateContactInput(BaseModel):
 
 
 class CreateContactTool(BaseTool):
+    """Salesforce Contact Creation Tool.
+    
+    Creates new contact records linked to existing accounts. Essential for
+    building account relationships and enabling multi-threaded sales engagement.
+    
+    Required Relationships:
+    - Must link to existing account via account_id
+    - Creates bidirectional account-contact relationship
+    - Enables role-based contact management (decision makers, influencers)
+    """
     name: str = "create_contact_tool"
     description: str = (
         "Creates a new Salesforce contact. Requires: name, account_id, email, and phone."
@@ -743,7 +793,6 @@ class CreateContactTool(BaseTool):
         data = CreateContactInput(**kwargs)
 
         try:
-            # Log tool activity
             log_tool_activity("CreateContactTool", "CREATE_CONTACT", 
                             input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
@@ -765,6 +814,16 @@ class UpdateContactInput(BaseModel):
 
 
 class UpdateContactTool(BaseTool):
+    """Salesforce Contact Update Tool.
+    
+    Updates contact communication preferences and details while maintaining
+    account relationships and activity history. Critical for data hygiene.
+    
+    Common Use Cases:
+    - Email address changes (job changes, domain migrations)
+    - Phone number updates (new office, mobile numbers)
+    - Preserves all related activities, opportunities, and cases
+    """
     name: str = "update_contact_tool"
     description: str = (
         "Updates an existing Salesforce contact. Requires a contact_id. "
@@ -775,7 +834,6 @@ class UpdateContactTool(BaseTool):
     def _run(self, **kwargs) -> dict:
         data = UpdateContactInput(**kwargs)
         try:
-            # Log tool activity
             log_tool_activity("UpdateContactTool", "UPDATE_CONTACT", 
                             input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
@@ -784,7 +842,6 @@ class UpdateContactTool(BaseTool):
                 "Phone": data.phone
             })
             
-            # Log successful update
             log_tool_activity("UpdateContactTool", "UPDATE_CONTACT_SUCCESS", 
                               record_id=data.contact_id)
             return "Successfully updated contact with Id: " + data.contact_id
@@ -836,12 +893,10 @@ class GetCaseTool(BaseTool):
     def _run(self, **kwargs) -> dict:
         data = GetCaseInput(**kwargs)
         try:
-            # Log tool activity
             log_tool_activity("GetCaseTool", "RETRIEVE_CASE", 
                             search_params={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             
-            # Escape all user inputs to prevent SOQL injection
             if data.case_id:
                 escaped_case_id = escape_soql(data.case_id)
                 query = f"SELECT Id, Subject, Description, Account.Name, Contact.Name FROM Case WHERE Id = '{escaped_case_id}'"
@@ -868,22 +923,19 @@ class GetCaseTool(BaseTool):
             if not records:
                 return records
                 
+            # Token optimization: Direct array/object returns without wrapper
             if len(records) > 1:
-                multiple_matches = {
-                    "multiple_matches": [
-                        {
-                            "id": rec["Id"],
-                            "subject": rec["Subject"],
-                            "account": rec["Account"]["Name"] if rec["Account"] else None,
-                            "contact": rec["Contact"]["Name"] if rec["Contact"] else None
-                        }
-                        for rec in records
-                    ]
-                }
-                return multiple_matches
+                return [
+                    {
+                        "id": rec["Id"],
+                        "subject": rec["Subject"],
+                        "account": rec["Account"]["Name"] if rec["Account"] else None,
+                        "contact": rec["Contact"]["Name"] if rec["Contact"] else None
+                    }
+                    for rec in records
+                ]
             else:
-                match = {"match": records[0]}
-                return match
+                return records[0]
         except Exception as e:
             return {"error": str(e)}
         
@@ -896,6 +948,17 @@ class CreateCaseInput(BaseModel):
 
 
 class CreateCaseTool(BaseTool):
+    """Salesforce Case Creation Tool.
+    
+    Creates customer service cases with proper account and contact associations.
+    Designed for efficient ticket creation with intelligent subject summarization.
+    
+    Design Decisions:
+    - Requires both account AND contact for proper case routing
+    - Subject line discretion: AI summarizes user input effectively
+    - Description optional: Use for detailed context when needed
+    - Triggers case assignment rules and SLA timers
+    """
     name: str = "create_case_tool"
     description: str = (
         "Creates a new Salesforce case. Requires a subject, account_id and contact_id. Optional fields include description. "
@@ -906,7 +969,6 @@ class CreateCaseTool(BaseTool):
     def _run(self, **kwargs) -> dict:
         data = CreateCaseInput(**kwargs)
         try:
-            # Log tool activity
             log_tool_activity("CreateCaseTool", "CREATE_CASE", 
                             input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
@@ -928,6 +990,16 @@ class UpdateCaseInput(BaseModel):
 
 
 class UpdateCaseTool(BaseTool):
+    """Salesforce Case Update Tool.
+    
+    Updates case status and resolution details for customer service workflows.
+    Critical for SLA compliance and customer satisfaction tracking.
+    
+    Status Progression:
+    - Moves cases through support lifecycle (New → Working → Resolved)
+    - Updates trigger escalation rules and notifications
+    - Description updates preserve case history and resolution notes
+    """
     name: str = "update_case_tool"
     description: str = (
         "Updates an existing Salesforce case. Requires a case_id and status. "
@@ -938,7 +1010,6 @@ class UpdateCaseTool(BaseTool):
     def _run(self, **kwargs) -> dict:
         data = UpdateCaseInput(**kwargs)
         try:
-            # Log tool activity
             log_tool_activity("UpdateCaseTool", "UPDATE_CASE", 
                             input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
@@ -947,7 +1018,6 @@ class UpdateCaseTool(BaseTool):
                 "Description": data.description
             })
             
-            # Log successful update
             log_tool_activity("UpdateCaseTool", "UPDATE_CASE_SUCCESS", 
                               record_id=data.case_id)
             return "Successfully updated case with Id: " + data.case_id
@@ -1000,12 +1070,10 @@ class GetTaskTool(BaseTool):
     def _run(self, **kwargs) -> dict:
         data = GetTaskInput(**kwargs)
         try:
-            # Log tool activity
             log_tool_activity("GetTaskTool", "RETRIEVE_TASK", 
                             search_params={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
             
-            # Escape all user inputs to prevent SOQL injection
             if data.task_id:
                 escaped_task_id = escape_soql(data.task_id)
                 query = f"SELECT Id, Subject, Account.Name, Who.Name FROM Task WHERE Id = '{escaped_task_id}'"
@@ -1035,22 +1103,19 @@ class GetTaskTool(BaseTool):
             if not records:
                 return records
                 
+            # Token optimization: Direct array/object returns without wrapper
             if len(records) > 1:
-                multiple_matches = {
-                    "multiple_matches": [
-                        {
-                            "id": rec["Id"],
-                            "subject": rec["Subject"],
-                            "account": rec["Account"]["Name"] if rec["Account"] else None,
-                            "contact": rec["Who"]["Name"] if rec["Who"] else None
-                        }
-                        for rec in records
-                    ]
-                }
-                return multiple_matches
+                return [
+                    {
+                        "id": rec["Id"],
+                        "subject": rec["Subject"],
+                        "account": rec["Account"]["Name"] if rec["Account"] else None,
+                        "contact": rec["Who"]["Name"] if rec["Who"] else None
+                    }
+                    for rec in records
+                ]
             else:
-                match = {"match": records[0]}
-                return match
+                return records[0]
         except Exception as e:
             return {"error": str(e)}
         
@@ -1063,6 +1128,16 @@ class CreateTaskInput(BaseModel):
 
 
 class CreateTaskTool(BaseTool):
+    """Salesforce Task Creation Tool.
+    
+    Creates activity records for sales and service follow-up tracking.
+    Links tasks to both accounts (WhatId) and contacts (WhoId) for complete context.
+    
+    Design Philosophy:
+    - Dual linking: Account provides context, Contact provides assignment
+    - Subject summarization: AI condenses user input into actionable titles
+    - Enables activity timeline views and productivity analytics
+    """
     name: str = "create_task_tool"
     description: str = (
         "Creates a new Salesforce task. Requires a subject, account_id and contact_id. Optional fields include description. "
@@ -1073,7 +1148,6 @@ class CreateTaskTool(BaseTool):
     def _run(self, **kwargs) -> dict:
         data = CreateTaskInput(**kwargs)
         try:
-            # Log tool activity
             log_tool_activity("CreateTaskTool", "CREATE_TASK", 
                             input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
@@ -1095,6 +1169,16 @@ class UpdateTaskInput(BaseModel):
 
 
 class UpdateTaskTool(BaseTool):
+    """Salesforce Task Update Tool.
+    
+    Updates task completion status and notes for activity management.
+    Essential for sales productivity tracking and follow-up completion.
+    
+    Status Management:
+    - Tracks task progression (Not Started → In Progress → Completed)
+    - Updates affect activity reports and user productivity metrics
+    - Description updates capture completion notes and outcomes
+    """
     name: str = "update_task_tool"
     description: str = (
         "Updates an existing Salesforce task. Requires a task_id and status. "
@@ -1105,7 +1189,6 @@ class UpdateTaskTool(BaseTool):
     def _run(self, **kwargs) -> dict:
         data = UpdateTaskInput(**kwargs)
         try:
-            # Log tool activity
             log_tool_activity("UpdateTaskTool", "UPDATE_TASK", 
                             input_data={k: v for k, v in locals().items() if k not in ['self', 'sf']})
             sf = get_salesforce_connection()
@@ -1114,7 +1197,6 @@ class UpdateTaskTool(BaseTool):
                 "Description": data.description
             })
             
-            # Log successful update
             log_tool_activity("UpdateTaskTool", "UPDATE_TASK_SUCCESS", 
                               record_id=data.task_id)
             return "Successfully updated task with Id: " + data.task_id

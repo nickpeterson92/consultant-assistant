@@ -66,10 +66,11 @@
     "allowed_file_types": [".txt", ".pdf", ".docx", ".csv", ".json"]
   },
   "conversation": {
-    "summary_threshold": 12,
-    "max_conversation_length": 100,
+    "summary_threshold": 5,
+    "max_conversation_length": 50,
     "memory_extraction_enabled": true,
-    "memory_extraction_delay": 0.5
+    "memory_extraction_delay": 0.5,
+    "memory_update_turn_threshold": 3
   },
   "agents": {
     "salesforce-agent": {

@@ -1,6 +1,43 @@
 """
-Memory and Summary Logging System
-Provides detailed tracking of all memory operations and summary generation
+Memory and Summary Logging System for Multi-Agent Architecture
+
+This module provides specialized logging for memory operations and conversation summarization
+in the multi-agent system. Key architectural decisions:
+
+1. **Structured JSON Logging**:
+   - All memory operations logged as JSON for analytics and debugging
+   - Enables tracking of memory access patterns and optimization opportunities
+   - Supports memory leak detection and usage analysis
+
+2. **Separation of Concerns**:
+   - Memory operations logged separately from general activity
+   - Summary generation tracked independently for performance analysis
+   - Each logger writes to its own file to prevent log mixing
+
+3. **Fire-and-Forget Pattern**:
+   - Memory logging never blocks actual memory operations
+   - Uses Python's built-in logging with file handlers for reliability
+   - Silent failures prevent logging from impacting system stability
+
+4. **Intelligent Filtering**:
+   - LLM cache operations filtered to reduce log noise
+   - Focus on user-facing memory operations for debugging
+   - Configurable filtering based on namespace patterns
+
+5. **Size and Token Tracking**:
+   - Tracks memory usage in bytes, characters, and estimated tokens
+   - Enables capacity planning and cost optimization
+   - Identifies large memory operations for performance tuning
+
+6. **Type-Aware Serialization**:
+   - Different serialization strategies for different data types
+   - Full content logging for memory namespace (debugging aid)
+   - Truncation for large values to prevent log bloat
+   - Preserves type information for reconstruction
+
+The dual-logger approach (MemoryLogger + SummaryLogger) provides focused insights into
+two critical aspects of the system: persistent memory management and conversation
+summarization efficiency.
 """
 
 import logging
@@ -19,23 +56,15 @@ class MemoryLogger:
     def __init__(self, log_file: str = "logs/memory.log"):
         self.logger = logging.getLogger("memory_operations")
         self.logger.setLevel(logging.INFO)
-        self.logger.propagate = False  # Prevent propagation to root logger
+        self.logger.propagate = False
         
-        # Remove existing handlers to avoid duplicates
         if self.logger.hasHandlers():
             self.logger.handlers.clear()
         
-        # Create file handler
         handler = logging.FileHandler(log_file)
         formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
         handler.setFormatter(formatter)
         self.logger.addHandler(handler)
-        
-        # Only add console handler in debug mode (no console logging by default)
-        # console_handler = logging.StreamHandler()
-        # console_handler.setFormatter(formatter)
-        # console_handler.setLevel(logging.WARNING)  # Only warnings and errors to console
-        # self.logger.addHandler(console_handler)
     
     def log_memory_operation(self, operation: str, namespace: Tuple[str, ...], key: str,
                            value_in: Any = None, value_out: Any = None, 
@@ -43,12 +72,12 @@ class MemoryLogger:
                            success: bool = True, error: str = None):
         """Log a memory storage operation"""
         
-        # Skip cache operations to reduce noise
+        # Filter cache operations for cleaner logs
         if namespace and len(namespace) > 0 and namespace[0] == "llm_cache":
             return
         log_data = {
             "timestamp": time.time(),
-            "operation": operation,  # GET, PUT, DELETE
+            "operation": operation,
             "namespace": namespace,
             "key": key,
             "user_id": user_id,
@@ -58,11 +87,17 @@ class MemoryLogger:
         
         if value_in is not None:
             log_data["value_in"] = self._serialize_value(value_in, namespace)
-            log_data["value_in_size"] = len(str(value_in)) if value_in else 0
+            value_in_str = str(value_in)
+            log_data["value_in_size_bytes"] = len(value_in_str.encode('utf-8')) if value_in else 0
+            log_data["value_in_size_chars"] = len(value_in_str) if value_in else 0
+            log_data["value_in_estimated_tokens"] = len(value_in_str) // 4 if value_in else 0
         
         if value_out is not None:
             log_data["value_out"] = self._serialize_value(value_out, namespace)
-            log_data["value_out_size"] = len(str(value_out)) if value_out else 0
+            value_out_str = str(value_out)
+            log_data["value_out_size_bytes"] = len(value_out_str.encode('utf-8')) if value_out else 0
+            log_data["value_out_size_chars"] = len(value_out_str) if value_out else 0
+            log_data["value_out_estimated_tokens"] = len(value_out_str) // 4 if value_out else 0
         
         if error:
             log_data["error"] = str(error)
@@ -94,15 +129,14 @@ class MemoryLogger:
         
         value_type = type(value).__name__
         
-        # Handle different types appropriately
         if isinstance(value, (str, int, float, bool)):
             return {"type": value_type, "value": value}
         elif isinstance(value, dict):
-            # For memory operations, show full content to aid debugging
+            # Full content for memory namespace (debugging aid)
             if namespace and len(namespace) > 0 and namespace[0] == "memory":
-                return {"type": value_type, "value": value}  # Full content for memory
+                return {"type": value_type, "value": value}
             
-            # For other dicts, log structure but truncate large values
+            # Truncate large values for other namespaces
             truncated_dict = {}
             for k, v in value.items():
                 if isinstance(v, str) and len(v) > 200:
@@ -123,23 +157,15 @@ class SummaryLogger:
     def __init__(self, log_file: str = "logs/summary.log"):
         self.logger = logging.getLogger("summary_operations")
         self.logger.setLevel(logging.INFO)
-        self.logger.propagate = False  # Prevent propagation to root logger
+        self.logger.propagate = False
         
-        # Remove existing handlers to avoid duplicates
         if self.logger.hasHandlers():
             self.logger.handlers.clear()
         
-        # Create file handler
         handler = logging.FileHandler(log_file)
         formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
         handler.setFormatter(formatter)
         self.logger.addHandler(handler)
-        
-        # Only add console handler in debug mode (no console logging by default)
-        # console_handler = logging.StreamHandler()
-        # console_handler.setFormatter(formatter)
-        # console_handler.setLevel(logging.WARNING)  # Only warnings and errors to console
-        # self.logger.addHandler(console_handler)
     
     def log_summary_request(self, messages_count: int, current_summary: str,
                            memory_context: Any, component: str = "unknown",
@@ -155,7 +181,9 @@ class SummaryLogger:
             "current_summary_length": len(current_summary) if current_summary else 0,
             "current_summary_preview": (current_summary[:200] + "...") if current_summary and len(current_summary) > 200 else current_summary,
             "memory_context_type": type(memory_context).__name__,
-            "memory_context_size": len(str(memory_context)) if memory_context else 0
+            "memory_context_size_bytes": len(str(memory_context).encode('utf-8')) if memory_context else 0,
+            "memory_context_size_chars": len(str(memory_context)) if memory_context else 0,
+            "memory_context_estimated_tokens": len(str(memory_context)) // 4 if memory_context else 0
         }
         
         self.logger.info(json.dumps(log_data))
@@ -172,6 +200,8 @@ class SummaryLogger:
             "user_id": user_id,
             "turn": turn,
             "new_summary_length": len(new_summary) if new_summary else 0,
+            "new_summary_size_bytes": len(new_summary.encode('utf-8')) if new_summary else 0,
+            "new_summary_estimated_tokens": len(new_summary) // 4 if new_summary else 0,
             "new_summary_preview": (new_summary[:800] + "...") if new_summary and len(new_summary) > 800 else new_summary,
             "messages_preserved": messages_preserved,
             "messages_deleted": messages_deleted,

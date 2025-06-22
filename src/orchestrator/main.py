@@ -1,6 +1,21 @@
-"""
-Orchestrator Agent - Main LangGraph Implementation
-Coordinates communication between user and specialized agents via A2A protocol
+"""Multi-agent orchestrator implementation using LangGraph.
+
+This module serves as the central coordination hub for the consultant assistant system,
+managing communication between users and specialized agents through the A2A protocol.
+It implements enterprise patterns including circuit breakers, connection pooling, and
+intelligent agent selection based on capabilities.
+
+The orchestrator uses LangGraph's state management for conversation flow, memory
+persistence, and background task execution. It coordinates with specialized agents
+(Salesforce, Travel, HR, etc.) to fulfill user requests while maintaining conversation
+context and extracting structured data for future reference.
+
+Key responsibilities:
+- Route user requests to appropriate specialized agents
+- Maintain conversation state and memory across sessions
+- Summarize long conversations to manage token usage
+- Extract and persist structured data from agent responses
+- Handle resilience patterns for distributed system reliability
 """
 
 import os
@@ -14,7 +29,6 @@ from typing_extensions import TypedDict
 
 from dotenv import load_dotenv
 
-# Add logging configuration
 from src.utils.logging import get_logger, get_performance_tracker, get_cost_tracker, init_session_tracking
 
 from trustcall import create_extractor
@@ -29,7 +43,6 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import AzureChatOpenAI
 
-# Imports no longer need path manipulation
 
 from .agent_registry import AgentRegistry
 from .agent_caller_tools import SalesforceAgentTool, GenericAgentTool, AgentRegistryTool
@@ -37,7 +50,6 @@ from src.utils.helpers import type_out, smart_preserve_messages
 from src.utils.storage import get_async_store_adapter
 from src.utils.storage.memory_schemas import SimpleMemory
 from src.utils.logging import get_summary_logger
-# Removed custom caching - Azure OpenAI provides automatic prompt caching for GPT-4o/4o-mini
 from .enhanced_sys_msg import orchestrator_chatbot_sys_msg, orchestrator_summary_sys_msg
 from src.utils.config import get_llm_config
 from src.utils.sys_msg import TRUSTCALL_INSTRUCTION
@@ -45,64 +57,80 @@ from src.utils.sys_msg import TRUSTCALL_INSTRUCTION
 import logging
 
 
-# Disable LangSmith tracing to avoid circular reference errors
+# Disable LangSmith tracing to prevent circular reference errors in async context
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
 
-# Import centralized logging
 from src.utils.logging import log_orchestrator_activity, log_cost_activity
 
-# Logging functions now imported from centralized activity_logger
 
 
 logger = logging.getLogger(__name__)
 
-# State management now handled by LangGraph + SQLiteStore + A2A protocol
+# Initialize global agent registry for service discovery
 agent_registry = AgentRegistry()
 
 def create_azure_openai_chat():
-    """Create Azure OpenAI chat instance using global config"""
+    """Create and configure Azure OpenAI chat instance.
+    
+    Returns:
+        AzureChatOpenAI: Configured LLM instance with settings from environment
+        and global configuration including temperature, token limits, and timeouts.
+    """
     llm_config = get_llm_config()
     return AzureChatOpenAI(
-        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],  # Keep sensitive info in env
+        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
         azure_deployment=llm_config.azure_deployment,
         openai_api_version=llm_config.api_version,
-        openai_api_key=os.environ["AZURE_OPENAI_API_KEY"],  # Keep sensitive info in env
+        openai_api_key=os.environ["AZURE_OPENAI_API_KEY"],
         temperature=llm_config.temperature,
         max_tokens=llm_config.max_tokens,
         timeout=llm_config.timeout,
     )
 
 def build_orchestrator_graph(debug_mode: bool = False):
-    """Build and compile the orchestrator LangGraph"""
+    """Build and compile the orchestrator LangGraph.
+    
+    Constructs the state graph that manages conversation flow, tool execution,
+    and background tasks like summarization and memory extraction. The graph
+    implements parallel processing for efficiency while maintaining conversation
+    coherence.
+    
+    Args:
+        debug_mode: Enable verbose logging and diagnostic output
+        
+    Returns:
+        CompiledStateGraph: Compiled LangGraph with checkpointing and storage
+    """
     
     load_dotenv()
     
-    # Define the orchestrator state schema (with legacy memory support)
     class OrchestratorState(TypedDict):
+        """State schema for orchestrator graph.
+        
+        Maintains conversation context, memory, and tracks background operations.
+        Uses annotations for LangGraph's state merging behaviors.
+        """
         messages: Annotated[list, add_messages]
-        summary: str  # Using legacy name for compatibility
-        memory: dict  # Using legacy structured memory
+        summary: str  # Conversation summary for context compression
+        memory: dict  # Structured memory of extracted entities
         turns: int
         active_agents: List[str]
         last_agent_interaction: Dict[str, Any]
-        # Add fields for parallel background operations
         background_operations: Annotated[List[str], operator.add]
         background_results: Annotated[Dict[str, Any], lambda x, y: {**x, **y}]
-        last_summarized_turn: int
-        # Background tasks now run as fire-and-forget threads
+        last_summarized_turn: int  # Prevents summarization cascades
     
     memory = MemorySaver()
-    # Use enhanced async store adapter with performance monitoring and resilience
+    # Configure persistent storage with resilience patterns
     memory_store = get_async_store_adapter(
         db_path="memory_store.db",
-        use_async=False,  # Use thread pool adapter for reliability
+        use_async=False,  # Thread pool for reliability in mixed sync/async context
         max_workers=4,
         max_connections=10,
         enable_circuit_breaker=True
     )
     
-    # Removed custom LLM cache - Azure OpenAI now provides automatic prompt caching
     
     graph_builder = StateGraph(OrchestratorState)
     
@@ -115,34 +143,51 @@ def build_orchestrator_graph(debug_mode: bool = False):
     
     llm = create_azure_openai_chat()
     llm_with_tools = llm.bind_tools(tools)
-    # Enhanced TrustCall configuration following best practices
-    # SIMPLE: TrustCall extractor with flat schema to avoid patch conflicts
+    
+    # Configure TrustCall for structured data extraction
     trustcall_extractor = create_extractor(
         llm,
         tools=[SimpleMemory],
-        tool_choice="SimpleMemory",  # Explicit choice prevents conflicts
-        enable_inserts=True  # Enable new record creation
+        tool_choice="SimpleMemory",  # Explicit choice prevents tool conflicts
+        enable_inserts=True
     )
     
-    # Direct LLM invocation - Azure OpenAI handles caching automatically
     def invoke_llm(messages, use_tools=False):
-        """Invoke LLM directly - Azure OpenAI provides automatic prompt caching"""
+        """Invoke LLM with optional tool binding.
+        
+        Azure OpenAI automatically caches prompts for efficiency.
+        
+        Args:
+            messages: List of conversation messages
+            use_tools: Whether to bind tools for function calling
+            
+        Returns:
+            AI response message with optional tool calls
+        """
         if use_tools:
             return llm_with_tools.invoke(messages)
         else:
             return llm.invoke(messages)
     
     
-    # Enhanced system message using merged legacy + orchestrator approach
     def get_orchestrator_system_message(state: OrchestratorState) -> str:
+        """Generate dynamic system message with current context.
+        
+        Includes conversation summary, memory state, and available agent
+        capabilities to guide the LLM's responses.
+        
+        Args:
+            state: Current orchestrator state
+            
+        Returns:
+            Formatted system message string
+        """
         summary = state.get("summary", "No summary available")
         memory_val = state.get("memory", "No memory available")
         active_agents = state.get("active_agents", [])
         
-        # Get registry stats for context
         registry_stats = agent_registry.get_registry_stats()
         
-        # Build agent context information
         agent_context = f"""AVAILABLE SPECIALIZED AGENTS:
 {', '.join(registry_stats['available_capabilities']) if registry_stats['available_capabilities'] else 'None currently available'}
 
@@ -153,18 +198,27 @@ ORCHESTRATOR TOOLS:
 2. call_agent: For general agent calls (travel, expenses, HR, OCR, etc.)
 3. manage_agents: To check agent status and capabilities"""
         
-        # Use the enhanced orchestrator system message
         return orchestrator_chatbot_sys_msg(summary, memory_val, agent_context)
     
-    # Node function: orchestrator (main conversation handler)
     async def orchestrator(state: OrchestratorState, config: RunnableConfig):
-        """Main orchestrator node that coordinates with specialized agents"""
+        """Main conversation handler node.
+        
+        Processes user messages, invokes appropriate tools, manages memory,
+        and coordinates background tasks. Implements sophisticated message
+        handling to prevent duplicate responses and maintain conversation flow.
+        
+        Args:
+            state: Current conversation state
+            config: Runtime configuration including user ID and thread ID
+            
+        Returns:
+            Dict with updated messages, memory, and turn count
+        """
         try:
-            # Track when orchestrator is called
             msg_count = len(state.get('messages', []))
             last_msg = state.get('messages', [])[-1] if state.get('messages') else None
             
-            # Log message based on type - distinguish user vs AI messages
+            # Log message types to track conversation flow
             if hasattr(last_msg, 'content'):
                 from langchain_core.messages import HumanMessage, AIMessage
                 if isinstance(last_msg, HumanMessage):
@@ -181,17 +235,16 @@ ORCHESTRATOR TOOLS:
             if debug_mode:
                 last_type = type(last_msg).__name__ if last_msg else "None"
                 
-                # Check for potential duplicate scenario
+                # Detect potential duplicate AI responses (graph routing issue)
                 if last_type == "AIMessage" and hasattr(last_msg, 'content') and last_msg.content:
                     logger.warning(f"DUPLICATE CHECK: Orchestrator called with AIMessage response already present")
                     logger.warning(f"  Message count: {msg_count}, Turn: {state.get('turns', 0)}")
                     logger.warning(f"  Last message preview: {str(last_msg.content)[:100]}...")
             
-            # Load and manage memory like legacy system
             summary = state.get("summary", "No summary available")
             turn = state.get("turns", 0)
             
-            # SIMPLE: Load memory from store using flat schema
+            # Load persistent memory using flat schema for simplicity
             user_id = config["configurable"].get("user_id", "default")
             namespace = ("memory", user_id)
             key = "SimpleMemory"
@@ -199,9 +252,9 @@ ORCHESTRATOR TOOLS:
             
             if existing_memory_data:
                 try:
-                    # Simple validation with flat schema
                     validated_data = SimpleMemory(**existing_memory_data)
                     existing_memory = {"SimpleMemory": validated_data.model_dump()}
+                    # Count total records for logging
                     total_records = (len(validated_data.accounts) + len(validated_data.contacts) + 
                                    len(validated_data.opportunities) + len(validated_data.cases) + 
                                    len(validated_data.tasks) + len(validated_data.leads))
@@ -216,33 +269,28 @@ ORCHESTRATOR TOOLS:
                 if debug_mode:
                     logger.info("No existing memory found, using fresh schema")
             
-            # Update state with loaded memory BEFORE creating system message
+            # Update state memory before system message generation
             state["memory"] = existing_memory
             
-            # Create system message with current context (now including loaded memory)
             system_message = get_orchestrator_system_message(state)
             messages = [SystemMessage(content=system_message)] + state["messages"]
             
-            # Check if we already have tool results that answer the user's question
+            # Check for recent tool results to inform response
             recent_tool_results = []
             for msg in reversed(state.get("messages", [])):
                 if hasattr(msg, 'name') and getattr(msg, 'name', None) in ['salesforce_agent', 'call_agent']:
                     recent_tool_results.append(msg)
-                    if len(recent_tool_results) >= 2:  # Stop after finding recent results
+                    if len(recent_tool_results) >= 2:
                         break
             
-            # No need to clean orphaned tool calls - smart preservation prevents them
             response = invoke_llm(messages, use_tools=True)
             
-            # Log tool calls if present
             if hasattr(response, 'tool_calls') and response.tool_calls:
                 for tool_call in response.tool_calls:
                     log_orchestrator_activity("TOOL_CALL",
                                              tool_name=tool_call.get('name', 'unknown'),
                                              tool_args=tool_call.get('args', {}),
                                              turn=state.get('turns', 0))
-            
-            # Log LLM response and cost
             response_content = str(response.content) if hasattr(response, 'content') else ""
             log_orchestrator_activity("LLM_RESPONSE", 
                                      response_length=len(response_content),
@@ -250,47 +298,47 @@ ORCHESTRATOR TOOLS:
                                      has_tool_calls=bool(hasattr(response, 'tool_calls') and response.tool_calls),
                                      turn=state.get('turns', 0))
             
-            # Log token usage for cost tracking
+            # Estimate token usage for cost tracking (rough 4 chars/token)
             message_chars = sum(len(str(m.content if hasattr(m, 'content') else m)) for m in messages)
             response_chars = len(str(response.content)) if hasattr(response, 'content') else 0
             estimated_tokens = (message_chars + response_chars) // 4
             log_cost_activity("ORCHESTRATOR_LLM", estimated_tokens,
                             message_count=len(messages),
                             turn=state.get('turns', 0))
-            
-            # Update orchestrator state and check for background tasks
             turn = state.get("turns", 0)
             new_turn = turn + 1
             
-            # Return immediate response and fire background tasks asynchronously
             updated_state = {
                 "messages": response,
                 "memory": existing_memory,
                 "turns": new_turn
             }
             
-            # Fire-and-forget background tasks (don't block response)
-            if len(state["messages"]) >= 6 and new_turn % 3 == 0:
+            # Trigger background tasks without blocking response
+            from src.utils.config import get_conversation_config
+            conv_config = get_conversation_config()
+            summary_threshold = conv_config.summary_threshold
+            memory_turn_threshold = getattr(conv_config, 'memory_update_turn_threshold', 3)
+            
+            # Summarize more frequently with cost-effective models
+            if len(state["messages"]) >= summary_threshold and new_turn % 2 == 0:
                 if debug_mode:
                     logger.info(f"Starting fire-and-forget summary task for turn {new_turn}")
                 log_orchestrator_activity("SUMMARY_TRIGGER", 
                                         message_count=len(state["messages"]), 
                                         turn=new_turn)
-                # Run summary in background thread without blocking
                 import threading
                 threading.Thread(
                     target=_run_background_summary,
                     args=(state["messages"], state.get("summary", ""), new_turn, existing_memory, debug_mode),
                     daemon=True
                 ).start()
-            
-            if new_turn > 5:
+            if new_turn > memory_turn_threshold:
                 if debug_mode:
                     logger.info(f"Starting fire-and-forget memory task for turn {new_turn}")
                 log_orchestrator_activity("MEMORY_TRIGGER",
                                         turn=new_turn,
                                         message_count=len(state["messages"]))
-                # Run memory extraction in background thread without blocking
                 import threading
                 threading.Thread(
                     target=_run_background_memory,
@@ -313,11 +361,19 @@ ORCHESTRATOR TOOLS:
                 logger.error(f"Error processing request: {e}")
             raise
     
-    # Smart message preservation now imported from helpers
-    
-    # Node function: summarize_conversation (with smart preservation)
     async def summarize_conversation(state: OrchestratorState):
-        """Summarize conversation using smart message preservation with cooldown protection"""
+        """Summarize conversation with intelligent message preservation.
+        
+        Uses smart preservation to maintain tool call/response pairs while
+        compressing conversation history. Implements cooldown to prevent
+        cascading summarization in multi-tool scenarios.
+        
+        Args:
+            state: Current orchestrator state
+            
+        Returns:
+            Dict with new summary, messages to delete, and cooldown marker
+        """
         start_time = time.time()
         messages_count = len(state.get('messages', []))
         turn = state.get('turns', 0)
@@ -325,7 +381,7 @@ ORCHESTRATOR TOOLS:
         if debug_mode:
             logger.info(f"Summarizing conversation: {messages_count} messages, turn {turn}")
         
-        # DOMINATION: Set summarization cooldown to prevent cascading
+        # Set cooldown to prevent cascading summarization
         current_state = state.copy()
         current_state["last_summarized_turn"] = turn
         
@@ -342,50 +398,15 @@ ORCHESTRATOR TOOLS:
             turn=turn
         )
         
-        # Let TrustCall handle all data extraction from tool messages
-        
-        # Get recent tool responses to include in summary for TrustCall extraction
-        recent_tool_responses = []
-        structured_tool_data = []
-        
-        for msg in reversed(state["messages"][-10:]):  # Last 10 messages
-            if hasattr(msg, 'name') and msg.name and any(agent in msg.name.lower() for agent in ['salesforce', 'travel', 'expense', 'hr', 'ocr']):
-                content = getattr(msg, 'content', '')
-                if content and len(content) > 50:  # Meaningful content
-                    # Check if this message contains structured tool data
-                    if "[STRUCTURED_TOOL_DATA]:" in content:
-                        parts = content.split("[STRUCTURED_TOOL_DATA]:")
-                        conversational_part = parts[0].strip()
-                        try:
-                            import json
-                            structured_part = json.loads(parts[1].strip())
-                            structured_tool_data.extend(structured_part)
-                            # For summary, include both parts but emphasize structured data
-                            enhanced_content = f"{conversational_part}\n\nDETAILED TOOL RESULTS WITH REAL IDS:\n{json.dumps(structured_part, indent=2)}"
-                            recent_tool_responses.append(enhanced_content[:1500])
-                        except (json.JSONDecodeError, IndexError):
-                            # Fallback to regular content
-                            recent_tool_responses.append(content[:1000])
-                    else:
-                        recent_tool_responses.append(content[:1000])  # Truncate long responses
-        
-        # Use enhanced orchestrator summary system message
         system_message = orchestrator_summary_sys_msg(summary, memory_val)
-        
-        # Enhance the summary prompt to include recent tool responses
-        if recent_tool_responses:
-            system_message += f"\n\nRECENT AGENT TOOL RESPONSES (include relevant details and IDs in summary):\n"
-            for i, response in enumerate(recent_tool_responses[-3:]):  # Last 3 responses
-                system_message += f"\nResponse {i+1}:\n{response}\n"
+        # System message format must remain pure - tool responses stay in conversation
         messages = [SystemMessage(content=system_message)] + state["messages"]
         
         response = invoke_llm(messages, use_tools=False)
         
-        # Use smart preservation instead of simple slice
+        # Smart preservation maintains tool call/response integrity
         messages_to_preserve = smart_preserve_messages(state["messages"], keep_count=3)
         messages_to_delete = []
-        
-        # DEBUG: Detailed preservation analysis
         if debug_mode:
             logger.warning("=== SMART PRESERVATION DEBUG ===")
             logger.warning(f"Total messages before: {len(state['messages'])}")
@@ -399,7 +420,7 @@ ORCHESTRATOR TOOLS:
                 else:
                     logger.warning(f"  Preserved {i}: {msg_type}")
         
-        # Find messages that are NOT in the preserved list
+        # Mark non-preserved messages for deletion
         preserved_ids = {getattr(msg, 'id', None) for msg in messages_to_preserve if hasattr(msg, 'id')}
         for msg in state["messages"]:
             if hasattr(msg, 'id') and msg.id not in preserved_ids:
@@ -409,19 +430,18 @@ ORCHESTRATOR TOOLS:
             logger.info(f"Summary complete: deleting {len(messages_to_delete)}, preserving {len(messages_to_preserve)}")
             logger.warning("=== END PRESERVATION DEBUG ===")
         
-        # Log the actual summary response (after message preservation)
         response_content = str(response.content) if hasattr(response, 'content') else ""
         log_orchestrator_activity("LLM_RESPONSE", 
                                  response_length=len(response_content),
-                                 response_content=response_content[:500],  # Truncate for readability
+                                 response_content=response_content[:500],
                                  operation="SUMMARIZATION",
                                  turn=turn)
         
-        # Estimate and log token usage with CORRECTED message count (after preservation)
+        # Log token usage based on preserved message count
         message_chars = sum(len(str(m.content if hasattr(m, 'content') else m)) for m in messages)
-        estimated_tokens = message_chars // 4  # Rough estimate: 4 chars per token
+        estimated_tokens = message_chars // 4
         log_cost_activity("ORCHESTRATOR_LLM_CALL", estimated_tokens,
-                         message_count=len(messages_to_preserve),  # FIXED: Use preserved count, not original
+                         message_count=len(messages_to_preserve),
                          response_length=len(str(response.content)) if hasattr(response, 'content') else 0,
                          turn=turn)
         
@@ -439,12 +459,23 @@ ORCHESTRATOR TOOLS:
         return {
             "summary": response.content,
             "messages": messages_to_delete,
-            "last_summarized_turn": state.get("turns", 0)  # Track when we last summarized
+            "last_summarized_turn": state.get("turns", 0)
         }
     
-    # SIMPLE: Simplified memory extraction with flat schema
     async def memorize_records(state: OrchestratorState, config: RunnableConfig):
-        """Simple memory extraction using flat schema"""
+        """Extract and persist structured data from conversation.
+        
+        Uses TrustCall to extract Salesforce entities (accounts, contacts, etc.)
+        from tool responses and conversation context. Implements deduplication
+        to prevent duplicate records.
+        
+        Args:
+            state: Current orchestrator state
+            config: Runtime configuration with user ID
+            
+        Returns:
+            Dict with updated memory and reset turn counter
+        """
         if debug_mode:
             logger.info("Updating memory with simplified approach")
         
@@ -452,7 +483,7 @@ ORCHESTRATOR TOOLS:
         namespace = ("memory", user_id)
         key = "SimpleMemory"
         
-        # SIMPLE: Get existing memory in TrustCall-friendly format
+        # Load existing memory for TrustCall context
         try:
             stored = memory_store.sync_get(namespace, key)
             if stored:
@@ -462,37 +493,35 @@ ORCHESTRATOR TOOLS:
         except:
             existing_records = {"SimpleMemory": SimpleMemory().model_dump()}
         
-        # FIX: Extract Salesforce data from actual tool messages, not just summary
+        # Extract data from tool responses, not just summary
         recent_tool_responses = []
         messages = state.get("messages", [])
         
-        # Log memory extraction start
         log_orchestrator_activity("MEMORY_EXTRACTION_START",
                                 message_count=len(messages),
                                 user_id=user_id)
         
-        # Get recent tool responses containing Salesforce data (same logic as summarize_conversation)
-        for msg in reversed(messages[-10:]):  # Last 10 messages
+        # Scan recent messages for tool responses with data
+        for msg in reversed(messages[-10:]):
             if hasattr(msg, 'name') and msg.name and any(agent in msg.name.lower() for agent in ['salesforce', 'travel', 'expense', 'hr', 'ocr']):
                 content = getattr(msg, 'content', '')
                 if content and len(content) > 50:  # Meaningful content
-                    # Check if this message contains structured tool data
+                    # Parse structured data if present
                     if "[STRUCTURED_TOOL_DATA]:" in content:
                         parts = content.split("[STRUCTURED_TOOL_DATA]:")
                         conversational_part = parts[0].strip()
                         try:
                             import json
                             structured_part = json.loads(parts[1].strip())
-                            # For TrustCall, include both parts with emphasis on structured data
+                            # Format for TrustCall extraction
                             enhanced_content = f"{conversational_part}\n\nDETAILED SALESFORCE RECORDS WITH REAL IDS:\n{json.dumps(structured_part, indent=2)}"
                             recent_tool_responses.append(enhanced_content[:2000])
                         except (json.JSONDecodeError, IndexError):
-                            # Fallback to regular content
                             recent_tool_responses.append(content[:1500])
                     else:
-                        recent_tool_responses.append(content[:1500])  # Truncate long responses
+                        recent_tool_responses.append(content[:1500])
         
-        # Build content for TrustCall - use actual tool responses, not just summary
+        # Build extraction prompt with tool responses and summary
         summary_content = state.get("summary", "")
         extraction_content = f"CONVERSATION SUMMARY:\n{summary_content}\n\n"
         
@@ -508,13 +537,11 @@ ORCHESTRATOR TOOLS:
             logger.info(f"Memory extraction - Tool responses found: {len(recent_tool_responses)}")
             logger.info(f"Memory extraction - Content preview: {extraction_content[:300]}...")
         
-        # SIMPLE: Enhanced TrustCall invocation with actual data
+        # Invoke TrustCall with timeout for background safety
         try:
-            # Get LLM config for timeout
             from src.utils.config import get_llm_config
             llm_config = get_llm_config()
             
-            # Add timeout to prevent hanging in background threads
             import asyncio
             response = await asyncio.wait_for(
                 trustcall_extractor.ainvoke({
@@ -524,29 +551,27 @@ ORCHESTRATOR TOOLS:
                     ],
                     "existing": existing_records
                 }),
-                timeout=float(llm_config.timeout)  # Use LLM timeout from config
+                timeout=float(llm_config.timeout)
             )
             
             if response and response.get("responses"):
                 extracted_data = response["responses"][0]
                 
-                # Simple storage - no complex validation
                 if hasattr(extracted_data, 'model_dump'):
                     clean_data = extracted_data.model_dump()
                 else:
                     clean_data = extracted_data
                 
-                # DEDUPLICATION: Merge with existing data to prevent duplicates
+                # Merge with existing data, deduplicating by ID
                 if stored and isinstance(stored, dict):
                     # Merge each entity type, removing duplicates by ID
                     for entity_type in ['accounts', 'contacts', 'opportunities', 'cases', 'tasks', 'leads']:
                         existing_items = stored.get(entity_type, [])
                         new_items = clean_data.get(entity_type, [])
                         
-                        # Create a dict keyed by ID for deduplication
                         merged_dict = {}
                         
-                        # Add existing items
+                        # Index existing items by ID
                         for item in existing_items:
                             if isinstance(item, dict) and 'id' in item:
                                 merged_dict[item['id']] = item
@@ -556,7 +581,6 @@ ORCHESTRATOR TOOLS:
                             if isinstance(item, dict) and 'id' in item:
                                 merged_dict[item['id']] = item
                         
-                        # Convert back to list
                         clean_data[entity_type] = list(merged_dict.values())
                 
                 memory_store.sync_put(namespace, key, clean_data)
@@ -570,19 +594,20 @@ ORCHESTRATOR TOOLS:
                 return {"memory": {"SimpleMemory": clean_data}, "turns": 0}
                 
         except asyncio.TimeoutError:
-            logger.warning("Memory extraction timed out after 30 seconds")
-            # Simple fallback - return empty structure
+            logger.warning("Memory extraction timed out")
             empty_memory = SimpleMemory().model_dump()
             return {"memory": {"SimpleMemory": empty_memory}, "turns": 0}
         except Exception as e:
             logger.warning(f"Memory extraction failed: {type(e).__name__}: {e}")
-            # Simple fallback - return empty structure
             empty_memory = SimpleMemory().model_dump()
             return {"memory": {"SimpleMemory": empty_memory}, "turns": 0}
     
-    # Background nodes for parallel execution
     async def background_summary(state: OrchestratorState, config: RunnableConfig):
-        """Run summarization in background without blocking main response"""
+        """Background task for conversation summarization.
+        
+        Runs asynchronously to avoid blocking main conversation flow.
+        Tracks completion status for monitoring.
+        """
         try:
             result = await summarize_conversation(state)
             # Add background operation tracking
@@ -597,7 +622,11 @@ ORCHESTRATOR TOOLS:
             }
     
     async def background_memory(state: OrchestratorState, config: RunnableConfig):
-        """Run memory extraction in background without blocking main response"""
+        """Background task for memory extraction.
+        
+        Runs asynchronously to extract and persist structured data
+        without blocking conversation flow.
+        """
         try:
             result = await memorize_records(state, config)
             # Add background operation tracking
@@ -611,59 +640,74 @@ ORCHESTRATOR TOOLS:
                 "background_results": {"memory_error": str(e)}
             }
     
-    # Background aggregator no longer needed - tasks run independently
-    
-    # Conditional functions (legacy approach)
     def needs_summary(state: OrchestratorState):
-        """Check if conversation needs summarization with multi-tool protection and cooldown"""
+        """Determine if conversation requires summarization.
+        
+        Implements cooldown to prevent cascading summaries in multi-tool
+        scenarios where many messages are generated in a single turn.
+        
+        Args:
+            state: Current orchestrator state
+            
+        Returns:
+            "summarize_conversation" or END
+        """
         message_count = len(state["messages"])
         current_turn = state.get("turns", 0)
         last_summarized = state.get("last_summarized_turn", -1)
         
-        # Cooldown protection - don't summarize if we just did
-        if current_turn - last_summarized < 1:  # At least 1 turn between summaries
+        # Enforce cooldown between summaries
+        if current_turn - last_summarized < 1:
             if debug_mode:
                 logger.warning(f"COOLDOWN BLOCK: Last summarized turn {last_summarized}, current turn {current_turn}")
             return END
-        
-        # Higher threshold to prevent multi-tool cascade
-        # Get conversation config
         from src.utils.config import get_conversation_config
         conv_config = get_conversation_config()
         
-        # Multi-tool scenarios can generate up to 15+ messages in one turn
-        # Balanced threshold for better memory capture
+        # Check threshold (multi-tool scenarios can generate many messages)
         if message_count > conv_config.summary_threshold:
             return "summarize_conversation"
         return END
     
     def needs_memory(state: OrchestratorState):
-        """Check if memory needs updating (legacy)"""
-        # Balanced threshold for better memory capture  
-        if state.get("turns", 0) > 5:  # Balanced threshold to capture Salesforce data
+        """Determine if memory extraction is needed.
+        
+        Uses turn-based threshold for periodic memory updates.
+        
+        Args:
+            state: Current orchestrator state
+            
+        Returns:
+            "memorize_records" or END
+        """
+        from src.utils.config import get_conversation_config
+        conv_config = get_conversation_config()
+        memory_threshold = getattr(conv_config, 'memory_update_turn_threshold', 3)
+        
+        if state.get("turns", 0) > memory_threshold:
             return "memorize_records"
         return END
 
-    # Fire-and-forget background functions (run in separate threads with async support)
     def _run_background_summary(messages, summary, turns, memory, debug_mode):
-        """Run summary task in background thread - fire and forget"""
+        """Execute summarization in background thread.
+        
+        Creates new event loop for async execution in thread context.
+        Logs progress and errors for monitoring.
+        """
         try:
             if debug_mode:
-                # Use activity logger for structured logging to files
                 log_orchestrator_activity("BACKGROUND_SUMMARY_START",
                                          message_count=len(messages),
                                          turn=turns,
                                          memory_keys=list(memory.keys()) if memory else [])
-            # Reuse existing background_summary logic with mock config
             mock_state = {
                 "messages": messages,
                 "summary": summary,
                 "turns": turns,
                 "memory": memory,
-                "last_summarized_turn": -1  # Add required field
+                "last_summarized_turn": -1
             }
             mock_config = {"configurable": {"user_id": "user-1"}}
-            # Run async function in new event loop
             import asyncio
             result = asyncio.run(background_summary(mock_state, mock_config))
             if debug_mode:
@@ -677,28 +721,29 @@ ORCHESTRATOR TOOLS:
                                      traceback=traceback.format_exc()[:500])
     
     def _run_background_memory(messages, summary, turns, memory, debug_mode):
-        """Run memory extraction task in background thread - fire and forget"""
+        """Execute memory extraction in background thread.
+        
+        Analyzes tool messages for structured data extraction.
+        Creates new event loop for async execution.
+        """
         try:
             if debug_mode:
-                # Count tool messages to verify we have data to extract
+                # Analyze tool messages for extraction candidates
                 tool_messages = [m for m in messages if hasattr(m, 'name') and getattr(m, 'name', '')]
                 tool_message_details = []
-                for i, tm in enumerate(tool_messages[-3:]):  # Last 3 tool messages
+                for i, tm in enumerate(tool_messages[-3:]):
                     content_preview = str(getattr(tm, 'content', ''))[:100]
                     tool_message_details.append({
                         "index": i,
                         "name": getattr(tm, 'name', 'unknown'),
                         "content_preview": content_preview
                     })
-                
-                # Use activity logger for structured logging to files
                 log_orchestrator_activity("BACKGROUND_MEMORY_START",
                                          message_count=len(messages),
                                          turn=turns,
                                          tool_message_count=len(tool_messages),
                                          tool_message_details=tool_message_details)
                     
-            # Reuse existing background_memory logic with mock config
             mock_state = {
                 "messages": messages,
                 "summary": summary,
@@ -706,7 +751,6 @@ ORCHESTRATOR TOOLS:
                 "memory": memory
             }
             mock_config = {"configurable": {"user_id": "user-1"}}
-            # Run async function in new event loop
             import asyncio
             result = asyncio.run(background_memory(mock_state, mock_config))
             if debug_mode:
@@ -725,39 +769,37 @@ ORCHESTRATOR TOOLS:
                                      error=str(e),
                                      traceback=traceback.format_exc()[:500])
 
-    # Build simplified graph - background tasks run as fire-and-forget threads
+    # Build graph with tool integration
     tool_node = ToolNode(tools=tools)
     graph_builder.add_node("tools", tool_node)
     graph_builder.add_node("conversation", orchestrator)
     
-    # Set entry point
     graph_builder.set_entry_point("conversation")
     
-    # Add simple routing - just check for tools
+    # Route to tools when needed
     graph_builder.add_conditional_edges("conversation", tools_condition)
     
-    # Add edges following LangGraph best practices:
-    # - tools->conversation: Continue conversation after tool execution
+    # Return to conversation after tool execution
     graph_builder.add_edge("tools", "conversation")
     
-    # DEBUG: Log simplified graph structure in debug mode
     if debug_mode:
-        logger.info("GRAPH STRUCTURE: conversation -> tools_condition -> tools->conversation | background_tasks run as fire-and-forget threads")
+        logger.info("GRAPH STRUCTURE: conversation -> tools_condition -> tools->conversation | background tasks in threads")
     
-    # Set finish point
     graph_builder.set_finish_point("conversation")
     
-    # Compile and return the graph
     return graph_builder.compile(checkpointer=memory, store=memory_store)
 
-# Build and export the graph at module level
+# Create default orchestrator graph for module export
 orchestrator_graph = build_orchestrator_graph(debug_mode=False)
 
 async def initialize_orchestrator():
-    """Initialize the orchestrator system"""
+    """Initialize orchestrator and discover available agents.
+    
+    Performs health checks on registered agents and attempts
+    auto-discovery of unregistered agents on standard ports.
+    """
     logger.info("Initializing Consultant Assistant Orchestrator...")
     
-    # Perform health check on all registered agents
     logger.info("Checking agent health...")
     health_results = await agent_registry.health_check_all_agents()
     
@@ -769,7 +811,7 @@ async def initialize_orchestrator():
     if offline_agents:
         logger.warning(f"Offline agents: {', '.join(offline_agents)}")
     
-    # Auto-discover agents if none are registered
+    # Attempt auto-discovery if no agents registered
     if not agent_registry.list_agents():
         logger.info("No agents registered, attempting auto-discovery...")
         discovery_endpoints = [
@@ -858,22 +900,18 @@ async def main():
     
     config = {"configurable": {"thread_id": "orchestrator-1", "user_id": "user-1"}}
     
-    # Control which node's output gets streamed to user (legacy approach)
-    node_to_stream = "conversation"
-    
     while True:
         try:
             user_input = input("USER: ")
             
-            # Log raw user input
-            log_orchestrator_activity("USER_INPUT_RAW", input=user_input[:1000])  # Limit to 1000 chars
+            log_orchestrator_activity("USER_INPUT_RAW", input=user_input[:1000])
             
             if user_input.lower() in ["quit", "exit", "q"]:
                 print("Goodbye!")
                 log_orchestrator_activity("USER_QUIT")
                 break
             
-            # Validate user input for security
+            # Validate input for security
             try:
                 from src.utils.input_validation import AgentInputValidator
                 validated_input = AgentInputValidator.validate_orchestrator_input(user_input)
@@ -883,7 +921,7 @@ async def main():
                 continue
             
             if DEBUG_MODE:
-                # In debug mode, track duplicate responses
+                # Debug mode: track events and detect duplicates
                 event_count = 0
                 ai_responses = []
                 
@@ -911,13 +949,10 @@ async def main():
                                 'has_tool_calls': bool(getattr(last_msg, 'tool_calls', None))
                             })
                         
-                        # Log concisely
                         logger.info(f"Event {event_count}: {msg_type} (msgs: {len(event['messages'])})")
-                        
-                        # Pretty print for visibility
                         last_msg.pretty_print()
                 
-                # Duplicate detection summary
+                # Report duplicate AI responses if found
                 if len(ai_responses) > 1:
                     logger.warning(f"DUPLICATE WARNING: {len(ai_responses)} AI responses detected!")
                     for resp in ai_responses:
@@ -926,7 +961,7 @@ async def main():
                 logger.info(f"Total events: {event_count}, AI responses: {len(ai_responses)}")
             else:
                 print("\nASSISTANT: ", end="", flush=True)
-                # Stream conversation response immediately, let background ops continue silently
+                # Production mode: stream response immediately
                 conversation_response = None
                 response_shown = False
                 
@@ -940,24 +975,21 @@ async def main():
                     config,
                     stream_mode="values"
                 ):
-                    # Show conversation response immediately when available
+                    # Display AI response as soon as available
                     if "messages" in event and event["messages"] and not response_shown:
                         last_msg = event["messages"][-1]
                         if hasattr(last_msg, 'content') and last_msg.content and hasattr(last_msg, 'type'):
                             from langchain_core.messages import AIMessage
                             if isinstance(last_msg, AIMessage) and not getattr(last_msg, 'tool_calls', None):
                                 conversation_response = last_msg.content
-                                # Log assistant response
                                 log_orchestrator_activity("ASSISTANT_RESPONSE", 
-                                                        response=conversation_response[:1000],  # Limit logged length
+                                                        response=conversation_response[:1000],
                                                         full_length=len(conversation_response))
-                                # Type out the response immediately
                                 await type_out(conversation_response, delay=0.01)
                                 response_shown = True
                                 print("\n")
-                                # DON'T break - let background operations continue silently
+                                # Continue processing for background tasks
                 
-                # If we didn't get a response through streaming, fall back 
                 if not response_shown:
                     print("Processing your request...\n")
                         
@@ -965,13 +997,12 @@ async def main():
             print("\nGoodbye!")
             break
         except EOFError:
-            # Handle EOF gracefully (e.g., when input is redirected or piped)
             print("\nInput stream ended. Goodbye!")
             break
         except Exception as e:
             logger.error(f"Error processing request: {e}")
             print(f"Error: {e}")
-            # For serious errors, consider breaking the loop
+            # Exit on critical network errors
             if "connection" in str(e).lower() or "network" in str(e).lower():
                 print("Network error encountered. Exiting...")
                 break

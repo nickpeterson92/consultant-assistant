@@ -1,6 +1,22 @@
 """
-Agent2Agent (A2A) Protocol Implementation
-Based on Google's A2A specification with JSON-RPC 2.0 over HTTP
+Agent2Agent (A2A) Protocol Implementation.
+
+This module implements Google's A2A protocol specification for inter-agent communication
+using JSON-RPC 2.0 over HTTP. The implementation focuses on enterprise-grade reliability
+with connection pooling, circuit breakers, and retry logic.
+
+Key Design Decisions:
+    - JSON-RPC 2.0: Industry standard for RPC communication with well-defined error handling
+    - Connection Pooling: Reuses HTTP connections to reduce latency and resource usage
+    - Circuit Breaker Pattern: Prevents cascading failures by failing fast when agents are down
+    - Async Architecture: Non-blocking I/O for high-performance concurrent operations
+    - Structured Logging: Machine-readable logs for observability and debugging
+
+Architecture Components:
+    - A2AClient: Makes resilient calls to other agents with automatic retry and circuit breaking
+    - A2AServer: Handles incoming requests with input validation and error handling
+    - A2AConnectionPool: Manages connection lifecycle with idle timeout and cleanup
+    - Data Models: Type-safe message structures (Task, Artifact, Message, AgentCard)
 """
 
 import json
@@ -16,27 +32,28 @@ import logging
 import sys
 import os
 
-# Add logging configuration
 from src.utils.logging import get_logger, get_performance_tracker
-
-
-# Import centralized logging
 from src.utils.logging import log_a2a_activity, log_performance_activity
 from src.utils.input_validation import AgentInputValidator, ValidationError
 from src.utils.circuit_breaker import get_circuit_breaker, CircuitBreakerConfig, RetryConfig, resilient_call
 from src.utils.config import get_a2a_config, get_system_config
 
-# A2A logging now handled by centralized activity_logger
-
 logger = logging.getLogger(__name__)
 
-# Initialize external logging for A2A protocol
-# Note: This will be re-initialized at runtime if needed
+# Global references for external loggers - initialized lazily at runtime
+# This avoids circular imports while maintaining proper logging infrastructure
 a2a_logger = None
 a2a_perf = None
 
 def ensure_loggers_initialized():
-    """Ensure external loggers are properly initialized at runtime"""
+    """Ensure external loggers are properly initialized at runtime.
+    
+    This function uses lazy initialization to avoid circular import issues
+    while ensuring proper logging infrastructure is available when needed.
+    The pattern allows the module to be imported without requiring the
+    entire logging system to be initialized, which is crucial for modular
+    architecture and testing.
+    """
     global a2a_logger, a2a_perf
     
     if a2a_logger is None or a2a_perf is None:
@@ -44,15 +61,30 @@ def ensure_loggers_initialized():
         try:
             a2a_logger = get_logger('a2a_protocol', debug_mode)
             a2a_perf = get_performance_tracker('a2a_protocol', debug_mode)
-            # Test log to confirm initialization  
             a2a_logger.info("RUNTIME_LOGGER_INITIALIZED", debug_mode=debug_mode)
-        except Exception as e:
-            # Silent fallback
+        except Exception:
+            # Silent fallback - logging should not break core functionality
             pass
 
 @dataclass
 class AgentCard:
-    """Agent capability description following A2A specification"""
+    """Agent capability description following A2A specification.
+    
+    The AgentCard serves as a self-describing manifest that allows agents
+    to advertise their capabilities for dynamic discovery and routing.
+    This enables loose coupling between agents - the orchestrator can
+    select appropriate agents based on capabilities without hardcoding
+    specific agent dependencies.
+    
+    Attributes:
+        name: Human-readable agent identifier
+        version: Semantic version for compatibility checking
+        description: Brief description of agent's purpose
+        capabilities: List of capabilities this agent provides (e.g., ['salesforce_operations'])
+        endpoints: Map of endpoint names to URLs for different operations
+        communication_modes: Supported modes (e.g., ['synchronous', 'streaming'])
+        metadata: Additional agent-specific configuration
+    """
     name: str
     version: str
     description: str
@@ -62,11 +94,26 @@ class AgentCard:
     metadata: Optional[Dict[str, Any]] = None
     
     def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
         return asdict(self)
 
 @dataclass
 class A2ATask:
-    """Stateful collaboration entity"""
+    """Stateful collaboration entity for agent task processing.
+    
+    Tasks are the primary unit of work in the A2A protocol. They carry
+    both the instruction and the necessary context for an agent to
+    complete the work. The state_snapshot allows resumability and
+    debugging by capturing the system state at task creation time.
+    
+    Attributes:
+        id: Unique identifier for tracking and correlation
+        instruction: Natural language instruction for the agent
+        context: Relevant context including user info and session data
+        state_snapshot: Captures system state for reproducibility
+        status: Task lifecycle state (pending -> in_progress -> completed/failed)
+        created_at: ISO timestamp for audit and performance tracking
+    """
     id: str
     instruction: str
     context: Dict[str, Any]
@@ -75,15 +122,31 @@ class A2ATask:
     created_at: Optional[str] = None
     
     def __post_init__(self):
+        """Initialize timestamp if not provided."""
         if self.created_at is None:
             self.created_at = datetime.now(timezone.utc).isoformat()
     
     def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
         return asdict(self)
 
 @dataclass
 class A2AArtifact:
-    """Immutable output generated by an agent"""
+    """Immutable output generated by an agent.
+    
+    Artifacts represent the concrete results of agent processing.
+    They are immutable to ensure data integrity and provide a clear
+    audit trail. The content can be any serializable data structure,
+    with content_type indicating how to interpret it.
+    
+    Attributes:
+        id: Unique identifier for the artifact
+        task_id: Links artifact to the task that generated it
+        content: The actual output data (text, structured data, etc.)
+        content_type: MIME type or custom type identifier
+        metadata: Additional context about the artifact
+        created_at: ISO timestamp for ordering and audit
+    """
     id: str
     task_id: str
     content: Any
@@ -92,15 +155,33 @@ class A2AArtifact:
     created_at: Optional[str] = None
     
     def __post_init__(self):
+        """Initialize timestamp if not provided."""
         if self.created_at is None:
             self.created_at = datetime.now(timezone.utc).isoformat()
     
     def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
         return asdict(self)
 
 @dataclass
 class A2AMessage:
-    """Message for passing context and instructions"""
+    """Message for inter-agent communication.
+    
+    Messages enable agents to communicate during task processing,
+    supporting patterns like clarification requests, status updates,
+    and partial results. This supports more complex multi-turn
+    interactions between agents.
+    
+    Attributes:
+        id: Unique message identifier
+        task_id: Links message to ongoing task
+        content: Message body (typically natural language)
+        sender: Agent identifier that sent the message
+        recipient: Target agent identifier
+        message_type: Semantic type for message routing/handling
+        metadata: Additional routing or processing hints
+        created_at: ISO timestamp for message ordering
+    """
     id: str
     task_id: str
     content: str
@@ -111,22 +192,41 @@ class A2AMessage:
     created_at: Optional[str] = None
     
     def __post_init__(self):
+        """Initialize timestamp if not provided."""
         if self.created_at is None:
             self.created_at = datetime.now(timezone.utc).isoformat()
     
     def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
         return asdict(self)
 
 class A2ARequest:
-    """JSON-RPC 2.0 request wrapper"""
+    """JSON-RPC 2.0 request wrapper.
+    
+    Encapsulates requests in the standard JSON-RPC 2.0 format, providing:
+    - Consistent request structure across all agent communications
+    - Request/response correlation through unique IDs
+    - Clear method routing and parameter passing
+    
+    The JSON-RPC 2.0 standard was chosen for its simplicity, wide support,
+    and well-defined error handling semantics.
+    """
     
     def __init__(self, method: str, params: Dict[str, Any], request_id: Optional[str] = None):
+        """Initialize a JSON-RPC request.
+        
+        Args:
+            method: RPC method name to invoke
+            params: Method parameters as a dictionary
+            request_id: Optional correlation ID (auto-generated if not provided)
+        """
         self.jsonrpc = "2.0"
         self.method = method
         self.params = params
         self.id = request_id or str(uuid.uuid4())
     
     def to_dict(self) -> Dict[str, Any]:
+        """Convert to JSON-RPC 2.0 request format."""
         return {
             "jsonrpc": self.jsonrpc,
             "method": self.method,
@@ -135,15 +235,36 @@ class A2ARequest:
         }
 
 class A2AResponse:
-    """JSON-RPC 2.0 response wrapper"""
+    """JSON-RPC 2.0 response wrapper.
+    
+    Encapsulates responses in the standard JSON-RPC 2.0 format, supporting
+    both successful results and structured error responses. The mutual
+    exclusivity of result/error fields provides clear success/failure
+    semantics.
+    
+    Error codes follow JSON-RPC 2.0 specification:
+    - -32700: Parse error
+    - -32600: Invalid request
+    - -32601: Method not found
+    - -32602: Invalid params
+    - -32603: Internal error
+    """
     
     def __init__(self, result: Any = None, error: Optional[Dict[str, Any]] = None, request_id: Optional[str] = None):
+        """Initialize a JSON-RPC response.
+        
+        Args:
+            result: Successful result data (mutually exclusive with error)
+            error: Error object with code, message, and optional data
+            request_id: Correlation ID from the request
+        """
         self.jsonrpc = "2.0"
         self.result = result
         self.error = error
         self.id = request_id
     
     def to_dict(self) -> Dict[str, Any]:
+        """Convert to JSON-RPC 2.0 response format."""
         response = {
             "jsonrpc": self.jsonrpc,
             "id": self.id
@@ -155,75 +276,122 @@ class A2AResponse:
         return response
 
 class A2AConnectionPool:
-    """Connection pool for A2A clients to reuse sessions"""
+    """Singleton connection pool for efficient HTTP session reuse.
+    
+    This implementation addresses several key performance concerns:
+    
+    1. Connection Reuse: HTTP connections are expensive to establish,
+       especially with TLS. Reusing connections dramatically reduces
+       latency for subsequent requests.
+    
+    2. Resource Management: Prevents connection exhaustion by limiting
+       total connections and connections per host. The high per-host
+       limit (20+) supports parallel tool execution patterns.
+    
+    3. Idle Cleanup: Automatically closes idle connections to free
+       resources while maintaining hot connections for active agents.
+    
+    4. Thread Safety: Uses asyncio locks to ensure safe concurrent
+       access to the pool from multiple coroutines.
+    
+    Design decisions:
+    - Singleton pattern ensures global connection sharing
+    - Per-endpoint locking prevents race conditions
+    - Configurable timeouts support different latency requirements
+    - DNS caching reduces lookup overhead for repeated requests
+    """
     _instance = None
     _lock = asyncio.Lock()
     
     def __new__(cls):
+        """Ensure single instance (singleton pattern)."""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
     
     def __init__(self):
+        """Initialize the connection pool with configuration."""
         if not hasattr(self, '_initialized'):
             self._initialized = True
             self._pools = {}  # endpoint -> session
             self._pool_locks = {}  # endpoint -> lock
             self._last_used = {}  # endpoint -> timestamp
-            # Get config settings
             a2a_config = get_a2a_config()
             self._max_idle_time = a2a_config.connection_pool_max_idle
             logger.info(f"A2AConnectionPool initialized with max_idle_time={self._max_idle_time}s")
     
     async def get_session(self, endpoint: str, timeout: Optional[int] = None) -> aiohttp.ClientSession:
-        """Get or create a session for an endpoint"""
-        # Get config settings
+        """Get or create a session for an endpoint.
+        
+        This method implements session reuse with proper lifecycle management:
+        - Reuses existing sessions when available (fast path)
+        - Creates new sessions with optimized settings when needed
+        - Tracks last usage for idle timeout management
+        - Uses per-endpoint locking to prevent race conditions
+        
+        Args:
+            endpoint: Full URL of the target endpoint
+            timeout: Optional custom timeout (uses config default if not specified)
+            
+        Returns:
+            aiohttp.ClientSession configured for the endpoint
+        """
         a2a_config = get_a2a_config()
         if timeout is None:
             timeout = a2a_config.timeout
         
-        # Extract base URL from endpoint
+        # Extract base URL to pool connections by host
         from urllib.parse import urlparse
         parsed = urlparse(endpoint)
         base_url = f"{parsed.scheme}://{parsed.netloc}"
         
-        # Create lock for this endpoint if needed
+        # Lazy lock creation avoids pre-allocating for all possible endpoints
         if base_url not in self._pool_locks:
             self._pool_locks[base_url] = asyncio.Lock()
         
         async with self._pool_locks[base_url]:
-            # Check if we have a valid session
+            # Fast path: reuse existing session
             if base_url in self._pools:
                 session = self._pools[base_url]
                 if not session.closed:
                     self._last_used[base_url] = time.time()
                     return session
                 else:
-                    # Session was closed, remove it
                     logger.info(f"Removing closed session for {base_url}")
                     del self._pools[base_url]
             
-            # Create new session
+            # Create new session with optimized settings
             logger.info(f"Creating new session for {base_url} with timeout={timeout}s")
-            # Use config values for all timeout components
+            
+            # Multi-level timeout configuration for fine-grained control:
+            # - total: Overall request timeout
+            # - connect: TCP connection establishment  
+            # - sock_read/connect: Lower-level socket timeouts
             timeout_config = aiohttp.ClientTimeout(
                 total=timeout,
                 connect=a2a_config.connect_timeout,
                 sock_read=a2a_config.sock_read_timeout,
                 sock_connect=a2a_config.sock_connect_timeout
             )
+            
+            # Connection pooling configuration optimized for agent workloads:
+            # - High per-host limit supports parallel tool execution (8+ concurrent)
+            # - DNS caching reduces repeated lookups for agent endpoints
+            # - Keepalive maintains persistent connections for low latency
+            # - Cleanup removes stale connections automatically
             connector = aiohttp.TCPConnector(
                 limit=a2a_config.connection_pool_size,
-                limit_per_host=max(20, a2a_config.connection_pool_size),  # Allow many concurrent connections per host (support 8+ tools)
+                limit_per_host=max(20, a2a_config.connection_pool_size),
                 ttl_dns_cache=a2a_config.connection_pool_ttl,
                 enable_cleanup_closed=True,
                 force_close=False,
                 keepalive_timeout=min(30, a2a_config.connection_pool_max_idle)
             )
+            
             session = aiohttp.ClientSession(
                 timeout=timeout_config,
                 connector=connector,
-                connector_owner=True
+                connector_owner=True  # Session owns connector lifecycle
             )
             
             self._pools[base_url] = session
@@ -231,14 +399,25 @@ class A2AConnectionPool:
             return session
     
     async def cleanup_idle_sessions(self):
-        """Clean up idle sessions"""
+        """Clean up idle sessions to free resources.
+        
+        This method should be called periodically (e.g., every minute) to:
+        - Free memory and file descriptors from unused connections
+        - Prevent connection leaks from accumulating over time
+        - Ensure fresh connections for infrequently used agents
+        
+        The two-phase approach (collect then remove) avoids modifying
+        the dictionary while iterating.
+        """
         current_time = time.time()
         to_remove = []
         
+        # Phase 1: Identify idle sessions
         for endpoint, last_used in self._last_used.items():
             if current_time - last_used > self._max_idle_time:
                 to_remove.append(endpoint)
         
+        # Phase 2: Remove idle sessions with proper locking
         for endpoint in to_remove:
             async with self._pool_locks[endpoint]:
                 if endpoint in self._pools:
@@ -249,31 +428,66 @@ class A2AConnectionPool:
                     logger.info(f"Cleaned up idle session for {endpoint}")
     
     async def close_all(self):
-        """Close all sessions in the pool"""
+        """Close all sessions in the pool.
+        
+        Called during shutdown to ensure clean resource cleanup.
+        Uses defensive programming to handle sessions that may
+        already be closed or in an error state.
+        """
         for endpoint, session in list(self._pools.items()):
             try:
                 await session.close()
                 logger.info(f"Closed session for {endpoint}")
             except Exception as e:
+                # Log but don't fail - session may already be closed
                 logger.warning(f"Error closing session for {endpoint}: {e}")
         self._pools.clear()
         self._last_used.clear()
 
-# Global connection pool
+# Global connection pool instance - lazy initialization pattern
 _connection_pool = None
 
 def get_connection_pool() -> A2AConnectionPool:
-    """Get the global connection pool instance"""
+    """Get the global connection pool instance.
+    
+    Uses lazy initialization to avoid creating the pool until
+    it's actually needed, which helps with testing and reduces
+    startup overhead.
+    """
     global _connection_pool
     if _connection_pool is None:
         _connection_pool = A2AConnectionPool()
     return _connection_pool
 
 class A2AClient:
-    """A2A Protocol Client for making calls to other agents"""
+    """A2A Protocol Client for making resilient calls to other agents.
+    
+    This client provides the primary interface for agent-to-agent communication
+    with enterprise-grade reliability features:
+    
+    1. Connection Pooling: Reuses HTTP connections for performance
+    2. Circuit Breaker: Fails fast when agents are down to prevent cascading failures
+    3. Retry Logic: Automatic retry with exponential backoff for transient failures
+    4. Timeout Management: Configurable timeouts at multiple levels
+    5. Structured Logging: Comprehensive observability for debugging and monitoring
+    
+    The client can operate in two modes:
+    - Pooled mode (default): Shares connections via global pool for efficiency
+    - Dedicated mode: Uses dedicated session for isolation (useful for testing)
+    
+    Usage:
+        async with A2AClient() as client:
+            result = await client.process_task(endpoint, task)
+    """
     
     def __init__(self, timeout: Optional[int] = None, debug_mode: Optional[bool] = None, use_pool: bool = True):
-        # Get config settings
+        """Initialize the A2A client.
+        
+        Args:
+            timeout: Request timeout in seconds (uses config default if None)
+            debug_mode: Enable verbose debug logging (uses config default if None)
+            use_pool: Whether to use connection pooling (True for production)
+        """
         a2a_config = get_a2a_config()
         system_config = get_system_config()
         
@@ -324,15 +538,36 @@ class A2AClient:
                 self.session = None
     
     async def _make_raw_call(self, endpoint: str, method: str, params: Dict[str, Any], request_id: Optional[str] = None) -> Dict[str, Any]:
-        """Make a raw JSON-RPC call without resilience patterns"""
+        """Make a raw JSON-RPC call without resilience patterns.
         
+        This is the core communication method that handles:
+        - Request/response serialization in JSON-RPC 2.0 format
+        - Connection management (pooled or dedicated)
+        - Comprehensive logging for observability
+        - Error handling with proper exception types
+        
+        The method is wrapped by call_agent() which adds resilience patterns.
+        
+        Args:
+            endpoint: Full URL of the agent endpoint
+            method: JSON-RPC method name to invoke
+            params: Method parameters as dictionary
+            request_id: Optional correlation ID
+            
+        Returns:
+            Dictionary containing the agent's response
+            
+        Raises:
+            A2AException: For protocol-level errors
+            asyncio.TimeoutError: For timeout errors
+        """
         # Ensure external loggers are initialized at runtime
         ensure_loggers_initialized()
         
-        # Start performance tracking
+        # Generate unique operation ID for correlation across logs
         operation_id = f"a2a_call_{uuid.uuid4().hex[:8]}"
 
-        # BULLETPROOF EXTERNAL LOGGING
+        # Log to multiple systems for comprehensive observability
         log_a2a_activity("A2A_CALL_START", 
                         operation_id=operation_id,
                         endpoint=endpoint,
@@ -369,6 +604,7 @@ class A2AClient:
         
         try:
             if self.debug_mode:
+                # Verbose debug output for development and troubleshooting
                 logger.info(f"A2A call to {endpoint}: {method}")
                 print(f"\n🔥 A2A CLIENT NUCLEAR DEBUG 🔥")
                 print(f"📡 Calling endpoint: {endpoint}")
@@ -382,10 +618,12 @@ class A2AClient:
                     print(f"📡 Task context: {task.get('context')}")
                     print(f"📡 Task state_snapshot: {task.get('state_snapshot')}")
 
-            # Get session from pool or use dedicated session
+            # Session management with pooling optimization
             if self.use_pool:
+                # Pooled mode: efficient connection reuse
                 session = await self._pool.get_session(endpoint, self.timeout)
             else:
+                # Dedicated mode: isolated session for testing
                 if not self.session or self._closed:
                     if self.debug_mode:
                         logger.error("Client session not initialized or already closed")
@@ -405,11 +643,13 @@ class A2AClient:
             start_time = time.time()
             logger.info(f"A2A POST request starting to {endpoint} with timeout={self.timeout}s (pooled={self.use_pool})")
             
+            # Make HTTP POST request with proper timeout
+            # Note: We set timeout both at session and request level for defense in depth
             async with session.post(
                 endpoint,
                 json=request_dict,
                 headers={"Content-Type": "application/json"},
-                timeout=aiohttp.ClientTimeout(total=self.timeout)  # Ensure timeout is applied to the request
+                timeout=aiohttp.ClientTimeout(total=self.timeout)
             ) as response:
                 elapsed = time.time() - start_time
                 logger.info(f"A2A POST response received from {endpoint} in {elapsed:.2f}s with status={response.status}")
@@ -440,6 +680,7 @@ class A2AClient:
                                     content = first_artifact['content']
                                     print(f"   Content preview: {str(content)[:200]}...")
 
+                # Check for JSON-RPC error response
                 if "error" in result:
                     if self.debug_mode:
                         print(f"❌ AGENT ERROR: {result['error']}")
@@ -448,7 +689,7 @@ class A2AClient:
 
                 final_result = result.get("result", {})
 
-                # Log successful completion
+                # Track performance metrics for successful calls
                 duration = None
                 if a2a_perf:
                     try:
@@ -456,7 +697,7 @@ class A2AClient:
                                                          result_keys=list(final_result.keys()),
                                                          artifacts_count=len(final_result.get('artifacts', [])))
                     except:
-                        pass
+                        pass  # Performance tracking should not break functionality
 
                 if a2a_logger:
                     try:
@@ -492,7 +733,8 @@ class A2AClient:
                 return final_result
 
         except asyncio.TimeoutError as e:
-            # Specific handling for timeout errors
+            # Timeout errors are common in distributed systems - handle gracefully
+            # with clear error messages for debugging
             elapsed = time.time() - start_time if 'start_time' in locals() else 0
             logger.error(f"A2A timeout error calling {endpoint} after {elapsed:.2f}s (timeout was {self.timeout}s)")
             if a2a_perf:
@@ -511,7 +753,8 @@ class A2AClient:
                     pass
             raise A2AException(f"Request timed out after {elapsed:.2f}s")
         except aiohttp.ClientError as e:
-            # Log network error
+            # Network errors include connection failures, DNS issues, etc.
+            # These are often transient and will be retried by the resilience layer
             elapsed = time.time() - start_time if 'start_time' in locals() else 0
             if a2a_perf:
                 try:
@@ -528,7 +771,8 @@ class A2AClient:
                 except:
                     pass
             logger.error(f"A2A network error calling {endpoint} after {elapsed:.2f}s: {e}")
-            # Don't re-raise if session was closed during shutdown
+            
+            # Special handling for shutdown scenarios to avoid noisy errors
             if not self.use_pool and self._closed:
                 logger.info("Ignoring network error during client shutdown")
                 return {"error": "Client shutdown during operation"}
@@ -557,26 +801,53 @@ class A2AClient:
             raise
     
     async def call_agent(self, endpoint: str, method: str, params: Dict[str, Any], request_id: Optional[str] = None) -> Dict[str, Any]:
-        """Make a resilient JSON-RPC call to another agent with circuit breaker and retry"""
+        """Make a resilient JSON-RPC call with circuit breaker and retry logic.
         
-        # Get configuration
+        This method wraps _make_raw_call with enterprise resilience patterns:
+        
+        1. Circuit Breaker Pattern:
+           - Opens circuit after N failures to prevent cascading failures
+           - Fails fast when circuit is open, avoiding unnecessary timeouts
+           - Periodically tests with half-open state to detect recovery
+           
+        2. Retry Pattern:
+           - Automatic retry with exponential backoff for transient failures
+           - Configurable max attempts and delays
+           - Adds jitter to prevent thundering herd
+           
+        The circuit breaker is keyed by agent+method to isolate failures
+        (e.g., one broken method doesn't affect other methods on same agent).
+        
+        Args:
+            endpoint: Full URL of the agent endpoint
+            method: JSON-RPC method name to invoke
+            params: Method parameters as dictionary
+            request_id: Optional correlation ID
+            
+        Returns:
+            Dictionary containing the agent's response
+            
+        Raises:
+            A2AException: After all retry attempts are exhausted
+        """
         a2a_config = get_a2a_config()
         
-        # Create circuit breaker config from system config
+        # Configure circuit breaker for fast failure detection
         circuit_config = CircuitBreakerConfig(
             failure_threshold=a2a_config.circuit_breaker_threshold,
             timeout=a2a_config.circuit_breaker_timeout,
             half_open_max_calls=3
         )
         
-        # Create retry config from system config
+        # Configure retry for transient failure recovery
         retry_config = RetryConfig(
             max_attempts=a2a_config.retry_attempts,
             base_delay=a2a_config.retry_delay,
             max_delay=30.0
         )
         
-        # Extract agent name from endpoint for circuit breaker naming
+        # Create unique circuit breaker per agent+method combination
+        # This prevents one broken method from affecting others
         agent_name = endpoint.split('/')[2].replace(':', '_')  # Convert host:port to host_port
         circuit_breaker_name = f"a2a_{agent_name}_{method}"
         
@@ -593,7 +864,18 @@ class A2AClient:
             raise
     
     async def process_task(self, endpoint: str, task: A2ATask) -> Dict[str, Any]:
-        """High-level method to process a task with another agent"""
+        """Process a task with another agent.
+        
+        This is the primary method for agent-to-agent task delegation.
+        It serializes the task and sends it to the target agent for processing.
+        
+        Args:
+            endpoint: Full URL of the agent endpoint
+            task: A2ATask object containing instruction and context
+            
+        Returns:
+            Dictionary with task results and artifacts
+        """
         return await self.call_agent(
             endpoint=endpoint,
             method="process_task",
@@ -601,7 +883,17 @@ class A2AClient:
         )
     
     async def get_agent_card(self, endpoint: str) -> AgentCard:
-        """Retrieve agent capabilities"""
+        """Retrieve agent capabilities for discovery.
+        
+        Used by the orchestrator to understand what an agent can do
+        without hardcoding knowledge about specific agents.
+        
+        Args:
+            endpoint: Full URL of the agent endpoint
+            
+        Returns:
+            AgentCard describing the agent's capabilities
+        """
         result = await self.call_agent(
             endpoint=endpoint,
             method="get_agent_card",
@@ -610,9 +902,29 @@ class A2AClient:
         return AgentCard(**result)
 
 class A2AServer:
-    """A2A Protocol Server for handling requests from other agents"""
+    """A2A Protocol Server for handling incoming agent requests.
+    
+    This server implements the receiving side of the A2A protocol,
+    handling JSON-RPC 2.0 requests from other agents. Key features:
+    
+    1. Standards Compliance: Strict JSON-RPC 2.0 implementation
+    2. Input Validation: Protects against malformed or malicious requests  
+    3. Method Registration: Flexible handler registration pattern
+    4. Agent Card Endpoint: Self-description for discovery
+    5. Error Handling: Proper error codes and messages per spec
+    
+    The server is designed to be embedded in agent implementations,
+    providing a consistent communication interface across all agents.
+    """
     
     def __init__(self, agent_card: AgentCard, host: str = "0.0.0.0", port: int = 8000):
+        """Initialize the A2A server.
+        
+        Args:
+            agent_card: Self-description of this agent's capabilities
+            host: Host to bind to (0.0.0.0 for all interfaces)
+            port: Port to listen on
+        """
         self.agent_card = agent_card
         self.host = host
         self.port = port
@@ -621,31 +933,54 @@ class A2AServer:
         self._setup_routes()
     
     def _setup_routes(self):
-        """Set up HTTP routes for A2A protocol"""
+        """Set up HTTP routes for A2A protocol endpoints."""
         self.app.router.add_post("/a2a", self._handle_request)
         self.app.router.add_get("/a2a/agent-card", self._handle_agent_card)
     
     def register_handler(self, method: str, handler):
-        """Register a method handler"""
+        """Register a handler for a JSON-RPC method.
+        
+        Args:
+            method: JSON-RPC method name
+            handler: Async function that processes the method
+        """
         self.handlers[method] = handler
     
     async def _handle_agent_card(self, request: web.Request) -> web.Response:
-        """Return agent card (capabilities)"""
+        """Return agent card for capability discovery.
+        
+        This endpoint allows other agents and the orchestrator to
+        discover what this agent can do without prior knowledge.
+        """
         return web.json_response(self.agent_card.to_dict())
     
     async def _handle_request(self, request: web.Request) -> web.Response:
-        """Handle JSON-RPC requests"""
+        """Handle incoming JSON-RPC requests.
+        
+        This method implements comprehensive request handling with:
+        - Input validation to prevent injection attacks
+        - Proper error responses per JSON-RPC 2.0 spec
+        - Method dispatch to registered handlers
+        - Structured error handling with appropriate status codes
+        
+        Error codes follow JSON-RPC 2.0 specification:
+        - -32700: Parse error (malformed JSON)
+        - -32600: Invalid request (wrong structure)
+        - -32601: Method not found
+        - -32602: Invalid params
+        - -32603: Internal error
+        """
         try:
             data = await request.json()
             
-            # Input validation for security
+            # Type validation prevents processing non-dict payloads
             if not isinstance(data, dict):
                 return web.json_response(
                     A2AResponse(error={"code": -32600, "message": "Invalid Request - must be object"}).to_dict(),
                     status=400
                 )
             
-            # Validate JSON-RPC format
+            # Validate JSON-RPC 2.0 format
             if data.get("jsonrpc") != "2.0":
                 return web.json_response(
                     A2AResponse(error={"code": -32600, "message": "Invalid Request"}).to_dict(),
@@ -656,21 +991,22 @@ class A2AServer:
             params = data.get("params", {})
             request_id = data.get("id")
             
-            # Validate method name
+            # Method name validation prevents excessive memory usage
             if not isinstance(method, str) or len(method) > 100:
                 return web.json_response(
                     A2AResponse(error={"code": -32600, "message": "Invalid method name"}, request_id=request_id).to_dict(),
                     status=400
                 )
             
-            # Validate params
+            # Params must be object (dict) per our A2A implementation
             if not isinstance(params, dict):
                 return web.json_response(
                     A2AResponse(error={"code": -32600, "message": "Invalid params - must be object"}, request_id=request_id).to_dict(),
                     status=400
                 )
             
-            # Validate task data if this is a process_task call
+            # Special validation for process_task - our primary method
+            # This ensures task data is well-formed and safe to process
             if method == "process_task" and "task" in params:
                 try:
                     validated_task = AgentInputValidator.validate_a2a_task(params["task"])
@@ -687,13 +1023,14 @@ class A2AServer:
                     status=404
                 )
             
-            # Call the handler
+            # Dispatch to registered handler
             try:
                 result = await self.handlers[method](params)
                 response = A2AResponse(result=result, request_id=request_id)
                 return web.json_response(response.to_dict())
             
             except Exception as e:
+                # Handler exceptions are logged but sanitized in response
                 logger.exception(f"Handler error for method {method}")
                 response = A2AResponse(
                     error={"code": -32603, "message": "Internal error", "data": str(e)},
@@ -702,11 +1039,13 @@ class A2AServer:
                 return web.json_response(response.to_dict(), status=500)
         
         except json.JSONDecodeError:
+            # Malformed JSON gets parse error response
             return web.json_response(
                 A2AResponse(error={"code": -32700, "message": "Parse error"}).to_dict(),
                 status=400
             )
         except Exception as e:
+            # Catch-all for unexpected errors - log but don't leak details
             logger.exception("Unexpected error in request handler")
             return web.json_response(
                 A2AResponse(error={"code": -32603, "message": "Internal error"}).to_dict(),
@@ -714,7 +1053,11 @@ class A2AServer:
             )
     
     async def start(self):
-        """Start the A2A server"""
+        """Start the A2A server.
+        
+        Returns:
+            AppRunner instance for lifecycle management
+        """
         runner = web.AppRunner(self.app)
         await runner.setup()
         
@@ -725,9 +1068,17 @@ class A2AServer:
         return runner
     
     async def stop(self, runner):
-        """Stop the A2A server"""
+        """Stop the A2A server gracefully.
+        
+        Args:
+            runner: AppRunner instance from start()
+        """
         await runner.cleanup()
 
 class A2AException(Exception):
-    """Custom exception for A2A protocol errors"""
+    """Custom exception for A2A protocol errors.
+    
+    Used to distinguish protocol-level errors from other exceptions,
+    enabling proper error handling and retry logic in the resilience layer.
+    """
     pass

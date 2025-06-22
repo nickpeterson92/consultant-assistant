@@ -1,155 +1,226 @@
-# Consultant Assistant Multi-Agent System
+# Enterprise Multi-Agent Consultant Assistant 🤖
+
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-0.2.69-green.svg)](https://github.com/langchain-ai/langgraph)
+[![A2A Protocol](https://img.shields.io/badge/A2A%20Protocol-JSON--RPC%202.0-orange.svg)](https://github.com/google-a2a/A2A)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+A production-grade, multi-agent AI system implementing Google's Agent-to-Agent (A2A) protocol for enterprise CRM automation, featuring resilient distributed architecture, intelligent orchestration, and seamless Salesforce integration.
+
+## Table of Contents
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Key Features](#key-features)
+- [Quick Start](#quick-start)
+- [System Requirements](#system-requirements)
+- [Configuration](#configuration)
+- [Usage Examples](#usage-examples)
+- [Development](#development)
+- [Production Deployment](#production-deployment)
+- [Monitoring & Observability](#monitoring--observability)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Overview
-The **Consultant Assistant** is a sophisticated **multi-agent system** powered by **LangGraph** and **Google's Agent2Agent (A2A) protocol** designed to assist consultants in their daily workflows by integrating with various enterprise systems. The system uses specialized AI agents that communicate via JSON-RPC to provide seamless enterprise integration.
 
-The assistant utilizes OpenAI's **AzureChatOpenAI**, coordinated through an **orchestrator agent** that routes requests to **specialized agents** for Salesforce, travel, expenses, HR, and document processing. The tool maintains memory using **SQLite** and provides structured interaction through LangGraph's **state management and workflow execution**.
+The Enterprise Multi-Agent Consultant Assistant represents the cutting edge of AI agent orchestration, combining:
 
----
+- **Google A2A Protocol**: Industry-standard agent communication using JSON-RPC 2.0
+- **LangGraph Integration**: State-of-the-art conversation orchestration with built-in persistence
+- **Enterprise Resilience**: Circuit breakers, connection pooling, and graceful degradation
+- **Intelligent Memory**: Context-aware data persistence with TrustCall extraction
+- **Cost Optimization**: Aggressive summarization and memory-first retrieval strategies
 
-## Current Architecture
+### Why This Architecture?
 
-### Multi-Agent System Design
-This is a **production-ready multi-agent system** with the following components:
+Traditional single-agent systems hit scalability walls. This architecture solves enterprise challenges:
 
-1. **Orchestrator Agent**: Routes requests to specialized agents via A2A protocol
-2. **Specialized Agents**: Domain-specific LangGraph agents (Salesforce, Travel, Expense, etc.)
-3. **A2A Communication**: JSON-RPC over HTTP for inter-agent communication
-4. **Global State Management**: Coordinated memory and context across all agents
-5. **Agent Registry**: Dynamic discovery and health monitoring of specialized agents
+1. **Specialization at Scale**: Each agent focuses on its domain (CRM, travel, HR, etc.)
+2. **Resilient Communication**: Network failures don't cascade through the system
+3. **Dynamic Discovery**: Agents can join/leave without system reconfiguration
+4. **Memory Efficiency**: Structured extraction prevents context explosion
+5. **Cost Control**: Token usage optimization through intelligent summarization
 
-### Current Agents
-- **Salesforce Agent**: Complete CRM operations (Leads, Accounts, Opportunities, Contacts, Cases, Tasks)
-- **Future Agents**: Travel, Expense, HR, OCR (architecture ready for expansion)
-
----
-
-## Installation & Setup
-
-### Prerequisites
-- Python 3.9+
-- Salesforce account with API access
-- Azure OpenAI setup
-
-### Quick Start
-1. **Clone the repository:**
-   ```bash
-   git clone <repo-url>
-   cd consultant-assistant
-   ```
-
-2. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Set up environment variables:**
-   Create a `.env` file in the project root:
-   ```env
-   SFDC_USER=<your_salesforce_username>
-   SFDC_PASS=<your_salesforce_password>
-   SFDC_TOKEN=<your_salesforce_security_token>
-   AZURE_OPENAI_ENDPOINT=<your_azure_openai_endpoint>
-   AZURE_OPENAI_CHAT_DEPLOYMENT_NAME=<your_deployment_name>
-   AZURE_OPENAI_API_VERSION=<api_version>
-   AZURE_OPENAI_API_KEY=<your_api_key>
-   ```
-
-4. **Start the system:**
-   ```bash
-   # Recommended: Start entire system
-   python3 start_system.py
-   
-   # Alternative: Start components individually
-   # Terminal 1 - Start Salesforce agent
-   python3 salesforce_agent.py
-   
-   # Terminal 2 - Start orchestrator
-   python3 orchestrator.py
-   ```
-
-5. **Debug mode:**
-   ```bash
-   python3 orchestrator.py -d
-   python3 salesforce_agent.py -d --port 8001
-   ```
-
----
-
-## Project Structure
+## Architecture
 
 ```
-consultant-assistant/
-├── start_system.py              # System startup script
-├── orchestrator.py              # Orchestrator entry point  
-├── salesforce_agent.py          # Salesforce agent entry point
-├── agent_registry.json          # Agent configuration
-├── system_config.json          # System configuration
-├── requirements.txt             # Dependencies
-├── CLAUDE.md                   # Development guide
-│
-├── src/
-│   ├── orchestrator/           # Orchestrator agent
-│   │   ├── main.py            # LangGraph orchestrator
-│   │   ├── agent_registry.py  # Agent discovery & monitoring
-│   │   ├── agent_caller_tools.py # A2A communication tools
-│   │   └── enhanced_sys_msg.py # Multi-agent system prompts
-│   │
-│   ├── agents/                # Specialized agents
-│   │   └── salesforce/        # Salesforce CRM agent
-│   │       └── main.py        # Salesforce LangGraph workflow
-│   │
-│   ├── a2a/                   # Agent2Agent protocol
-│   │   └── protocol.py        # JSON-RPC client/server
-│   │
-│   ├── tools/                 # Enterprise integration tools
-│   │   └── salesforce_tools.py # Salesforce CRUD operations
-│   │
-│   └── utils/                 # Organized utility modules
-│       ├── storage/           # SQLite adapters, memory schemas
-│       ├── logging/           # Activity loggers, tracing
-│       ├── caching/           # LLM response caching
-│       ├── circuit_breaker.py # Resilience patterns
-│       ├── config.py          # Configuration management
-│       ├── helpers.py         # Message processing utilities
-│       ├── input_validation.py # Security & validation
-│       └── sys_msg.py         # Legacy system messages
-│
-└── logs/                      # Structured logging output
-    ├── orchestrator.log
-    ├── salesforce_agent.log
-    ├── a2a_protocol.log
-    ├── performance.log
-    └── cost_tracking.log
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              USER INTERFACE                                  │
+│                           (orchestrator.py CLI)                             │
+└────────────────────────────────────────────────────────────────────────────┘
+                                     │
+                                     ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         ORCHESTRATOR AGENT                                   │
+│  ┌─────────────────┐  ┌──────────────────┐  ┌─────────────────────────┐   │
+│  │  LangGraph      │  │  Agent Registry   │  │  Memory & State Mgmt    │   │
+│  │  State Machine  │  │  Service Discovery │  │  TrustCall Extraction   │   │
+│  └────────┬────────┘  └──────────────────┘  └─────────────────────────┘   │
+│           │              🧠 Coordination & Intelligence                     │
+└────────────────────────────────────────┬────────────────────────────────────┘
+                                         │
+                            ┌────────────┴────────────┐
+                            │   A2A Protocol Layer    │
+                            │  JSON-RPC 2.0 + HTTP    │
+                            │  Circuit Breakers       │
+                            │  Connection Pooling     │
+                            └────────────┬────────────┘
+                                         │
+                    ┌────────────────────┴─────────────────────┐
+                    ▼                                           ▼
+┌─────────────────────────────────┐    ┌──────────────────────────────┐
+│     SALESFORCE AGENT            │    │    EXTENSIBLE AGENTS         │
+│  - 15 Specialized CRM Tools     │    │  - Travel Management         │
+│  - SOQL Injection Prevention    │    │  - Expense Processing        │
+│  - Flexible Search Patterns     │    │  - HR Operations             │
+│  - LangGraph Integration        │    │  - Document Processing       │
+└─────────────────────────────────┘    └──────────────────────────────┘
 ```
 
----
+### Core Components
 
-## Usage
+#### 1. **Orchestrator** (`src/orchestrator/main.py`)
+The central nervous system implementing:
+- LangGraph state machine for conversation flow
+- Intelligent agent selection based on capabilities
+- Fire-and-forget background tasks for non-blocking operations
+- Smart message preservation during summarization
+- Memory-first retrieval to minimize API calls
 
-### CLI Interface
-The system provides an interactive CLI through the orchestrator:
+#### 2. **A2A Protocol** (`src/a2a/protocol.py`)
+Enterprise-grade implementation of Google's Agent2Agent standard:
+- **Connection Pooling**: 50+ concurrent connections with per-host limits
+- **Circuit Breakers**: Netflix-style failure protection
+- **Retry Logic**: Exponential backoff with jitter
+- **Async Architecture**: Non-blocking I/O for maximum throughput
+- **Standards Compliance**: Full JSON-RPC 2.0 with SSE support
+
+#### 3. **Agent Registry** (`src/orchestrator/agent_registry.py`)
+Service discovery inspired by Consul/Kubernetes:
+- Dynamic agent registration and health monitoring
+- Capability-based routing for intelligent task distribution
+- Concurrent health checks with circuit breaker integration
+- Real-time availability tracking with graceful degradation
+
+#### 4. **Salesforce Agent** (`src/agents/salesforce/main.py`)
+Domain-specific CRM automation:
+- 15 comprehensive tools covering all major Salesforce objects
+- Security-first design with SOQL injection prevention
+- Flexible search patterns (ID, email, name, fuzzy matching)
+- Token-optimized responses for cost efficiency
+
+## Key Features
+
+### 🛡️ Enterprise Security
+- **Input Validation**: Comprehensive sanitization at all entry points
+- **SOQL Injection Prevention**: Parameterized queries with character escaping
+- **Authentication**: Environment-based credential management
+- **Error Sanitization**: No sensitive data in error responses
+
+### 🔄 Resilience Patterns
+- **Circuit Breakers**: Prevent cascading failures (5 failures → 60s cooldown)
+- **Connection Pooling**: Reuse expensive TLS connections
+- **Graceful Degradation**: System continues with reduced functionality
+- **Timeout Management**: Multi-level timeouts prevent hanging
+
+### 🧠 Intelligent Memory
+- **TrustCall Extraction**: Structured data extraction with Pydantic validation
+- **Deduplication**: Automatic merging of duplicate records
+- **Memory-First Retrieval**: Check memory before making API calls
+- **Namespace Isolation**: User-specific memory boundaries
+
+### 📊 Observability
+- **Structured JSON Logging**: Machine-readable logs for all components
+- **Distributed Tracing**: Cross-component operation tracking
+- **Cost Analytics**: Token usage and cost estimation per operation
+- **Performance Metrics**: Operation duration and throughput analysis
+
+## Quick Start
 
 ```bash
-=== Consultant Assistant Orchestrator ===
-Multi-agent system ready. Available capabilities:
-  • account_management
-  • case_handling
-  • contact_management
-  • crm_operations
-  • lead_management
-  • opportunity_tracking
-  • salesforce_operations
-  • task_management
+# 1. Clone the repository
+git clone https://github.com/your-org/consultant-assistant.git
+cd consultant-assistant
 
-Type your request, or 'quit' to exit.
+# 2. Install dependencies
+pip install -r requirements.txt
 
-USER: get the genepoint account
+# 3. Configure environment
+cp .env.example .env
+# Edit .env with your credentials
+
+# 4. Start the system
+python3 start_system.py
+
+# 5. Interact via CLI
+# In the orchestrator terminal:
+> get all records for GenePoint account
+> update opportunity for Express Logistics
+> show me all Lundgren contacts
 ```
 
-### Example Interactions
+## System Requirements
 
-**Retrieving Account Information:**
+- **Python**: 3.11+ (async/await support required)
+- **Memory**: 2GB RAM minimum, 4GB recommended
+- **Storage**: 500MB for logs and SQLite database
+- **Network**: Stable internet for API calls
+- **OS**: Linux, macOS, or Windows with WSL
+
+### Python Dependencies
+
+Core framework stack:
+- `langchain==0.3.17` - Agent framework
+- `langgraph==0.2.69` - State machine orchestration
+- `langchain-openai==0.3.3` - LLM integration
+- `trustcall==0.0.34` - Structured extraction
+
+See `requirements.txt` for complete list.
+
+## Configuration
+
+### Environment Variables (.env)
+
+```bash
+# Azure OpenAI Configuration (Required)
+AZURE_OPENAI_ENDPOINT=https://your-instance.openai.azure.com/
+AZURE_OPENAI_CHAT_DEPLOYMENT_NAME=gpt-4o-mini
+AZURE_OPENAI_API_VERSION=2024-06-01
+AZURE_OPENAI_API_KEY=your-api-key
+
+# Salesforce Configuration (Required)
+SFDC_USER=your@email.com
+SFDC_PASS=your-password
+SFDC_TOKEN=your-security-token
+
+# Optional Configuration
+DEBUG_MODE=true
+ENVIRONMENT=development
+```
+
+### System Configuration (system_config.json)
+
+The system uses a hierarchical configuration with intelligent defaults:
+
+```json
+{
+  "conversation": {
+    "summary_threshold": 5,           // Messages before summarization
+    "memory_update_turn_threshold": 3 // Turns before memory extraction
+  },
+  "a2a": {
+    "connection_pool_size": 20,       // Per-host connection limit
+    "circuit_breaker_threshold": 5,   // Failures before circuit opens
+    "timeout": 30                     // Request timeout in seconds
+  }
+}
+```
+
+Configuration precedence: Runtime → Environment → JSON → Defaults
+
+## Usage Examples
+
+### Basic Account Retrieval
 ```
 USER: get the genepoint account
 ASSISTANT: Here are the details for the Genepoint account:
@@ -157,141 +228,211 @@ ASSISTANT: Here are the details for the Genepoint account:
 - Name: GenePoint
 ```
 
-**Getting All Related Records:**
+### Comprehensive Data Retrieval
 ```
-USER: get all records for genepoint
-ASSISTANT: Here are all the records related to GenePoint:
+USER: get all records for Express Logistics
+ASSISTANT: Here are all records for Express Logistics and Transport:
 
-### Contacts
-1. Edna Frank - Email: updated.test.contact@example.com
-2. Frank Clark - Email: frank.clark@genepoint.com
+Account: Express Logistics and Transport (ID: 001bm00000SA8pOAAT)
 
-### Opportunities  
-1. GenePoint Standby Generator - Stage: Closed Won - Amount: $15,000,000.00
-2. GenePoint Lab Generators - Stage: Closed Won - Amount: $200,000,000.00
+Contacts:
+- Babara Levy (003bm000004Nn4IAAS)
+- Josh Davis (003bm000004Nn4JAAS)
 
-### Cases
-1. Generator assembly instructions unclear - Contact: Edna Frank
-2. Maintenance guidelines for generator unclear - Contact: Edna Frank
+Opportunities:
+- Standby Generator - $20.7T - Proposal/Price Quote
+- Portable Truck Generators - Closed Won
+- SLA - $650K - Closed Won
 
-### Tasks
-1. Test Task - Contact: Edna Frank
-2. Follow-up on New Solar Project - Contact: Edna Frank
-```
+Cases:
+- Malfunctioning Generator
+- Easy installation process
 
-**Updating Records:**
-```
-USER: update the last oppty and DOUBLE that bitch!!
-ASSISTANT: The opportunity "Test Opportunity" for GenePoint has been successfully updated, and its amount has been doubled to $300,000.00.
+Tasks:
+- Send Edible Arrangement to Edna Frank
+- Send Edible Arrangement to Frank Clark
 ```
 
----
+### Intelligent Updates
+```
+USER: update the last opportunity for Lundgren, double the opportunity value
+ASSISTANT: I've successfully updated the opportunity "Website Buildout" for Lundgren Karate and Chemistry Academy. The amount has been doubled from $100,000.00 to $200,000.00.
+```
 
-## Key Features
+## Development
 
-### Enterprise Integration
-- **Salesforce CRM**: Complete CRUD operations for all major objects
-- **Smart Search**: Email, name, phone search across different record types
-- **Relationship Management**: Automatic linking of related records
-- **Error Handling**: Comprehensive validation and error recovery
+### Project Structure
 
-### Multi-Agent Capabilities
-- **Agent Discovery**: Automatic detection and registration of specialized agents
-- **Health Monitoring**: Continuous health checks and circuit breaker patterns
-- **Load Balancing**: Intelligent request routing across available agents
-- **Fault Tolerance**: Graceful degradation when agents are unavailable
+```
+consultant-assistant/
+├── src/
+│   ├── orchestrator/          # Central coordination
+│   │   ├── main.py           # LangGraph implementation
+│   │   ├── agent_registry.py # Service discovery
+│   │   └── enhanced_sys_msg.py # Prompt engineering
+│   ├── agents/               # Specialized agents
+│   │   └── salesforce/       # CRM agent
+│   ├── a2a/                  # Protocol layer
+│   │   └── protocol.py       # A2A implementation
+│   ├── tools/                # Agent capabilities
+│   │   └── salesforce_tools.py # 15 CRM tools
+│   └── utils/                # Shared utilities
+│       ├── config.py         # Configuration management
+│       ├── circuit_breaker.py # Resilience patterns
+│       └── logging/          # Structured logging
+├── logs/                     # Component-separated logs
+├── memory_store.db          # SQLite persistence
+└── system_config.json       # System configuration
+```
 
-### Memory & Persistence
-- **Conversation Memory**: Automatic summarization with configurable thresholds
-- **Structured Memory**: TrustCall-based data extraction to SQLite
-- **Cross-Agent Context**: Shared memory across all specialized agents
-- **Async Storage**: Thread-safe storage adapters with connection pooling
+### Adding New Agents
 
-### Performance & Reliability
-- **LLM Caching**: Response caching to reduce API costs and latency
-- **Circuit Breakers**: Prevent cascade failures in distributed system
-- **Distributed Tracing**: Complete request tracing across agents
-- **Cost Tracking**: Token usage monitoring and cost optimization
+1. Create agent module in `src/agents/your_agent/`
+2. Implement A2A server with agent card
+3. Define specialized tools
+4. Register in `agent_registry.json`
+5. Add orchestrator tool wrapper
 
----
+See [Agent Development Guide](docs/dev/new-agent.md) for details.
 
-## Adding New Agents
+### Code Style
 
-To add a new specialized agent (e.g., Travel, Expense, HR):
+- Follow PEP 8 with 100-character line limit
+- Use type hints for all public functions
+- Write docstrings for all modules, classes, and functions
+- Focus comments on "why" not "what"
 
-1. **Create agent directory:**
-   ```bash
-   mkdir src/agents/travel
-   ```
+## Production Deployment
 
-2. **Implement agent with A2A handler:**
-   ```python
-   # src/agents/travel/main.py
-   from src.a2a import A2AServer, AgentCard
-   # ... implement LangGraph workflow with A2A integration
-   ```
+### Docker Deployment
 
-3. **Create agent-specific tools:**
-   ```python
-   # src/tools/travel_tools.py
-   # Follow Salesforce tools pattern
-   ```
+```bash
+# Build images
+docker-compose build
 
-4. **Define agent capabilities:**
-   ```json
-   // agent_registry.json
-   {
-     "travel-agent": {
-       "endpoint": "http://localhost:8002",
-       "capabilities": ["flight_booking", "hotel_reservations"]
-     }
-   }
-   ```
+# Run services
+docker-compose up -d
 
-5. **Update system startup:**
-   ```python
-   # start_system.py - add new agent to startup sequence
-   ```
+# Scale agents
+docker-compose scale salesforce-agent=3
+```
 
----
+### Kubernetes Deployment
 
-## Future Vision
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: orchestrator
+  template:
+    spec:
+      containers:
+      - name: orchestrator
+        image: consultant-assistant:latest
+        env:
+        - name: AZURE_OPENAI_ENDPOINT
+          valueFrom:
+            secretKeyRef:
+              name: azure-credentials
+              key: endpoint
+```
 
-### Planned Agents
-- **Travel Agent**: Egencia integration for flight/hotel booking
-- **Expense Agent**: ChromeRiver integration for receipt processing
-- **HR Agent**: Workday integration for feedback and HR tasks
-- **OCR Agent**: Document processing and text extraction
-- **Time Tracking Agent**: Automated work hour logging
+### Performance Tuning
 
-### Advanced Features
-- **Multi-User Support**: Tenant isolation and user management
-- **Web Interface**: React-based UI for browser access
-- **API Gateway**: RESTful API for external integrations
-- **Enterprise SSO**: Integration with corporate identity systems
-- **Advanced Analytics**: Usage analytics and performance metrics
+- **Connection Pools**: Tune based on concurrent users
+- **Summary Threshold**: Lower for better context, higher for cost
+- **Circuit Breakers**: Adjust based on network reliability
+- **Memory Cache**: Consider Redis for distributed deployments
 
----
+## Monitoring & Observability
+
+### Log Analysis
+
+All components generate structured JSON logs:
+
+```json
+{
+  "timestamp": "2025-06-21T23:45:00.123Z",
+  "operation_type": "A2A_TASK_COMPLETE",
+  "task_id": "abc123",
+  "duration_ms": 1234,
+  "token_usage": 456,
+  "estimated_cost": "$0.0012"
+}
+```
+
+### Metrics to Monitor
+
+1. **System Health**
+   - Agent availability percentage
+   - Circuit breaker status
+   - Connection pool utilization
+
+2. **Performance**
+   - P95 response times
+   - Token usage per operation
+   - Summary/memory trigger rates
+
+3. **Business Metrics**
+   - CRM operations per hour
+   - Success/failure rates
+   - Cost per conversation
+
+### Integration with APM Tools
+
+The system supports OpenTelemetry for integration with:
+- Datadog
+- New Relic
+- Prometheus/Grafana
+- CloudWatch
 
 ## Contributing
 
-Contributions are welcome! The multi-agent architecture makes it easy to add new capabilities:
+We welcome contributions! Please follow these guidelines:
 
 1. Fork the repository
-2. Create a feature branch for your new agent or enhancement
-3. Follow the established patterns for A2A communication
-4. Add comprehensive tests for your changes
-5. Submit a pull request with detailed documentation
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-### Development Guidelines
-- Follow the A2A protocol for all inter-agent communication
-- Use the established logging and error handling patterns
-- Implement circuit breakers for external service calls
-- Add appropriate caching for expensive operations
-- Document new capabilities in agent cards
+### Development Setup
 
----
+```bash
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # or `venv\Scripts\activate` on Windows
+
+# Install dev dependencies
+pip install -r requirements-dev.txt
+
+# Run pre-commit hooks
+pre-commit install
+```
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## Acknowledgments
+
+This system implements enterprise patterns and standards from:
+- Google's A2A Protocol for agent interoperability
+- Netflix's circuit breaker pattern for resilience
+- LangChain/LangGraph for agent orchestration
+- OpenAI/Azure for LLM capabilities
+
+Special thanks to the open-source community for the foundational libraries that make this system possible.
+
+## Support
+
+For issues and feature requests, please use the GitHub issue tracker.
+
+For enterprise support inquiries, contact: enterprise@your-company.com

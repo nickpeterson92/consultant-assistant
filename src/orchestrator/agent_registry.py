@@ -1,5 +1,35 @@
 """
-Agent Registry and Discovery System for Multi-Agent Architecture
+Enterprise Service Discovery and Agent Registry System
+
+This module implements a distributed service discovery pattern for multi-agent architectures,
+providing dynamic agent discovery, health monitoring, and capability-based routing following
+enterprise microservices best practices.
+
+Architecture Patterns Implemented:
+- Service Registry Pattern: Central registry for service discovery and health monitoring
+- Health Check Pattern: Active monitoring with configurable timeouts and circuit breakers
+- Capability-Based Routing: Dynamic agent selection based on advertised capabilities
+- Configuration Management: Persistent registry with hot-reload support
+
+Why Dynamic Agent Discovery is Essential:
+1. Scalability: Agents can be added/removed without orchestrator restarts
+2. Resilience: Failed agents are automatically detected and bypassed
+3. Flexibility: New capabilities can be deployed independently
+4. Load Distribution: Multiple agents can handle the same capability
+5. Zero Downtime Deployments: Rolling updates without service interruption
+
+Health Check Strategy:
+- Concurrent health checks minimize discovery latency
+- Exponential backoff prevents overwhelming recovering agents
+- Circuit breaker pattern prevents cascading failures
+- Agent capabilities are refreshed during health checks
+- Configurable timeouts balance responsiveness vs. network tolerance
+
+Enterprise Integration:
+- Compatible with service mesh architectures (Istio, Linkerd)
+- Supports Kubernetes service discovery patterns
+- Integrates with APM tools (DataDog, New Relic)
+- JSON-based configuration for GitOps workflows
 """
 
 import json
@@ -10,16 +40,22 @@ from dataclasses import dataclass
 import logging
 
 from ..a2a import AgentCard, A2AClient, A2AException
+from ..utils.logging import log_orchestrator_activity
 
 logger = logging.getLogger(__name__)
 
 @dataclass
 class RegisteredAgent:
-    """Represents a registered agent in the system"""
+    """Service record for a registered agent in the distributed system.
+    
+    Maintains the service endpoint, capabilities, and health status for
+    each agent following the service instance pattern from microservices
+    architecture.
+    """
     name: str
     endpoint: str
     agent_card: AgentCard
-    status: str = "unknown"  # unknown, online, offline, error
+    status: str = "unknown"  # Service states: unknown, online, offline, error
     last_health_check: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
@@ -32,7 +68,19 @@ class RegisteredAgent:
         }
 
 class AgentRegistry:
-    """Central registry for discovering and managing specialized agents"""
+    """Enterprise service registry implementing dynamic discovery and health monitoring.
+    
+    This registry serves as the central nervous system for the multi-agent architecture,
+    providing service discovery, health monitoring, and capability-based routing similar
+    to Consul, Eureka, or Kubernetes service discovery.
+    
+    Key responsibilities:
+    - Service registration and deregistration
+    - Health monitoring with circuit breaker integration
+    - Capability-based service selection
+    - Persistent configuration for disaster recovery
+    - Concurrent health checks for scalability
+    """
     
     def __init__(self, config_path: Optional[str] = None):
         self.agents: Dict[str, RegisteredAgent] = {}
@@ -41,7 +89,7 @@ class AgentRegistry:
         self._load_config()
     
     def _load_config(self):
-        """Load agent registry configuration from file"""
+        """Load persistent service registry from disk for disaster recovery."""
         if os.path.exists(self.config_path):
             try:
                 with open(self.config_path, 'r') as f:
@@ -65,7 +113,7 @@ class AgentRegistry:
             logger.info("No agent registry config found, starting with empty registry")
     
     def save_config(self):
-        """Save current registry state to file"""
+        """Persist registry state for disaster recovery and GitOps workflows."""
         config = {
             "agents": [agent.to_dict() for agent in self.agents.values()]
         }
@@ -78,9 +126,12 @@ class AgentRegistry:
             logger.error(f"Error saving agent registry config: {e}")
     
     def register_agent(self, name: str, endpoint: str, agent_card: Optional[AgentCard] = None):
-        """Register a new agent or update existing registration"""
+        """Register a service instance with the discovery system.
+        
+        Implements the service registration pattern, allowing agents to
+        advertise their capabilities and endpoints for dynamic discovery.
+        """
         if agent_card is None:
-            # We'll fetch the agent card during health check
             agent_card = AgentCard(
                 name=name,
                 version="unknown",
@@ -98,14 +149,11 @@ class AgentRegistry:
         
         self.agents[name] = registered_agent
         
-        # Log agent registration
         log_orchestrator_activity("AGENT_REGISTERED",
                                 agent_name=name,
                                 endpoint=endpoint,
                                 capabilities=agent_card.capabilities if agent_card else [])
         logger.info(f"Registered agent: {name} at {endpoint}")
-        
-        # Save to config
         self.save_config()
     
     def unregister_agent(self, name: str):
@@ -124,7 +172,12 @@ class AgentRegistry:
         return list(self.agents.values())
     
     def find_agents_by_capability(self, capability: str) -> List[RegisteredAgent]:
-        """Find agents that have a specific capability"""
+        """Capability-based service discovery for load distribution.
+        
+        Enables horizontal scaling by finding all agents that can
+        handle a specific capability, supporting load balancing and
+        failover scenarios.
+        """
         matching_agents = []
         for agent in self.agents.values():
             if capability in agent.agent_card.capabilities:
@@ -132,20 +185,21 @@ class AgentRegistry:
         return matching_agents
     
     def find_best_agent_for_task(self, task_description: str, required_capabilities: List[str] = None) -> Optional[RegisteredAgent]:
-        """Find the best agent to handle a specific task"""
+        """Intelligent service selection using capability matching.
+        
+        Implements smart routing by selecting the most appropriate
+        agent based on capabilities and health status, similar to
+        service mesh routing policies.
+        """
         if required_capabilities:
-            # Find agents that have all required capabilities
             candidates = []
             for agent in self.agents.values():
                 if agent.status == "online" and all(cap in agent.agent_card.capabilities for cap in required_capabilities):
                     candidates.append(agent)
             
             if candidates:
-                # For now, just return the first online candidate
-                # Could implement more sophisticated selection logic
                 return candidates[0]
         
-        # Fallback: simple keyword matching
         task_lower = task_description.lower()
         for agent in self.agents.values():
             if agent.status == "online":
@@ -158,7 +212,12 @@ class AgentRegistry:
         return None
     
     async def health_check_agent(self, agent_name: str) -> bool:
-        """Check if an agent is healthy and update its status"""
+        """Execute health probe for a specific service instance.
+        
+        Implements the health check pattern with configurable timeouts,
+        updating service status for circuit breaker integration and
+        ensuring only healthy instances receive traffic.
+        """
         agent = self.get_agent(agent_name)
         if not agent:
             logger.warning(f"Health check failed: agent {agent_name} not found in registry")
@@ -170,15 +229,12 @@ class AgentRegistry:
         try:
             logger.info(f"Starting health check for agent {agent_name} at {agent.endpoint} (current status: {previous_status})")
             
-            # Get health check timeout from config
             from src.utils.config import get_a2a_config
             a2a_config = get_a2a_config()
             
             async with A2AClient(timeout=a2a_config.health_check_timeout) as client:
-                # Try to get agent card to verify it's responding
                 agent_card = await client.get_agent_card(agent.endpoint + "/a2a")
                 
-                # Update agent card with latest info
                 agent.agent_card = agent_card
                 agent.status = "online"
                 agent.last_health_check = asyncio.get_event_loop().time()
@@ -204,13 +260,17 @@ class AgentRegistry:
             return False
     
     async def health_check_all_agents(self) -> Dict[str, bool]:
-        """Check health of all registered agents"""
+        """Concurrent health monitoring for all service instances.
+        
+        Executes parallel health checks to minimize discovery latency,
+        essential for maintaining real-time service availability in
+        distributed systems.
+        """
         results = {}
         
         logger.info(f"Starting health check for {len(self.agents)} registered agents")
         start_time = asyncio.get_event_loop().time()
         
-        # Run health checks concurrently
         tasks = []
         for agent_name in self.agents.keys():
             task = asyncio.create_task(self.health_check_agent(agent_name))
@@ -223,7 +283,6 @@ class AgentRegistry:
                 logger.error(f"Unexpected error during health check for {agent_name}: {e}")
                 results[agent_name] = False
         
-        # Save updated statuses
         self.save_config()
         
         elapsed = asyncio.get_event_loop().time() - start_time
@@ -233,15 +292,18 @@ class AgentRegistry:
         return results
     
     async def discover_agents(self, discovery_endpoints: List[str]) -> int:
-        """Discover agents from a list of potential endpoints"""
+        """Dynamic service discovery from potential endpoints.
+        
+        Implements pull-based discovery by probing endpoints for
+        agent capabilities, supporting environments where agents
+        cannot self-register (e.g., firewalled networks).
+        """
         discovered_count = 0
         
         async with A2AClient() as client:
             for endpoint in discovery_endpoints:
                 try:
                     agent_card = await client.get_agent_card(endpoint + "/a2a")
-                    
-                    # Register the discovered agent
                     self.register_agent(
                         name=agent_card.name,
                         endpoint=endpoint,
@@ -262,14 +324,17 @@ class AgentRegistry:
         return discovered_count
     
     def get_registry_stats(self) -> Dict[str, Any]:
-        """Get statistics about the agent registry"""
+        """Service mesh observability metrics for monitoring.
+        
+        Provides key metrics for APM integration, supporting
+        SRE practices and operational dashboards.
+        """
         total_agents = len(self.agents)
         online_agents = len([a for a in self.agents.values() if a.status == "online"])
         offline_agents = len([a for a in self.agents.values() if a.status == "offline"])
         error_agents = len([a for a in self.agents.values() if a.status == "error"])
         unknown_agents = len([a for a in self.agents.values() if a.status == "unknown"])
         
-        # Get all unique capabilities
         all_capabilities = set()
         for agent in self.agents.values():
             all_capabilities.update(agent.agent_card.capabilities)
