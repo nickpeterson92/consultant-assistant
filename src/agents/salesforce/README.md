@@ -198,22 +198,25 @@ Business intelligence and KPI calculations
 #### Pipeline Breakdown by Stage
 ```bash
 USER: Show me the sales pipeline grouped by stage with metrics
-ASSISTANT: Here's your sales pipeline breakdown by stage:
+ASSISTANT: Here is the sales pipeline grouped by stage with metrics:
 
-**Prospecting Stage:**
-- 15 opportunities
-- Total Pipeline: $2.4M
-- Average Deal Size: $160K
+| Stage Name                | Opportunity Count | Total Amount    | Average Amount |
+|---------------------------|-------------------|-----------------|----------------|
+| Closed Won                | 18                | $4,250,000      | $236,111       |
+| Negotiation/Review        | 12                | $3,650,000      | $304,167       |
+| Proposal/Price Quote      | 15                | $3,200,000      | $213,333       |
+| Prospecting               | 22                | $2,850,000      | $129,545       |
+| Discovery                 | 8                 | $1,980,000      | $247,500       |
+| Qualified                 | 14                | $1,750,000      | $125,000       |
+| Needs Analysis            | 6                 | $950,000        | $158,333       |
+| Value Proposition         | 4                 | $720,000        | $180,000       |
+| Proposal Sent             | 3                 | $485,000        | $161,667       |
+| Negotiation               | 2                 | $340,000        | $170,000       |
+| New                       | 9                 | $285,000        | $31,667        |
+| Id. Decision Makers       | 2                 | $125,000        | $62,500        |
+| Qualification             | 1                 | $65,000         | $65,000        |
 
-**Proposal/Price Quote:**
-- 8 opportunities  
-- Total Pipeline: $3.2M
-- Average Deal Size: $400K
-
-**Closed Won:**
-- 12 opportunities
-- Total Revenue: $1.8M
-- Average Deal Size: $150K
+If you need further details or specific information, feel free to ask!
 ```
 **SOQL Generated:**
 ```sql
