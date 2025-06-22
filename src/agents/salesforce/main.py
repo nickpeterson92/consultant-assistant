@@ -104,6 +104,7 @@ def build_salesforce_graph(debug_mode: bool = False):
         try:
             if debug_mode:
                 logger.info(f"=== SALESFORCE AGENT START (DUMB MODE) ===")
+                logger.info(f"Current message count: {len(state.get('messages', []))}")
             
             task_context = state.get("task_context", {})
             external_context = state.get("external_context", {})
@@ -179,10 +180,31 @@ def build_salesforce_graph(debug_mode: bool = False):
     graph_builder.add_node("tools", tool_node)
     graph_builder.add_node("conversation", salesforce_chatbot)
     
+    # Custom condition to prevent infinite loops
+    def should_continue(state: SalesforceState):
+        """Check if we should continue or end"""
+        messages = state.get("messages", [])
+        if not messages:
+            return END
+            
+        last_message = messages[-1]
+        
+        # If the last message has tool calls, go to tools
+        if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+            return "tools"
+        
+        # If we have more than 10 messages, force end to prevent loops
+        if len(messages) > 10:
+            if debug_mode:
+                logger.warning("Forcing END due to message count > 10")
+            return END
+            
+        # Otherwise end
+        return END
+    
     graph_builder.set_entry_point("conversation")
-    graph_builder.add_conditional_edges("conversation", tools_condition)
+    graph_builder.add_conditional_edges("conversation", should_continue)
     graph_builder.add_edge("tools", "conversation")  # Go back to conversation to handle tool results
-    graph_builder.set_finish_point("conversation")
     
     return graph_builder.compile()
 

@@ -15,6 +15,13 @@ from src.utils.logging import log_tool_activity
 # All logging now handled by centralized activity_logger
 
 
+def escape_soql(value):
+    """Escape single quotes for SOQL injection prevention"""
+    if value is None:
+        return ''
+    return str(value).replace("'", "\\'")
+
+
 def get_salesforce_connection():
     sf = Salesforce(
         username=os.environ["SFDC_USER"],
@@ -51,21 +58,21 @@ class GetLeadTool(BaseTool):
             sf = get_salesforce_connection()
             # Escape all user inputs to prevent SOQL injection
             if data.lead_id:
-                escaped_id = sf.escape(data.lead_id)
+                escaped_id = escape_soql(data.lead_id)
                 query = f"SELECT Id, Name, Company, Email, Phone FROM Lead WHERE Id = '{escaped_id}'"
             else:
                 query_conditions = []
                 if data.email:
-                    escaped_email = sf.escape(data.email)
+                    escaped_email = escape_soql(data.email)
                     query_conditions.append(f"Email LIKE '%{escaped_email}%'")
                 if data.name:
-                    escaped_name = sf.escape(data.name)
+                    escaped_name = escape_soql(data.name)
                     query_conditions.append(f"Name LIKE '%{escaped_name}%'")
                 if data.phone:
-                    escaped_phone = sf.escape(data.phone)
+                    escaped_phone = escape_soql(data.phone)
                     query_conditions.append(f"Phone LIKE '%{escaped_phone}%'")
                 if data.company:
-                    escaped_company = sf.escape(data.company)
+                    escaped_company = escape_soql(data.company)
                     query_conditions.append(f"Company LIKE '%{escaped_company}%'")
 
                 if not query_conditions:
@@ -202,18 +209,18 @@ class GetOpportunityTool(BaseTool):
         # Escape all user inputs to prevent SOQL injection
         sf = get_salesforce_connection()
         if opportunity_id:
-            escaped_opp_id = sf.escape(opportunity_id)
+            escaped_opp_id = escape_soql(opportunity_id)
             query = f"SELECT Id, Name, StageName, Amount, Account.Name FROM Opportunity WHERE Id = '{escaped_opp_id}'"
         else:
             query_conditions = []
             if account_name:
-                escaped_account_name = sf.escape(account_name)
+                escaped_account_name = escape_soql(account_name)
                 query_conditions.append(f"Account.Name LIKE '%{escaped_account_name}%'")
             if account_id:
-                escaped_account_id = sf.escape(account_id)
+                escaped_account_id = escape_soql(account_id)
                 query_conditions.append(f"AccountId = '{escaped_account_id}'")
             if opportunity_name:
-                escaped_opp_name = sf.escape(opportunity_name)
+                escaped_opp_name = escape_soql(opportunity_name)
                 query_conditions.append(f"Name LIKE '%{escaped_opp_name}%'")
             
             if not query_conditions:
@@ -375,10 +382,10 @@ class GetAccountTool(BaseTool):
         # Escape all user inputs to prevent SOQL injection
         sf = get_salesforce_connection()
         if account_id:
-            escaped_account_id = sf.escape(account_id)
+            escaped_account_id = escape_soql(account_id)
             query = f"SELECT Id, Name FROM Account WHERE Id = '{escaped_account_id}'"
         else:
-            escaped_account_name = sf.escape(account_name)
+            escaped_account_name = escape_soql(account_name)
             query_conditions = [f"Name LIKE '%{escaped_account_name}%'"]
     
             query = f"SELECT Id, Name FROM Account WHERE {' AND '.join(query_conditions)}"
@@ -509,24 +516,24 @@ class GetContactTool(BaseTool):
         # Escape all user inputs to prevent SOQL injection
         sf = get_salesforce_connection()
         if contact_id:
-            escaped_contact_id = sf.escape(contact_id)
+            escaped_contact_id = escape_soql(contact_id)
             query = f"SELECT Id, Name, Account.Name, Email, Phone FROM Contact WHERE Id = '{escaped_contact_id}'"
         else:
             query_conditions = []
             if email:
-                escaped_email = sf.escape(email)
+                escaped_email = escape_soql(email)
                 query_conditions.append(f"Email LIKE '%{escaped_email}%'")
             if name:
-                escaped_name = sf.escape(name)
+                escaped_name = escape_soql(name)
                 query_conditions.append(f"Name LIKE '%{escaped_name}%'")
             if phone:
-                escaped_phone = sf.escape(phone)
+                escaped_phone = escape_soql(phone)
                 query_conditions.append(f"Phone LIKE '%{escaped_phone}%'")
             if account_name:
-                escaped_account_name = sf.escape(account_name)
+                escaped_account_name = escape_soql(account_name)
                 query_conditions.append(f"Account.Name LIKE '%{escaped_account_name}%'")
             if account_id:
-                escaped_account_id = sf.escape(account_id)
+                escaped_account_id = escape_soql(account_id)
                 query_conditions.append(f"AccountId = '{escaped_account_id}'")
 
             if not query_conditions:
@@ -659,18 +666,18 @@ class GetCaseTool(BaseTool):
             
             # Escape all user inputs to prevent SOQL injection
             if data.case_id:
-                escaped_case_id = sf.escape(data.case_id)
+                escaped_case_id = escape_soql(data.case_id)
                 query = f"SELECT Id, Subject, Description, Account.Name, Contact.Name FROM Case WHERE Id = '{escaped_case_id}'"
             else:
                 query_conditions = []
                 if data.account_name:
-                    escaped_account_name = sf.escape(data.account_name)
+                    escaped_account_name = escape_soql(data.account_name)
                     query_conditions.append(f"Account.Name LIKE '%{escaped_account_name}%'")
                 if data.account_id:
-                    escaped_account_id = sf.escape(data.account_id)
+                    escaped_account_id = escape_soql(data.account_id)
                     query_conditions.append(f"AccountId = '{escaped_account_id}'")
                 if data.contact_name:
-                    escaped_contact_name = sf.escape(data.contact_name)
+                    escaped_contact_name = escape_soql(data.contact_name)
                     query_conditions.append(f"Contact.Name LIKE '%{escaped_contact_name}%'")
 
                 if not query_conditions:
@@ -798,21 +805,21 @@ class GetTaskTool(BaseTool):
             
             # Escape all user inputs to prevent SOQL injection
             if data.task_id:
-                escaped_task_id = sf.escape(data.task_id)
+                escaped_task_id = escape_soql(data.task_id)
                 query = f"SELECT Id, Subject, Account.Name, Who.Name FROM Task WHERE Id = '{escaped_task_id}'"
             else:
                 query_conditions = []
                 if data.subject:
-                    escaped_subject = sf.escape(data.subject)
+                    escaped_subject = escape_soql(data.subject)
                     query_conditions.append(f"Subject LIKE '%{escaped_subject}%'")
                 if data.account_name:
-                    escaped_account_name = sf.escape(data.account_name)
+                    escaped_account_name = escape_soql(data.account_name)
                     query_conditions.append(f"Account.Name LIKE '%{escaped_account_name}%'")
                 if data.account_id:
-                    escaped_account_id = sf.escape(data.account_id)
+                    escaped_account_id = escape_soql(data.account_id)
                     query_conditions.append(f"WhatId = '{escaped_account_id}'")
                 if data.contact_name:
-                    escaped_contact_name = sf.escape(data.contact_name)
+                    escaped_contact_name = escape_soql(data.contact_name)
                     query_conditions.append(f"Who.Name LIKE '%{escaped_contact_name}%'")
 
                 if not query_conditions:
