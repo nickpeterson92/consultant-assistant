@@ -44,38 +44,38 @@ The Salesforce Agent is a domain-specific AI agent that provides comprehensive C
 ```
 ┌────────────────────────────────────────────────────────────────────────────┐
 │                           SALESFORCE AGENT                                 │
-│  ┌──────────────────┐  ┌─────────────────┐  ┌─────────────────────────┐   │
-│  │   A2A Handler    │  │   LangGraph     │  │   Security Layer        │   │
-│  │   JSON-RPC 2.0   │  │   State Mgmt    │  │   Input Validation      │   │
-│  │   (/a2a endpoint) │  │   Memory        │  │   SOQL Injection Prev   │   │
-│  └──────────────────┘  └─────────────────┘  └─────────────────────────┘   │
+│  ┌──────────────────┐  ┌─────────────────┐  ┌─────────────────────────┐    │
+│  │   A2A Handler    │  │   LangGraph     │  │   Security Layer        │    │
+│  │   JSON-RPC 2.0   │  │   State Mgmt    │  │   Input Validation      │    │
+│  │   (/a2a endpoint)│  │   Memory        │  │   SOQL Injection Prev   │    │
+│  └──────────────────┘  └─────────────────┘  └─────────────────────────┘    │
 │                                   │                                        │
 │  ┌────────────────────────────────┴────────────────────────────────────┐   │
 │  │                        TOOL EXECUTION LAYER                         │   │
-│  │                                                                      │   │
+│  │                                                                     │   │
 │  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐  │   │
 │  │  │  CRUD Tools     │  │ Analytics Tools │  │  Search Tools       │  │   │
-│  │  │  (15 tools)     │  │  (5 tools)     │  │  Cross-object SOSL  │  │   │
-│  │  │  Basic Operations│  │  Aggregates    │  │  Global Search      │  │   │
+│  │  │  (15 tools)     │  │  (5 tools)      │  │  Cross-object SOSL  │  │   │
+│  │  │ Basic Operations│  │  Aggregates     │  │  Global Search      │  │   │
 │  │  └─────────────────┘  └─────────────────┘  └─────────────────────┘  │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
 │                                   │                                        │
 │  ┌────────────────────────────────┴────────────────────────────────────┐   │
 │  │                       SOQL QUERY BUILDER                            │   │
-│  │                                                                      │   │
-│  │  • Fluent Interface     • Aggregate Functions  • Security Features   │   │
-│  │  • Query Templates      • Relationship Queries • Performance Opts    │   │
+│  │                                                                     │   │
+│  │  • Fluent Interface     • Aggregate Functions  • Security Features  │   │
+│  │  • Query Templates      • Relationship Queries • Performance Opts   │   │
 │  │  • SOSL Support        • Subquery Building    • Error Handling      │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
 │                                   │                                        │
 │  ┌────────────────────────────────┴────────────────────────────────────┐   │
 │  │                        SALESFORCE API LAYER                         │   │
-│  │                                                                      │   │
-│  │  • REST API Integration                                              │   │
-│  │  • Connection Management                                             │   │
+│  │                                                                     │   │
+│  │  • REST API Integration                                             │   │
+│  │  • Connection Management                                            │   │
 │  │  • Rate Limiting & Retries                                          │   │
-│  │  • Result Processing                                                 │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
+│  │  • Result Processing                                                │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
