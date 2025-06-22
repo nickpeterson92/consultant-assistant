@@ -1,6 +1,6 @@
 # Core AI and LangGraph dependencies
 langchain==0.3.26
-langgraph==0.2.69
+langgraph==0.4.8
 langsmith==0.4.1
 langchain-openai==0.3.24
 openai==1.90.0
@@ -29,3 +29,6 @@ python-dotenv==1.0.1
 
 # Optional: for enhanced logging and debugging
 colorlog==6.8.2
+
+# Required for LangGraph 0.4.x compatibility
+nest_asyncio==1.6.0

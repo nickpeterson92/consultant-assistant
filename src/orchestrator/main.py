@@ -36,8 +36,13 @@ from trustcall import create_extractor
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import RemoveMessage, add_messages
-from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.types import Send
+
+# Use compatibility layer for LangGraph 0.4.x
+try:
+    from langgraph.prebuilt import ToolNode, tools_condition
+except ImportError:
+    from src.utils.langgraph_compat import ToolNode, tools_condition
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig

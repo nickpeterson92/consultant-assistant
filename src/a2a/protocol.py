@@ -22,6 +22,7 @@ Architecture Components:
 import json
 import uuid
 import asyncio
+# import nest_asyncio  # Removed for Python 3.13 compatibility
 import time
 from typing import Dict, Any, Optional, List, Union
 from dataclasses import dataclass, asdict
@@ -31,6 +32,9 @@ from aiohttp import web
 import logging
 import sys
 import os
+
+# Note: Removed nest_asyncio.apply() for Python 3.13 compatibility
+# Python 3.13 has improved async handling that conflicts with nest_asyncio
 
 from src.utils.logging import get_logger, get_performance_tracker
 from src.utils.logging import log_a2a_activity, log_performance_activity
@@ -618,13 +622,13 @@ class A2AClient:
             start_time = time.time()
             logger.info(f"A2A POST request starting to {endpoint} with timeout={self.timeout}s (pooled={self.use_pool})")
             
-            # Make HTTP POST request with proper timeout
-            # Note: We set timeout both at session and request level for defense in depth
+            # Make HTTP POST request
+            # Note: Timeout is already configured at the session level
+            # Avoid duplicate timeout parameter to prevent Python 3.13 compatibility issues
             async with session.post(
                 endpoint,
                 json=request_dict,
-                headers={"Content-Type": "application/json"},
-                timeout=aiohttp.ClientTimeout(total=self.timeout)
+                headers={"Content-Type": "application/json"}
             ) as response:
                 elapsed = time.time() - start_time
                 logger.info(f"A2A POST response received from {endpoint} in {elapsed:.2f}s with status={response.status}")
