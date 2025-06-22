@@ -72,7 +72,7 @@
     "memory_extraction_delay": 0.5,
     "memory_update_turn_threshold": 3,
     "max_event_history": 50,
-    "default_user_id": "user-7771",
+    "default_user_id": "user-1",
     "default_thread_id": "default",
     "memory_namespace_prefix": "memory",
     "summary_key": "conversation_summary",
