@@ -150,13 +150,13 @@ class CostTracker:
 # Global logger instances
 LOGGERS = {}
 
-def get_logger(component: str, debug_mode: bool = False) -> StructuredLogger:
+def get_logger(component: str) -> StructuredLogger:
     """Get or create a logger for a specific component"""
     
     if component in LOGGERS:
         return LOGGERS[component]
     
-    log_level = logging.DEBUG if debug_mode else logging.INFO
+    log_level = logging.INFO
     
     # Component-specific log files
     log_files = {
@@ -179,28 +179,27 @@ def get_logger(component: str, debug_mode: bool = False) -> StructuredLogger:
     
     return logger
 
-def get_performance_tracker(component: str, debug_mode: bool = False) -> PerformanceTracker:
+def get_performance_tracker(component: str) -> PerformanceTracker:
     """Get performance tracker for a component"""
-    logger = get_logger('performance', debug_mode)
+    logger = get_logger('performance')
     return PerformanceTracker(logger)
 
-def get_cost_tracker(debug_mode: bool = False) -> CostTracker:
+def get_cost_tracker() -> CostTracker:
     """Get cost tracker"""
-    logger = get_logger('cost_tracking', debug_mode)
+    logger = get_logger('cost_tracking')
     return CostTracker(logger)
 
 # Initialize session tracking
 cost_tracker = None
 perf_tracker = None
 
-def init_session_tracking(debug_mode: bool = False):
+def init_session_tracking():
     """Initialize session-wide tracking"""
     global cost_tracker, perf_tracker
-    cost_tracker = get_cost_tracker(debug_mode)
-    perf_tracker = get_performance_tracker('session', debug_mode)
+    cost_tracker = get_cost_tracker()
+    perf_tracker = get_performance_tracker('session')
     
     # Log session start
-    logger = get_logger('multi_agent', debug_mode)
+    logger = get_logger('multi_agent')
     logger.info("SESSION_START: Multi-agent system initialized",
-                debug_mode=debug_mode,
                 timestamp=datetime.now().isoformat())

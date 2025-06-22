@@ -57,11 +57,10 @@ def ensure_loggers_initialized():
     global a2a_logger, a2a_perf
     
     if a2a_logger is None or a2a_perf is None:
-        debug_mode = os.environ.get('DEBUG_MODE', 'false').lower() == 'true'
         try:
-            a2a_logger = get_logger('a2a_protocol', debug_mode)
-            a2a_perf = get_performance_tracker('a2a_protocol', debug_mode)
-            a2a_logger.info("RUNTIME_LOGGER_INITIALIZED", debug_mode=debug_mode)
+            a2a_logger = get_logger('a2a_protocol')
+            a2a_perf = get_performance_tracker('a2a_protocol')
+            a2a_logger.info("RUNTIME_LOGGER_INITIALIZED")
         except Exception:
             # Silent fallback - logging should not break core functionality
             pass
@@ -480,24 +479,22 @@ class A2AClient:
             result = await client.process_task(endpoint, task)
     """
     
-    def __init__(self, timeout: Optional[int] = None, debug_mode: Optional[bool] = None, use_pool: bool = True):
+    def __init__(self, timeout: Optional[int] = None, use_pool: bool = True):
         """Initialize the A2A client.
         
         Args:
             timeout: Request timeout in seconds (uses config default if None)
-            debug_mode: Enable verbose debug logging (uses config default if None)
             use_pool: Whether to use connection pooling (True for production)
         """
         a2a_config = get_a2a_config()
         system_config = get_system_config()
         
         self.timeout = timeout if timeout is not None else a2a_config.timeout
-        self.debug_mode = debug_mode if debug_mode is not None else system_config.debug_mode
         self.use_pool = use_pool
         self.session = None
         self._closed = False
         self._pool = get_connection_pool() if use_pool else None
-        logger.info(f"A2AClient initialized with timeout={self.timeout}s, debug_mode={self.debug_mode}, use_pool={use_pool}")
+        logger.info(f"A2AClient initialized with timeout={self.timeout}s, use_pool={use_pool}")
     
     async def __aenter__(self):
         if not self.use_pool:
@@ -603,20 +600,6 @@ class A2AClient:
                 pass
         
         try:
-            if self.debug_mode:
-                # Verbose debug output for development and troubleshooting
-                logger.info(f"A2A call to {endpoint}: {method}")
-                print(f"\n🔥 A2A CLIENT NUCLEAR DEBUG 🔥")
-                print(f"📡 Calling endpoint: {endpoint}")
-                print(f"📡 Method: {method}")
-                print(f"📡 Request ID: {request_id}")
-                print(f"📡 Params structure: {list(params.keys())}")
-                if 'task' in params:
-                    task = params['task']
-                    print(f"📡 Task ID: {task.get('id')}")
-                    print(f"📡 Task instruction: {task.get('instruction')}")
-                    print(f"📡 Task context: {task.get('context')}")
-                    print(f"📡 Task state_snapshot: {task.get('state_snapshot')}")
 
             # Session management with pooling optimization
             if self.use_pool:
@@ -625,20 +608,12 @@ class A2AClient:
             else:
                 # Dedicated mode: isolated session for testing
                 if not self.session or self._closed:
-                    if self.debug_mode:
-                        logger.error("Client session not initialized or already closed")
+                    logger.error("Client session not initialized or already closed")
                     raise RuntimeError("Client must be used as async context manager and not closed")
                 session = self.session
 
             request = A2ARequest(method, params, request_id)
             request_dict = request.to_dict()
-
-            if self.debug_mode:
-                print(f"📤 SENDING REQUEST PAYLOAD:")
-                print(f"   JSON-RPC version: {request_dict.get('jsonrpc')}")
-                print(f"   Method: {request_dict.get('method')}")
-                print(f"   ID: {request_dict.get('id')}")
-                print(f"   Params keys: {list(request_dict.get('params', {}).keys())}")
 
             start_time = time.time()
             logger.info(f"A2A POST request starting to {endpoint} with timeout={self.timeout}s (pooled={self.use_pool})")
@@ -655,35 +630,13 @@ class A2AClient:
                 logger.info(f"A2A POST response received from {endpoint} in {elapsed:.2f}s with status={response.status}")
                 if response.status != 200:
                     error_text = await response.text()
-                    if self.debug_mode:
-                        print(f"❌ HTTP ERROR {response.status}: {error_text}")
                     logger.error(f"A2A HTTP error {response.status}: {error_text}")
                     raise A2AException(f"HTTP {response.status}: {error_text}")
 
                 result = await response.json()
 
-                if self.debug_mode:
-                    print(f"📥 RECEIVED RESPONSE:")
-                    print(f"   Response keys: {list(result.keys())}")
-                    print(f"   JSON-RPC version: {result.get('jsonrpc')}")
-                    print(f"   ID: {result.get('id')}")
-                    if 'result' in result:
-                        result_data = result['result']
-                        print(f"   Result keys: {list(result_data.keys())}")
-                        if 'artifacts' in result_data:
-                            artifacts = result_data['artifacts']
-                            print(f"   Artifacts count: {len(artifacts) if isinstance(artifacts, list) else 'not list'}")
-                            if isinstance(artifacts, list) and artifacts:
-                                first_artifact = artifacts[0]
-                                print(f"   First artifact keys: {list(first_artifact.keys()) if isinstance(first_artifact, dict) else 'not dict'}")
-                                if isinstance(first_artifact, dict) and 'content' in first_artifact:
-                                    content = first_artifact['content']
-                                    print(f"   Content preview: {str(content)[:200]}...")
-
                 # Check for JSON-RPC error response
                 if "error" in result:
-                    if self.debug_mode:
-                        print(f"❌ AGENT ERROR: {result['error']}")
                     logger.error(f"Agent returned error: {result['error']}")
                     raise A2AException(f"Agent error: {result['error']}")
 
@@ -710,10 +663,7 @@ class A2AClient:
                     except:
                         pass
 
-                if self.debug_mode:
                     logger.info(f"A2A call success: {method}")
-                    print(f"✅ A2A CALL SUCCESSFUL")
-                    print(f"🔥 END A2A CLIENT NUCLEAR DEBUG 🔥\n")
                 # Log completion
                 log_a2a_activity("A2A_CALL_SUCCESS",
                                 operation_id=operation_id,
@@ -795,9 +745,6 @@ class A2AClient:
                 except:
                     pass
             logger.error(f"A2A unexpected error: {type(e).__name__}: {e}")
-            if self.debug_mode:
-                import traceback
-                logger.error(f"Traceback: {traceback.format_exc()}")
             raise
     
     async def call_agent(self, endpoint: str, method: str, params: Dict[str, Any], request_id: Optional[str] = None) -> Dict[str, Any]:

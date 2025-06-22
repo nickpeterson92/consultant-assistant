@@ -38,6 +38,7 @@ import asyncio
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 import logging
+from datetime import datetime
 
 from ..a2a import AgentCard, A2AClient, A2AException
 from ..utils.logging import log_orchestrator_activity
@@ -161,6 +162,22 @@ class AgentRegistry:
         if name in self.agents:
             del self.agents[name]
             logger.info(f"Unregistered agent: {name}")
+            self.save_config()
+    
+    def remove_agent(self, name: str) -> bool:
+        """Remove an agent from the registry (alias for unregister_agent)"""
+        if name in self.agents:
+            self.unregister_agent(name)
+            return True
+        return False
+    
+    def update_agent_status(self, name: str, status: str):
+        """Update the status of a registered agent"""
+        agent = self.get_agent(name)
+        if agent:
+            agent.status = status
+            agent.last_health_check = datetime.now().isoformat()
+            logger.info(f"Updated agent {name} status to {status}")
             self.save_config()
     
     def get_agent(self, name: str) -> Optional[RegisteredAgent]:
@@ -291,6 +308,23 @@ class AgentRegistry:
         
         return results
     
+    async def discover_agent(self, endpoint: str) -> bool:
+        """Discover and register a single agent from an endpoint"""
+        try:
+            async with A2AClient() as client:
+                agent_card = await client.get_agent_card(endpoint + "/a2a")
+                self.register_agent(
+                    name=agent_card.name,
+                    endpoint=endpoint,
+                    agent_card=agent_card
+                )
+                logger.info(f"Discovered agent: {agent_card.name} at {endpoint}")
+                self.save_config()
+                return True
+        except Exception as e:
+            logger.debug(f"Failed to discover agent at {endpoint}: {e}")
+            return False
+    
     async def discover_agents(self, discovery_endpoints: List[str]) -> int:
         """Dynamic service discovery from potential endpoints.
         
@@ -323,6 +357,10 @@ class AgentRegistry:
         
         return discovered_count
     
+    def get_online_agents(self) -> List[RegisteredAgent]:
+        """Get all agents with 'online' status"""
+        return [agent for agent in self.agents.values() if agent.status == "online"]
+    
     def get_registry_stats(self) -> Dict[str, Any]:
         """Service mesh observability metrics for monitoring.
         
@@ -336,8 +374,14 @@ class AgentRegistry:
         unknown_agents = len([a for a in self.agents.values() if a.status == "unknown"])
         
         all_capabilities = set()
+        agents_by_capability = {}
+        
         for agent in self.agents.values():
             all_capabilities.update(agent.agent_card.capabilities)
+            for capability in agent.agent_card.capabilities:
+                if capability not in agents_by_capability:
+                    agents_by_capability[capability] = 0
+                agents_by_capability[capability] += 1
         
         return {
             "total_agents": total_agents,
@@ -345,5 +389,7 @@ class AgentRegistry:
             "offline_agents": offline_agents,
             "error_agents": error_agents,
             "unknown_agents": unknown_agents,
-            "available_capabilities": sorted(list(all_capabilities))
+            "capabilities": sorted(list(all_capabilities)),
+            "available_capabilities": sorted(list(all_capabilities)),
+            "agents_by_capability": agents_by_capability
         }

@@ -72,7 +72,7 @@ def create_azure_openai_chat():
         timeout=llm_config.timeout,
     )
 
-def build_salesforce_graph(debug_mode: bool = False):
+def build_salesforce_graph():
     """Build and compile the Salesforce agent LangGraph"""
     
     load_dotenv()
@@ -102,44 +102,14 @@ def build_salesforce_graph(debug_mode: bool = False):
     def salesforce_chatbot(state: SalesforceState, config: RunnableConfig):
         """Simplified Salesforce agent conversation handler - no memory/summarization"""
         try:
-            if debug_mode:
-                logger.info(f"=== SALESFORCE AGENT START (DUMB MODE) ===")
-                logger.info(f"Current message count: {len(state.get('messages', []))}")
             
             task_context = state.get("task_context", {})
             external_context = state.get("external_context", {})
             
-            if debug_mode:
-                logger.info(f"State keys: {list(state.keys())}")
-                logger.info(f"Message count: {len(state.get('messages', []))}")
-                logger.info(f"Task context: {task_context}")
-                logger.info(f"External context keys: {list(external_context.keys())}")
-                
-                # Log the actual incoming messages
-                for i, msg in enumerate(state.get('messages', [])):
-                    msg_type = type(msg).__name__ if hasattr(msg, '__class__') else type(msg)
-                    if hasattr(msg, 'content'):
-                        content_preview = str(msg.content)[:100]
-                    elif isinstance(msg, dict):
-                        content_preview = str(msg.get('content', msg))[:100]
-                    else:
-                        content_preview = str(msg)[:100]
-                    logger.info(f"  Message {i}: {msg_type} - {content_preview}...")
-            
             # Create system message for Salesforce operations using centralized function
             system_message_content = salesforce_agent_sys_msg(task_context, external_context)
             
-            if debug_mode:
-                if task_context:
-                    logger.info("Added task context to system message")
-                if external_context:
-                    logger.info("Added external context to system message")
-            
             messages = [SystemMessage(content=system_message_content)] + state["messages"]
-            if debug_mode:
-                logger.info(f"Total messages being sent to LLM: {len(messages)}")
-                logger.info(f"System message length: {len(system_message_content)}")
-                logger.info("Invoking LLM with tools...")
             
             # Log Salesforce LLM call
             log_salesforce_activity("SALESFORCE_LLM_CALL",
@@ -159,29 +129,10 @@ def build_salesforce_graph(debug_mode: bool = False):
                              response_length=len(str(response.content)) if hasattr(response, 'content') else 0,
                              task_id=state.get("task_context", {}).get("task_id", "unknown"))
             
-            if debug_mode:
-                logger.info(f"LLM response type: {type(response)}")
-                logger.info(f"Response content preview: {str(response.content)[:200] if hasattr(response, 'content') else 'No content'}...")
-                has_tool_calls = hasattr(response, 'tool_calls') and response.tool_calls
-                logger.info(f"Response has tool calls: {has_tool_calls}")
-                if has_tool_calls:
-                    logger.info(f"Number of tool calls: {len(response.tool_calls)}")
-                    for i, tc in enumerate(response.tool_calls):
-                        logger.info(f"  Tool call {i}: {tc.get('name', 'unknown')} with args: {tc.get('args', {})}")
-                logger.info(f"=== SALESFORCE AGENT LLM SUCCESS ===")
-            
             return {"messages": response}
             
         except Exception as e:
-            if debug_mode:
-                logger.error(f"=== SALESFORCE AGENT ERROR ===")
-                logger.error(f"Error type: {type(e).__name__}")
-                logger.error(f"Error message: {str(e)}")
-                logger.error(f"State keys: {list(state.keys())}")
-                import traceback
-                logger.error(f"Traceback: {traceback.format_exc()}")
-            else:
-                logger.error(f"Error in Salesforce agent: {e}")
+            logger.error(f"Error in Salesforce agent: {e}")
             raise
     
     # No memory or summarization functions needed - dumb agent
@@ -206,8 +157,6 @@ def build_salesforce_graph(debug_mode: bool = False):
         
         # If we have more than 15 messages, force end to prevent loops (increased from 10)
         if len(messages) > 15:
-            if debug_mode:
-                logger.warning("Forcing END due to message count > 15")
             return END
             
         # Otherwise end
@@ -225,10 +174,8 @@ salesforce_graph = None  # Will be created when needed
 class SalesforceA2AHandler:
     """Handles A2A protocol requests for the Salesforce agent"""
     
-    def __init__(self, graph, debug_mode: bool = False):
+    def __init__(self, graph):
         self.graph = graph
-        self.debug_mode = debug_mode
-    
     async def process_task(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Process an A2A task request"""
         try:
@@ -238,8 +185,6 @@ class SalesforceA2AHandler:
                                    instruction_preview=params.get("task", {}).get("instruction", "")[:100])
             task_data = params.get("task", {})
             
-            if self.debug_mode:
-                logger.info(f"Processing A2A task: {task_data.get('id', 'unknown')}")
             
             # Extract task information
             instruction = task_data.get("instruction", "")
@@ -404,15 +349,12 @@ class SalesforceA2AHandler:
 async def main():
     """Main function to run the Salesforce agent"""
     parser = argparse.ArgumentParser(description="Salesforce Specialized Agent")
-    parser.add_argument("-d", "--debug", action="store_true", help="Enable debug mode")
     parser.add_argument("--port", type=int, default=8001, help="Port to run the A2A server on")
     parser.add_argument("--host", type=str, default="0.0.0.0", help="Host to bind the A2A server to")
     args = parser.parse_args()
     
-    DEBUG_MODE = args.debug
-    
-    # Setup logging - suppress console output in non-debug mode
-    log_level = logging.DEBUG if DEBUG_MODE else logging.WARNING
+    # Setup logging - suppress console output
+    log_level = logging.WARNING
     logging.basicConfig(level=log_level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
     # Suppress ALL HTTP noise comprehensively
@@ -475,11 +417,11 @@ async def main():
     
     # Build the graph with debug mode if requested
     logger.info("Building Salesforce graph...")
-    local_graph = build_salesforce_graph(debug_mode=DEBUG_MODE)
+    local_graph = build_salesforce_graph()
     logger.info("Graph built successfully")
     
     # Create A2A handler
-    handler = SalesforceA2AHandler(local_graph, DEBUG_MODE)
+    handler = SalesforceA2AHandler(local_graph)
     
     # Create and configure A2A server
     server = A2AServer(agent_card, args.host, args.port)

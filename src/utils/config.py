@@ -222,7 +222,6 @@ class SystemConfig:
     security: SecurityConfig
     conversation: ConversationConfig
     agents: Dict[str, AgentConfig]
-    debug_mode: bool = False
     environment: str = "development"  # Controls environment-specific behaviors
     
     def to_dict(self) -> Dict[str, Any]:
@@ -274,7 +273,6 @@ class SystemConfig:
             security=security,
             conversation=conversation,
             agents=agents,
-            debug_mode=data.get('debug_mode', False),
             environment=data.get('environment', 'development')
         )
 
@@ -341,7 +339,6 @@ class ConfigManager:
                     "enabled": True
                 }
             },
-            "debug_mode": False,
             "environment": "development"
         }
     
@@ -355,9 +352,6 @@ class ConfigManager:
         """
         overrides = {}
         
-        # Debug mode
-        if os.environ.get('DEBUG_MODE', '').lower() == 'true':
-            overrides['debug_mode'] = True
         
         # Environment
         if env := os.environ.get('ENVIRONMENT'):
@@ -512,6 +506,3 @@ def get_agent_config(agent_name: str) -> Optional[AgentConfig]:
     """Agent-specific configuration for dynamic discovery."""
     return get_config_manager().get_agent_config(agent_name)
 
-def is_debug_mode() -> bool:
-    """Debug mode flag for development features."""
-    return get_system_config().debug_mode
