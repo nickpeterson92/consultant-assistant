@@ -380,21 +380,6 @@ ORCHESTRATOR TOOLS:
         messages = [SystemMessage(content=system_message)] + state["messages"]
         
         response = invoke_llm(messages, use_tools=False)
-        response_content = str(response.content) if hasattr(response, 'content') else ""
-        log_orchestrator_activity("LLM_RESPONSE", 
-                                 response_length=len(response_content),
-                                 response_content=response_content[:500],  # Truncate for readability
-                                 operation="SUMMARIZATION")
-        
-        # Estimate and log token usage
-        message_chars = sum(len(str(m.content if hasattr(m, 'content') else m)) for m in messages)
-        estimated_tokens = message_chars // 4  # Rough estimate: 4 chars per token
-        log_cost_activity("ORCHESTRATOR_LLM_CALL", estimated_tokens,
-                         message_count=len(messages),
-                         response_length=len(str(response.content)) if hasattr(response, 'content') else 0)
-        
-        
-        # Summary already stored in LangGraph state
         
         # Use smart preservation instead of simple slice
         messages_to_preserve = smart_preserve_messages(state["messages"], keep_count=3)
@@ -423,6 +408,22 @@ ORCHESTRATOR TOOLS:
         if debug_mode:
             logger.info(f"Summary complete: deleting {len(messages_to_delete)}, preserving {len(messages_to_preserve)}")
             logger.warning("=== END PRESERVATION DEBUG ===")
+        
+        # Log the actual summary response (after message preservation)
+        response_content = str(response.content) if hasattr(response, 'content') else ""
+        log_orchestrator_activity("LLM_RESPONSE", 
+                                 response_length=len(response_content),
+                                 response_content=response_content[:500],  # Truncate for readability
+                                 operation="SUMMARIZATION",
+                                 turn=turn)
+        
+        # Estimate and log token usage with CORRECTED message count (after preservation)
+        message_chars = sum(len(str(m.content if hasattr(m, 'content') else m)) for m in messages)
+        estimated_tokens = message_chars // 4  # Rough estimate: 4 chars per token
+        log_cost_activity("ORCHESTRATOR_LLM_CALL", estimated_tokens,
+                         message_count=len(messages_to_preserve),  # FIXED: Use preserved count, not original
+                         response_length=len(str(response.content)) if hasattr(response, 'content') else 0,
+                         turn=turn)
         
         # Log summary response
         processing_time = time.time() - start_time

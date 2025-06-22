@@ -172,7 +172,7 @@ class SummaryLogger:
             "user_id": user_id,
             "turn": turn,
             "new_summary_length": len(new_summary) if new_summary else 0,
-            "new_summary_preview": (new_summary[:200] + "...") if new_summary and len(new_summary) > 200 else new_summary,
+            "new_summary_preview": (new_summary[:800] + "...") if new_summary and len(new_summary) > 800 else new_summary,
             "messages_preserved": messages_preserved,
             "messages_deleted": messages_deleted,
             "processing_time_seconds": processing_time
