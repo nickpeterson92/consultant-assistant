@@ -24,7 +24,7 @@ The SOQL Query Builder provides a fluent, type-safe interface for constructing S
 │  ├─────────────────┬─────────────────┬─────────────────────┤    │ 
 │  │ SOQL Injection  │ Type Validation │ Operator Safety     │    │
 │  │   Prevention    │    & Escaping   │   & Constraints     │    │
-│  └─────────────────┴─────────────────┴────────────────────      │
+│  └─────────────────┴─────────────────┴─────────────────────┘    │
 │                                │                                │
 │                                ▼                                │
 │  ┌─────────────────────────────────────────────────────────┐    │
