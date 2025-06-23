@@ -171,8 +171,7 @@ multi-agent-orchestrator/
 │   ├── src/orchestrator/           # Central coordination hub
 │   │   ├── main.py                 # LangGraph orchestrator (500+ lines)
 │   │   ├── agent_caller_tools.py   # A2A protocol tools (200+ lines)
-│   │   ├── agent_registry.py       # Agent discovery system (150+ lines)
-│   │   └── enhanced_sys_msg.py     # Multi-agent system messages (100+ lines)
+│   │   └── agent_registry.py       # Agent discovery system (150+ lines)
 │   │
 │   ├── src/agents/salesforce/      # CRM specialization
 │   │   └── main.py                 # Salesforce LangGraph agent (200+ lines)
@@ -188,7 +187,7 @@ multi-agent-orchestrator/
 │       ├── circuit_breaker.py      # Resilience patterns (200+ lines)
 │       ├── helpers.py              # Message processing utilities (100+ lines)
 │       ├── input_validation.py     # Security validation
-│       ├── sys_msg.py              # System message templates (200+ lines)
+│       ├── sys_msg.py              # All system message templates (consolidated)
 │       ├── constants.py            # Centralized constants (67 lines)
 │       ├── storage/                # Persistence layer
 │       │   ├── sqlite_store.py     # BaseStore implementation (100+ lines)
@@ -640,6 +639,7 @@ Expense Agent        # Direct integration with existing Salesforce data
 3. **Import Optimization**: Cleaned up unused imports across entire codebase
 4. **Professional Documentation**: ASCII art headers in READMEs for visual orientation
 5. **YAGNI Focus**: Removed speculative future features, focusing on immediate value
+6. **System Message Consolidation**: All prompts now in single `src/utils/sys_msg.py` file
 
 ### Performance Considerations
 - **Connection Pooling**: Supports 8+ concurrent tool calls with efficient reuse
