@@ -1,4 +1,4 @@
-"""Logging utilities for the consultant assistant multi-agent system."""
+"""Logging utilities for the multi-agent orchestrator system."""
 
 from .activity_logger import log_orchestrator_activity, log_cost_activity, log_salesforce_activity, log_a2a_activity, log_performance_activity, log_tool_activity
 from .logging_config import get_logger, get_performance_tracker, get_cost_tracker, init_session_tracking

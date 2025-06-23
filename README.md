@@ -1,4 +1,4 @@
-# Enterprise Multi-Agent Consultant Assistant 🤖
+# Enterprise Multi-Agent Assistant 🤖
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![LangGraph](https://img.shields.io/badge/LangGraph-0.2.69-green.svg)](https://github.com/langchain-ai/langgraph)
@@ -23,7 +23,7 @@ A production-grade, multi-agent AI system implementing Google's Agent-to-Agent (
 
 ## Overview
 
-The Enterprise Multi-Agent Consultant Assistant represents the cutting edge of AI agent orchestration, combining:
+The Enterprise Multi-Agent Assistant represents the cutting edge of AI agent orchestration, combining:
 
 - **Google A2A Protocol**: Industry-standard agent communication using JSON-RPC 2.0
 - **LangGraph Integration**: State-of-the-art conversation orchestration with built-in persistence
@@ -139,8 +139,8 @@ Domain-specific CRM automation:
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-org/consultant-assistant.git
-cd consultant-assistant
+git clone https://github.com/your-org/enterprise-assistant.git
+cd enterprise-assistant
 
 # 2. Install dependencies
 pip install -r requirements.txt
@@ -283,7 +283,7 @@ The architecture supports adding new specialized agents for:
 ### Project Structure
 
 ```
-consultant-assistant/
+multi-agent-orchestrator/
 ├── src/
 │   ├── orchestrator/          # Central coordination
 │   │   ├── main.py           # LangGraph implementation
@@ -352,7 +352,7 @@ spec:
     spec:
       containers:
       - name: orchestrator
-        image: consultant-assistant:latest
+        image: enterprise-assistant:latest
         env:
         - name: AZURE_OPENAI_ENDPOINT
           valueFrom:

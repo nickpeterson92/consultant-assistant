@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Consultant Assistant implements a sophisticated multi-agent architecture that combines autonomous AI agents with enterprise-grade distributed systems patterns. This architecture enables specialized agents to collaborate on complex tasks while maintaining loose coupling, fault tolerance, and scalability.
+The Multi-Agent Orchestrator implements a sophisticated multi-agent architecture that combines autonomous AI agents with enterprise-grade distributed systems patterns. This architecture enables specialized agents to collaborate on complex tasks while maintaining loose coupling, fault tolerance, and scalability.
 
 ## System Architecture
 
@@ -411,7 +411,7 @@ spec:
     spec:
       containers:
       - name: orchestrator
-        image: consultant-assistant/orchestrator:latest
+        image: multi-agent-orchestrator/orchestrator:latest
         env:
         - name: AGENT_REGISTRY_URL
           value: "http://agent-registry:8080"

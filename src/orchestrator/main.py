@@ -1,6 +1,6 @@
 """Multi-agent orchestrator implementation using LangGraph.
 
-This module serves as the central coordination hub for the consultant assistant system,
+This module serves as the central coordination hub for the multi-agent orchestrator system,
 managing communication between users and specialized agents through the A2A protocol.
 It implements enterprise patterns including circuit breakers, connection pooling, and
 intelligent agent selection based on capabilities.

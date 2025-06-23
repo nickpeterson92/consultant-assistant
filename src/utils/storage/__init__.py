@@ -1,4 +1,4 @@
-"""Storage utilities for the consultant assistant multi-agent system."""
+"""Storage utilities for the multi-agent orchestrator system."""
 
 from .sqlite_store import SQLiteStore
 from .async_sqlite import AsyncSQLiteStore

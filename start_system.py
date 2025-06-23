@@ -44,7 +44,7 @@ def run_process(command, name):
 def main():
     """Start all components of the multi-agent system"""
     # Setup command-line argument parsing
-    parser = argparse.ArgumentParser(description="Consultant Assistant Multi-Agent System")
+    parser = argparse.ArgumentParser(description="Multi-Agent Orchestrator System")
     parser.add_argument("-d", "--debug", action="store_true", help="Enable debug mode (detailed logging and no animations)")
     
     args = parser.parse_args()
@@ -53,7 +53,7 @@ def main():
     # Set environment variable for all child processes
     os.environ['DEBUG_MODE'] = 'true' if DEBUG_MODE else 'false'
     
-    print("=== Consultant Assistant Multi-Agent System ===")
+    print("=== Multi-Agent Orchestrator System ===")
     log_orchestrator_activity("SYSTEM_START", components=["orchestrator", "salesforce-agent"])
     print("Starting specialized agents and orchestrator...")
     if DEBUG_MODE:

@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides comprehensive guidance to Claude Code (claude.ai/code) when working with this cutting-edge multi-agent consultant assistant system.
+This file provides comprehensive guidance to Claude Code (claude.ai/code) when working with this cutting-edge multi-agent orchestrator system.
 
 ## 🏗️ System Architecture Overview
 
@@ -153,7 +153,7 @@ Following LangGraph's evolution from "multi-agent" to "multi-actor" focusing on:
 ## 📁 Complete File Structure & Component Map
 
 ```
-consultant-assistant/
+multi-agent-orchestrator/
 ├── 🚀 Core Entry Points
 │   ├── orchestrator.py              # Main orchestrator entry (16 lines)
 │   ├── salesforce_agent.py          # Salesforce agent entry (16 lines)  
@@ -632,4 +632,4 @@ Communication Agent   # Email automation, notification systems
 - **Audit Trails**: Comprehensive logging for compliance
 - **Error Handling**: Secure error reporting without information leakage
 
-This multi-agent consultant assistant represents the **cutting edge of enterprise AI architecture**, combining proven microservices patterns with innovative agent-based workflows for scalable, resilient, and intelligent business automation.
+This multi-agent orchestrator represents the **cutting edge of enterprise AI architecture**, combining proven microservices patterns with innovative agent-based workflows for scalable, resilient, and intelligent business automation.

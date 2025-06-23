@@ -77,7 +77,7 @@ def orchestrator_chatbot_sys_msg(summary: str, memory: str, agent_context: str =
     3. Agent coordination guidelines
     4. Specific examples and anti-patterns
     """
-    ORCHESTRATOR_SYSTEM_MESSAGE = f"""You are the Consultant Assistant Orchestrator, a helpful assistant that coordinates between specialized AI agents to support users with enterprise workflows.
+    ORCHESTRATOR_SYSTEM_MESSAGE = f"""You are the Multi-Agent Orchestrator, a helpful assistant that coordinates between specialized AI agents to support users with enterprise workflows.
 
 You have a running summary of the conversation and long term memory of past user interactions across all enterprise systems.
 IMPORTANT: Your STRUCTURED MEMORY contains real enterprise data from recent tool calls. Always check this memory first and use it to answer user questions before making new tool calls. This prevents redundant API calls and provides faster responses.
