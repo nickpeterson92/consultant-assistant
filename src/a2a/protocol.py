@@ -28,14 +28,16 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 import aiohttp
 from aiohttp import web
+from src.utils.constants import (
+    A2A_STATUS_PENDING,
+    DEFAULT_A2A_PORT, DEFAULT_HOST
+)
 import logging
-import sys
-import os
 
 from src.utils.logging import get_logger, get_performance_tracker
 from src.utils.logging import log_a2a_activity, log_performance_activity
 from src.utils.input_validation import AgentInputValidator, ValidationError
-from src.utils.circuit_breaker import get_circuit_breaker, CircuitBreakerConfig, RetryConfig, resilient_call
+from src.utils.circuit_breaker import CircuitBreakerConfig, RetryConfig, resilient_call
 from src.utils.config import get_a2a_config, get_system_config
 
 logger = logging.getLogger(__name__)
@@ -64,6 +66,17 @@ def ensure_loggers_initialized():
         except Exception:
             # Silent fallback - logging should not break core functionality
             pass
+
+@dataclass  
+class TimestampedBase:
+    """Base class for dataclasses that need automatic timestamp initialization."""
+    created_at: Optional[str] = None
+    
+    def __post_init__(self):
+        """Initialize timestamp if not provided."""
+        if self.created_at is None:
+            self.created_at = datetime.now(timezone.utc).isoformat()
+
 
 @dataclass
 class AgentCard:
@@ -117,7 +130,7 @@ class A2ATask:
     instruction: str
     context: Dict[str, Any]
     state_snapshot: Dict[str, Any]
-    status: str = "pending"  # pending, in_progress, completed, failed
+    status: str = A2A_STATUS_PENDING  # Status values from constants
     created_at: Optional[str] = None
     
     def __post_init__(self):
@@ -871,7 +884,7 @@ class A2AServer:
     providing a consistent communication interface across all agents.
     """
     
-    def __init__(self, agent_card: AgentCard, host: str = "0.0.0.0", port: int = 8000):
+    def __init__(self, agent_card: AgentCard, host: str = DEFAULT_HOST, port: int = DEFAULT_A2A_PORT):
         """Initialize the A2A server.
         
         Args:

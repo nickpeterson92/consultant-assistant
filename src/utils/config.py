@@ -29,8 +29,15 @@ import os
 import json
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, asdict, field
-from pathlib import Path
 import logging
+from src.utils.constants import (
+    MODEL_PRICING,
+    DEFAULT_TIMEOUT_SECONDS, DEFAULT_CONNECT_TIMEOUT, 
+    DEFAULT_SOCKET_TIMEOUT, HEALTH_CHECK_TIMEOUT,
+    CIRCUIT_BREAKER_FAILURE_THRESHOLD, CIRCUIT_BREAKER_TIMEOUT,
+    SALESFORCE_AGENT_PORT,
+    LOCALHOST
+)
 
 logger = logging.getLogger(__name__)
 
@@ -97,19 +104,20 @@ class LLMConfig:
     cache_enabled: bool = True
     cache_ttl: int = 3600  # 1-hour cache balances freshness and efficiency
     azure_deployment: str = "gpt-4o-mini"
-    api_version: str = "2024-06-01"
+    api_version: str = "2024-06-01"  # Default overridden by constants if needed
     
     pricing: Dict[str, ModelPricing] = field(default_factory=dict)
     
     def __post_init__(self):
-        # Default pricing acts as fallback when config file lacks pricing data
+        # Default pricing from constants acts as fallback when config file lacks pricing data
         # Ensures cost tracking works out-of-the-box
         if not self.pricing:
             self.pricing = {
-                "gpt-4": ModelPricing(input_per_1k=0.03, output_per_1k=0.06),
-                "gpt-4o": ModelPricing(input_per_1k=0.005, output_per_1k=0.015),
-                "gpt-4o-mini": ModelPricing(input_per_1k=0.00015, output_per_1k=0.00060),
-                "gpt-3.5-turbo": ModelPricing(input_per_1k=0.0005, output_per_1k=0.0015),
+                model: ModelPricing(
+                    input_per_1k=prices["input"], 
+                    output_per_1k=prices["output"]
+                )
+                for model, prices in MODEL_PRICING.items()
             }
     
     def get_pricing(self, model: str = None) -> ModelPricing:
@@ -143,16 +151,16 @@ class A2AConfig:
     for fault-tolerant inter-agent communication. Timeouts are carefully
     tuned to balance responsiveness with reliability.
     """
-    timeout: int = 30  # Total operation timeout
-    connect_timeout: int = 30  # TCP handshake timeout
-    sock_connect_timeout: int = 30  # Lower-level socket timeout
-    sock_read_timeout: int = 30  # Read operation timeout
-    health_check_timeout: int = 10  # Quick timeout for health probes
+    timeout: int = DEFAULT_TIMEOUT_SECONDS  # Total operation timeout
+    connect_timeout: int = DEFAULT_CONNECT_TIMEOUT  # TCP handshake timeout
+    sock_connect_timeout: int = DEFAULT_SOCKET_TIMEOUT  # Lower-level socket timeout
+    sock_read_timeout: int = DEFAULT_SOCKET_TIMEOUT  # Read operation timeout
+    health_check_timeout: int = HEALTH_CHECK_TIMEOUT  # Quick timeout for health probes
     max_concurrent_calls: int = 10  # Prevents agent overload
     retry_attempts: int = 3
     retry_delay: float = 1.0
-    circuit_breaker_threshold: int = 5  # Opens circuit after 5 consecutive failures
-    circuit_breaker_timeout: int = 30  # Circuit reset interval
+    circuit_breaker_threshold: int = CIRCUIT_BREAKER_FAILURE_THRESHOLD  # Opens circuit after consecutive failures
+    circuit_breaker_timeout: int = CIRCUIT_BREAKER_TIMEOUT  # Circuit reset interval
     connection_pool_size: int = 20  # Supports burst traffic
     connection_pool_ttl: int = 300  # 5-minute TTL balances efficiency and freshness
     connection_pool_max_idle: int = 300  # Matches TTL for consistency
@@ -342,8 +350,8 @@ class ConfigManager:
             "conversation": {},
             "agents": {
                 "salesforce-agent": {
-                    "endpoint": "http://localhost",
-                    "port": 8001,
+                    "endpoint": f"http://{LOCALHOST}",
+                    "port": SALESFORCE_AGENT_PORT,
                     "enabled": True
                 }
             },

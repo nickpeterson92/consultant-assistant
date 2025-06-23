@@ -16,11 +16,9 @@ import time
 import sqlite3
 from typing import Any, Dict, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor
-import functools
 from dataclasses import dataclass
 from contextlib import contextmanager
 import threading
-from collections import defaultdict
 
 from .sqlite_store import SQLiteStore
 from .async_sqlite import get_async_store

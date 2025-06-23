@@ -3,7 +3,7 @@
 
 import sys
 import asyncio
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage, AIMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 
 def smart_preserve_messages(messages: list, keep_count: int = 2):

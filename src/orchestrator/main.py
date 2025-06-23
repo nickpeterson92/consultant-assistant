@@ -52,6 +52,13 @@ from src.utils.logging import get_summary_logger
 from .enhanced_sys_msg import orchestrator_chatbot_sys_msg, orchestrator_summary_sys_msg, get_fallback_summary
 from src.utils.config import get_llm_config, get_conversation_config
 from src.utils.sys_msg import TRUSTCALL_INSTRUCTION
+from src.utils.constants import (
+    MEMORY_NAMESPACE_PREFIX, SIMPLE_MEMORY_KEY, STATE_KEY_PREFIX,
+    SUMMARY_KEY, NO_SUMMARY_TEXT,
+    SUMMARY_USER_MESSAGE_THRESHOLD, SUMMARY_TIME_THRESHOLD_SECONDS,
+    MEMORY_TOOL_CALL_THRESHOLD, MEMORY_AGENT_CALL_THRESHOLD,
+    LOCALHOST, SALESFORCE_AGENT_PORT
+)
 
 import logging
 
@@ -74,6 +81,9 @@ logger = logging.getLogger(__name__)
 
 # Initialize global agent registry for service discovery
 agent_registry = AgentRegistry()
+
+# Initialize global memory store for access in main
+global_memory_store = None
 
 def load_events_with_limit(state: dict, limit: Optional[int] = None) -> List[OrchestratorEvent]:
     """Load events from state with automatic limiting to prevent unbounded growth.
@@ -157,6 +167,10 @@ def build_orchestrator_graph():
         max_connections=10,
         enable_circuit_breaker=True
     )
+    
+    # Set global store for access in main
+    global global_memory_store
+    global_memory_store = memory_store
     
     
     graph_builder = StateGraph(OrchestratorState)
@@ -287,34 +301,35 @@ ORCHESTRATOR TOOLS:
                         
             # Load persistent memory using flat schema for simplicity
             user_id = config["configurable"].get("user_id", "default")
-            namespace = ("memory", user_id)
-            key = "SimpleMemory"
+            namespace = (MEMORY_NAMESPACE_PREFIX, user_id)
+            key = SIMPLE_MEMORY_KEY
             existing_memory_data = memory_store.sync_get(namespace, key)
             
             if existing_memory_data:
                 try:
                     validated_data = SimpleMemory(**existing_memory_data)
-                    existing_memory = {"SimpleMemory": validated_data.model_dump()}
+                    existing_memory = {SIMPLE_MEMORY_KEY: validated_data.model_dump()}
                     # Count total records for logging
                     total_records = (len(validated_data.accounts) + len(validated_data.contacts) + 
                                    len(validated_data.opportunities) + len(validated_data.cases) + 
                                    len(validated_data.tasks) + len(validated_data.leads))
                 except Exception as e:
-                    existing_memory = {"SimpleMemory": SimpleMemory().model_dump()}
+                    existing_memory = {SIMPLE_MEMORY_KEY: SimpleMemory().model_dump()}
             else:
-                existing_memory = {"SimpleMemory": SimpleMemory().model_dump()}
+                existing_memory = {SIMPLE_MEMORY_KEY: SimpleMemory().model_dump()}
             
             # Update state memory before system message generation
             state["memory"] = existing_memory
             
             # Load summary from persistent store if not in state
-            summary = state.get("summary", "No summary available")
-            if summary == "No summary available":
-                # Try to load from store
+            summary = state.get(SUMMARY_KEY, NO_SUMMARY_TEXT)
+            if summary == NO_SUMMARY_TEXT:
+                # Try to load from store using thread_id as key
                 conv_config = get_conversation_config()
                 user_id = config["configurable"].get("user_id", conv_config.default_user_id)
+                thread_id = config["configurable"].get("thread_id", conv_config.default_thread_id)
                 namespace = (conv_config.memory_namespace_prefix, user_id)
-                key = conv_config.summary_key
+                key = f"summary_{thread_id}"  # Use thread_id in the key
                 
                 try:
                     stored_summary = memory_store.sync_get(namespace, key)
@@ -323,9 +338,10 @@ ORCHESTRATOR TOOLS:
                         summary = stored_summary["summary"]
                         log_orchestrator_activity("SUMMARY_LOADED_FROM_STORE",
                                                 summary_preview=summary[:200],
+                                                thread_id=thread_id,
                                                 timestamp=stored_summary.get("timestamp"))
                 except Exception as e:
-                    log_orchestrator_activity("SUMMARY_LOAD_ERROR", error=str(e))
+                    log_orchestrator_activity("SUMMARY_LOAD_ERROR", error=str(e), thread_id=thread_id)
             
             log_orchestrator_activity("SUMMARY_STATE_CHECK",
                                     operation="conversation_node_entry",
@@ -417,8 +433,8 @@ ORCHESTRATOR TOOLS:
             # Check if we should trigger summary based on events
             # More aggressive summarization since we have good memory extraction
             if EventAnalyzer.should_trigger_summary(events, 
-                                                   user_message_threshold=3,  # Reduced from 5
-                                                   time_threshold_seconds=180):  # Reduced from 300 (3 min instead of 5)
+                                                   user_message_threshold=SUMMARY_USER_MESSAGE_THRESHOLD,
+                                                   time_threshold_seconds=SUMMARY_TIME_THRESHOLD_SECONDS):  # Reduced from 300 (3 min instead of 5)
                 
                 # Create summary triggered event
                 summary_event = create_summary_triggered_event(
@@ -444,8 +460,8 @@ ORCHESTRATOR TOOLS:
             
             # Check if we should trigger memory update based on events
             if EventAnalyzer.should_trigger_memory_update(events,
-                                                        tool_call_threshold=3,
-                                                        agent_call_threshold=2):
+                                                        tool_call_threshold=MEMORY_TOOL_CALL_THRESHOLD,
+                                                        agent_call_threshold=MEMORY_AGENT_CALL_THRESHOLD):
                 
                 # Create memory update triggered event
                 memory_event = create_memory_update_triggered_event(
@@ -817,6 +833,24 @@ ORCHESTRATOR TOOLS:
     
     
     
+    # Helper function to convert messages to serializable format
+    def _serialize_messages(messages):
+        """Convert LangChain messages to JSON-serializable format."""
+        serializable_messages = []
+        for msg in messages:
+            if hasattr(msg, 'dict'):
+                # LangChain messages have a dict() method
+                serializable_messages.append(msg.dict())
+            elif isinstance(msg, dict):
+                serializable_messages.append(msg)
+            else:
+                # Fallback - just get the content
+                serializable_messages.append({
+                    "type": type(msg).__name__,
+                    "content": str(getattr(msg, 'content', str(msg)))
+                })
+        return serializable_messages
+    
     # Background task helpers that save directly to persistent store
     def _run_background_summary(messages, summary, events, memory, user_id, thread_id):
         """Execute summarization in background thread and save to store.
@@ -826,7 +860,7 @@ ORCHESTRATOR TOOLS:
         """
         try:
             mock_state = {
-                "messages": messages,
+                "messages": _serialize_messages(messages),
                 "summary": summary,
                 "events": [e.to_dict() for e in events],
                 "memory": memory
@@ -841,12 +875,17 @@ ORCHESTRATOR TOOLS:
                                         operation="saving_summary_to_store",
                                         summary_preview=new_summary[:200] if new_summary else "NO_SUMMARY")
                 
-                # Save directly to the persistent store
+                # Save the entire state to the persistent store using thread_id as key
                 conv_config = get_conversation_config()
                 namespace = (conv_config.memory_namespace_prefix, user_id)
-                key = conv_config.summary_key
+                key = f"{STATE_KEY_PREFIX}{thread_id}"  # Store full state with thread_id
+                
+                # Update mock_state with the new summary
+                mock_state["summary"] = new_summary
+                
+                # Save the complete state
                 memory_store.sync_put(namespace, key, {
-                    "summary": new_summary,
+                    "state": mock_state,
                     "thread_id": thread_id,
                     "timestamp": time.time()
                 })
@@ -864,8 +903,21 @@ ORCHESTRATOR TOOLS:
         Creates new event loop for async execution.
         """
         try:
+            # Convert messages to serializable format
+            serializable_messages = []
+            for msg in messages:
+                if hasattr(msg, 'dict'):
+                    serializable_messages.append(msg.dict())
+                elif isinstance(msg, dict):
+                    serializable_messages.append(msg)
+                else:
+                    serializable_messages.append({
+                        "type": type(msg).__name__,
+                        "content": str(getattr(msg, 'content', str(msg)))
+                    })
+            
             mock_state = {
-                "messages": messages,
+                "messages": serializable_messages,
                 "summary": summary,
                 "events": [e.to_dict() for e in events],
                 "memory": memory
@@ -918,24 +970,9 @@ async def initialize_orchestrator():
             enable_circuit_breaker=True
         )
         
-        # Clear summaries for all users
-        # In production, you might want to clear only for specific users
-        conv_config = get_conversation_config()
-        users_to_clear = [conv_config.default_user_id, "default", "test_user"]
-        
-        for user in users_to_clear:
-            namespace = (conv_config.memory_namespace_prefix, user)
-            key = conv_config.summary_key
-            try:
-                # Try to delete if it exists
-                existing = memory_store.sync_get(namespace, key)
-                if existing:
-                    # Overwrite with empty value since delete might not be implemented
-                    memory_store.sync_put(namespace, key, None)
-            except:
-                pass  # If it doesn't exist, that's fine
-        
-        logger.info("Cleared conversation summaries for fresh start")
+        # No longer clearing summaries - each thread has its own summary
+        # Thread-specific summaries are preserved across sessions
+        logger.info("Initialized without clearing summaries - thread-specific summaries preserved")
     except Exception as e:
         logger.warning(f"Could not clear summaries: {e}")
     
@@ -954,11 +991,11 @@ async def initialize_orchestrator():
     if not agent_registry.list_agents():
         logger.info("No agents registered, attempting auto-discovery...")
         discovery_endpoints = [
-            "http://localhost:8001",  # Salesforce agent
-            "http://localhost:8002",  # Travel agent (future)
-            "http://localhost:8003",  # Expense agent (future)
-            "http://localhost:8004",  # HR agent (future)
-            "http://localhost:8005",  # OCR agent (future)
+            f"http://{LOCALHOST}:{SALESFORCE_AGENT_PORT}",  # Salesforce agent
+            f"http://{LOCALHOST}:8002",  # Travel agent (future)
+            f"http://{LOCALHOST}:8003",  # Expense agent (future)
+            f"http://{LOCALHOST}:8004",  # HR agent (future)
+            f"http://{LOCALHOST}:8005",  # OCR agent (future)
         ]
         
         discovered = await agent_registry.discover_agents(discovery_endpoints)
@@ -1027,10 +1064,28 @@ async def main():
     else:
         print("  • No agents currently available")
     
-    print("\nType your request, or 'quit' to exit.\n")
+    print("\nType your request, or 'quit' to exit.")
+    print("Commands: /help, /state, /new, /list, /switch <thread_id>")
     
     conv_config = get_conversation_config()
-    config = {"configurable": {"thread_id": "orchestrator-1", "user_id": conv_config.default_user_id}}
+    import uuid
+    current_thread_id = f"orchestrator-{str(uuid.uuid4())[:8]}"
+    config = {"configurable": {"thread_id": current_thread_id, "user_id": conv_config.default_user_id}}
+    
+    # Create new thread entry
+    active_threads = {current_thread_id: {"created": time.time(), "messages": 0}}
+    namespace = (conv_config.memory_namespace_prefix, conv_config.default_user_id)
+    thread_list_key = "thread_list"
+    try:
+        if global_memory_store:
+            stored_threads = global_memory_store.sync_get(namespace, thread_list_key) or {}
+            if "threads" in stored_threads:
+                active_threads.update(stored_threads["threads"])
+                log_orchestrator_activity("THREADS_LOADED", thread_count=len(stored_threads["threads"]))
+    except Exception as e:
+        log_orchestrator_activity("THREAD_LOAD_ERROR", error=str(e))
+    
+    print(f"\nStarting new conversation thread: {current_thread_id}\n")
     
     while True:
         try:
@@ -1042,6 +1097,270 @@ async def main():
                 print("Goodbye!")
                 log_orchestrator_activity("USER_QUIT")
                 break
+            
+            # Handle special commands
+            if user_input.startswith("/"):
+                command_parts = user_input.split()
+                command = command_parts[0].lower()
+                
+                if command == "/help":
+                    print("\nAvailable commands:")
+                    print("  /help         - Show this help message")
+                    print("  /state        - Show current conversation state")
+                    print("  /state -v     - Show detailed state with raw data")
+                    print("  /new          - Start a new conversation thread")
+                    print("  /list         - List all conversation threads")
+                    print("  /switch <id>  - Switch to a different thread")
+                    print("  quit/exit/q   - Exit the orchestrator\n")
+                    continue
+                
+                elif command == "/state":
+                    # Check for verbose flag
+                    verbose = len(command_parts) > 1 and command_parts[1] == "-v"
+                    
+                    print("\n=== Current Conversation State ===")
+                    try:
+                        # Get current state from the graph
+                        current_state = local_graph.get_state(config)
+                        
+                        # Format state for display
+                        print(f"Thread ID: {current_thread_id}")
+                        print(f"User ID: {config['configurable']['user_id']}")
+                        
+                        # Try to get state from checkpointer first, then fallback to storage
+                        state_values = None
+                        if current_state and current_state.values:
+                            state_values = current_state.values
+                        else:
+                            # Try loading from storage
+                            if global_memory_store:
+                                namespace = (conv_config.memory_namespace_prefix, conv_config.default_user_id)
+                                key = f"state_{current_thread_id}"
+                                stored_state = global_memory_store.sync_get(namespace, key)
+                                if stored_state and "state" in stored_state:
+                                    state_values = stored_state["state"]
+                                    print("[Loaded from storage]")
+                        
+                        if state_values:
+                            print(f"\nMessages: {len(state_values.get('messages', []))}")
+                            
+                            # Show summary if available
+                            summary = state_values.get('summary', 'No summary available')
+                            if summary and summary != 'No summary available':
+                                print(f"\nSummary Preview (first 200 chars):")
+                                print(f"  {summary[:200]}...")
+                            
+                            # Show memory if available
+                            memory = state_values.get('memory', {})
+                            if memory and isinstance(memory, dict):
+                                simple_memory = memory.get('SimpleMemory', {})
+                                if simple_memory:
+                                    print(f"\nMemory Contents:")
+                                    for key, value in simple_memory.items():
+                                        if isinstance(value, list) and value:
+                                            print(f"  {key}: {len(value)} items")
+                                            # Show first few items if verbose
+                                            if verbose and len(value) > 0:
+                                                print(f"    First item: {str(value[0])[:100]}...")
+                            
+                            # Show events count
+                            events = state_values.get('events', [])
+                            print(f"\nEvents: {len(events)}")
+                            if verbose and events:
+                                print("  Recent events:")
+                                for event in events[-3:]:  # Show last 3 events
+                                    # Handle both dict and object formats
+                                    if isinstance(event, dict):
+                                        event_type = event.get('event_type', 'Unknown')
+                                    else:
+                                        event_type = getattr(event, 'event_type', 'Unknown')
+                                    print(f"    - {event_type}")
+                            
+                            # Show last message
+                            messages = state_values.get('messages', [])
+                            if messages:
+                                last_msg = messages[-1]
+                                msg_type = type(last_msg).__name__
+                                content_preview = str(getattr(last_msg, 'content', ''))[:100]
+                                print(f"\nLast Message ({msg_type}):")
+                                print(f"  {content_preview}...")
+                            
+                            # Show background operations status
+                            bg_ops = state_values.get('background_operations', [])
+                            if bg_ops:
+                                print(f"\nBackground Operations: {len(bg_ops)} active")
+                            
+                            # Show raw state if verbose
+                            if verbose:
+                                print("\n=== Raw State Keys ===")
+                                for key in state_values.keys():
+                                    print(f"  - {key}")
+                                print("\nTip: Use '/state' without -v for a simpler view")
+                        else:
+                            print("No state data available for this thread.")
+                    except Exception as e:
+                        print(f"Error retrieving state: {e}")
+                    print("\n")
+                    continue
+                
+                elif command == "/new":
+                    # Create new thread
+                    import uuid
+                    new_thread_id = f"orchestrator-{str(uuid.uuid4())[:8]}"
+                    current_thread_id = new_thread_id
+                    config = {"configurable": {"thread_id": current_thread_id, "user_id": conv_config.default_user_id}}
+                    active_threads[current_thread_id] = {"created": time.time(), "messages": 0}
+                    
+                    # Save thread metadata to store
+                    namespace = (conv_config.memory_namespace_prefix, conv_config.default_user_id)
+                    thread_list_key = "thread_list"
+                    try:
+                        if global_memory_store:
+                            # Load existing thread list
+                            existing_threads = global_memory_store.sync_get(namespace, thread_list_key) or {}
+                            thread_list = existing_threads.get("threads", {})
+                            
+                            # Add new thread
+                            thread_list[current_thread_id] = {
+                                "created": time.time(),
+                                "last_accessed": time.time(),
+                                "messages": 0
+                            }
+                            
+                            # Save updated list
+                            global_memory_store.sync_put(namespace, thread_list_key, {
+                                "threads": thread_list,
+                                "updated": time.time()
+                            })
+                    except Exception as e:
+                        log_orchestrator_activity("THREAD_SAVE_ERROR", error=str(e))
+                    
+                    print(f"\nStarted new conversation thread: {current_thread_id}\n")
+                    log_orchestrator_activity("NEW_THREAD_CREATED", thread_id=current_thread_id)
+                    continue
+                
+                elif command == "/list":
+                    print("\n=== Active Conversation Threads ===")
+                    
+                    # Load threads from storage - try multiple approaches
+                    namespace = (conv_config.memory_namespace_prefix, conv_config.default_user_id)
+                    all_threads = {}
+                    
+                    try:
+                        # Approach 1: Load from thread list
+                        thread_list_key = "thread_list"
+                        if global_memory_store:
+                            stored_threads = global_memory_store.sync_get(namespace, thread_list_key) or {}
+                            if "threads" in stored_threads:
+                                all_threads.update(stored_threads.get("threads", {}))
+                        
+                        # Approach 2: Scan for all keys with summary_ prefix to find threads
+                        # This catches threads that might not be in the thread list
+                        if global_memory_store:
+                            from src.utils.storage.sqlite_store import SQLiteStore
+                            if hasattr(global_memory_store, '_store') and isinstance(global_memory_store._store, SQLiteStore):
+                                # Direct database query to find all summary keys
+                                import sqlite3
+                                conn = sqlite3.connect(global_memory_store._store.db_path)
+                                cursor = conn.cursor()
+                                cursor.execute(
+                                    "SELECT key, value FROM store WHERE namespace = ? AND key LIKE 'state_%'",
+                                    (str(namespace),)
+                                )
+                                for row in cursor.fetchall():
+                                    key = row[0]
+                                    if key.startswith("state_"):
+                                        thread_id = key[6:]  # Remove 'state_' prefix
+                                        if thread_id not in all_threads:
+                                            # Try to get state info
+                                            state_data = global_memory_store.sync_get(namespace, key)
+                                            if state_data:
+                                                all_threads[thread_id] = {
+                                                    "created": state_data.get("timestamp", 0),
+                                                    "messages": len(state_data.get("state", {}).get("messages", [])) if "state" in state_data else 0,
+                                                    "has_summary": bool(state_data.get("state", {}).get("summary")),
+                                                    "from_storage": True
+                                                }
+                                conn.close()
+                        
+                        # Merge with active threads (current session)
+                        for thread_id, info in active_threads.items():
+                            if thread_id in all_threads:
+                                # Update with more recent info
+                                all_threads[thread_id].update(info)
+                            else:
+                                all_threads[thread_id] = info
+                        
+                        # Check which threads have state/summaries
+                        if global_memory_store:
+                            for thread_id in all_threads:
+                                if not all_threads[thread_id].get("has_summary"):
+                                    state_key = f"state_{thread_id}"
+                                    stored_state = global_memory_store.sync_get(namespace, state_key)
+                                    all_threads[thread_id]["has_summary"] = bool(stored_state and "state" in stored_state and stored_state["state"].get("summary"))
+                        
+                        # Display threads sorted by creation time
+                        sorted_threads = sorted(all_threads.items(), key=lambda x: x[1].get('created', 0), reverse=True)
+                        
+                        for thread_id, info in sorted_threads:
+                            created_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(info.get('created', 0)))
+                            current_marker = " (current)" if thread_id == current_thread_id else ""
+                            summary_marker = " [S]" if info.get("has_summary", False) else ""
+                            messages = info.get('messages', '?')
+                            storage_marker = " [stored]" if info.get('from_storage') else ""
+                            print(f"  {thread_id}: created {created_time}, {messages} messages{summary_marker}{storage_marker}{current_marker}")
+                        
+                        if not all_threads:
+                            print("  No threads found.")
+                        else:
+                            print("\n  [S] = Has saved summary, [stored] = From persistent storage")
+                            print("  Use /switch <thread_id> to resume a conversation")
+                    except Exception as e:
+                        print(f"  Error loading threads: {e}")
+                        # Fallback to just showing current thread
+                        print(f"  {current_thread_id}: current session (active)")
+                    
+                    print()
+                    continue
+                
+                elif command == "/switch":
+                    if len(command_parts) < 2:
+                        print("Usage: /switch <thread_id>")
+                        continue
+                    
+                    target_thread = command_parts[1]
+                    
+                    # Always allow switching - thread might be in storage
+                    current_thread_id = target_thread
+                    config = {"configurable": {"thread_id": current_thread_id, "user_id": conv_config.default_user_id}}
+                    
+                    # Check if thread exists in storage
+                    thread_found = target_thread in active_threads
+                    if not thread_found and global_memory_store:
+                        namespace = (conv_config.memory_namespace_prefix, conv_config.default_user_id)
+                        state_key = f"state_{target_thread}"
+                        stored_state = global_memory_store.sync_get(namespace, state_key)
+                        if stored_state:
+                            thread_found = True
+                            # Add to active threads
+                            active_threads[target_thread] = {
+                                "created": stored_state.get("timestamp", time.time()),
+                                "messages": len(stored_state.get("state", {}).get("messages", [])) if "state" in stored_state else 0,
+                                "from_storage": True
+                            }
+                    
+                    if thread_found:
+                        print(f"\nSwitched to thread: {current_thread_id}\n")
+                        log_orchestrator_activity("THREAD_SWITCHED", thread_id=current_thread_id)
+                    else:
+                        print(f"\nStarting new thread: {current_thread_id}\n")
+                        active_threads[current_thread_id] = {"created": time.time(), "messages": 0}
+                        log_orchestrator_activity("NEW_THREAD_CREATED", thread_id=current_thread_id)
+                    continue
+                
+                else:
+                    print(f"Unknown command: {command}. Type /help for available commands.")
+                    continue
             
             # Validate input for security
             try:
@@ -1061,8 +1380,7 @@ async def main():
                 {
                     "messages": [{"role": "user", "content": user_input}],
                     "background_operations": [],
-                    "background_results": {},
-                    "last_summarized_turn": -1
+                    "background_results": {}
                 },
                 config,
                 stream_mode="values"
@@ -1084,6 +1402,32 @@ async def main():
             
             if not response_shown:
                 print("Processing your request...\n")
+            
+            # Update message count for current thread and save to storage
+            if current_thread_id in active_threads:
+                active_threads[current_thread_id]["messages"] += 1
+                active_threads[current_thread_id]["last_accessed"] = time.time()
+                
+                # Update thread list in storage - merge with existing
+                try:
+                    if global_memory_store:
+                        namespace = (conv_config.memory_namespace_prefix, conv_config.default_user_id)
+                        thread_list_key = "thread_list"
+                        
+                        # Load existing threads
+                        existing = global_memory_store.sync_get(namespace, thread_list_key) or {}
+                        all_stored_threads = existing.get("threads", {})
+                        
+                        # Update with current thread info
+                        all_stored_threads[current_thread_id] = active_threads[current_thread_id]
+                        
+                        # Save merged list
+                        global_memory_store.sync_put(namespace, thread_list_key, {
+                            "threads": all_stored_threads,
+                            "updated": time.time()
+                        })
+                except Exception as e:
+                    log_orchestrator_activity("THREAD_UPDATE_ERROR", error=str(e))
                         
         except KeyboardInterrupt:
             print("\nGoodbye!")

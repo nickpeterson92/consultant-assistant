@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 
-from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.prebuilt import ToolNode
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
@@ -23,18 +23,10 @@ from langchain_openai import AzureChatOpenAI
 
 # Imports no longer need path manipulation
 
-from src.a2a import A2AServer, AgentCard, A2ATask
+from src.a2a import A2AServer, AgentCard
 
 # Import from the centralized tools directory
-from src.tools.salesforce_tools import (
-    CreateLeadTool, GetLeadTool, UpdateLeadTool,
-    GetOpportunityTool, UpdateOpportunityTool, CreateOpportunityTool,
-    GetAccountTool, CreateAccountTool, UpdateAccountTool,
-    GetContactTool, CreateContactTool, UpdateContactTool,
-    GetCaseTool, CreateCaseTool, UpdateCaseTool,
-    GetTaskTool, CreateTaskTool, UpdateTaskTool,
-    SALESFORCE_ANALYTICS_TOOLS
-)
+from src.tools.salesforce_tools import ALL_SALESFORCE_TOOLS
 
 import logging
 
@@ -43,7 +35,7 @@ os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
 # Add structured logging
 # Path manipulation no longer needed
-from src.utils.logging import get_logger, get_performance_tracker, get_cost_tracker, log_salesforce_activity
+from src.utils.logging import log_salesforce_activity
 from src.utils.config import get_llm_config
 from src.utils.sys_msg import salesforce_agent_sys_msg
 
@@ -87,16 +79,8 @@ def build_salesforce_graph():
     
     graph_builder = StateGraph(SalesforceState)
     
-    # All Salesforce tools including analytics
-    tools = [
-        # Basic CRUD tools
-        CreateLeadTool(), GetLeadTool(), UpdateLeadTool(),
-        GetOpportunityTool(), UpdateOpportunityTool(), CreateOpportunityTool(),
-        GetAccountTool(), CreateAccountTool(), UpdateAccountTool(),
-        GetContactTool(), CreateContactTool(), UpdateContactTool(),
-        GetCaseTool(), CreateCaseTool(), UpdateCaseTool(),
-        GetTaskTool(), CreateTaskTool(), UpdateTaskTool()
-    ] + SALESFORCE_ANALYTICS_TOOLS  # Add advanced analytics tools
+    # All Salesforce tools including CRUD and analytics
+    tools = ALL_SALESFORCE_TOOLS
     
     llm = create_azure_openai_chat()
     llm_with_tools = llm.bind_tools(tools)

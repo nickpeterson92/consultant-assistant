@@ -10,7 +10,6 @@ from typing import Dict, Any, Optional, List
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 import logging
-from pathlib import Path
 
 from .agent_registry import AgentRegistry
 from ..a2a import A2AClient, A2ATask, A2AException
@@ -19,6 +18,82 @@ logger = logging.getLogger(__name__)
 
 # Import centralized logging
 from src.utils.logging import log_orchestrator_activity
+from src.utils.constants import (
+    CONVERSATION_SUMMARY_KEY, USER_CONTEXT_KEY, 
+    MESSAGES_KEY, MEMORY_KEY, RECENT_MESSAGES_COUNT
+)
+
+
+class BaseAgentTool(BaseTool):
+    """Base class for agent tools with common functionality."""
+    
+    def _extract_relevant_context(self, state: Dict[str, Any], 
+                                 filter_keywords: Optional[List[str]] = None,
+                                 message_count: int = RECENT_MESSAGES_COUNT) -> Dict[str, Any]:
+        """Extract relevant context from global state.
+        
+        Args:
+            state: The global orchestrator state
+            filter_keywords: Optional keywords to filter memory items
+            message_count: Number of recent messages to include
+            
+        Returns:
+            Dictionary containing relevant context for the agent
+        """
+        context = {}
+        
+        # Include conversation summary if available
+        if CONVERSATION_SUMMARY_KEY in state:
+            context[CONVERSATION_SUMMARY_KEY] = state[CONVERSATION_SUMMARY_KEY]
+        
+        # Include recent messages
+        if MESSAGES_KEY in state and state[MESSAGES_KEY]:
+            recent_messages = []
+            for msg in state[MESSAGES_KEY][-message_count:]:
+                if hasattr(msg, 'content'):
+                    recent_messages.append({
+                        "role": getattr(msg, '__class__', type(msg)).__name__,
+                        "content": msg.content
+                    })
+            if recent_messages:
+                context["recent_messages"] = recent_messages
+        
+        # Include filtered memory if keywords provided
+        if MEMORY_KEY in state and filter_keywords:
+            memory = state[MEMORY_KEY]
+            if isinstance(memory, dict):
+                filtered_memory = {}
+                for key, value in memory.items():
+                    if any(keyword.lower() in key.lower() for keyword in filter_keywords):
+                        filtered_memory[key] = value
+                if filtered_memory:
+                    context["filtered_memory"] = filtered_memory
+        
+        # Include user context
+        if USER_CONTEXT_KEY in state:
+            context[USER_CONTEXT_KEY] = state[USER_CONTEXT_KEY]
+        
+        return context
+    
+    def _create_state_snapshot(self, state: Dict[str, Any], 
+                             include_keys: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Create a minimal state snapshot for the agent.
+        
+        Args:
+            state: The global orchestrator state
+            include_keys: Optional list of specific keys to include
+            
+        Returns:
+            Minimal state snapshot
+        """
+        default_keys = [CONVERSATION_SUMMARY_KEY, "events", MEMORY_KEY, USER_CONTEXT_KEY]
+        keys_to_include = include_keys or default_keys
+        
+        return {
+            key: state.get(key) 
+            for key in keys_to_include 
+            if key in state
+        }
 
 
 class AgentCallInput(BaseModel):
@@ -58,7 +133,7 @@ class AgentCallInput(BaseModel):
         "['salesforce_operations'], ['travel_booking', 'expense_reporting']"
     )
 
-class SalesforceAgentTool(BaseTool):
+class SalesforceAgentTool(BaseAgentTool):
     """Orchestrator Tool for Salesforce CRM Agent Communication.
     
     Implements loose coupling between the orchestrator and specialized Salesforce agent
@@ -117,59 +192,6 @@ class SalesforceAgentTool(BaseTool):
     def __init__(self, registry: AgentRegistry):
         super().__init__(metadata={"registry": registry})
     
-    def _extract_relevant_context(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract relevant context from global state for the agent"""
-        context = {}
-        
-        # Include conversation summary if available
-        if "conversation_summary" in state:
-            context["conversation_summary"] = state["conversation_summary"]
-        
-        # Include recent messages (last 5 for better context)
-        if "messages" in state and len(state["messages"]) > 0:
-            # Extract the last 5 messages to provide context for references like "this account"
-            recent_messages = []
-            for msg in state["messages"][-5:]:
-                if hasattr(msg, 'content'):
-                    recent_messages.append({
-                        "role": getattr(msg, '__class__', type(msg)).__name__,
-                        "content": msg.content
-                    })
-            context["recent_messages"] = recent_messages
-        
-        # Include relevant memory
-        if "memory" in state:
-            memory = state["memory"]
-            if isinstance(memory, dict):
-                # Include Salesforce-related memory
-                salesforce_memory = {}
-                for key, value in memory.items():
-                    if any(keyword in key.lower() for keyword in ["account", "lead", "opportunity", "contact", "case", "task", "salesforce"]):
-                        salesforce_memory[key] = value
-                if salesforce_memory:
-                    context["salesforce_memory"] = salesforce_memory
-        
-        # Include user context
-        if "user_context" in state:
-            context["user_context"] = state["user_context"]
-        
-        return context
-    
-    def _create_state_snapshot(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a state snapshot to send to the agent"""
-        snapshot = {}
-        
-        # Include essential state elements
-        if "messages" in state:
-            snapshot["messages"] = state["messages"]
-        
-        if "memory" in state:
-            snapshot["memory"] = state["memory"]
-        
-        if "turns" in state:
-            snapshot["turns"] = state["turns"]
-        
-        return snapshot
     
     async def _arun(self, instruction: str, context: Optional[Dict[str, Any]] = None, **kwargs) -> str:
         """Execute the Salesforce agent call"""
@@ -197,7 +219,13 @@ class SalesforceAgentTool(BaseTool):
                 return "Error: Salesforce agent not available. Please ensure the Salesforce agent is running and registered."
             
             # Extract context and create state snapshot
-            extracted_context = self._extract_relevant_context(state)
+            # Use base class method with Salesforce-specific keywords
+            salesforce_keywords = ["account", "lead", "opportunity", "contact", "case", "task", "salesforce"]
+            extracted_context = self._extract_relevant_context(state, filter_keywords=salesforce_keywords)
+            
+            # Rename filtered_memory to salesforce_memory for clarity
+            if "filtered_memory" in extracted_context:
+                extracted_context["salesforce_memory"] = extracted_context.pop("filtered_memory")
             if context:
                 extracted_context.update(context)
             
@@ -269,7 +297,7 @@ class SalesforceAgentTool(BaseTool):
         """Synchronous wrapper for async execution"""
         return asyncio.run(self._arun(instruction, context, **kwargs))
 
-class GenericAgentTool(BaseTool):
+class GenericAgentTool(BaseAgentTool):
     """Orchestrator Tool for Dynamic Multi-Agent Task Delegation.
     
     Implements intelligent agent selection and task routing through capability-based
@@ -335,33 +363,6 @@ class GenericAgentTool(BaseTool):
     def __init__(self, registry: AgentRegistry):
         super().__init__(metadata={"registry": registry})
     
-    def _extract_relevant_context(self, state: Dict[str, Any], agent_capabilities: List[str]) -> Dict[str, Any]:
-        """Extract relevant context based on agent capabilities"""
-        context = {}
-        
-        # Always include conversation summary
-        if "conversation_summary" in state:
-            context["conversation_summary"] = state["conversation_summary"]
-        
-        # Include recent messages
-        if "messages" in state and len(state["messages"]) > 0:
-            context["recent_messages"] = state["messages"][-3:]
-        
-        # Include relevant memory based on capabilities
-        if "memory" in state and isinstance(state["memory"], dict):
-            relevant_memory = {}
-            for key, value in state["memory"].items():
-                # Check if memory key relates to agent capabilities
-                if any(capability.lower() in key.lower() for capability in agent_capabilities):
-                    relevant_memory[key] = value
-            if relevant_memory:
-                context["relevant_memory"] = relevant_memory
-        
-        # Include user context
-        if "user_context" in state:
-            context["user_context"] = state["user_context"]
-        
-        return context
     
     async def _arun(self, instruction: str, context: Optional[Dict[str, Any]] = None, 
                    agent_name: Optional[str] = None, required_capabilities: Optional[List[str]] = None, **kwargs) -> str:
@@ -385,15 +386,24 @@ class GenericAgentTool(BaseTool):
             return f"Error: No suitable agent found for the task. Available agents: {', '.join(available_agents) if available_agents else 'None'}"
         
         # Extract context and create state snapshot
-        extracted_context = self._extract_relevant_context(state, agent.agent_card.capabilities)
+        # Use base class method with agent-specific capabilities as filter
+        extracted_context = self._extract_relevant_context(
+            state, 
+            filter_keywords=agent.agent_card.capabilities,
+            message_count=3  # Use fewer messages for generic agents
+        )
+        
+        # Rename filtered_memory to relevant_memory for clarity
+        if "filtered_memory" in extracted_context:
+            extracted_context["relevant_memory"] = extracted_context.pop("filtered_memory")
         if context:
             extracted_context.update(context)
         
-        state_snapshot = {
-            "messages": state.get("messages", []),
-            "memory": state.get("memory", {}),
-            "turns": state.get("turns", 0)
-        }
+        # Use base class method to create state snapshot
+        state_snapshot = self._create_state_snapshot(
+            state, 
+            include_keys=["messages", "memory", "turns"]
+        )
         
         # Create A2A task
         task = A2ATask(

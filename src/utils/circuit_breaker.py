@@ -5,7 +5,7 @@ Provides resilience against cascading failures in agent-to-agent communication
 
 import asyncio
 import time
-from typing import Dict, Any, Optional, Callable, Union
+from typing import Dict, Any, Optional, Callable
 from enum import Enum
 from dataclasses import dataclass
 import logging

@@ -56,9 +56,3 @@ class SimpleMemory(BaseModel):
     tasks: List[SimpleTask] = Field(default_factory=list, description="List of tasks")
     leads: List[SimpleLead] = Field(default_factory=list, description="List of leads")
 
-# Legacy compatibility - keep old classes but mark as deprecated
-class AccountList(BaseModel):
-    """Legacy container - DEPRECATED, use SimpleMemory instead"""
-    accounts: List[dict] = Field(default_factory=list)
-    
-    model_config = {"extra": "forbid"}

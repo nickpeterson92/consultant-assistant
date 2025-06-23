@@ -23,15 +23,13 @@ Error Handling Philosophy:
 """
 
 import os
-from datetime import date
 from typing import Optional, List, Dict, Any
 
-from pydantic import BaseModel, field_validator, ValidationError
+from pydantic import BaseModel, field_validator
 from langchain.tools import BaseTool
 from simple_salesforce import Salesforce
 
 from src.utils.logging import log_tool_activity
-from src.utils.input_validation import validate_tool_input
 from src.utils.soql_query_builder import (
     SOQLQueryBuilder,
     SearchQueryBuilder,
@@ -2357,6 +2355,7 @@ class GetBusinessMetricsTool(BaseTool):
 
 
 # Export all analytics tools
+# Analytics tools collection
 SALESFORCE_ANALYTICS_TOOLS = [
     GetSalesPipelineTool(),
     GetTopPerformersTool(),
@@ -2365,9 +2364,41 @@ SALESFORCE_ANALYTICS_TOOLS = [
     GetBusinessMetricsTool()
 ]
 
+# All CRUD tools collection for easy import
+SALESFORCE_CRUD_TOOLS = [
+    # Lead tools
+    GetLeadTool(),
+    CreateLeadTool(),
+    UpdateLeadTool(),
+    # Account tools
+    GetAccountTool(),
+    CreateAccountTool(),
+    UpdateAccountTool(),
+    # Opportunity tools
+    GetOpportunityTool(),
+    CreateOpportunityTool(),
+    UpdateOpportunityTool(),
+    # Contact tools
+    GetContactTool(),
+    CreateContactTool(),
+    UpdateContactTool(),
+    # Case tools
+    GetCaseTool(),
+    CreateCaseTool(),
+    UpdateCaseTool(),
+    # Task tools
+    GetTaskTool(),
+    CreateTaskTool(),
+    UpdateTaskTool()
+]
+
+# All tools combined
+ALL_SALESFORCE_TOOLS = SALESFORCE_CRUD_TOOLS + SALESFORCE_ANALYTICS_TOOLS
+
 
 # Export all tools
 __all__ = [
+    # Individual tool classes (for backwards compatibility)
     'GetLeadTool', 'CreateLeadTool', 'UpdateLeadTool',
     'GetAccountTool', 'CreateAccountTool', 'UpdateAccountTool',
     'GetOpportunityTool', 'CreateOpportunityTool', 'UpdateOpportunityTool',
@@ -2376,5 +2407,8 @@ __all__ = [
     'GetTaskTool', 'CreateTaskTool', 'UpdateTaskTool',
     'GetSalesPipelineTool', 'GetTopPerformersTool', 'GlobalSearchTool',
     'GetAccountInsightsTool', 'GetBusinessMetricsTool',
-    'SALESFORCE_ANALYTICS_TOOLS'
+    # Tool collections
+    'SALESFORCE_ANALYTICS_TOOLS',
+    'SALESFORCE_CRUD_TOOLS',
+    'ALL_SALESFORCE_TOOLS'
 ]
