@@ -99,8 +99,8 @@ class TravelAgent:
 ┌─────────────────────────────────────────────────────────────────────┐
 │                         User Interface Layer                        │
 │                                                                     │
-│  What it does: Accepts user input through CLI, API, or future web  │
-│  Example: "Show me all contacts for Acme Corp"                     │
+│  What it does: Accepts user input through CLI, API, or future web   │
+│  Example: "Show me all contacts for Acme Corp"                      │
 └───────────────────────────────┬─────────────────────────────────────┘
                                 │ User Request
                                 ▼
