@@ -284,10 +284,7 @@ ORCHESTRATOR TOOLS:
                                              message=str(last_msg.content)[:200],
                                              message_count=msg_count,
                                              event_count=len(events))
-            
-            
-            summary = state.get("summary", "No summary available")
-            
+                        
             # Load persistent memory using flat schema for simplicity
             user_id = config["configurable"].get("user_id", "default")
             namespace = ("memory", user_id)
@@ -311,8 +308,8 @@ ORCHESTRATOR TOOLS:
             state["memory"] = existing_memory
             
             # Load summary from persistent store if not in state
-            summary_in_state = state.get("summary", "No summary available")
-            if summary_in_state == "No summary available":
+            summary = state.get("summary", "No summary available")
+            if summary == "No summary available":
                 # Try to load from store
                 conv_config = get_conversation_config()
                 user_id = config["configurable"].get("user_id", conv_config.default_user_id)
@@ -323,18 +320,18 @@ ORCHESTRATOR TOOLS:
                     stored_summary = memory_store.sync_get(namespace, key)
                     if stored_summary and "summary" in stored_summary:
                         state["summary"] = stored_summary["summary"]
-                        summary_in_state = stored_summary["summary"]
+                        summary = stored_summary["summary"]
                         log_orchestrator_activity("SUMMARY_LOADED_FROM_STORE",
-                                                summary_preview=summary_in_state[:200],
+                                                summary_preview=summary[:200],
                                                 timestamp=stored_summary.get("timestamp"))
                 except Exception as e:
                     log_orchestrator_activity("SUMMARY_LOAD_ERROR", error=str(e))
             
             log_orchestrator_activity("SUMMARY_STATE_CHECK",
                                     operation="conversation_node_entry",
-                                    has_summary=bool(summary_in_state and summary_in_state != "No summary available"),
-                                    summary_length=len(summary_in_state) if summary_in_state else 0,
-                                    summary_preview=summary_in_state[:200] if summary_in_state else "NO_SUMMARY")
+                                    has_summary=bool(summary and summary != "No summary available"),
+                                    summary_length=len(summary) if summary else 0,
+                                    summary_preview=summary[:200] if summary else "NO_SUMMARY")
             
             system_message = get_orchestrator_system_message(state)
             messages = [SystemMessage(content=system_message)] + state["messages"]
