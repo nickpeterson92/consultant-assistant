@@ -35,10 +35,36 @@ The configuration management system provides centralized, type-safe, and environ
 
 ### Configuration Loading Order
 
-1. **Default Values** - Hardcoded fallbacks
+1. **Default Values** - Hardcoded fallbacks (see `src/utils/constants.py`)
 2. **Configuration Files** - JSON/YAML files
 3. **Environment Variables** - Override file values
 4. **Runtime Updates** - Dynamic reconfiguration
+
+### Centralized Constants
+
+All hardcoded values and constants are now centralized in `src/utils/constants.py`:
+
+```python
+# Memory and storage keys
+MEMORY_NAMESPACE_PREFIX = "memory"
+SIMPLE_MEMORY_KEY = "SimpleMemory"
+STATE_KEY_PREFIX = "state_"
+
+# Network constants
+DEFAULT_A2A_PORT = 8000
+SALESFORCE_AGENT_PORT = 8001
+
+# Model pricing (per 1K tokens)
+MODEL_PRICING = {
+    "gpt-4": {"input": 0.03, "output": 0.06},
+    "gpt-4o": {"input": 0.005, "output": 0.015},
+    "gpt-4o-mini": {"input": 0.00015, "output": 0.00060}
+}
+
+# Circuit breaker defaults
+CIRCUIT_BREAKER_FAILURE_THRESHOLD = 5
+CIRCUIT_BREAKER_TIMEOUT = 30
+```
 
 ## Configuration Files
 

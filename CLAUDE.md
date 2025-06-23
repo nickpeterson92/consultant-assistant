@@ -25,8 +25,9 @@ This system implements **Enterprise-Grade Multi-Agent Architecture** following 2
 │  ┌────────▼────────────────────────────────────────────────────────────┐   │
 │  │                    State Management & Memory                         │   │
 │  │  - OrchestratorState (AsyncStoreAdapter + Circuit Breakers)         │   │
-│  │  - MemorySaver + TrustCall Extraction (lines 95-103)               │   │
-│  │  - Background Memory Processing (lines 647-725)                     │   │
+│  │  - MemorySaver + TrustCall Extraction                              │   │
+│  │  - Thread-based State Persistence (full state storage)             │   │
+│  │  - Background Memory Processing + Message Serialization            │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 └────────────────────────────────────┬────────────────────────────────────────┘
                                      │
@@ -188,10 +189,11 @@ multi-agent-orchestrator/
 │       ├── helpers.py              # Message processing utilities (100+ lines)
 │       ├── input_validation.py     # Security validation
 │       ├── sys_msg.py              # System message templates (200+ lines)
+│       ├── constants.py            # Centralized constants (67 lines)
 │       ├── storage/                # Persistence layer
 │       │   ├── sqlite_store.py     # BaseStore implementation (100+ lines)
 │       │   ├── async_store_adapter.py # Thread-safe adapter (150+ lines)
-│       │   ├── memory_schemas.py   # Pydantic data models (66 lines)
+│       │   ├── memory_schemas.py   # Pydantic data models
 │       │   └── async_sqlite.py     # Async SQLite utilities
 │       └── logging/                # Observability system
 │           ├── activity_logger.py  # Centralized logging (100+ lines)
@@ -368,6 +370,12 @@ SimpleTask         # Task records with subjects and relationships
 SimpleLead         # Lead records with status tracking
 SimpleMemory       # Container for all record types
 ```
+
+### Thread-Based State Persistence
+- **Full State Storage**: Entire conversation state stored with key `state_{thread_id}`
+- **Message Serialization**: LangChain messages converted to dicts using `_serialize_messages()`
+- **Thread Switching**: Seamless context restoration when switching between threads
+- **Automatic Persistence**: State saved during summarization for thread continuity
 
 ### Storage Patterns & Features
 - **Namespace Organization**: User-specific memory isolation
@@ -554,10 +562,18 @@ langgraph dev                        # LangGraph CLI
 
 ### Common Issues & Solutions
 
-#### **Infinite Loop Detection (Recent Issue)**
-**Symptoms**: Message count escalating (2→4→6...→50) without tool calls
-**Root Cause**: LLM tool selection confusion for update operations
-**Solution**: Enhanced system messages with explicit tool selection rules
+#### **Recent Improvements & Fixes**
+
+**Thread State Persistence**
+- **Implementation**: Full state dict storage with `state_{thread_id}` keys
+- **Serialization**: Custom `_serialize_messages()` helper for LangChain objects
+- **Benefits**: Complete thread restoration when switching conversations
+
+**Code Quality Enhancements**
+- **DRY Principle**: Extracted `BaseAgentTool` class for common context extraction
+- **Constants Centralization**: All hardcoded values moved to `src/utils/constants.py`
+- **Import Cleanup**: Removed unused imports across entire codebase
+- **ASCII Art Headers**: Professional branding in README files
 
 #### **Connection Timeout Issues**
 **Symptoms**: 10-second timeouts despite 30-second configuration  
@@ -585,14 +601,11 @@ langgraph dev                        # LangGraph CLI
 
 ## 🔮 Future Extensibility & Roadmap
 
-### Planned Agent Extensions
+### Planned Agent Extensions (YAGNI-Focused)
 ```bash
-# Future specialized agents
-Travel Agent           # Booking platforms, expense integration
-HR Agent              # Employee onboarding, feedback systems  
-Document Agent        # OCR, content extraction, workflow automation
-Finance Agent         # Expense reporting, approval workflows
-Communication Agent   # Email automation, notification systems
+# Only agents with clear, immediate business value:
+Document Agent        # OCR integration already in requirements.txt
+Expense Agent        # Direct integration with existing Salesforce data
 ```
 
 ### Architecture Evolution
@@ -617,6 +630,16 @@ Communication Agent   # Email automation, notification systems
 3. **Memory Architecture**: TrustCall + Pydantic for structured data extraction and validation
 4. **A2A Protocol**: Standards-compliant agent communication with JSON-RPC 2.0
 5. **LangGraph Integration**: State management with checkpointing and parallel execution
+6. **Thread State Persistence**: Full conversation state storage enables seamless thread switching
+7. **BaseAgentTool Pattern**: DRY principle applied to agent tools for consistent context extraction
+8. **Centralized Constants**: All hardcoded values in `src/utils/constants.py` for maintainability
+
+### Recent Improvements That Help Claude Code
+1. **Message Serialization**: `_serialize_messages()` helper handles LangChain message conversion
+2. **Thread Persistence**: Full state stored with `state_{thread_id}` keys for context preservation
+3. **Import Optimization**: Cleaned up unused imports across entire codebase
+4. **Professional Documentation**: ASCII art headers in READMEs for visual orientation
+5. **YAGNI Focus**: Removed speculative future features, focusing on immediate value
 
 ### Performance Considerations
 - **Connection Pooling**: Supports 8+ concurrent tool calls with efficient reuse

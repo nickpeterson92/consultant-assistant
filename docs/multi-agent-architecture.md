@@ -34,9 +34,9 @@ The Multi-Agent Orchestrator implements a sophisticated multi-agent architecture
         ┌───────────────────────┼───────────────────────┐
         │                       │                       │
 ┌───────▼────────┐     ┌────────▼───────┐      ┌────────▼───────┐
-│   Salesforce   │     │     Travel     │      │   Document     │
+│   Salesforce   │     │   Extensible   │      │   Extensible   │
 │     Agent      │     │     Agent      │      │     Agent      │
-│                │     │   (Future)     │      │   (Future)     │
+│                │     │   Framework    │      │   Framework    │
 └────────────────┘     └────────────────┘      └────────────────┘
 ```
 
@@ -78,11 +78,12 @@ class OrchestratorState(TypedDict):
 - Stateless design for scalability
 - SOQL query builder for safe database access
 
-**Future Agents**:
-- **Travel Agent**: Booking, itinerary management, expense tracking
-- **HR Agent**: Employee onboarding, feedback, policy queries
-- **Document Agent**: OCR, content extraction, form processing
-- **Finance Agent**: Expense approval, budget tracking
+**Extensible Agent Framework**:
+The architecture supports adding specialized agents as business needs arise. The framework provides:
+- Standard A2A protocol implementation
+- Base agent templates
+- Tool development patterns
+- Service discovery integration
 
 ### 3. Agent Characteristics
 
@@ -225,7 +226,7 @@ SimpleMemory
 
 ### State Persistence
 
-All state is persisted using checkpointing:
+All state is persisted using checkpointing with full thread support:
 
 ```python
 # Automatic checkpointing
@@ -237,7 +238,51 @@ result = await app.ainvoke(
     input_state,
     config={"configurable": {"thread_id": user_id}}
 )
+
+# Full thread state persistence
+key = f"state_{thread_id}"
+serialized_state = {
+    "messages": _serialize_messages(state["messages"]),
+    "summary": state["summary"],
+    "memory": state["memory"],
+    "thread_id": thread_id
+}
+memory_store.sync_put(namespace, key, serialized_state)
 ```
+
+## Tool Coordination Patterns
+
+### Base Agent Tool Pattern
+
+All orchestrator agent tools inherit from a common base class:
+
+```python
+class BaseAgentTool(BaseTool):
+    """Base class for agent tools with common functionality."""
+    
+    def _extract_relevant_context(self, state: Dict[str, Any], 
+                                 filter_keywords: Optional[List[str]] = None,
+                                 message_count: int = RECENT_MESSAGES_COUNT) -> Dict[str, Any]:
+        """Extract relevant context from global state."""
+        # Extract recent messages
+        messages = get_recent_messages(state, message_count)
+        
+        # Extract relevant memory based on keywords
+        memory = extract_relevant_memory(state, filter_keywords)
+        
+        # Return context for agent
+        return {
+            "messages": messages,
+            "memory": memory,
+            "user_context": state.get("user_context", {})
+        }
+```
+
+This pattern ensures:
+- Consistent context extraction across all agent tools
+- DRY principle adherence
+- Standardized memory filtering
+- Efficient message handling
 
 ## Scalability Patterns
 

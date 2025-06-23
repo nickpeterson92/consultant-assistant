@@ -125,10 +125,41 @@ class SimpleLead:
 ```sql
 CREATE TABLE store (
     namespace TEXT NOT NULL,    -- ("memory", user_id)
-    key TEXT NOT NULL,         -- "SimpleMemory"
-    value TEXT NOT NULL,       -- JSON serialized memory
+    key TEXT NOT NULL,         -- "SimpleMemory" or "state_{thread_id}"
+    value TEXT NOT NULL,       -- JSON serialized memory or state
     PRIMARY KEY (namespace, key)
 );
+```
+
+### Thread State Persistence
+
+The system now supports full conversation state persistence:
+
+```python
+# Save entire state with thread ID
+key = f"state_{thread_id}"
+state_data = {
+    "state": serialized_state,
+    "thread_id": thread_id,
+    "timestamp": time.time()
+}
+memory_store.sync_put(namespace, key, state_data)
+
+# Message serialization helper
+def _serialize_messages(messages):
+    """Convert LangChain messages to JSON-serializable format."""
+    serializable_messages = []
+    for msg in messages:
+        if hasattr(msg, 'dict'):
+            serializable_messages.append(msg.dict())
+        elif isinstance(msg, dict):
+            serializable_messages.append(msg)
+        else:
+            serializable_messages.append({
+                "type": type(msg).__name__,
+                "content": str(getattr(msg, 'content', str(msg)))
+            })
+    return serializable_messages
 ```
 
 ### AsyncStoreAdapter
