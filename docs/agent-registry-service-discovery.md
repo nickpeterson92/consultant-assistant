@@ -1,5 +1,35 @@
 # Agent Registry and Service Discovery Documentation
 
+## What is Service Discovery? (For Junior Engineers)
+
+### The Phone Directory Analogy
+
+Imagine you're in a large office building with hundreds of specialists - accountants, lawyers, engineers, designers. When you need help with taxes, you need to:
+1. Find out which accountants are available today
+2. Know their office numbers and phone extensions
+3. Check if they're busy or free to help
+4. Choose the best accountant for your specific tax issue
+
+Service discovery in our multi-agent system works exactly like this office directory:
+- **Agents** = Office specialists (Salesforce agent, Travel agent, HR agent)
+- **Registry** = The building's directory system
+- **Health Checks** = Checking if someone is in their office
+- **Capabilities** = What each specialist can help with
+- **Endpoints** = Office numbers/phone extensions
+
+### Why Do Agents Need Service Discovery?
+
+In traditional software, components are hardcoded to know about each other. But in modern distributed systems:
+
+1. **Dynamic Environment**: Agents can start, stop, or move to different servers
+2. **Scalability**: Multiple copies of the same agent might run simultaneously
+3. **Resilience**: If one agent fails, others should be found automatically
+4. **Flexibility**: New agents can join without changing existing code
+
+Think of it like Uber:
+- Without service discovery: You'd need to know every driver's phone number
+- With service discovery: The app finds available drivers for you automatically
+
 ## Overview
 
 The Agent Registry system implements enterprise-grade service discovery for the multi-agent architecture. It provides dynamic agent registration, health monitoring, capability-based routing, and distributed service management following microservices best practices. The registry serves as the central nervous system that enables agents to find and communicate with each other.
@@ -43,6 +73,92 @@ The Agent Registry system implements enterprise-grade service discovery for the 
 3. **Capability Matcher**: Intelligent agent selection
 4. **Configuration Manager**: Persistent registry state
 5. **Discovery Client**: Agent registration interface
+
+## Step-by-Step Guide: Registering a New Agent
+
+### Prerequisites
+1. Your agent must have an A2A endpoint (`/a2a` and `/a2a/agent-card`)
+2. The agent must be running and accessible via HTTP
+3. You need to know the agent's capabilities
+
+### Quick Registration Example
+
+```python
+# Step 1: Create your agent with A2A endpoints
+class MyNewAgent:
+    def __init__(self):
+        self.name = "expense-agent"
+        self.capabilities = ["expense_reporting", "receipt_processing"]
+        self.description = "Handles expense reports and receipt OCR"
+    
+    # This endpoint tells others what you can do
+    @app.get("/a2a/agent-card")
+    async def get_agent_card(self):
+        return AgentCard(
+            name=self.name,
+            description=self.description,
+            capabilities=self.capabilities
+        )
+
+# Step 2: Register with the orchestrator's registry
+from src.orchestrator.agent_registry import AgentRegistry
+
+registry = AgentRegistry()
+registry.register_agent(
+    name="expense-agent",
+    endpoint="http://localhost:8003"  # Where your agent is running
+)
+
+# Step 3: Verify registration worked
+print(registry.list_agents())
+# Output: ['salesforce-agent', 'expense-agent']  ✅ Success!
+```
+
+### Manual Registration (for testing)
+
+1. **Edit agent_registry.json directly**:
+```json
+{
+  "agents": [
+    {
+      "name": "expense-agent",
+      "endpoint": "http://localhost:8003",
+      "agent_card": {
+        "name": "expense-agent",
+        "description": "Expense and receipt processing",
+        "capabilities": ["expense_reporting", "receipt_processing"]
+      },
+      "status": "unknown"
+    }
+  ]
+}
+```
+
+2. **Restart the orchestrator** to load the new configuration
+
+### Common Registration Mistakes
+
+❌ **Wrong endpoint format**:
+```python
+# Bad - missing protocol
+registry.register_agent("my-agent", "localhost:8003")
+
+# Good - includes http://
+registry.register_agent("my-agent", "http://localhost:8003")
+```
+
+❌ **Agent not running**:
+```python
+# This will register but health checks will fail
+registry.register_agent("my-agent", "http://localhost:9999")  # Nothing on port 9999!
+```
+
+❌ **Missing A2A endpoints**:
+```python
+# Your agent MUST implement these endpoints:
+# GET /a2a/agent-card - Returns what you can do
+# POST /a2a - Processes tasks
+```
 
 ## Service Registration
 
@@ -131,6 +247,110 @@ class RegisteredAgent:
         
         reg_time = datetime.fromisoformat(self.registration_time)
         return (datetime.now() - reg_time).total_seconds()
+```
+
+## Health Checking and Monitoring
+
+### What is Health Checking?
+
+Health checking is like a heartbeat monitor for your agents. The registry regularly "pings" each agent to ensure they're:
+- **Alive**: The agent process is running
+- **Responsive**: It can handle requests
+- **Healthy**: It's not overloaded or erroring
+
+### How Health Checks Work
+
+```python
+# Every 30 seconds, the registry does this:
+for each registered agent:
+    try:
+        response = HTTP GET to agent's /a2a/agent-card endpoint
+        if response is successful:
+            mark agent as "online" ✅
+        else:
+            mark agent as "error" ❌
+    except timeout:
+        mark agent as "offline" 🔴
+```
+
+### Implementing Health Checks in Your Agent
+
+```python
+# Minimal health check endpoint
+@app.get("/a2a/agent-card")
+async def health_check():
+    # Check your agent's health
+    if database_connected and not overloaded:
+        return AgentCard(...), 200  # Healthy
+    else:
+        return {"error": "unhealthy"}, 503  # Unhealthy
+
+# Advanced health check with details
+@app.get("/health")
+async def detailed_health():
+    return {
+        "status": "healthy",
+        "checks": {
+            "database": "connected",
+            "memory_usage": "45%",
+            "active_tasks": 3,
+            "uptime_seconds": 3600
+        }
+    }
+```
+
+### Monitoring Agent Status
+
+```python
+# Check single agent health
+agent = registry.get_agent("salesforce-agent")
+print(f"Status: {agent.status}")
+print(f"Last checked: {agent.last_health_check}")
+print(f"Healthy: {agent.is_healthy}")
+
+# Get system-wide health
+stats = registry.get_registry_stats()
+print(f"Total agents: {stats['total_agents']}")
+print(f"Online agents: {stats['status_distribution']['online']}")
+print(f"System availability: {stats['availability_percentage']}%")
+
+# Monitor specific capability availability
+salesforce_agents = registry.find_agents_by_capability("salesforce_operations")
+online_count = sum(1 for agent in salesforce_agents if agent.is_healthy)
+print(f"Salesforce capability: {online_count} agents available")
+```
+
+### Health Check Troubleshooting
+
+**Problem: Agent shows as "offline" but is running**
+```bash
+# Debug steps:
+1. Check if agent is really running:
+   ps aux | grep salesforce_agent
+   
+2. Test the health endpoint manually:
+   curl http://localhost:8001/a2a/agent-card
+   
+3. Check firewall/network:
+   telnet localhost 8001
+   
+4. Review agent logs:
+   tail -f logs/salesforce_agent.log
+```
+
+**Problem: Agent keeps flapping (online → offline → online)**
+```python
+# Common causes:
+1. Agent is overloaded (increase resources)
+2. Network issues (check connectivity)
+3. Timeout too short (increase health check timeout)
+
+# Solution: Adjust health check settings
+config = {
+    "health_check_interval": 60,  # Check less frequently
+    "health_check_timeout": 15,    # Allow more time
+    "failure_threshold": 3         # Require 3 failures before marking offline
+}
 ```
 
 ## Health Monitoring
@@ -245,6 +465,99 @@ async def health_check_all_agents(self) -> Dict[str, bool]:
     )
     
     return results
+```
+
+## How Agents Find Each Other
+
+### The Discovery Process (Simple Example)
+
+When the orchestrator needs to process expense reports:
+
+```python
+# 1. User asks: "Process my expense report"
+# 2. Orchestrator thinks: "Who can handle expense_reporting?"
+
+# 3. Discovery process:
+registry = AgentRegistry()
+
+# Option A: Find by specific capability
+expense_agents = registry.find_agents_by_capability("expense_reporting")
+print(expense_agents)
+# [RegisteredAgent(name='expense-agent', status='online', endpoint='http://localhost:8003')]
+
+# Option B: Smart matching based on task description
+best_agent = registry.find_best_agent_for_task("I need to submit my receipts")
+print(best_agent.name)  # 'expense-agent'
+
+# 4. Orchestrator sends the task to the discovered agent
+response = await send_task_to_agent(best_agent.endpoint, task)
+```
+
+### Behind the Scenes: How Discovery Works
+
+```
+User Request
+    |
+    v
+Orchestrator: "I need someone who can do X"
+    |
+    v
+Registry: "Let me check my directory..."
+    |
+    v
+[Searches through all registered agents]
+    |
+    v
+Registry: "I found 3 agents that can do X!"
+    |
+    v
+[Filters by health status - only healthy agents]
+    |
+    v
+[Sorts by performance - fastest agent first]
+    |
+    v
+Orchestrator: "Thanks! I'll use the best one"
+    |
+    v
+[Task sent to selected agent]
+```
+
+### Practical Discovery Examples
+
+```python
+# Example 1: Finding any CRM agent
+crm_agents = registry.find_agents_by_capability("crm_management")
+if crm_agents:
+    selected = crm_agents[0]  # Use first available
+    print(f"Found CRM agent: {selected.name} at {selected.endpoint}")
+
+# Example 2: Load balancing between multiple agents
+from collections import defaultdict
+
+task_counter = defaultdict(int)
+
+def get_agent_round_robin(capability: str):
+    agents = registry.find_agents_by_capability(capability)
+    if not agents:
+        return None
+    
+    # Rotate through available agents
+    index = task_counter[capability] % len(agents)
+    task_counter[capability] += 1
+    return agents[index]
+
+# Example 3: Fallback when preferred agent is down
+def get_agent_with_fallback(preferred_name: str, capability: str):
+    # Try preferred agent first
+    preferred = registry.get_agent(preferred_name)
+    if preferred and preferred.is_healthy:
+        return preferred
+    
+    # Fallback to any agent with the capability
+    print(f"⚠️ {preferred_name} is down, finding alternative...")
+    alternatives = registry.find_agents_by_capability(capability)
+    return alternatives[0] if alternatives else None
 ```
 
 ## Service Discovery
@@ -806,6 +1119,353 @@ class ConsulDiscovery:
 - Support hot reloading
 - Version your configuration schema
 
+## Common Registry Problems and Solutions
+
+### Problem 1: "Agent Not Found" Errors
+
+**Symptoms**: Orchestrator can't find agents that should exist
+
+```python
+# Error message:
+"No agent found capable of handling: salesforce_operations"
+```
+
+**Solutions**:
+```python
+# 1. Check if agent is registered
+print(registry.list_agents())
+# If missing, register it!
+
+# 2. Check agent capabilities
+agent = registry.get_agent("salesforce-agent")
+print(agent.agent_card.capabilities)
+# Make sure it includes the needed capability
+
+# 3. Check agent health
+print(f"Agent status: {agent.status}")
+# If offline, investigate why
+
+# 4. Force a health check
+await registry.health_check_agent("salesforce-agent")
+```
+
+### Problem 2: Registration Failures
+
+**Symptoms**: Can't register new agents
+
+```python
+# Debug registration issues:
+try:
+    registry.register_agent("my-agent", "http://localhost:8004")
+except Exception as e:
+    print(f"Registration failed: {e}")
+    
+    # Common fixes:
+    # 1. Check endpoint format (needs http://)
+    # 2. Verify agent is running
+    # 3. Test A2A endpoint manually:
+    #    curl http://localhost:8004/a2a/agent-card
+    # 4. Check for port conflicts
+    # 5. Review agent logs for startup errors
+```
+
+### Problem 3: Performance Issues
+
+**Symptoms**: Slow agent discovery or routing
+
+```python
+# Diagnose performance:
+import time
+
+# Test discovery speed
+start = time.time()
+agents = registry.find_agents_by_capability("salesforce_operations")
+print(f"Discovery took: {time.time() - start:.2f}s")
+
+# If slow (>0.1s), try:
+# 1. Reduce number of registered agents
+# 2. Optimize capability matching
+# 3. Enable caching:
+registry.enable_discovery_cache(ttl=60)  # Cache for 60 seconds
+```
+
+### Problem 4: Inconsistent Agent Selection
+
+**Symptoms**: Same request goes to different agents randomly
+
+```python
+# Implement consistent routing:
+def get_consistent_agent(task_id: str, capability: str):
+    """Always route same task to same agent"""
+    agents = registry.find_agents_by_capability(capability)
+    if not agents:
+        return None
+    
+    # Use task ID to select agent consistently
+    index = hash(task_id) % len(agents)
+    return agents[index]
+
+# Or use sticky sessions:
+user_agent_map = {}
+
+def get_sticky_agent(user_id: str, capability: str):
+    """Keep user with same agent"""
+    if user_id in user_agent_map:
+        agent = registry.get_agent(user_agent_map[user_id])
+        if agent and agent.is_healthy:
+            return agent
+    
+    # Find new agent
+    agent = registry.find_best_agent_for_task(capability)
+    if agent:
+        user_agent_map[user_id] = agent.name
+    return agent
+```
+
+## Testing Service Discovery
+
+### Unit Tests for Your Registry Integration
+
+```python
+import pytest
+from src.orchestrator.agent_registry import AgentRegistry
+
+class TestServiceDiscovery:
+    def test_agent_registration(self):
+        """Test that agents can register successfully"""
+        registry = AgentRegistry()
+        
+        # Register test agent
+        registry.register_agent(
+            name="test-agent",
+            endpoint="http://localhost:9999"
+        )
+        
+        # Verify registration
+        agent = registry.get_agent("test-agent")
+        assert agent is not None
+        assert agent.endpoint == "http://localhost:9999"
+    
+    def test_capability_discovery(self):
+        """Test finding agents by capability"""
+        registry = AgentRegistry()
+        
+        # Register agents with different capabilities
+        registry.register_agent(
+            name="crm-agent",
+            endpoint="http://localhost:8001",
+            agent_card=AgentCard(
+                name="crm-agent",
+                capabilities=["crm_management", "salesforce_operations"]
+            )
+        )
+        
+        # Test discovery
+        crm_agents = registry.find_agents_by_capability("crm_management")
+        assert len(crm_agents) == 1
+        assert crm_agents[0].name == "crm-agent"
+    
+    def test_health_check_failure_handling(self):
+        """Test that offline agents aren't selected"""
+        registry = AgentRegistry()
+        
+        # Register agent
+        registry.register_agent("test-agent", "http://localhost:9999")
+        
+        # Simulate health check failure
+        agent = registry.get_agent("test-agent")
+        agent.status = "offline"
+        
+        # Verify offline agents aren't returned
+        healthy_agents = registry.find_agents_by_capability("any")
+        assert "test-agent" not in [a.name for a in healthy_agents]
+```
+
+### Integration Tests
+
+```python
+# test_registry_integration.py
+import asyncio
+import aiohttp
+
+async def test_full_discovery_flow():
+    """Test complete service discovery workflow"""
+    
+    # 1. Start test agent
+    test_agent = await start_test_agent(port=9999)
+    
+    # 2. Register with registry
+    registry = AgentRegistry()
+    registry.register_agent("test-agent", "http://localhost:9999")
+    
+    # 3. Wait for health check
+    await asyncio.sleep(2)
+    await registry.health_check_all_agents()
+    
+    # 4. Discover agent
+    agent = registry.find_best_agent_for_task("test task")
+    assert agent is not None
+    assert agent.status == "online"
+    
+    # 5. Send test request
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            f"{agent.endpoint}/a2a",
+            json={"instruction": "test"}
+        ) as response:
+            assert response.status == 200
+    
+    # Cleanup
+    await test_agent.stop()
+```
+
+### Manual Testing Checklist
+
+```bash
+# 1. Start your agent
+python3 my_agent.py --port 8004
+
+# 2. Test A2A endpoint
+curl http://localhost:8004/a2a/agent-card
+# Should return agent capabilities
+
+# 3. Register with orchestrator
+curl -X POST http://localhost:8000/admin/register \
+  -d '{"name": "my-agent", "endpoint": "http://localhost:8004"}'
+
+# 4. Check registration
+curl http://localhost:8000/admin/agents
+# Should list your agent
+
+# 5. Test discovery
+curl http://localhost:8000/admin/discover?capability=my_capability
+# Should return your agent if it has that capability
+
+# 6. Monitor health
+watch -n 5 'curl http://localhost:8000/admin/health'
+# Should show agent status updating
+```
+
+## Scaling Considerations
+
+### Handling Multiple Agent Instances
+
+```python
+# Scenario: Running 3 copies of salesforce-agent for load balancing
+
+# Register each instance with unique name
+registry.register_agent("salesforce-agent-1", "http://server1:8001")
+registry.register_agent("salesforce-agent-2", "http://server2:8001")
+registry.register_agent("salesforce-agent-3", "http://server3:8001")
+
+# Load balancer will distribute requests
+load_balancer = LoadBalancer(registry)
+for i in range(10):
+    agent = load_balancer.round_robin_select("salesforce_operations")
+    print(f"Request {i} -> {agent.name}")
+# Output: Requests distributed evenly across all 3 instances
+```
+
+### Registry High Availability
+
+```python
+# Option 1: Primary-Secondary registry
+class HARegistry:
+    def __init__(self, primary_config: str, secondary_config: str):
+        self.primary = AgentRegistry(primary_config)
+        self.secondary = AgentRegistry(secondary_config)
+    
+    def register_agent(self, name: str, endpoint: str):
+        # Write to both registries
+        self.primary.register_agent(name, endpoint)
+        self.secondary.register_agent(name, endpoint)
+    
+    def find_agents_by_capability(self, capability: str):
+        try:
+            # Try primary first
+            return self.primary.find_agents_by_capability(capability)
+        except Exception:
+            # Fallback to secondary
+            return self.secondary.find_agents_by_capability(capability)
+
+# Option 2: Distributed registry with consensus
+# Use etcd, Consul, or Zookeeper for distributed state
+```
+
+### Performance at Scale
+
+```python
+# Registry optimizations for 100+ agents:
+
+1. Enable caching:
+   registry.enable_caching(
+       discovery_cache_ttl=60,      # Cache discovery results
+       health_cache_ttl=30,         # Cache health status
+       capability_index=True        # Index by capability for fast lookup
+   )
+
+2. Batch health checks:
+   # Instead of checking all agents every 30s,
+   # spread checks across the interval
+   registry.enable_staggered_health_checks(
+       batch_size=10,               # Check 10 agents at a time
+       interval_between_batches=3   # Wait 3s between batches
+   )
+
+3. Use connection pooling:
+   registry.configure_connection_pool(
+       max_connections=100,         # Total pool size
+       max_per_host=10             # Per-agent connection limit
+   )
+
+4. Implement sharding:
+   # Split agents across multiple registries by capability
+   crm_registry = AgentRegistry("crm_registry.json")
+   travel_registry = AgentRegistry("travel_registry.json")
+   hr_registry = AgentRegistry("hr_registry.json")
+```
+
+### Monitoring at Scale
+
+```python
+# Metrics to track as you scale:
+
+1. Discovery latency:
+   - p50, p95, p99 response times
+   - Cache hit rate
+   
+2. Health check performance:
+   - Time to check all agents
+   - Failed check rate
+   
+3. Registry availability:
+   - Uptime percentage
+   - Error rate
+   
+4. Agent distribution:
+   - Agents per capability
+   - Geographic distribution
+   - Load distribution
+
+# Example monitoring setup:
+from prometheus_client import Counter, Histogram, Gauge
+
+discovery_duration = Histogram(
+    'registry_discovery_duration_seconds',
+    'Time spent discovering agents'
+)
+agent_count = Gauge(
+    'registry_agent_count',
+    'Number of registered agents',
+    ['status']
+)
+error_count = Counter(
+    'registry_errors_total',
+    'Total number of registry errors',
+    ['operation']
+)
+```
+
 ## Troubleshooting
 
 ### Common Issues
@@ -833,6 +1493,64 @@ class ConsulDiscovery:
    - Check load balancing strategy
    - Review capability matching logic
    - Verify agent capacity limits
+
+## Quick Reference Card
+
+### Essential Commands
+
+```python
+# Register an agent
+registry.register_agent("my-agent", "http://localhost:8001")
+
+# Find agents by capability
+agents = registry.find_agents_by_capability("salesforce_operations")
+
+# Get specific agent
+agent = registry.get_agent("salesforce-agent")
+
+# Check agent health
+is_healthy = agent.is_healthy
+
+# List all agents
+all_agents = registry.list_agents()
+
+# Get system stats
+stats = registry.get_registry_stats()
+
+# Force health check
+await registry.health_check_agent("salesforce-agent")
+```
+
+### Key Files and Locations
+
+```
+/src/orchestrator/agent_registry.py  # Registry implementation
+/agent_registry.json                 # Persistent registry data
+/logs/orchestrator.log              # Registry operations log
+/system_config.json                 # Registry configuration
+```
+
+### Debugging Tips
+
+1. **Enable debug logging**:
+   ```bash
+   DEBUG_MODE=true python3 orchestrator.py
+   ```
+
+2. **Check registry state**:
+   ```python
+   print(json.dumps(registry.get_registry_stats(), indent=2))
+   ```
+
+3. **Monitor in real-time**:
+   ```bash
+   tail -f logs/orchestrator.log | grep -E "AGENT_REGISTERED|HEALTH_CHECK"
+   ```
+
+4. **Test connectivity**:
+   ```bash
+   curl -s http://localhost:8001/a2a/agent-card | jq .
+   ```
 
 ## Future Enhancements
 

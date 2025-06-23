@@ -600,6 +600,166 @@ langgraph dev                        # LangGraph CLI
 - **Memory Caching**: In-memory storage with persistence
 - **Batch Processing**: Efficient bulk operations
 
+## 🏆 Core Design Principles - The Beating Hearts of Our Codebase
+
+### DRY (Don't Repeat Yourself)
+- **Extract common functionality** into base classes (e.g., `BaseAgentTool`)
+- **Centralize constants** in one location (`constants.py`)
+- **Reuse existing utilities** before creating new ones
+- **Share code** between similar components via inheritance or composition
+
+### KISS (Keep It Simple, Stupid)
+- **Prefer simple solutions** over clever ones
+- **Avoid over-engineering** - start simple, iterate if needed
+- **Write readable code** that junior developers can understand
+- **Question complexity** - if it feels complicated, it probably is
+
+### YAGNI (You Aren't Gonna Need It)
+- **Don't add features** until they're actually needed
+- **Remove speculative code** that isn't currently used
+- **Avoid premature optimization** without evidence
+- **Delete dead code** aggressively
+
+### Applying the Principles
+When making changes:
+1. **First ask**: Is there existing code that does this? (DRY)
+2. **Then ask**: What's the simplest way to solve this? (KISS)
+3. **Finally ask**: Do we actually need this now? (YAGNI)
+
+### Balanced Pragmatism
+While these principles guide us, we balance them with:
+- **User Experience**: Small touches (like typing effects) that significantly improve UX are worth it
+- **Security**: Never compromise security for simplicity
+- **Performance**: Optimize when metrics show it's needed
+- **Maintainability**: Sometimes a bit more structure prevents future pain
+
+## 📚 Documentation Standards
+
+### Documentation Philosophy
+**"Code tells you how; comments tell you why; documentation tells you what."**
+
+### Documentation Structure
+
+#### 1. **README Files** (Markdown with ASCII Art Headers)
+- **Root README.md**: System overview, architecture, quick start, core components
+- **Agent READMEs**: Each agent in `src/agents/*/README.md` with:
+  - ASCII art header matching the agent name
+  - Domain-specific overview and architecture
+  - Tool catalog with detailed descriptions
+  - Usage examples and API reference
+  - Configuration and security features
+
+#### 2. **Technical Documentation** (`/docs` directory)
+- **Architecture docs**: Detailed technical deep-dives
+- **Pattern docs**: Implementation patterns (A2A protocol, circuit breakers, etc.)
+- **Configuration guides**: Comprehensive config documentation
+- **Named consistently**: `kebab-case.md` format
+
+#### 3. **CLAUDE.md** (AI Assistant Instructions)
+- **System architecture**: Complete technical overview
+- **Design principles**: DRY, KISS, YAGNI guidelines
+- **Development patterns**: How to extend the system
+- **Troubleshooting**: Common issues and solutions
+
+### Code Documentation Requirements
+
+#### Module-Level Documentation
+```python
+"""Multi-agent orchestrator implementation using LangGraph.
+
+This module serves as the central coordination hub for the multi-agent orchestrator system,
+managing communication between users and specialized agents through the A2A protocol.
+It implements enterprise patterns including circuit breakers, connection pooling, and
+intelligent agent selection based on capabilities.
+
+Key responsibilities:
+- Route user requests to appropriate specialized agents
+- Maintain conversation state and memory across sessions
+- Summarize long conversations to manage token usage
+- Extract and persist structured data from agent responses
+- Handle resilience patterns for distributed system reliability
+"""
+```
+
+#### Class Documentation
+```python
+class SalesforceAgentTool(BaseAgentTool):
+    """Orchestrator Tool for Salesforce CRM Agent Communication.
+    
+    Implements loose coupling between the orchestrator and specialized Salesforce agent
+    via A2A (Agent-to-Agent) protocol. Provides enterprise CRM capabilities through
+    distributed agent architecture with state management and context preservation.
+    
+    Architecture Pattern:
+    - Follows Service-Oriented Architecture (SOA) principles
+    - Implements Event-Driven Multi-Agent communication
+    - Maintains conversation context across agent boundaries
+    - Preserves memory state for session continuity
+    
+    CRM Capabilities:
+    - Lead Management: Lead generation, qualification, conversion tracking
+    - Account Operations: Customer account lifecycle, relationship mapping
+    - Opportunity Pipeline: Sales forecasting, deal progression, revenue tracking
+    - Contact Management: Customer relationship coordination, communication history
+    - Case Management: Customer service tickets, issue resolution, SLA tracking
+    - Task Management: Activity coordination, follow-up scheduling, productivity tracking
+    """
+```
+
+#### Function/Method Documentation
+```python
+def process_salesforce_response(response: Dict[str, Any], 
+                               extract_relationships: bool = True) -> ProcessedData:
+    """Process raw Salesforce API response into structured format.
+    
+    Extracts account, contact, and opportunity data while preserving
+    relationships between objects. Handles pagination tokens and
+    applies business rules for data normalization.
+    
+    Args:
+        response: Raw response from Salesforce API containing records
+        extract_relationships: Whether to extract parent-child relationships
+        
+    Returns:
+        ProcessedData object containing normalized records and metadata
+        
+    Raises:
+        ValidationError: If response format is invalid
+        SalesforceError: If response contains API errors
+        
+    Example:
+        >>> response = {'records': [...], 'totalSize': 100}
+        >>> data = process_salesforce_response(response)
+        >>> print(f"Processed {data.record_count} records")
+    """
+    # Implementation details explained with "why" comments
+    # e.g., "Use OrderedDict to preserve Salesforce's sorting"
+```
+
+### PEP 8 Compliance
+- **Line Length**: 100 characters (allows for side-by-side diffs)
+- **Imports**: Grouped in order: standard library, third-party, local
+- **Naming**: 
+  - `snake_case` for functions/variables
+  - `PascalCase` for classes
+  - `UPPER_SNAKE_CASE` for constants
+- **Type Hints**: Use for all public functions
+
+### Documentation Best Practices
+- **Update docs with code**: Documentation is part of the feature, not an afterthought
+- **Maintain consistency**: Follow established patterns in existing docs
+- **Include examples**: Show real usage patterns, not just theory
+- **Visual aids**: Use ASCII diagrams for architecture and flow
+- **Cross-reference**: Link to related docs and code sections
+- **Version updates**: Document breaking changes and migration paths
+
+### In-Line Comments
+- **Explain "why" not "what"**: Focus on business logic and non-obvious decisions
+- **Complex algorithms**: Add step-by-step explanations
+- **Workarounds**: Document temporary fixes with context
+- **TODO format**: `# TODO(#123): Description` with issue number
+- **Security notes**: Mark security-critical sections clearly
+
 ## 🔮 Future Extensibility & Roadmap
 
 ### Planned Agent Extensions (YAGNI-Focused)

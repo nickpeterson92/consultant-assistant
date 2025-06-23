@@ -1,8 +1,1002 @@
 # SOQL Query Builder Documentation
 
-## Overview
+## Table of Contents
+1. [What is SOQL?](#what-is-soql)
+2. [Why Use a Query Builder?](#why-use-a-query-builder)
+3. [Getting Started](#getting-started)
+4. [Step-by-Step Query Building](#step-by-step-query-building)
+5. [Common Query Patterns](#common-query-patterns)
+6. [Security Best Practices](#security-best-practices)
+7. [Performance Optimization](#performance-optimization)
+8. [Debugging SOQL Queries](#debugging-soql-queries)
+9. [Testing Strategies](#testing-strategies)
+10. [Advanced Features](#advanced-features)
 
-The SOQL Query Builder provides a fluent, type-safe interface for constructing Salesforce Object Query Language (SOQL) queries. It serves as a critical security and productivity component in the Salesforce integration layer, automatically handling escaping, proper formatting, and following Salesforce best practices while eliminating SOQL injection vulnerabilities.
+## What is SOQL?
+
+SOQL (Salesforce Object Query Language) is Salesforce's proprietary query language for retrieving data from Salesforce objects. Think of it as SQL's specialized cousin designed specifically for Salesforce's data model.
+
+### Key Differences from SQL
+
+| Feature | SQL | SOQL |
+|---------|-----|------|
+| **Joins** | Explicit JOINs between tables | Relationship queries using dot notation |
+| **Wildcards** | `SELECT *` allowed | Must specify exact fields |
+| **Insert/Update/Delete** | Full CRUD operations | Read-only (SELECT only) |
+| **Null Checks** | `IS NULL` / `IS NOT NULL` | `= null` / `!= null` |
+| **Case Sensitivity** | Often case-sensitive | Case-insensitive for most operations |
+| **Boolean Values** | TRUE/FALSE (uppercase) | true/false (lowercase) |
+
+### SOQL Example vs SQL Example
+
+**SQL Query:**
+```sql
+SELECT u.Id, u.Name, a.Name AS AccountName
+FROM Users u
+LEFT JOIN Accounts a ON u.AccountId = a.Id
+WHERE u.Email IS NOT NULL
+  AND a.Industry = 'Technology'
+ORDER BY u.Name
+LIMIT 10;
+```
+
+**SOQL Query:**
+```soql
+SELECT Id, Name, Account.Name
+FROM User
+WHERE Email != null
+  AND Account.Industry = 'Technology'
+ORDER BY Name
+LIMIT 10
+```
+
+## Why Use a Query Builder?
+
+Building SOQL queries manually through string concatenation is dangerous and error-prone. Here's why you should ALWAYS use our query builder:
+
+### 1. **Security: Preventing SOQL Injection**
+
+**❌ BAD: String Concatenation (VULNERABLE)**
+```python
+# DON'T DO THIS - Vulnerable to injection!
+user_input = "Acme'; DELETE FROM Account WHERE '' = '"
+query = f"SELECT Id FROM Account WHERE Name = '{user_input}'"
+# Results in a malicious query that could harm your data
+```
+
+**✅ GOOD: Query Builder (SECURE)**
+```python
+# DO THIS - Automatically escaped and safe
+user_input = "Acme'; DELETE FROM Account WHERE '' = '"
+query = (SOQLQueryBuilder('Account')
+        .select(['Id'])
+        .where('Name', SOQLOperator.EQUALS, user_input)
+        .build())
+# Results in: SELECT Id FROM Account WHERE Name = 'Acme\'; DELETE FROM Account WHERE \'\' = \''
+# The injection attempt is neutralized!
+```
+
+### 2. **DRY Principle: Don't Repeat Yourself**
+
+**❌ BAD: Repetitive Manual Escaping**
+```python
+# Repetitive and error-prone
+def find_accounts_by_criteria(name=None, industry=None, city=None):
+    conditions = []
+    
+    if name:
+        escaped_name = name.replace("'", "\\'")
+        conditions.append(f"Name LIKE '%{escaped_name}%'")
+    
+    if industry:
+        escaped_industry = industry.replace("'", "\\'")
+        conditions.append(f"Industry = '{escaped_industry}'")
+    
+    if city:
+        escaped_city = city.replace("'", "\\'")
+        conditions.append(f"BillingCity = '{escaped_city}'")
+    
+    if not conditions:
+        return "SELECT Id, Name FROM Account LIMIT 10"
+    
+    where_clause = " AND ".join(conditions)
+    return f"SELECT Id, Name FROM Account WHERE {where_clause}"
+```
+
+**✅ GOOD: Reusable Query Builder**
+```python
+# Clean, reusable, and maintainable
+def find_accounts_by_criteria(name=None, industry=None, city=None):
+    builder = SOQLQueryBuilder('Account').select(['Id', 'Name'])
+    
+    if name:
+        builder.where_like('Name', f'%{name}%')
+    if industry:
+        builder.where('Industry', SOQLOperator.EQUALS, industry)
+    if city:
+        builder.where('BillingCity', SOQLOperator.EQUALS, city)
+    
+    return builder.limit(10).build()
+```
+
+### 3. **Preventing Common Mistakes**
+
+**❌ BAD: Common SOQL Syntax Errors**
+```python
+# Mistake 1: Using IS NULL instead of = null
+query = "SELECT Id FROM Contact WHERE Email IS NULL"  # WRONG!
+
+# Mistake 2: Uppercase boolean values
+query = "SELECT Id FROM Account WHERE IsActive = TRUE"  # WRONG!
+
+# Mistake 3: Forgetting to escape quotes
+name = "Bob's Burgers"
+query = f"SELECT Id FROM Account WHERE Name = '{name}'"  # SYNTAX ERROR!
+
+# Mistake 4: Using SELECT *
+query = "SELECT * FROM Account"  # NOT ALLOWED IN SOQL!
+```
+
+**✅ GOOD: Query Builder Handles It All**
+```python
+# The query builder automatically handles all these cases correctly
+query = (SOQLQueryBuilder('Contact')
+        .select(['Id'])
+        .where_null('Email')  # Generates: Email = null
+        .build())
+
+query = (SOQLQueryBuilder('Account')
+        .select(['Id'])
+        .where('IsActive', SOQLOperator.EQUALS, True)  # Generates: IsActive = true
+        .where('Name', SOQLOperator.EQUALS, "Bob's Burgers")  # Properly escaped
+        .build())
+```
+
+## Getting Started
+
+### Installation and Import
+
+```python
+# Import the query builder and related components
+from src.tools.salesforce_tools import SOQLQueryBuilder, SOQLOperator
+from src.utils.helpers import escape_soql_value
+
+# Get a Salesforce connection
+from src.utils.config import get_salesforce_connection
+sf = get_salesforce_connection()
+```
+
+### Your First Query
+
+Let's build a simple query step by step:
+
+```python
+# Step 1: Create a query builder for the Account object
+builder = SOQLQueryBuilder('Account')
+
+# Step 2: Select the fields you want
+builder.select(['Id', 'Name', 'Industry'])
+
+# Step 3: Add a WHERE condition
+builder.where('Industry', SOQLOperator.EQUALS, 'Technology')
+
+# Step 4: Build the final query
+query = builder.build()
+print(query)
+# Output: SELECT Id, Name, Industry FROM Account WHERE Industry = 'Technology'
+
+# Step 5: Execute the query
+results = sf.query(query)
+accounts = results['records']
+```
+
+### Fluent Interface (Method Chaining)
+
+The query builder supports method chaining for cleaner code:
+
+```python
+# All in one chain
+query = (SOQLQueryBuilder('Contact')
+        .select(['Id', 'FirstName', 'LastName', 'Email'])
+        .where('Account.Industry', SOQLOperator.EQUALS, 'Healthcare')
+        .where_not_null('Email')
+        .order_by('LastName')
+        .limit(50)
+        .build())
+```
+
+## Step-by-Step Query Building
+
+Let's build increasingly complex queries to understand all the features:
+
+### Step 1: Basic SELECT Query
+
+```python
+# Simplest query - get all accounts (with limit for safety)
+query = (SOQLQueryBuilder('Account')
+        .select(['Id', 'Name'])
+        .limit(10)
+        .build())
+# Result: SELECT Id, Name FROM Account LIMIT 10
+```
+
+### Step 2: Adding WHERE Conditions
+
+```python
+# Single condition
+query = (SOQLQueryBuilder('Lead')
+        .select(['Id', 'Name', 'Company'])
+        .where('Status', SOQLOperator.EQUALS, 'New')
+        .build())
+# Result: SELECT Id, Name, Company FROM Lead WHERE Status = 'New'
+
+# Multiple AND conditions
+query = (SOQLQueryBuilder('Opportunity')
+        .select(['Id', 'Name', 'Amount'])
+        .where('StageName', SOQLOperator.EQUALS, 'Prospecting')
+        .where('Amount', SOQLOperator.GREATER_THAN, 50000)
+        .where_not_null('CloseDate')
+        .build())
+# Result: SELECT Id, Name, Amount FROM Opportunity 
+#         WHERE StageName = 'Prospecting' AND Amount > 50000 AND CloseDate != null
+```
+
+### Step 3: Using OR Logic
+
+```python
+# OR conditions for flexible searching
+query = (SOQLQueryBuilder('Contact')
+        .select(['Id', 'Name', 'Email', 'Phone'])
+        .where('Email', SOQLOperator.EQUALS, 'john@example.com')
+        .or_where('Phone', SOQLOperator.EQUALS, '555-1234')
+        .or_where('MobilePhone', SOQLOperator.EQUALS, '555-1234')
+        .build())
+# Result: SELECT Id, Name, Email, Phone FROM Contact 
+#         WHERE Email = 'john@example.com' OR Phone = '555-1234' OR MobilePhone = '555-1234'
+```
+
+### Step 4: Pattern Matching with LIKE
+
+```python
+# Search for partial matches
+query = (SOQLQueryBuilder('Account')
+        .select(['Id', 'Name', 'Website'])
+        .where_like('Name', '%Tech%')  # Contains 'Tech'
+        .where_like('Website', '%.com')  # Ends with .com
+        .build())
+# Result: SELECT Id, Name, Website FROM Account 
+#         WHERE Name LIKE '%Tech%' AND Website LIKE '%.com'
+```
+
+### Step 5: Working with Lists (IN Operator)
+
+```python
+# Check if value is in a list
+industries = ['Technology', 'Healthcare', 'Finance']
+query = (SOQLQueryBuilder('Account')
+        .select(['Id', 'Name', 'Industry'])
+        .where_in('Industry', industries)
+        .where_not_null('AnnualRevenue')
+        .build())
+# Result: SELECT Id, Name, Industry FROM Account 
+#         WHERE Industry IN ('Technology', 'Healthcare', 'Finance') AND AnnualRevenue != null
+```
+
+### Step 6: Ordering and Pagination
+
+```python
+# Sort and paginate results
+query = (SOQLQueryBuilder('Opportunity')
+        .select(['Id', 'Name', 'Amount', 'CloseDate'])
+        .where('IsClosed', SOQLOperator.EQUALS, False)
+        .order_by('CloseDate')  # Ascending by default
+        .order_by('Amount', descending=True)  # Then by amount descending
+        .limit(25)
+        .offset(50)  # Skip first 50 records
+        .build())
+# Result: SELECT Id, Name, Amount, CloseDate FROM Opportunity 
+#         WHERE IsClosed = false 
+#         ORDER BY CloseDate, Amount DESC 
+#         LIMIT 25 OFFSET 50
+```
+
+### Step 7: Relationship Queries
+
+```python
+# Query related object fields using dot notation
+query = (SOQLQueryBuilder('Contact')
+        .select(['Id', 'Name', 'Email', 'Account.Name', 'Account.Industry'])
+        .where('Account.Industry', SOQLOperator.EQUALS, 'Technology')
+        .where('Account.AnnualRevenue', SOQLOperator.GREATER_THAN, 1000000)
+        .build())
+# Result: SELECT Id, Name, Email, Account.Name, Account.Industry FROM Contact 
+#         WHERE Account.Industry = 'Technology' AND Account.AnnualRevenue > 1000000
+```
+
+## Common Query Patterns
+
+Here are real-world examples you'll use frequently:
+
+### 1. Search by Multiple Fields (OR Logic)
+
+**Use Case:** Find a record when you're not sure which field contains the search term.
+
+```python
+def search_contacts(search_term):
+    """Search contacts by name, email, or phone"""
+    return (SOQLQueryBuilder('Contact')
+            .select(['Id', 'Name', 'Email', 'Phone'])
+            .where_like('Name', f'%{search_term}%')
+            .or_where('Email', SOQLOperator.EQUALS, search_term)
+            .or_where('Phone', SOQLOperator.EQUALS, search_term)
+            .limit(20)
+            .build())
+
+# Usage
+query = search_contacts('john')
+# Finds contacts named John, or with email/phone = 'john'
+```
+
+### 2. Get Recent Records
+
+**Use Case:** Find records created or modified recently.
+
+```python
+from datetime import datetime, timedelta
+
+def get_recent_opportunities(days=7):
+    """Get opportunities created in the last N days"""
+    cutoff_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%dT00:00:00Z')
+    
+    return (SOQLQueryBuilder('Opportunity')
+            .select(['Id', 'Name', 'Amount', 'CreatedDate'])
+            .where('CreatedDate', SOQLOperator.GREATER_THAN_OR_EQUAL, cutoff_date)
+            .order_by('CreatedDate', descending=True)
+            .build())
+
+# Usage
+query = get_recent_opportunities(30)  # Last 30 days
+```
+
+### 3. Find Records with Missing Data
+
+**Use Case:** Data quality checks for incomplete records.
+
+```python
+def find_incomplete_leads():
+    """Find leads missing critical information"""
+    return (SOQLQueryBuilder('Lead')
+            .select(['Id', 'Name', 'Company', 'Email', 'Phone'])
+            .where_null('Email')
+            .or_where('Phone', SOQLOperator.EQUALS, None)
+            .or_where('Company', SOQLOperator.EQUALS, '')
+            .limit(100)
+            .build())
+```
+
+### 4. Complex Business Logic
+
+**Use Case:** Find high-value opportunities at risk.
+
+```python
+def find_at_risk_opportunities():
+    """Find large opportunities that haven't been touched recently"""
+    thirty_days_ago = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%dT00:00:00Z')
+    
+    return (SOQLQueryBuilder('Opportunity')
+            .select(['Id', 'Name', 'Amount', 'StageName', 'LastActivityDate', 'Owner.Name'])
+            .where('IsClosed', SOQLOperator.EQUALS, False)
+            .where('Amount', SOQLOperator.GREATER_THAN, 100000)
+            .where('LastActivityDate', SOQLOperator.LESS_THAN, thirty_days_ago)
+            .where_in('StageName', ['Negotiation/Review', 'Proposal/Price Quote'])
+            .order_by('Amount', descending=True)
+            .build())
+```
+
+### 5. Get Complete Account Information
+
+**Use Case:** 360-degree view of an account with all related records.
+
+```python
+def get_account_details(account_name):
+    """Get comprehensive account information"""
+    # Main account query
+    account_query = (SOQLQueryBuilder('Account')
+                    .select(['Id', 'Name', 'Industry', 'AnnualRevenue', 'NumberOfEmployees'])
+                    .where_like('Name', f'%{account_name}%')
+                    .limit(1)
+                    .build())
+    
+    # Execute and get account ID
+    account_result = sf.query(account_query)
+    if not account_result['records']:
+        return None
+    
+    account_id = account_result['records'][0]['Id']
+    
+    # Get related records
+    queries = {
+        'account': account_result['records'][0],
+        'contacts': sf.query(
+            SOQLQueryBuilder('Contact')
+            .select(['Id', 'Name', 'Title', 'Email', 'Phone'])
+            .where('AccountId', SOQLOperator.EQUALS, account_id)
+            .order_by('Name')
+            .build()
+        )['records'],
+        'opportunities': sf.query(
+            SOQLQueryBuilder('Opportunity')
+            .select(['Id', 'Name', 'Amount', 'StageName', 'CloseDate'])
+            .where('AccountId', SOQLOperator.EQUALS, account_id)
+            .order_by('CloseDate', descending=True)
+            .limit(10)
+            .build()
+        )['records'],
+        'cases': sf.query(
+            SOQLQueryBuilder('Case')
+            .select(['Id', 'Subject', 'Status', 'Priority'])
+            .where('AccountId', SOQLOperator.EQUALS, account_id)
+            .where('IsClosed', SOQLOperator.EQUALS, False)
+            .build()
+        )['records']
+    }
+    
+    return queries
+```
+
+## Security Best Practices
+
+### 1. Always Use the Query Builder
+
+**Never build queries with string concatenation:**
+
+```python
+# ❌ NEVER DO THIS
+def bad_search(user_input):
+    return f"SELECT Id FROM Account WHERE Name = '{user_input}'"
+
+# ✅ ALWAYS DO THIS
+def good_search(user_input):
+    return (SOQLQueryBuilder('Account')
+            .select(['Id'])
+            .where('Name', SOQLOperator.EQUALS, user_input)
+            .build())
+```
+
+### 2. Validate Input Types
+
+```python
+def safe_amount_search(amount_str):
+    """Safely search by amount with validation"""
+    try:
+        # Validate and convert input
+        amount = float(amount_str)
+        if amount < 0:
+            raise ValueError("Amount must be positive")
+        
+        return (SOQLQueryBuilder('Opportunity')
+                .select(['Id', 'Name', 'Amount'])
+                .where('Amount', SOQLOperator.GREATER_THAN, amount)
+                .build())
+    except ValueError as e:
+        # Log the error and return safe default
+        print(f"Invalid amount input: {e}")
+        return None
+```
+
+### 3. Limit Result Sets
+
+**Always use LIMIT to prevent accidental large queries:**
+
+```python
+# ❌ BAD: Could return millions of records
+query = (SOQLQueryBuilder('Account')
+        .select(['Id', 'Name'])
+        .build())
+
+# ✅ GOOD: Limited result set
+query = (SOQLQueryBuilder('Account')
+        .select(['Id', 'Name'])
+        .limit(200)  # Safe default limit
+        .build())
+```
+
+### 4. Log Queries for Audit
+
+```python
+import logging
+
+def execute_query_with_logging(query_builder, user_id):
+    """Execute query with security logging"""
+    query = query_builder.build()
+    
+    # Log the query for security audit
+    logging.info(f"User {user_id} executing query: {query}")
+    
+    try:
+        result = sf.query(query)
+        logging.info(f"Query returned {len(result['records'])} records")
+        return result
+    except Exception as e:
+        logging.error(f"Query failed for user {user_id}: {str(e)}")
+        raise
+```
+
+### 5. Principle of Least Privilege
+
+**Only select fields you actually need:**
+
+```python
+# ❌ BAD: Selecting sensitive fields unnecessarily
+query = (SOQLQueryBuilder('User')
+        .select(['Id', 'Name', 'Email', 'Password', 'SSN__c', 'Salary__c'])
+        .build())
+
+# ✅ GOOD: Only select what you need
+query = (SOQLQueryBuilder('User')
+        .select(['Id', 'Name', 'Email'])
+        .build())
+```
+
+## Performance Optimization
+
+### 1. Select Only Required Fields
+
+```python
+# ❌ SLOW: Getting all fields when you only need two
+query = (SOQLQueryBuilder('Account')
+        .select(['Id', 'Name', 'Industry', 'Website', 'Phone', 'BillingStreet', 
+                'BillingCity', 'BillingState', 'BillingPostalCode', 'BillingCountry',
+                'ShippingStreet', 'ShippingCity', 'ShippingState', 'ShippingPostalCode',
+                'Description', 'NumberOfEmployees', 'AnnualRevenue'])
+        .where('Industry', SOQLOperator.EQUALS, 'Technology')
+        .build())
+
+# ✅ FAST: Only get what you need
+query = (SOQLQueryBuilder('Account')
+        .select(['Id', 'Name'])
+        .where('Industry', SOQLOperator.EQUALS, 'Technology')
+        .build())
+```
+
+### 2. Use Indexed Fields in WHERE Clauses
+
+```python
+# Common indexed fields: Id, Name, OwnerId, CreatedDate, LastModifiedDate
+
+# ✅ FAST: Using indexed field
+query = (SOQLQueryBuilder('Account')
+        .select(['Id', 'Name'])
+        .where_id('001234567890ABC')  # Id is always indexed
+        .build())
+
+# ❌ SLOW: Using non-indexed custom field
+query = (SOQLQueryBuilder('Account')
+        .select(['Id', 'Name'])
+        .where('Custom_Field__c', SOQLOperator.EQUALS, 'Value')
+        .build())
+```
+
+### 3. Avoid Negative Logic When Possible
+
+```python
+# ❌ SLOWER: Negative operators can cause full table scans
+query = (SOQLQueryBuilder('Opportunity')
+        .select(['Id', 'Name'])
+        .where('StageName', SOQLOperator.NOT_EQUALS, 'Closed Lost')
+        .build())
+
+# ✅ FASTER: Positive logic with specific values
+query = (SOQLQueryBuilder('Opportunity')
+        .select(['Id', 'Name'])
+        .where_in('StageName', ['Prospecting', 'Qualification', 'Needs Analysis', 
+                               'Value Proposition', 'Id. Decision Makers', 
+                               'Perception Analysis', 'Proposal/Price Quote', 
+                               'Negotiation/Review', 'Closed Won'])
+        .build())
+```
+
+### 4. Efficient Pagination for Large Data Sets
+
+```python
+def fetch_all_accounts_efficiently():
+    """Fetch large datasets in batches"""
+    all_accounts = []
+    batch_size = 200
+    offset = 0
+    
+    while True:
+        query = (SOQLQueryBuilder('Account')
+                .select(['Id', 'Name'])
+                .order_by('Id')  # Consistent ordering is crucial
+                .limit(batch_size)
+                .offset(offset)
+                .build())
+        
+        batch = sf.query(query)['records']
+        if not batch:
+            break
+            
+        all_accounts.extend(batch)
+        offset += batch_size
+        
+        # Safety check to prevent infinite loops
+        if offset > 10000:
+            print("Warning: Large dataset, stopping at 10,000 records")
+            break
+    
+    return all_accounts
+```
+
+### 5. Use Relationship Queries Instead of Multiple Queries
+
+```python
+# ❌ INEFFICIENT: Multiple round trips to Salesforce
+def get_contacts_with_accounts_slow(contact_ids):
+    contacts = []
+    for contact_id in contact_ids:
+        # First query: Get contact
+        contact_query = (SOQLQueryBuilder('Contact')
+                        .select(['Id', 'Name', 'AccountId'])
+                        .where_id(contact_id)
+                        .build())
+        contact = sf.query(contact_query)['records'][0]
+        
+        # Second query: Get account
+        if contact.get('AccountId'):
+            account_query = (SOQLQueryBuilder('Account')
+                           .select(['Name', 'Industry'])
+                           .where_id(contact['AccountId'])
+                           .build())
+            account = sf.query(account_query)['records'][0]
+            contact['Account'] = account
+        
+        contacts.append(contact)
+    return contacts
+
+# ✅ EFFICIENT: Single query with relationship
+def get_contacts_with_accounts_fast(contact_ids):
+    query = (SOQLQueryBuilder('Contact')
+            .select(['Id', 'Name', 'Account.Name', 'Account.Industry'])
+            .where_in('Id', contact_ids)
+            .build())
+    return sf.query(query)['records']
+```
+
+## Debugging SOQL Queries
+
+### 1. Print and Inspect Generated Queries
+
+```python
+def debug_query_building():
+    """Step-by-step query debugging"""
+    # Build query step by step
+    builder = SOQLQueryBuilder('Opportunity')
+    print(f"1. Initial: {builder.build()}")
+    # Output: SELECT  FROM Opportunity
+    
+    builder.select(['Id', 'Name', 'Amount'])
+    print(f"2. After select: {builder.build()}")
+    # Output: SELECT Id, Name, Amount FROM Opportunity
+    
+    builder.where('Amount', SOQLOperator.GREATER_THAN, 50000)
+    print(f"3. After where: {builder.build()}")
+    # Output: SELECT Id, Name, Amount FROM Opportunity WHERE Amount > 50000
+    
+    builder.where_like('Name', '%Enterprise%')
+    print(f"4. After second where: {builder.build()}")
+    # Output: SELECT Id, Name, Amount FROM Opportunity WHERE Amount > 50000 AND Name LIKE '%Enterprise%'
+    
+    builder.order_by('Amount', descending=True)
+    print(f"5. Final query: {builder.build()}")
+    # Output: SELECT Id, Name, Amount FROM Opportunity WHERE Amount > 50000 AND Name LIKE '%Enterprise%' ORDER BY Amount DESC
+```
+
+### 2. Common SOQL Errors and Solutions
+
+```python
+# Error: "Unknown field 'email' on Contact"
+# Solution: Field names are case-sensitive
+# ❌ WRONG
+query = SOQLQueryBuilder('Contact').select(['email']).build()
+# ✅ CORRECT
+query = SOQLQueryBuilder('Contact').select(['Email']).build()
+
+# Error: "Unexpected token 'IS'"
+# Solution: SOQL uses = null, not IS NULL
+# ❌ WRONG (SQL syntax)
+query = "SELECT Id FROM Contact WHERE Email IS NULL"
+# ✅ CORRECT (SOQL syntax)
+query = SOQLQueryBuilder('Contact').select(['Id']).where_null('Email').build()
+
+# Error: "Missing FROM keyword"
+# Solution: Don't forget to specify the object
+# ❌ WRONG
+builder = SOQLQueryBuilder('')  # Empty object name
+# ✅ CORRECT
+builder = SOQLQueryBuilder('Account')
+```
+
+### 3. Query Performance Analysis
+
+```python
+import time
+
+def analyze_query_performance(query_builder):
+    """Measure and analyze query performance"""
+    query = query_builder.build()
+    
+    # Measure execution time
+    start_time = time.time()
+    try:
+        result = sf.query(query)
+        execution_time = time.time() - start_time
+        
+        print(f"Query: {query}")
+        print(f"Execution time: {execution_time:.2f} seconds")
+        print(f"Records returned: {len(result['records'])}")
+        print(f"Total size: {result.get('totalSize', 'Unknown')}")
+        
+        # Performance warnings
+        if execution_time > 5:
+            print("⚠️  WARNING: Query took longer than 5 seconds")
+            print("    Consider adding indexes or limiting results")
+        
+        if len(result['records']) > 1000:
+            print("⚠️  WARNING: Large result set")
+            print("    Consider pagination or more specific filters")
+            
+    except Exception as e:
+        print(f"❌ Query failed: {str(e)}")
+        print(f"Query was: {query}")
+```
+
+### 4. Using Salesforce Developer Console
+
+```python
+def export_for_developer_console(query_builder):
+    """Export query for testing in Salesforce Developer Console"""
+    query = query_builder.build()
+    
+    print("=" * 60)
+    print("Copy this query to Salesforce Developer Console:")
+    print("=" * 60)
+    print(query)
+    print("=" * 60)
+    print("\nTo test in Developer Console:")
+    print("1. Log into Salesforce")
+    print("2. Open Developer Console (gear icon → Developer Console)")
+    print("3. Click 'Query Editor' tab")
+    print("4. Paste the query and click 'Execute'")
+    
+    return query
+```
+
+## Testing Strategies
+
+### 1. Unit Testing Query Builder
+
+```python
+import unittest
+
+class TestSOQLQueryBuilder(unittest.TestCase):
+    
+    def test_basic_query(self):
+        """Test basic query construction"""
+        query = (SOQLQueryBuilder('Account')
+                .select(['Id', 'Name'])
+                .where('Industry', SOQLOperator.EQUALS, 'Technology')
+                .build())
+        
+        expected = "SELECT Id, Name FROM Account WHERE Industry = 'Technology'"
+        self.assertEqual(query, expected)
+    
+    def test_escaping_special_characters(self):
+        """Test that special characters are properly escaped"""
+        # Test single quotes
+        query = (SOQLQueryBuilder('Account')
+                .select(['Id'])
+                .where('Name', SOQLOperator.EQUALS, "Bob's Burgers")
+                .build())
+        
+        self.assertIn("Bob\\'s Burgers", query)
+        
+        # Test backslashes
+        query = (SOQLQueryBuilder('Account')
+                .select(['Id'])
+                .where('Name', SOQLOperator.EQUALS, "C:\\Users\\Admin")
+                .build())
+        
+        self.assertIn("C:\\\\Users\\\\Admin", query)
+    
+    def test_null_handling(self):
+        """Test null value handling"""
+        query = (SOQLQueryBuilder('Contact')
+                .select(['Id'])
+                .where_null('Email')
+                .build())
+        
+        expected = "SELECT Id FROM Contact WHERE Email = null"
+        self.assertEqual(query, expected)
+    
+    def test_complex_query(self):
+        """Test complex query with multiple clauses"""
+        query = (SOQLQueryBuilder('Opportunity')
+                .select(['Id', 'Name', 'Amount'])
+                .where('StageName', SOQLOperator.EQUALS, 'Closed Won')
+                .where('Amount', SOQLOperator.GREATER_THAN, 100000)
+                .order_by('CloseDate', descending=True)
+                .limit(10)
+                .offset(20)
+                .build())
+        
+        # Verify all components are present
+        self.assertIn("SELECT Id, Name, Amount", query)
+        self.assertIn("FROM Opportunity", query)
+        self.assertIn("WHERE StageName = 'Closed Won'", query)
+        self.assertIn("AND Amount > 100000", query)
+        self.assertIn("ORDER BY CloseDate DESC", query)
+        self.assertIn("LIMIT 10", query)
+        self.assertIn("OFFSET 20", query)
+```
+
+### 2. Integration Testing
+
+```python
+def test_query_against_salesforce():
+    """Test queries against actual Salesforce instance"""
+    test_results = {
+        'passed': 0,
+        'failed': 0,
+        'errors': []
+    }
+    
+    # Test 1: Basic query should return records
+    try:
+        query = (SOQLQueryBuilder('Account')
+                .select(['Id', 'Name'])
+                .limit(5)
+                .build())
+        result = sf.query(query)
+        assert 'records' in result
+        test_results['passed'] += 1
+        print("✅ Test 1 passed: Basic query")
+    except Exception as e:
+        test_results['failed'] += 1
+        test_results['errors'].append(f"Test 1: {str(e)}")
+        print("❌ Test 1 failed:", str(e))
+    
+    # Test 2: Query with relationship
+    try:
+        query = (SOQLQueryBuilder('Contact')
+                .select(['Id', 'Name', 'Account.Name'])
+                .where_not_null('AccountId')
+                .limit(5)
+                .build())
+        result = sf.query(query)
+        test_results['passed'] += 1
+        print("✅ Test 2 passed: Relationship query")
+    except Exception as e:
+        test_results['failed'] += 1
+        test_results['errors'].append(f"Test 2: {str(e)}")
+        print("❌ Test 2 failed:", str(e))
+    
+    # Test 3: Query with special characters
+    try:
+        query = (SOQLQueryBuilder('Account')
+                .select(['Id'])
+                .where('Name', SOQLOperator.EQUALS, "Test's Account")
+                .build())
+        result = sf.query(query)  # Should not throw syntax error
+        test_results['passed'] += 1
+        print("✅ Test 3 passed: Special character handling")
+    except Exception as e:
+        test_results['failed'] += 1
+        test_results['errors'].append(f"Test 3: {str(e)}")
+        print("❌ Test 3 failed:", str(e))
+    
+    # Summary
+    print(f"\nTest Summary: {test_results['passed']} passed, {test_results['failed']} failed")
+    return test_results
+```
+
+### 3. Property-Based Testing
+
+```python
+import string
+import random
+
+def generate_random_string(length=10):
+    """Generate random string for testing"""
+    return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
+
+def fuzz_test_query_builder(iterations=100):
+    """Fuzz test with random inputs"""
+    for i in range(iterations):
+        try:
+            # Generate random inputs
+            field_name = generate_random_string()
+            value = random.choice([
+                generate_random_string(),  # String
+                random.randint(0, 1000000),  # Number
+                random.choice([True, False]),  # Boolean
+                None,  # Null
+                "'; DROP TABLE Account; --",  # Injection attempt
+                "Test's \"Special\" \\ Characters",  # Special chars
+            ])
+            
+            # Build query - should never crash
+            query = (SOQLQueryBuilder('TestObject')
+                    .select(['Id'])
+                    .where(field_name, SOQLOperator.EQUALS, value)
+                    .build())
+            
+            # Verify query is a string and contains expected parts
+            assert isinstance(query, str)
+            assert 'SELECT' in query
+            assert 'FROM TestObject' in query
+            assert 'WHERE' in query
+            
+        except Exception as e:
+            print(f"Fuzz test failed on iteration {i}: {str(e)}")
+            print(f"Field: {field_name}, Value: {value}")
+            raise
+    
+    print(f"✅ Fuzz test passed {iterations} iterations")
+```
+
+### 4. Performance Testing
+
+```python
+import timeit
+
+def performance_test_query_builder():
+    """Test query builder performance"""
+    
+    # Test 1: Simple query construction speed
+    simple_time = timeit.timeit(
+        lambda: SOQLQueryBuilder('Account')
+                .select(['Id', 'Name'])
+                .where('Industry', SOQLOperator.EQUALS, 'Technology')
+                .build(),
+        number=10000
+    )
+    print(f"Simple query: {simple_time:.4f} seconds for 10,000 iterations")
+    print(f"Average: {simple_time/10000*1000:.2f} milliseconds per query")
+    
+    # Test 2: Complex query construction speed
+    complex_time = timeit.timeit(
+        lambda: SOQLQueryBuilder('Opportunity')
+                .select(['Id', 'Name', 'Amount', 'StageName', 'CloseDate'])
+                .where('Amount', SOQLOperator.GREATER_THAN, 50000)
+                .where_in('StageName', ['Prospecting', 'Qualification', 'Needs Analysis'])
+                .where_not_null('CloseDate')
+                .order_by('Amount', descending=True)
+                .limit(100)
+                .offset(200)
+                .build(),
+        number=10000
+    )
+    print(f"\nComplex query: {complex_time:.4f} seconds for 10,000 iterations")
+    print(f"Average: {complex_time/10000*1000:.2f} milliseconds per query")
+    
+    # Performance should be under 1ms per query
+    assert simple_time / 10000 < 0.001, "Simple query builder too slow"
+    assert complex_time / 10000 < 0.001, "Complex query builder too slow"
+```
+
+## Summary
+
+The SOQL Query Builder is your essential tool for safe, efficient Salesforce data access. Remember:
+
+1. **Always use the query builder** - Never concatenate strings
+2. **Security first** - All inputs are automatically escaped
+3. **Think in relationships** - Use dot notation for related objects
+4. **Optimize for performance** - Select only needed fields, use limits
+5. **Test thoroughly** - Unit test your queries, integration test with Salesforce
+6. **Debug systematically** - Print queries, check syntax, analyze performance
+
+By following this guide, you'll write secure, maintainable, and performant SOQL queries that scale with your application's needs.
 
 ## Architecture
 

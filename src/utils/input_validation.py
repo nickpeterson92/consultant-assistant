@@ -50,8 +50,15 @@ class InputSanitizer:
     ]
     
     @staticmethod
-    def sanitize_string(value: str, max_length: int = 1000, allow_html: bool = False) -> str:
-        """Sanitize and validate string input"""
+    def sanitize_string(value: str, max_length: int = 1000, allow_html: bool = False, check_sql_injection: bool = True) -> str:
+        """Sanitize and validate string input
+        
+        Args:
+            value: String to sanitize
+            max_length: Maximum allowed length
+            allow_html: Whether to allow HTML content
+            check_sql_injection: Whether to check for SQL injection patterns (disabled for natural language)
+        """
         if not isinstance(value, str):
             raise ValidationError(f"Expected string, got {type(value)}")
         
@@ -65,10 +72,11 @@ class InputSanitizer:
                 if pattern.search(value):
                     raise ValidationError("Potentially malicious content detected")
         
-        # Check for SQL injection
-        for pattern in InputSanitizer.SQL_INJECTION_PATTERNS:
-            if pattern.search(value):
-                raise ValidationError("Potential SQL injection detected")
+        # Check for SQL injection only if enabled (for actual DB queries, not natural language)
+        if check_sql_injection:
+            for pattern in InputSanitizer.SQL_INJECTION_PATTERNS:
+                if pattern.search(value):
+                    raise ValidationError("Potential SQL injection detected")
         
         # Basic sanitization
         sanitized = value.strip()
@@ -357,21 +365,36 @@ class AgentInputValidator:
     
     @staticmethod
     def validate_orchestrator_input(user_input: str) -> str:
-        """Validate orchestrator user input"""
-        sanitizer = InputSanitizer()
-        
+        """Validate orchestrator user input - natural language only, no SQL injection checks"""
         try:
-            # Sanitize the user input
-            validated = sanitizer.sanitize_string(user_input, max_length=50000)  # Large limit for user queries
+            if not isinstance(user_input, str):
+                raise ValidationError(f"Expected string, got {type(user_input)}")
             
-            # Additional checks for orchestrator context
-            if len(validated.strip()) == 0:
+            # Check length
+            if len(user_input) > 50000:
+                raise ValidationError(f"Input too long: {len(user_input)} > 50000")
+            
+            # Basic sanitization - remove null bytes
+            validated = user_input.strip().replace('\x00', '')
+            
+            # Check for empty input
+            if len(validated) == 0:
                 raise ValidationError("Empty input not allowed")
             
+            # Check for dangerous HTML/script patterns only - NOT SQL patterns
+            # since this is natural language input to the orchestrator
+            for pattern in InputSanitizer.DANGEROUS_PATTERNS:
+                if pattern.search(validated):
+                    raise ValidationError("Potentially malicious content detected")
+            
+            # Natural language can contain quotes, SQL keywords, etc.
+            # SQL injection protection happens downstream in the actual tools
             return validated
             
         except Exception as e:
-            logger.error(f"Orchestrator input validation failed: {e}")
+            # Only log actual errors, not expected validation issues like empty input
+            if "empty input" not in str(e).lower():
+                logger.error(f"Orchestrator input validation failed: {e}")
             raise ValidationError(f"Orchestrator input validation failed: {e}")
 
 def validate_tool_input(tool_name: str, **kwargs) -> Dict[str, Any]:

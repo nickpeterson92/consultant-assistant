@@ -22,6 +22,7 @@ import os
 import asyncio
 import argparse
 import time
+import random
 from typing import Annotated, Dict, Any, List
 import operator
 from typing_extensions import TypedDict, Optional
@@ -1369,11 +1370,37 @@ async def main():
             
             # Validate input for security
             try:
-                from src.utils.input_validation import AgentInputValidator
+                from src.utils.input_validation import AgentInputValidator, ValidationError
                 validated_input = AgentInputValidator.validate_orchestrator_input(user_input)
                 user_input = validated_input
+            except ValidationError as e:
+                # Handle validation errors with more specific messaging
+                error_message = str(e)
+                
+                # Special handling for empty input - make it conversational
+                if "empty input" in error_message.lower():
+                    from src.utils.helpers import type_out_sync, get_empty_input_response
+                    print("\nASSISTANT: ", end="", flush=True)
+                    # Get a varied response and type it out naturally
+                    response = get_empty_input_response()
+                    type_out_sync(response, delay=0.015)  # Slightly faster for snappier feel
+                    print()  # New line after message
+                elif "too long" in error_message.lower():
+                    print(f"\n❌ Input Error: Your message is too long. Please keep it under 50,000 characters.")
+                elif "malicious content" in error_message.lower():
+                    print(f"\n❌ Security Error: Your input contains potentially harmful content and cannot be processed.")
+                else:
+                    print(f"\n❌ Validation Error: {error_message}")
+                    
+                log_orchestrator_activity("VALIDATION_ERROR", 
+                                        error_type="user_input",
+                                        error_message=error_message,
+                                        input_length=len(user_input))
+                continue
             except Exception as e:
-                print(f"Error: Invalid input - {e}")
+                # Catch any other unexpected errors during validation
+                print(f"\n❌ Unexpected error during input validation: {e}")
+                logger.error(f"Unexpected validation error: {type(e).__name__}: {e}")
                 continue
             
             print("\nASSISTANT: ", end="", flush=True)
