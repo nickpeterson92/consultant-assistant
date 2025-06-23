@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 # Import centralized logging
 from src.utils.logging import log_orchestrator_activity
-from src.utils.constants import (
+from src.utils.config import (
     CONVERSATION_SUMMARY_KEY, USER_CONTEXT_KEY, 
     MESSAGES_KEY, MEMORY_KEY, RECENT_MESSAGES_COUNT
 )

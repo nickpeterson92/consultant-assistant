@@ -56,12 +56,13 @@ from src.utils.sys_msg import (
     get_fallback_summary,
     TRUSTCALL_INSTRUCTION
 )
-from src.utils.constants import (
+from src.utils.config import (
     MEMORY_NAMESPACE_PREFIX, SIMPLE_MEMORY_KEY, STATE_KEY_PREFIX,
     SUMMARY_KEY, NO_SUMMARY_TEXT,
     SUMMARY_USER_MESSAGE_THRESHOLD, SUMMARY_TIME_THRESHOLD_SECONDS,
     MEMORY_TOOL_CALL_THRESHOLD, MEMORY_AGENT_CALL_THRESHOLD,
-    LOCALHOST, SALESFORCE_AGENT_PORT
+    LOCALHOST, SALESFORCE_AGENT_PORT,
+    ENTERPRISE_ASSISTANT_BANNER
 )
 
 import logging
@@ -1045,7 +1046,7 @@ async def main():
     logging.getLogger('httpcore.http11').setLevel(logging.WARNING)
     
     # Suppress internal system component logging to console
-    logging.getLogger('src.utils.circuit_breaker').setLevel(logging.WARNING)
+    logging.getLogger('src.a2a.circuit_breaker').setLevel(logging.WARNING)
     logging.getLogger('src.utils.config').setLevel(logging.WARNING)
     logging.getLogger('src.orchestrator.agent_registry').setLevel(logging.WARNING)
     logging.getLogger('src.orchestrator.main').setLevel(logging.WARNING)
@@ -1057,7 +1058,7 @@ async def main():
     # Use the default orchestrator graph
     local_graph = orchestrator_graph
     
-    print("\n=== Consultant Assistant Orchestrator ===")
+    print(ENTERPRISE_ASSISTANT_BANNER)
     print("Multi-agent system ready. Available capabilities:")
     
     # Show available agents and capabilities

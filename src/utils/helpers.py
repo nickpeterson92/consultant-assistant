@@ -3,8 +3,6 @@
 
 import sys
 import asyncio
-from langchain_core.messages import HumanMessage, SystemMessage
-
 
 def smart_preserve_messages(messages: list, keep_count: int = 2):
     """Preserve complete tool call exchanges while respecting keep_count

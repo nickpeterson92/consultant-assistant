@@ -30,7 +30,7 @@ import json
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, asdict, field
 import logging
-from src.utils.constants import (
+from .constants import (
     MODEL_PRICING,
     DEFAULT_TIMEOUT_SECONDS, DEFAULT_CONNECT_TIMEOUT, 
     DEFAULT_SOCKET_TIMEOUT, HEALTH_CHECK_TIMEOUT,

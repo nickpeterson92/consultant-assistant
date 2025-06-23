@@ -28,7 +28,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 import aiohttp
 from aiohttp import web
-from src.utils.constants import (
+from src.utils.config import (
     A2A_STATUS_PENDING,
     DEFAULT_A2A_PORT, DEFAULT_HOST
 )
@@ -37,7 +37,7 @@ import logging
 from src.utils.logging import get_logger, get_performance_tracker
 from src.utils.logging import log_a2a_activity, log_performance_activity
 from src.utils.input_validation import AgentInputValidator, ValidationError
-from src.utils.circuit_breaker import CircuitBreakerConfig, RetryConfig, resilient_call
+from .circuit_breaker import CircuitBreakerConfig, RetryConfig, resilient_call
 from src.utils.config import get_a2a_config, get_system_config
 
 logger = logging.getLogger(__name__)

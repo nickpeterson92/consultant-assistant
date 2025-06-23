@@ -377,7 +377,7 @@ async def main():
             logging.getLogger(logger_name).setLevel(logging.WARNING)
     
     # Suppress internal system component logging to console (keep file logging)
-    logging.getLogger('src.utils.circuit_breaker').setLevel(logging.WARNING)
+    logging.getLogger('src.a2a.circuit_breaker').setLevel(logging.WARNING)
     logging.getLogger('src.utils.config').setLevel(logging.WARNING)
     logging.getLogger('src.a2a.protocol').setLevel(logging.WARNING)
     

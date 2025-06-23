@@ -177,18 +177,20 @@ multi-agent-orchestrator/
 │   │   └── main.py                 # Salesforce LangGraph agent (200+ lines)
 │   │
 │   ├── src/a2a/                    # Protocol implementation
-│   │   └── protocol.py             # Complete A2A protocol (733 lines)
+│   │   ├── protocol.py             # Complete A2A protocol (733 lines)
+│   │   └── circuit_breaker.py      # Resilience patterns for A2A
 │   │
 │   ├── src/tools/                  # Operation implementations  
 │   │   └── salesforce_tools.py     # 15 comprehensive CRUD tools (957+ lines)
 │   │
 │   └── src/utils/                  # Cross-cutting enterprise concerns
-│       ├── config.py               # Centralized configuration (404 lines)
-│       ├── circuit_breaker.py      # Resilience patterns (200+ lines)
+│       ├── config/                 # Configuration management
+│       │   ├── config.py           # Centralized configuration (404 lines)
+│       │   ├── constants.py        # Centralized constants
+│       │   └── __init__.py         # Unified config exports
 │       ├── helpers.py              # Message processing utilities (100+ lines)
 │       ├── input_validation.py     # Security validation
 │       ├── sys_msg.py              # All system message templates (consolidated)
-│       ├── constants.py            # Centralized constants (67 lines)
 │       ├── storage/                # Persistence layer
 │       │   ├── sqlite_store.py     # BaseStore implementation (100+ lines)
 │       │   ├── async_store_adapter.py # Thread-safe adapter (150+ lines)
@@ -640,6 +642,7 @@ Expense Agent        # Direct integration with existing Salesforce data
 4. **Professional Documentation**: ASCII art headers in READMEs for visual orientation
 5. **YAGNI Focus**: Removed speculative future features, focusing on immediate value
 6. **System Message Consolidation**: All prompts now in single `src/utils/sys_msg.py` file
+7. **Better Organization**: Circuit breaker moved to a2a folder, config files in config folder
 
 ### Performance Considerations
 - **Connection Pooling**: Supports 8+ concurrent tool calls with efficient reuse
