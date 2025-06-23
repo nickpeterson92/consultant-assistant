@@ -1,11 +1,31 @@
-# Salesforce Agent - Enterprise CRM Automation 🚀
+```
+███████╗ █████╗ ██╗     ███████╗███████╗███████╗ ██████╗ ██████╗  ██████╗███████╗
+██╔════╝██╔══██╗██║     ██╔════╝██╔════╝██╔════╝██╔═══██╗██╔══██╗██╔════╝██╔════╝
+███████╗███████║██║     █████╗  ███████╗█████╗  ██║   ██║██████╔╝██║     █████╗  
+╚════██║██╔══██║██║     ██╔══╝  ╚════██║██╔══╝  ██║   ██║██╔══██╗██║     ██╔══╝  
+███████║██║  ██║███████╗███████╗███████║██║     ╚██████╔╝██║  ██║╚██████╗███████╗
+╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝      ╚═════╝ ╚═╝  ╚═╝ ╚═════╝╚══════╝
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![LangGraph](https://img.shields.io/badge/LangGraph-0.2.69-green.svg)](https://github.com/langchain-ai/langgraph)
-[![Salesforce API](https://img.shields.io/badge/Salesforce-REST%20API-orange.svg)](https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/)
-[![A2A Protocol](https://img.shields.io/badge/A2A%20Protocol-JSON--RPC%202.0-purple.svg)](https://github.com/google-a2a/A2A)
+ █████╗  ██████╗ ███████╗███╗   ██╗████████╗
+██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝
+███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║   
+██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║   
+██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║   
+╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   
+```
 
-A specialized AI agent implementing Google's Agent-to-Agent (A2A) protocol for comprehensive Salesforce CRM automation. Features 20 enterprise-grade tools covering all major Salesforce objects with advanced analytics, SOQL injection prevention, and intelligent query optimization.
+<div align="center">
+  <h3>⚡ Enterprise CRM Automation with AI Intelligence ⚡</h3>
+  
+  [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+  [![LangGraph](https://img.shields.io/badge/LangGraph-0.2.69-green.svg)](https://github.com/langchain-ai/langgraph)
+  [![Salesforce API](https://img.shields.io/badge/Salesforce-REST%20API-orange.svg)](https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/)
+  [![A2A Protocol](https://img.shields.io/badge/A2A%20Protocol-JSON--RPC%202.0-purple.svg)](https://github.com/google-a2a/A2A)
+  
+  <p><em>A specialized AI agent implementing Google's Agent-to-Agent (A2A) protocol for comprehensive Salesforce CRM automation. Features 20 enterprise-grade tools covering all major Salesforce objects with advanced analytics, SOQL injection prevention, and intelligent query optimization.</em></p>
+</div>
+
+---
 
 ## Table of Contents
 - [Overview](#overview)
