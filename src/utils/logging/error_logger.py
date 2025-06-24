@@ -10,27 +10,14 @@ import json
 import time
 import traceback
 from typing import Any, Dict, Optional
-from pathlib import Path
-
-# Create logs directory if it doesn't exist
-logs_dir = Path("logs/debug")
-logs_dir.mkdir(parents=True, exist_ok=True)
 
 class ErrorDetailsLogger:
     """Dedicated logger for detailed error tracking"""
     
-    def __init__(self, log_file: str = "logs/debug/error_details.log"):
-        self.logger = logging.getLogger("error_details")
-        self.logger.setLevel(logging.ERROR)
-        self.logger.propagate = False
-        
-        if self.logger.hasHandlers():
-            self.logger.handlers.clear()
-        
-        handler = logging.FileHandler(log_file)
-        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-        handler.setFormatter(formatter)
-        self.logger.addHandler(handler)
+    def __init__(self):
+        # Use centralized logging configuration
+        from .logging_config import get_logger
+        self.logger = get_logger('error_details')
     
     def log_error(self, component: str, operation: str, error: Exception, 
                   context: Dict[str, Any] = None, user_id: str = None,
@@ -53,7 +40,7 @@ class ErrorDetailsLogger:
             "context": context or {}
         }
         
-        self.logger.error(json.dumps(log_data))
+        self.logger.error(f"ERROR_DETAILS: {operation}", **log_data)
     
     def log_warning(self, component: str, operation: str, message: str,
                    context: Dict[str, Any] = None, user_id: str = None,
@@ -71,8 +58,7 @@ class ErrorDetailsLogger:
             "context": context or {}
         }
         
-        # Use error level to ensure it gets logged
-        self.logger.error(json.dumps(log_data))
+        self.logger.warning(f"WARNING_DETAILS: {operation}", **log_data)
     
     def log_recovery(self, component: str, operation: str, error_type: str,
                     recovery_action: str, success: bool, duration: float = None):
@@ -89,7 +75,7 @@ class ErrorDetailsLogger:
             "recovery_duration": duration
         }
         
-        self.logger.error(json.dumps(log_data))
+        self.logger.info(f"RECOVERY_DETAILS: {operation}", **log_data)
 
 # Global logger instance
 _error_logger = None

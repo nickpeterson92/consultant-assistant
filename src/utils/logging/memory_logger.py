@@ -44,27 +44,14 @@ import logging
 import json
 import time
 from typing import Any, Dict, Optional, Tuple
-from pathlib import Path
-
-# Create logs directory if it doesn't exist
-logs_dir = Path("logs")
-logs_dir.mkdir(exist_ok=True)
 
 class MemoryLogger:
     """Dedicated logger for memory operations"""
     
-    def __init__(self, log_file: str = "logs/data/memory.log"):
-        self.logger = logging.getLogger("memory_operations")
-        self.logger.setLevel(logging.INFO)
-        self.logger.propagate = False
-        
-        if self.logger.hasHandlers():
-            self.logger.handlers.clear()
-        
-        handler = logging.FileHandler(log_file)
-        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-        handler.setFormatter(formatter)
-        self.logger.addHandler(handler)
+    def __init__(self):
+        # Use centralized logging configuration
+        from .logging_config import get_logger
+        self.logger = get_logger('memory_operations')
     
     def log_memory_operation(self, operation: str, namespace: Tuple[str, ...], key: str,
                            value_in: Any = None, value_out: Any = None, 
@@ -102,7 +89,7 @@ class MemoryLogger:
         if error:
             log_data["error"] = str(error)
         
-        self.logger.info(json.dumps(log_data))
+        self.logger.info(log_data.get('operation', 'UNKNOWN'), **log_data)
     
     def log_memory_get(self, namespace: Tuple[str, ...], key: str, result: Any,
                       user_id: str = "unknown", component: str = "unknown"):
@@ -154,18 +141,10 @@ class MemoryLogger:
 class SummaryLogger:
     """Dedicated logger for summary operations"""
     
-    def __init__(self, log_file: str = "logs/data/summary.log"):
-        self.logger = logging.getLogger("summary_operations")
-        self.logger.setLevel(logging.INFO)
-        self.logger.propagate = False
-        
-        if self.logger.hasHandlers():
-            self.logger.handlers.clear()
-        
-        handler = logging.FileHandler(log_file)
-        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-        handler.setFormatter(formatter)
-        self.logger.addHandler(handler)
+    def __init__(self):
+        # Use centralized logging configuration
+        from .logging_config import get_logger
+        self.logger = get_logger('summary_operations')
     
     def log_summary_request(self, messages_count: int, current_summary: str,
                            memory_context: Any, component: str = "unknown",
@@ -186,7 +165,7 @@ class SummaryLogger:
             "memory_context_estimated_tokens": len(str(memory_context)) // 4 if memory_context else 0
         }
         
-        self.logger.info(json.dumps(log_data))
+        self.logger.info(log_data.get('operation', 'UNKNOWN'), **log_data)
     
     def log_summary_response(self, new_summary: str, messages_preserved: int,
                            messages_deleted: int, component: str = "unknown",
@@ -208,7 +187,7 @@ class SummaryLogger:
             "processing_time_seconds": processing_time
         }
         
-        self.logger.info(json.dumps(log_data))
+        self.logger.info(log_data.get('operation', 'UNKNOWN'), **log_data)
     
     def log_summary_error(self, error: str, component: str = "unknown",
                          user_id: str = "unknown", turn: int = 0):
@@ -222,7 +201,7 @@ class SummaryLogger:
             "error": str(error)
         }
         
-        self.logger.error(json.dumps(log_data))
+        self.logger.error(log_data.get('operation', 'UNKNOWN'), **log_data)
 
 # Global logger instances
 _memory_logger = None

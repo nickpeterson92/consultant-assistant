@@ -20,7 +20,6 @@ Key responsibilities:
 
 import os
 import asyncio
-import argparse
 import time
 from typing import Annotated, Dict, Any, List
 import operator
@@ -28,17 +27,17 @@ from typing_extensions import TypedDict, Optional
 
 from dotenv import load_dotenv
 
-from src.utils.logging import get_logger, get_performance_tracker, get_cost_tracker, init_session_tracking
+from src.utils.logging import get_logger, init_session_tracking
 from src.utils.logging.memory_extraction_logger import get_memory_extraction_logger
 from src.utils.tool_execution import create_tool_node
 
 from trustcall import create_extractor
 
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import StateGraph
+from langgraph.graph import StateGraph, END
 from langgraph.graph.message import RemoveMessage, add_messages
 
-from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.prebuilt import tools_condition
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
@@ -311,12 +310,12 @@ ORCHESTRATOR TOOLS:
                     )
                     events.append(event)
                     log_orchestrator_activity("USER_REQUEST", 
-                                             message=str(last_msg.content)[:200],
+                                             user_message=str(last_msg.content)[:200],
                                              message_count=msg_count,
                                              event_count=len(events))
                 elif isinstance(last_msg, AIMessage):
                     log_orchestrator_activity("AI_RESPONSE_PROCESSING", 
-                                             message=str(last_msg.content)[:200],
+                                             ai_message=str(last_msg.content)[:200],
                                              message_count=msg_count,
                                              event_count=len(events))
                         
@@ -330,10 +329,6 @@ ORCHESTRATOR TOOLS:
                 try:
                     validated_data = SimpleMemory(**existing_memory_data)
                     existing_memory = {SIMPLE_MEMORY_KEY: validated_data.model_dump()}
-                    # Count total records for logging
-                    total_records = (len(validated_data.accounts) + len(validated_data.contacts) + 
-                                   len(validated_data.opportunities) + len(validated_data.cases) + 
-                                   len(validated_data.tasks) + len(validated_data.leads))
                 except Exception as e:
                     existing_memory = {SIMPLE_MEMORY_KEY: SimpleMemory().model_dump()}
             else:
@@ -372,14 +367,6 @@ ORCHESTRATOR TOOLS:
             
             system_message = get_orchestrator_system_message(state)
             messages = [SystemMessage(content=system_message)] + state["messages"]
-            
-            # Check for recent tool results to inform response
-            recent_tool_results = []
-            for msg in reversed(state.get("messages", [])):
-                if hasattr(msg, 'name') and getattr(msg, 'name', None) in ['salesforce_agent', 'call_agent']:
-                    recent_tool_results.append(msg)
-                    if len(recent_tool_results) >= 2:
-                        break
             
             response = invoke_llm(messages, use_tools=True)
             
@@ -1062,7 +1049,14 @@ ORCHESTRATOR TOOLS:
     graph_builder.set_entry_point("conversation")
     
     # Route to tools when needed
-    graph_builder.add_conditional_edges("conversation", tools_condition)
+    graph_builder.add_conditional_edges(
+        "conversation",
+        tools_condition,
+        {
+            "tools": "tools",
+            "__end__": END,
+        }
+    )
     
     # Return to conversation after tool execution
     graph_builder.add_edge("tools", "conversation")
@@ -1131,16 +1125,12 @@ async def initialize_orchestrator():
 # Main CLI function for orchestrator
 async def main():
     """Main CLI interface for the orchestrator"""
-    parser = argparse.ArgumentParser(description="Consultant Assistant Orchestrator")
-    args = parser.parse_args()
     
     # Setup comprehensive external logging
     init_session_tracking()
     
     # Get structured loggers
     orchestrator_logger = get_logger('orchestrator')
-    perf_tracker = get_performance_tracker('orchestrator')
-    cost_tracker = get_cost_tracker()
     
     # Setup basic logging for console output - only for user interface
     log_level = logging.WARNING

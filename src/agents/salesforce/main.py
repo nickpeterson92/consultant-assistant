@@ -14,8 +14,7 @@ from dotenv import load_dotenv
 
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
-
-from langgraph.prebuilt import ToolNode
+from langgraph.prebuilt import ToolNode, tools_condition
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
@@ -70,91 +69,75 @@ def create_azure_openai_chat():
     return AzureChatOpenAI(**llm_kwargs)
 
 def build_salesforce_graph():
-    """Build and compile the Salesforce agent LangGraph"""
+    """Build modern LangGraph using 2024 best practices"""
     
     load_dotenv()
     
-    # Define the simple Salesforce agent state schema (dumb agent)
+    # Modern minimal state schema - LangGraph prefers MessagesState when possible
     class SalesforceState(TypedDict):
         messages: Annotated[list, add_messages]
         task_context: Dict[str, Any]
         external_context: Dict[str, Any]
     
-    graph_builder = StateGraph(SalesforceState)
-    
-    # All Salesforce tools including CRUD and analytics
+    # All Salesforce tools
     tools = ALL_SALESFORCE_TOOLS
     
     llm = create_azure_openai_chat()
     llm_with_tools = llm.bind_tools(tools)
     
-    # Node function: salesforce_chatbot (simplified dumb agent)
-    def salesforce_chatbot(state: SalesforceState, config: RunnableConfig):
-        """Simplified Salesforce agent conversation handler - no memory/summarization"""
+    # Simplified agent node following 2024 patterns
+    def salesforce_agent(state: SalesforceState, config: RunnableConfig):
+        """Modern Salesforce agent node"""
         try:
-            
             task_context = state.get("task_context", {})
             external_context = state.get("external_context", {})
             
-            # Create system message for Salesforce operations using centralized function
+            # Create system message
             system_message_content = salesforce_agent_sys_msg(task_context, external_context)
-            
             messages = [SystemMessage(content=system_message_content)] + state["messages"]
             
-            # Log Salesforce LLM call
+            # Log LLM call
             log_salesforce_activity("SALESFORCE_LLM_CALL",
                                    message_count=len(messages),
-                                   task_id=state.get("task_context", {}).get("task_id", "unknown"))
+                                   task_id=task_context.get("task_id", "unknown"))
             
-            # Estimate token usage for cost tracking
-            message_chars = sum(len(str(m.content if hasattr(m, 'content') else m)) for m in messages)
-            estimated_tokens = message_chars // 4  # Rough estimate: 4 chars per token
-            
+            # Invoke LLM with tools
             response = llm_with_tools.invoke(messages)
             
-            # Log cost after response
+            # Log cost tracking
+            message_chars = sum(len(str(m.content if hasattr(m, 'content') else m)) for m in messages)
+            estimated_tokens = message_chars // 4
+            
             from src.utils.logging.activity_logger import log_cost_activity
             log_cost_activity("SALESFORCE_LLM_CALL", estimated_tokens,
                              message_count=len(messages),
                              response_length=len(str(response.content)) if hasattr(response, 'content') else 0,
-                             task_id=state.get("task_context", {}).get("task_id", "unknown"))
+                             task_id=task_context.get("task_id", "unknown"))
             
-            return {"messages": response}
+            return {"messages": [response]}
             
         except Exception as e:
             logger.error(f"Error in Salesforce agent: {e}")
             raise
     
-    # No memory or summarization functions needed - dumb agent
+    # Build modern graph following 2024 best practices
+    graph_builder = StateGraph(SalesforceState)
     
-    # Build the simplified graph (dumb agent)
-    tool_node = ToolNode(tools=tools)
-    graph_builder.add_node("tools", tool_node)
-    graph_builder.add_node("conversation", salesforce_chatbot)
+    # Add nodes
+    graph_builder.add_node("agent", salesforce_agent)
+    graph_builder.add_node("tools", ToolNode(tools))
     
-    # Custom condition to prevent infinite loops
-    def should_continue(state: SalesforceState):
-        """Check if we should continue or end"""
-        messages = state.get("messages", [])
-        if not messages:
-            return END
-            
-        last_message = messages[-1]
-        
-        # If the last message has tool calls, go to tools
-        if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
-            return "tools"
-        
-        # If we have more than 15 messages, force end to prevent loops (increased from 10)
-        if len(messages) > 15:
-            return END
-            
-        # Otherwise end
-        return END
-    
-    graph_builder.set_entry_point("conversation")
-    graph_builder.add_conditional_edges("conversation", should_continue)
-    graph_builder.add_edge("tools", "conversation")  # Go back to conversation to handle tool results
+    # Modern routing using prebuilt tools_condition
+    graph_builder.set_entry_point("agent")
+    graph_builder.add_conditional_edges(
+        "agent",
+        tools_condition,
+        {
+            "tools": "tools",
+            "__end__": END,
+        }
+    )
+    graph_builder.add_edge("tools", "agent")
     
     return graph_builder.compile()
 
@@ -167,131 +150,65 @@ class SalesforceA2AHandler:
     def __init__(self, graph):
         self.graph = graph
     async def process_task(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Process an A2A task request"""
+        """Process A2A task using modern LangGraph pattern"""
         try:
-            # Log A2A task processing
-            log_salesforce_activity("A2A_TASK_START", 
-                                   task_id=params.get("task", {}).get("id", "unknown"),
-                                   instruction_preview=params.get("task", {}).get("instruction", "")[:100])
             task_data = params.get("task", {})
-            
-            
-            # Extract task information
+            task_id = task_data.get("id", "unknown")
             instruction = task_data.get("instruction", "")
-            
-            # Log task details
-            log_salesforce_activity("A2A_TASK_RECEIVED", 
-                                   task_id=task_data.get("id", "unknown"),
-                                   instruction=instruction[:200])
             context = task_data.get("context", {})
-            state_snapshot = task_data.get("state_snapshot", {})
             
-            # Prepare initial state for the Salesforce graph
+            # Log task start
+            log_salesforce_activity("A2A_TASK_START", 
+                                   task_id=task_id,
+                                   instruction_preview=instruction[:100])
+            
+            # Simple state preparation - modern LangGraph prefers minimal state
             initial_state = {
-                "messages": [HumanMessage(content=instruction)],  # Use proper LangChain message objects!
-                "task_context": {
-                    "task_id": task_data.get("id"),
-                    "instruction": instruction
-                },
+                "messages": [HumanMessage(content=instruction)],
+                "task_context": {"task_id": task_id, "instruction": instruction},
                 "external_context": context
             }
             
-            # Include state snapshot information
-            if "messages" in state_snapshot:
-                # Include context from previous messages (last few for context)
-                previous_messages = state_snapshot["messages"][-3:] if len(state_snapshot["messages"]) > 3 else state_snapshot["messages"]
-                initial_state["external_context"]["previous_messages"] = previous_messages
-            
-            if "memory" in state_snapshot:
-                initial_state["memory"] = state_snapshot["memory"]
-            
-            # Configure the graph execution
+            # Modern config - no need for complex setup
             config = {
                 "configurable": {
-                    "thread_id": f"sf-task-{task_data.get('id', 'default')}",
-                    "user_id": context.get("user_context", {}).get("user_id", "default")
+                    "thread_id": f"sf-{task_id}",
                 },
-                "recursion_limit": 50  # Increase from default 25 to handle complex queries
+                "recursion_limit": 20  # Lower limit with modern tools_condition
             }
             
-            # Process the task through the Salesforce graph
+            # Execute graph
             result = await self.graph.ainvoke(initial_state, config)
             
-            # Log Salesforce operation result
-            if "messages" in result:
-                for msg in result["messages"]:
-                    if hasattr(msg, 'tool_calls') and msg.tool_calls:
-                        for tool_call in msg.tool_calls:
-                            log_salesforce_activity("TOOL_CALL",
-                                                   task_id=task_data.get("id", "unknown"),
-                                                   tool_name=tool_call.get("name", "unknown"),
-                                                   tool_args=tool_call.get("args", {}))
-            
-            # Extract response and prepare A2A response
-            response_message = result.get("messages", [])
-            if response_message and len(response_message) > 0:
-                last_message = response_message[-1]
-                if hasattr(last_message, 'content'):
-                    response_content = last_message.content
-                else:
-                    response_content = str(last_message)
+            # Extract response content - modern simplified approach
+            messages = result.get("messages", [])
+            if messages:
+                last_message = messages[-1]
+                response_content = getattr(last_message, 'content', str(last_message))
             else:
                 response_content = "Task completed successfully"
             
+            # Log tool calls found in messages
+            for msg in messages:
+                if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                    for tool_call in msg.tool_calls:
+                        log_salesforce_activity("TOOL_CALL",
+                                               task_id=task_id,
+                                               tool_name=tool_call.get("name", "unknown"),
+                                               tool_args=tool_call.get("args", {}))
+            
             log_salesforce_activity("TASK_COMPLETED", 
-                                   task_id=task_data.get("id", "unknown"),
+                                   task_id=task_id,
                                    response_preview=response_content[:200])
             
-            # Prepare state updates for the orchestrator
-            state_updates = {}
-            
-            if "memory" in result:
-                state_updates["memory_updates"] = result["memory"]
-            
-            # Extract any Salesforce entities created/updated
-            tool_results = []
-            if "messages" in result:
-                # Look for tool messages that contain actual Salesforce data
-                for message in result["messages"]:
-                    # Check for ToolMessage (which contains tool results)
-                    if hasattr(message, 'name') and hasattr(message, 'content'):
-                        # This is a ToolMessage with actual tool results
-                        tool_name = getattr(message, 'name', '') or ''  # Handle None case
-                        tool_content = getattr(message, 'content', '')
-                        
-                        if tool_name and any(sf_term in tool_name.lower() for sf_term in ["lead", "account", "opportunity", "contact", "case", "task"]):
-                            # This is a Salesforce tool result with structured data
-                            try:
-                                import json
-                                if isinstance(tool_content, str) and tool_content.strip().startswith('{'):
-                                    parsed_content = json.loads(tool_content)
-                                    tool_results.append({
-                                        "tool_name": tool_name,
-                                        "tool_data": parsed_content
-                                    })
-                                elif isinstance(tool_content, dict):
-                                    tool_results.append({
-                                        "tool_name": tool_name,
-                                        "tool_data": tool_content
-                                    })
-                            except (json.JSONDecodeError, AttributeError):
-                                # If tool result isn't JSON, include as-is
-                                tool_results.append({
-                                    "tool_name": tool_name,
-                                    "tool_data": str(tool_content)
-                                })
-                
-                if tool_results:
-                    state_updates["tool_results"] = tool_results
-            
+            # Modern simplified response
             return {
                 "artifacts": [{
-                    "id": f"sf-response-{task_data.get('id', 'unknown')}",
-                    "task_id": task_data.get("id"),
+                    "id": f"sf-response-{task_id}",
+                    "task_id": task_id,
                     "content": response_content,
                     "content_type": "text/plain"
                 }],
-                "state_updates": state_updates,
                 "status": "completed"
             }
             

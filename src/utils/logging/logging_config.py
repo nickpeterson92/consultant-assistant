@@ -140,19 +140,23 @@ class CostTracker:
         self.session_tokens += input_tokens + output_tokens
         self.session_cost += operation_cost
         
-        self.logger.info(f"TOKEN_USAGE: {operation}",
+        # Format cost similar to log_cost_activity for consistency
+        estimated_cost = f"${operation_cost:.4f}"
+        
+        self.logger.info("LLM_USAGE",
                         operation=operation,
+                        model=model_name,
+                        tokens_used=input_tokens + output_tokens,
+                        estimated_cost=estimated_cost,
                         input_tokens=input_tokens,
                         output_tokens=output_tokens,
-                        total_tokens=input_tokens + output_tokens,
-                        operation_cost=operation_cost,
                         session_total_tokens=self.session_tokens,
-                        session_total_cost=self.session_cost,
-                        model=model,
+                        session_total_cost=f"${self.session_cost:.4f}",
                         **context)
 
-# Global logger instances
+# Global logger and tracker instances
 LOGGERS = {}
+COST_TRACKER = None
 
 def get_logger(component: str) -> StructuredLogger:
     """Get or create a logger for a specific component"""
@@ -165,16 +169,18 @@ def get_logger(component: str) -> StructuredLogger:
     # Component-specific log files with subdirectories
     log_files = {
         'orchestrator': 'agents/orchestrator.log',
-        'salesforce_agent': 'agents/salesforce.log', 
+        'salesforce_agent': 'agents/salesforce_agent.log', 
         'a2a_protocol': 'communication/a2a_protocol.log',
         'cost_tracking': 'system/cost_tracking.log',
         'performance': 'system/performance.log',
         'multi_agent': 'system/multi_agent.log',
-        'tools': 'communication/tool_calls.log',
+        'tools': 'agents/tools.log',  # Tools should be in agents directory
         'agent_registry': 'agents/agent_registry.log',
         'circuit_breaker': 'communication/circuit_breaker.log',
         'memory_extraction': 'debug/memory_extraction.log',
-        'error_details': 'debug/error_details.log'
+        'error_details': 'debug/error_details.log',
+        'memory_operations': 'data/memory.log',
+        'summary_operations': 'data/summary.log'
     }
     
     log_file = log_files.get(component, f'{component}.log')
@@ -196,9 +202,12 @@ def get_performance_tracker(component: str) -> PerformanceTracker:
     return PerformanceTracker(logger)
 
 def get_cost_tracker() -> CostTracker:
-    """Get cost tracker"""
-    logger = get_logger('cost_tracking')
-    return CostTracker(logger)
+    """Get or create singleton cost tracker for session-wide tracking"""
+    global COST_TRACKER
+    if COST_TRACKER is None:
+        logger = get_logger('cost_tracking')
+        COST_TRACKER = CostTracker(logger)
+    return COST_TRACKER
 
 # Initialize session tracking
 cost_tracker = None
