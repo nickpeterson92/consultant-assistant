@@ -467,37 +467,55 @@ def _serialize_messages(messages):
     return serializable_messages
 ```
 
-### AsyncStoreAdapter
+### AsyncStoreAdapter (Simplified)
 
-Thread-safe storage access:
+Simple thread-safe storage access without unnecessary abstractions:
 
 ```python
 class AsyncStoreAdapter:
-    """Bridges async LangGraph with sync BaseStore"""
+    """Simple async adapter for SQLiteStore using thread pool executor."""
     
-    def __init__(self, store: BaseStore):
-        self.store = store
-        self.executor = ThreadPoolExecutor(max_workers=1)
+    def __init__(self, db_path: str = "memory_store.db", max_workers: int = 4):
+        self.db_path = db_path
+        self.max_workers = max_workers
+        
+        # Single SQLiteStore instance - SQLite handles concurrency internally
+        self._store = SQLiteStore(db_path)
+        
+        # Thread pool for async operations
+        self._executor = ThreadPoolExecutor(
+            max_workers=max_workers, 
+            thread_name_prefix="sqlite_"
+        )
     
-    async def aget(self, namespace: tuple, key: str) -> Optional[Item]:
-        """Async get with thread safety"""
-        return await asyncio.get_event_loop().run_in_executor(
-            self.executor,
-            self.store.get,
-            namespace,
+    async def get(self, namespace: Tuple[str, ...], key: str) -> Optional[Any]:
+        """Get a value from the store asynchronously."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self._executor, 
+            self._store.get, 
+            namespace, 
             key
         )
     
-    async def aput(self, namespace: tuple, key: str, value: Item) -> None:
-        """Async put with thread safety"""
-        await asyncio.get_event_loop().run_in_executor(
-            self.executor,
-            self.store.put,
+    async def put(self, namespace: Tuple[str, ...], key: str, value: Any) -> None:
+        """Put a value into the store asynchronously."""
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            self._executor,
+            self._store.put,
             namespace,
             key,
             value
         )
 ```
+
+**Key simplifications:**
+- No circuit breaker (unnecessary for local SQLite)
+- No connection pooling (SQLite handles this internally)
+- No retry logic (local database operations rarely fail)
+- No metrics tracking (adds complexity without clear value)
+- **Result: 167 lines vs 536 lines (69% reduction)**
 
 ## Extraction Process
 

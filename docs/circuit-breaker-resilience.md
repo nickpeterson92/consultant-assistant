@@ -1,5 +1,7 @@
 # Circuit Breaker and Resilience Patterns Documentation
 
+> **Important Note**: In this system, circuit breakers are used **only for network calls** (A2A protocol communication between agents). They are **not used for local database operations** like SQLite access, as local operations don't have the same failure patterns as network calls.
+
 ## Table of Contents
 1. [Introduction for Junior Engineers](#introduction-for-junior-engineers)
 2. [What is a Circuit Breaker?](#what-is-a-circuit-breaker)
@@ -124,6 +126,23 @@ Your service has limited resources:
 ## Overview
 
 The resilience patterns in this system protect against cascading failures, network issues, and service degradation in the distributed multi-agent architecture. The implementation centers around the Circuit Breaker pattern, complemented by retry logic, timeouts, and graceful degradation strategies.
+
+### Where Circuit Breakers Are Used in This System
+
+Circuit breakers are applied **selectively** based on the type of operation:
+
+✅ **Used for Network Operations:**
+- A2A protocol calls between agents
+- Health check endpoints
+- External API calls
+
+❌ **NOT Used for Local Operations:**
+- SQLite database access (local file system)
+- Memory operations
+- Configuration loading
+- Local file I/O
+
+This selective application follows the principle that circuit breakers are meant for unreliable network operations, not reliable local operations.
 
 ## Circuit Breaker Pattern
 
