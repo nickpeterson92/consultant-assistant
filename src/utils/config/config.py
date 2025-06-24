@@ -168,22 +168,14 @@ class A2AConfig:
 
 @dataclass
 class SecurityConfig:
-    """Enterprise security controls for defense-in-depth.
+    """Security controls focused on what's actually implemented.
     
-    Implements OWASP best practices:
-    - Input validation prevents injection attacks
-    - Rate limiting mitigates DoS attacks
-    - File type restrictions prevent malicious uploads
+    Current security features:
+    - Input validation in AgentInputValidator (SOQL injection prevention)
+    - Max input length to prevent memory exhaustion
     """
     input_validation_enabled: bool = True
-    rate_limiting_enabled: bool = True
-    max_requests_per_minute: int = 100  # Prevents API abuse
     max_input_length: int = 50000  # Prevents memory exhaustion
-    allowed_file_types: List[str] = None
-    
-    def __post_init__(self):
-        if self.allowed_file_types is None:
-            self.allowed_file_types = [".txt", ".pdf", ".docx", ".csv", ".json"]
 
 @dataclass
 class AgentConfig:

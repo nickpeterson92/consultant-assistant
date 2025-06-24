@@ -61,10 +61,7 @@
   },
   "security": {
     "input_validation_enabled": true,
-    "rate_limiting_enabled": true,
-    "max_requests_per_minute": 100,
-    "max_input_length": 50000,
-    "allowed_file_types": [".txt", ".pdf", ".docx", ".csv", ".json"]
+    "max_input_length": 50000
   },
   "conversation": {
     "summary_threshold": 5,
