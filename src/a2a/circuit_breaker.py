@@ -5,12 +5,14 @@ Provides resilience against cascading failures in agent-to-agent communication
 
 import asyncio
 import time
+import json
 from typing import Dict, Any, Optional, Callable
 from enum import Enum
 from dataclasses import dataclass
 import logging
+from src.utils.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger('circuit_breaker')
 
 class CircuitBreakerState(Enum):
     """Circuit breaker states"""
@@ -54,7 +56,15 @@ class CircuitBreaker:
                 time_in_open = current_time - self.last_failure_time
                 self.state = CircuitBreakerState.HALF_OPEN
                 self.half_open_calls = 0
-                logger.info(f"Circuit breaker {self.name} transitioning OPEN -> HALF_OPEN after {time_in_open:.1f}s (timeout={self.config.timeout}s)")
+                logger.info(json.dumps({
+                    "timestamp": time.time(),
+                    "operation": "CIRCUIT_STATE_CHANGE",
+                    "circuit_name": self.name,
+                    "transition": "OPEN -> HALF_OPEN",
+                    "time_in_open": time_in_open,
+                    "timeout_duration": self.config.timeout,
+                    "reason": "timeout_expired"
+                }))
             
             # Fast fail if circuit is open
             if self.state == CircuitBreakerState.OPEN:
@@ -96,7 +106,14 @@ class CircuitBreaker:
                 self.state = CircuitBreakerState.CLOSED
                 self.failure_count = 0
                 self.success_count = 0
-                logger.info(f"Circuit breaker {self.name} transitioning HALF_OPEN -> CLOSED after {self.success_count} successes")
+                logger.info(json.dumps({
+                    "timestamp": time.time(),
+                    "operation": "CIRCUIT_STATE_CHANGE",
+                    "circuit_name": self.name,
+                    "transition": "HALF_OPEN -> CLOSED",
+                    "success_count": self.success_count,
+                    "reason": "success_threshold_reached"
+                }))
         elif self.state == CircuitBreakerState.CLOSED:
             # Reset failure count on success in closed state
             self.failure_count = 0
@@ -109,13 +126,28 @@ class CircuitBreaker:
         if self.state == CircuitBreakerState.CLOSED:
             if self.failure_count >= self.config.failure_threshold:
                 self.state = CircuitBreakerState.OPEN
-                logger.warning(f"Circuit breaker {self.name} transitioning CLOSED -> OPEN (failures={self.failure_count}/{self.config.failure_threshold})")
+                logger.warning(json.dumps({
+                    "timestamp": time.time(),
+                    "operation": "CIRCUIT_STATE_CHANGE",
+                    "circuit_name": self.name,
+                    "transition": "CLOSED -> OPEN",
+                    "failure_count": self.failure_count,
+                    "failure_threshold": self.config.failure_threshold,
+                    "reason": "failure_threshold_exceeded"
+                }))
         
         elif self.state == CircuitBreakerState.HALF_OPEN:
             # Any failure in half-open goes back to open
             self.state = CircuitBreakerState.OPEN
             self.success_count = 0
-            logger.warning(f"Circuit breaker {self.name} transitioning HALF_OPEN -> OPEN after failure (had {self.success_count} successes)")
+            logger.warning(json.dumps({
+                    "timestamp": time.time(),
+                    "operation": "CIRCUIT_STATE_CHANGE",
+                    "circuit_name": self.name,
+                    "transition": "HALF_OPEN -> OPEN",
+                    "success_count_before_failure": self.success_count,
+                    "reason": "failure_in_half_open"
+                }))
     
     def get_state(self) -> Dict[str, Any]:
         """Get current circuit breaker state"""

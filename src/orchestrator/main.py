@@ -22,7 +22,6 @@ import os
 import asyncio
 import argparse
 import time
-import random
 from typing import Annotated, Dict, Any, List
 import operator
 from typing_extensions import TypedDict, Optional
@@ -30,6 +29,8 @@ from typing_extensions import TypedDict, Optional
 from dotenv import load_dotenv
 
 from src.utils.logging import get_logger, get_performance_tracker, get_cost_tracker, init_session_tracking
+from src.utils.logging.memory_extraction_logger import get_memory_extraction_logger
+from src.utils.tool_execution import create_tool_node
 
 from trustcall import create_extractor
 
@@ -47,6 +48,7 @@ from langchain_openai import AzureChatOpenAI
 from .agent_registry import AgentRegistry
 from .agent_caller_tools import SalesforceAgentTool, GenericAgentTool, AgentRegistryTool
 from src.utils.helpers import type_out, smart_preserve_messages
+from src.utils.message_serialization import serialize_messages
 from src.utils.storage import get_async_store_adapter
 from src.utils.storage.memory_schemas import SimpleMemory
 from src.utils.logging import get_summary_logger
@@ -63,7 +65,8 @@ from src.utils.config import (
     SUMMARY_USER_MESSAGE_THRESHOLD, SUMMARY_TIME_THRESHOLD_SECONDS,
     MEMORY_TOOL_CALL_THRESHOLD, MEMORY_AGENT_CALL_THRESHOLD,
     LOCALHOST, SALESFORCE_AGENT_PORT,
-    ENTERPRISE_ASSISTANT_BANNER
+    ENTERPRISE_ASSISTANT_BANNER,
+    DETERMINISTIC_TEMPERATURE, DETERMINISTIC_TOP_P
 )
 
 import logging
@@ -116,24 +119,6 @@ def load_events_with_limit(state: dict, limit: Optional[int] = None) -> List[Orc
         stored_events = stored_events[-limit:]
         logger.info(f"Trimmed event history from {len(state.get('events', []))} to {limit} events")
     return [OrchestratorEvent.from_dict(e) for e in stored_events]
-
-def create_azure_openai_chat():
-    """Create and configure Azure OpenAI chat instance.
-    
-    Returns:
-        AzureChatOpenAI: Configured LLM instance with settings from environment
-        and global configuration including temperature, token limits, and timeouts.
-    """
-    llm_config = get_llm_config()
-    return AzureChatOpenAI(
-        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-        azure_deployment=llm_config.azure_deployment,
-        openai_api_version=llm_config.api_version,
-        openai_api_key=os.environ["AZURE_OPENAI_API_KEY"],
-        temperature=llm_config.temperature,
-        max_tokens=llm_config.max_tokens,
-        timeout=llm_config.timeout,
-    )
 
 def build_orchestrator_graph():
     """Build and compile the orchestrator LangGraph.
@@ -188,41 +173,71 @@ def build_orchestrator_graph():
         AgentRegistryTool(agent_registry)
     ]
     
-    llm = create_azure_openai_chat()
+    # Create LLM instance with configuration
+    llm_config = get_llm_config()
+    llm_kwargs = {
+        "azure_endpoint": os.environ["AZURE_OPENAI_ENDPOINT"],
+        "azure_deployment": llm_config.azure_deployment,
+        "openai_api_version": llm_config.api_version,
+        "openai_api_key": os.environ["AZURE_OPENAI_API_KEY"],
+        "temperature": llm_config.temperature,
+        "max_tokens": llm_config.max_tokens,
+        "timeout": llm_config.timeout,
+    }
+    if llm_config.top_p is not None:
+        llm_kwargs["top_p"] = llm_config.top_p
+    
+    llm = AzureChatOpenAI(**llm_kwargs)
     llm_with_tools = llm.bind_tools(tools)
+    
+    # Create deterministic LLM for TrustCall memory extraction
+    # This needs to be a separate instance since TrustCall requires an LLM object,
+    # not a function, and we want deterministic extraction regardless of user-facing config
+    deterministic_llm = AzureChatOpenAI(
+        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+        azure_deployment=llm_config.azure_deployment,
+        openai_api_version=llm_config.api_version,
+        openai_api_key=os.environ["AZURE_OPENAI_API_KEY"],
+        temperature=DETERMINISTIC_TEMPERATURE,  # Always deterministic for memory extraction
+        top_p=DETERMINISTIC_TOP_P,  # Focused sampling for consistency
+        max_tokens=llm_config.max_tokens,
+        timeout=llm_config.timeout,
+    )
     
     # Configure TrustCall for structured data extraction
     trustcall_extractor = create_extractor(
-        llm,
+        deterministic_llm,  # Use deterministic LLM for consistent extraction
         tools=[SimpleMemory],
         tool_choice="SimpleMemory",  # Explicit choice prevents tool conflicts
         enable_inserts=True
     )
     
-    def invoke_llm(messages, use_tools=False, temperature=None):
-        """Invoke LLM with optional tool binding.
+    def invoke_llm(messages, use_tools=False, temperature=None, top_p=None):
+        """Invoke LLM with optional tool binding and generation parameters.
         
         Azure OpenAI automatically caches prompts for efficiency.
         
         Args:
             messages: List of conversation messages
             use_tools: Whether to bind tools for function calling
-            temperature: Override temperature for this call
+            temperature: Override temperature for this call (0.0 = deterministic, 1.0 = creative)
+            top_p: Override top_p for nucleus sampling (0.1 = focused, 1.0 = diverse)
             
         Returns:
             AI response message with optional tool calls
         """
-        if temperature is not None:
-            # Create a new LLM with custom temperature for this call
+        if temperature is not None or top_p is not None:
+            # Create a new LLM with custom parameters for experimentation
             llm_config = get_llm_config()
             temp_llm = AzureChatOpenAI(
                 azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
                 azure_deployment=llm_config.azure_deployment,
                 openai_api_version=llm_config.api_version,
                 openai_api_key=os.environ["AZURE_OPENAI_API_KEY"],
-                temperature=temperature,  # Use the override temperature
+                temperature=temperature if temperature is not None else llm_config.temperature,
                 max_tokens=llm_config.max_tokens,
                 timeout=llm_config.timeout,
+                top_p=top_p  # Azure OpenAI accepts top_p parameter
             )
             if use_tools:
                 temp_llm = temp_llm.bind_tools(tools)
@@ -529,8 +544,8 @@ ORCHESTRATOR TOOLS:
         # System message format must remain pure - tool responses stay in conversation
         messages = [SystemMessage(content=system_message)] + state["messages"]
         
-        # Use standard config temperature (already 0.0)
-        response = invoke_llm(messages, use_tools=False)
+        # Use deterministic temperature for background summarization
+        response = invoke_llm(messages, use_tools=False, temperature=DETERMINISTIC_TEMPERATURE, top_p=DETERMINISTIC_TOP_P)
         
         # VALIDATE SUMMARY FORMAT
         response_content = str(response.content) if hasattr(response, 'content') else ""
@@ -666,10 +681,20 @@ ORCHESTRATOR TOOLS:
             Dict with updated memory and reset turn counter
         """
         
+        extraction_logger = get_memory_extraction_logger()
         conv_config = get_conversation_config()
         user_id = config["configurable"].get("user_id", conv_config.default_user_id)
+        thread_id = config["configurable"].get("thread_id")
         namespace = (conv_config.memory_namespace_prefix, user_id)
         key = conv_config.memory_key
+        
+        # Log extraction start
+        extraction_start_time = time.time()
+        extraction_logger.log_extraction_start(
+            message_count=len(state.get("messages", [])),
+            user_id=user_id,
+            thread_id=thread_id
+        )
         
         # Load existing memory for TrustCall context
         try:
@@ -691,12 +716,41 @@ ORCHESTRATOR TOOLS:
         
         # Scan recent messages for tool responses with data
         for msg in reversed(messages[-10:]):
-            if hasattr(msg, 'name') and msg.name and any(agent in msg.name.lower() for agent in ['salesforce', 'travel', 'expense', 'hr', 'ocr']):
-                content = getattr(msg, 'content', '')
-                if content and len(content) > 50:  # Meaningful content
+            # Handle both message objects and dictionaries (from background thread)
+            msg_name = None
+            msg_content = None
+            
+            if isinstance(msg, dict):
+                # Serialized message from background thread
+                msg_name = msg.get('name', '')
+                msg_content = msg.get('content', '')
+            else:
+                # Direct message object
+                msg_name = getattr(msg, 'name', '')
+                msg_content = getattr(msg, 'content', '')
+            
+            # Log what we're examining
+            log_orchestrator_activity("MEMORY_EXTRACTION_DEBUG",
+                                    operation="examining_message",
+                                    msg_type=type(msg).__name__,
+                                    msg_name=msg_name[:50] if msg_name else "NO_NAME",
+                                    msg_content_length=len(msg_content) if msg_content else 0,
+                                    has_structured_data="[STRUCTURED_TOOL_DATA]:" in str(msg_content))
+            
+            # Also log to extraction logger
+            extraction_logger.log_message_scan(
+                msg_type=type(msg).__name__,
+                msg_name=msg_name or "NO_NAME",
+                has_content=bool(msg_content),
+                content_preview=str(msg_content)[:100] if msg_content else None,
+                has_structured_data="[STRUCTURED_TOOL_DATA]:" in str(msg_content)
+            )
+            
+            if msg_name and any(agent in msg_name.lower() for agent in ['salesforce', 'travel', 'expense', 'hr', 'ocr']):
+                if msg_content and len(msg_content) > 50:  # Meaningful content
                     # Parse structured data if present
-                    if "[STRUCTURED_TOOL_DATA]:" in content:
-                        parts = content.split("[STRUCTURED_TOOL_DATA]:")
+                    if "[STRUCTURED_TOOL_DATA]:" in msg_content:
+                        parts = msg_content.split("[STRUCTURED_TOOL_DATA]:")
                         conversational_part = parts[0].strip()
                         try:
                             import json
@@ -704,10 +758,25 @@ ORCHESTRATOR TOOLS:
                             # Format for TrustCall extraction
                             enhanced_content = f"{conversational_part}\n\nDETAILED SALESFORCE RECORDS WITH REAL IDS:\n{json.dumps(structured_part, indent=2)}"
                             recent_tool_responses.append(enhanced_content[:2000])
-                        except (json.JSONDecodeError, IndexError):
-                            recent_tool_responses.append(content[:1500])
+                            log_orchestrator_activity("MEMORY_EXTRACTION_DEBUG",
+                                                    operation="structured_data_found",
+                                                    records_count=len(structured_part) if isinstance(structured_part, list) else 1)
+                            
+                            # Log structured data found
+                            tool_name = structured_part.get('tool_name', 'unknown') if isinstance(structured_part, dict) else 'unknown'
+                            extraction_logger.log_structured_data_found(
+                                tool_name=tool_name,
+                                data_preview=str(structured_part)[:200],
+                                data_size=len(json.dumps(structured_part)),
+                                record_count=len(structured_part) if isinstance(structured_part, list) else 1
+                            )
+                        except (json.JSONDecodeError, IndexError) as e:
+                            log_orchestrator_activity("MEMORY_EXTRACTION_DEBUG",
+                                                    operation="structured_data_parse_error",
+                                                    error=str(e))
+                            recent_tool_responses.append(msg_content[:1500])
                     else:
-                        recent_tool_responses.append(content[:1500])
+                        recent_tool_responses.append(msg_content[:1500])
         
         # Build extraction prompt with tool responses and summary
         summary_content = state.get("summary", "")
@@ -750,6 +819,12 @@ ORCHESTRATOR TOOLS:
         try:
             llm_config = get_llm_config()
             
+            # Log TrustCall attempt
+            extraction_logger.log_trustcall_extraction(
+                input_size=len(extraction_content),
+                extraction_prompt=TRUSTCALL_INSTRUCTION[:200]
+            )
+            
             import asyncio
             response = await asyncio.wait_for(
                 trustcall_extractor.ainvoke({
@@ -770,12 +845,26 @@ ORCHESTRATOR TOOLS:
                 else:
                     clean_data = extracted_data
                 
+                # Log extracted records by type
+                for entity_type in ['accounts', 'contacts', 'opportunities', 'cases', 'tasks', 'leads']:
+                    extracted_items = clean_data.get(entity_type, [])
+                    if extracted_items:
+                        sample_ids = [item.get('id') for item in extracted_items if isinstance(item, dict) and 'id' in item]
+                        extraction_logger.log_records_extracted(
+                            record_type=entity_type,
+                            count=len(extracted_items),
+                            sample_ids=sample_ids
+                        )
+                
                 # Merge with existing data, deduplicating by ID
+                memory_before = stored.copy() if stored and isinstance(stored, dict) else SimpleMemory().model_dump()
                 if stored and isinstance(stored, dict):
                     # Merge each entity type, removing duplicates by ID
                     for entity_type in ['accounts', 'contacts', 'opportunities', 'cases', 'tasks', 'leads']:
                         existing_items = stored.get(entity_type, [])
                         new_items = clean_data.get(entity_type, [])
+                        
+                        before_count = len(existing_items)
                         
                         merged_dict = {}
                         
@@ -790,6 +879,32 @@ ORCHESTRATOR TOOLS:
                                 merged_dict[item['id']] = item
                         
                         clean_data[entity_type] = list(merged_dict.values())
+                        
+                        # Log deduplication results
+                        after_count = len(clean_data[entity_type])
+                        if before_count > 0 or len(new_items) > 0:
+                            extraction_logger.log_deduplication(
+                                record_type=entity_type,
+                                before_count=before_count + len(new_items),
+                                after_count=after_count,
+                                duplicates_removed=before_count + len(new_items) - after_count
+                            )
+                
+                # Calculate changes
+                changes = {}
+                for entity_type in ['accounts', 'contacts', 'opportunities', 'cases', 'tasks', 'leads']:
+                    before = len(memory_before.get(entity_type, []))
+                    after = len(clean_data.get(entity_type, []))
+                    if after != before:
+                        changes[entity_type] = after - before
+                
+                # Log memory update
+                extraction_logger.log_memory_update(
+                    user_id=user_id,
+                    memory_before=memory_before,
+                    memory_after=clean_data,
+                    changes=changes
+                )
                 
                 memory_store.sync_put(namespace, key, clean_data)
                 
@@ -807,6 +922,14 @@ ORCHESTRATOR TOOLS:
                     message_count=len(state.get('messages', []))
                 )
                 
+                # Log successful extraction completion
+                extraction_logger.log_extraction_complete(
+                    user_id=user_id,
+                    duration=time.time() - extraction_start_time,
+                    total_extracted=total_records,
+                    success=True
+                )
+                
                 return {
                     "memory": {"SimpleMemory": clean_data}, 
                     "events": [memory_completed_event.to_dict()]
@@ -814,6 +937,17 @@ ORCHESTRATOR TOOLS:
                 
         except asyncio.TimeoutError:
             logger.warning("Memory extraction timed out")
+            extraction_logger.log_error(
+                operation="trustcall_extraction",
+                error="Timeout during TrustCall extraction",
+                context={"timeout": float(llm_config.timeout)}
+            )
+            extraction_logger.log_extraction_complete(
+                user_id=user_id,
+                duration=time.time() - extraction_start_time,
+                total_extracted=0,
+                success=False
+            )
             empty_memory = SimpleMemory().model_dump()
             error_event = OrchestratorEvent(
                 event_type=EventType.ERROR,
@@ -826,6 +960,17 @@ ORCHESTRATOR TOOLS:
             }
         except Exception as e:
             logger.warning(f"Memory extraction failed: {type(e).__name__}: {e}")
+            extraction_logger.log_error(
+                operation="memory_extraction",
+                error=str(e),
+                context={"error_type": type(e).__name__}
+            )
+            extraction_logger.log_extraction_complete(
+                user_id=user_id,
+                duration=time.time() - extraction_start_time,
+                total_extracted=0,
+                success=False
+            )
             empty_memory = SimpleMemory().model_dump()
             error_event = OrchestratorEvent(
                 event_type=EventType.ERROR,
@@ -839,23 +984,6 @@ ORCHESTRATOR TOOLS:
     
     
     
-    # Helper function to convert messages to serializable format
-    def _serialize_messages(messages):
-        """Convert LangChain messages to JSON-serializable format."""
-        serializable_messages = []
-        for msg in messages:
-            if hasattr(msg, 'dict'):
-                # LangChain messages have a dict() method
-                serializable_messages.append(msg.dict())
-            elif isinstance(msg, dict):
-                serializable_messages.append(msg)
-            else:
-                # Fallback - just get the content
-                serializable_messages.append({
-                    "type": type(msg).__name__,
-                    "content": str(getattr(msg, 'content', str(msg)))
-                })
-        return serializable_messages
     
     # Background task helpers that save directly to persistent store
     def _run_background_summary(messages, summary, events, memory, user_id, thread_id):
@@ -866,7 +994,7 @@ ORCHESTRATOR TOOLS:
         """
         try:
             mock_state = {
-                "messages": _serialize_messages(messages),
+                "messages": serialize_messages(messages),
                 "summary": summary,
                 "events": [e.to_dict() for e in events],
                 "memory": memory
@@ -909,21 +1037,9 @@ ORCHESTRATOR TOOLS:
         Creates new event loop for async execution.
         """
         try:
-            # Convert messages to serializable format
-            serializable_messages = []
-            for msg in messages:
-                if hasattr(msg, 'dict'):
-                    serializable_messages.append(msg.dict())
-                elif isinstance(msg, dict):
-                    serializable_messages.append(msg)
-                else:
-                    serializable_messages.append({
-                        "type": type(msg).__name__,
-                        "content": str(getattr(msg, 'content', str(msg)))
-                    })
-            
+            # Convert messages to serializable format using centralized utility
             mock_state = {
-                "messages": serializable_messages,
+                "messages": serialize_messages(messages),
                 "summary": summary,
                 "events": [e.to_dict() for e in events],
                 "memory": memory
@@ -938,8 +1054,8 @@ ORCHESTRATOR TOOLS:
                                      error=str(e),
                                      traceback=traceback.format_exc()[:500])
     
-    # Build graph with tool integration
-    tool_node = ToolNode(tools=tools)
+    # Build graph with tool integration supporting Command pattern
+    tool_node = create_tool_node(tools)
     graph_builder.add_node("tools", tool_node)
     graph_builder.add_node("conversation", orchestrator)
     
@@ -1404,6 +1520,28 @@ async def main():
                 continue
             
             print("\nASSISTANT: ", end="", flush=True)
+            
+            # Show processing indicator
+            import threading
+            processing_done = threading.Event()
+            
+            def show_processing_indicator():
+                """Show a blinking sparkle emoji while processing"""
+                frames = ["✨", " "]
+                i = 0
+                while not processing_done.is_set():
+                    # Position after "ASSISTANT: "
+                    print(f"\rASSISTANT: {frames[i % 2]} ", end="", flush=True)
+                    time.sleep(0.5)
+                    i += 1
+                # Clear the indicator and reset cursor
+                print("\rASSISTANT: ", end="", flush=True)
+            
+            # Start indicator in background thread
+            indicator_thread = threading.Thread(target=show_processing_indicator)
+            indicator_thread.daemon = True
+            indicator_thread.start()
+            
             # Stream response immediately
             conversation_response = None
             response_shown = False
@@ -1423,6 +1561,10 @@ async def main():
                     if hasattr(last_msg, 'content') and last_msg.content and hasattr(last_msg, 'type'):
                         from langchain_core.messages import AIMessage
                         if isinstance(last_msg, AIMessage) and not getattr(last_msg, 'tool_calls', None):
+                            # Stop the processing indicator
+                            processing_done.set()
+                            indicator_thread.join(timeout=1.0)
+                            
                             conversation_response = last_msg.content
                             log_orchestrator_activity("USER_MESSAGE_DISPLAYED", 
                                                     response=conversation_response[:1000],
@@ -1433,6 +1575,9 @@ async def main():
                             # Continue processing for background tasks
             
             if not response_shown:
+                # Stop the indicator if still running
+                processing_done.set()
+                indicator_thread.join(timeout=1.0)
                 print("Processing your request...\n")
             
             # Update message count for current thread and save to storage

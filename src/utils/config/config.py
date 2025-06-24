@@ -96,7 +96,8 @@ class LLMConfig:
     - Azure OpenAI for enterprise security and compliance
     """
     model: str = "gpt-4o-mini"
-    temperature: float = 0.0  # Deterministic outputs for business consistency
+    temperature: float = 0.0  # Default can be tuned for user interactions via config
+    top_p: Optional[float] = None  # Nucleus sampling - None uses model default (1.0)
     max_tokens: int = 4000  # Balance between context and cost
     timeout: int = 120  # Generous timeout for complex operations
     retry_attempts: int = 3
@@ -222,6 +223,15 @@ class ConversationConfig:
     memory_namespace_prefix: str = "memory"  # Prefix for memory namespaces
     summary_key: str = "conversation_summary"  # Key for storing summaries
     memory_key: str = "SimpleMemory"  # Key for storing structured memory
+    
+    # Typing effect configuration for enhanced UX
+    typing_effect_enabled: bool = True  # Global toggle for typing animation
+    typing_char_delay: float = 0.02  # Delay for character-by-character (first line)
+    typing_chunk_delay: float = 0.08  # Delay between sentence chunks
+    typing_line_delay: float = 0.03  # Delay between lines
+    typing_paragraph_delay: float = 0.15  # Delay at paragraph breaks
+    typing_first_line_char_limit: int = 100  # Max chars for first line animation
+    typing_instant_elements: bool = True  # Instant display for tables/structure
 
 @dataclass
 class SystemConfig:

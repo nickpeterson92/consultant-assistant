@@ -37,6 +37,7 @@ from src.utils.soql_query_builder import (
     SOQLOperator,
     escape_soql
 )
+from src.utils.table_formatter import format_salesforce_response
 
 
 def get_salesforce_connection():
@@ -143,7 +144,8 @@ class GetLeadTool(BaseTool):
                 for rec in records
             ]
             
-            return formatted_records[0] if len(formatted_records) == 1 else formatted_records
+            result = formatted_records[0] if len(formatted_records) == 1 else formatted_records
+            return format_salesforce_response(result)
             
         except Exception as e:
             return {"error": str(e)}
@@ -370,7 +372,8 @@ class GetAccountTool(BaseTool):
                 for rec in records
             ]
             
-            return formatted_records[0] if len(formatted_records) == 1 else formatted_records
+            result = formatted_records[0] if len(formatted_records) == 1 else formatted_records
+            return format_salesforce_response(result)
 
         except Exception as e:
             return {"error": str(e)}
@@ -629,7 +632,8 @@ class GetOpportunityTool(BaseTool):
                 for rec in records
             ]
             
-            return formatted_records[0] if len(formatted_records) == 1 else formatted_records
+            result = formatted_records[0] if len(formatted_records) == 1 else formatted_records
+            return format_salesforce_response(result)
 
         except Exception as e:
             return {"error": str(e)}
@@ -923,7 +927,8 @@ class GetContactTool(BaseTool):
                 for rec in records
             ]
             
-            return formatted_records[0] if len(formatted_records) == 1 else formatted_records
+            result = formatted_records[0] if len(formatted_records) == 1 else formatted_records
+            return format_salesforce_response(result)
 
         except Exception as e:
             return {"error": str(e)}
@@ -1197,7 +1202,8 @@ class GetCaseTool(BaseTool):
                 for rec in records
             ]
             
-            return formatted_records[0] if len(formatted_records) == 1 else formatted_records
+            result = formatted_records[0] if len(formatted_records) == 1 else formatted_records
+            return format_salesforce_response(result)
 
         except Exception as e:
             return {"error": str(e)}
@@ -1486,7 +1492,8 @@ class GetTaskTool(BaseTool):
                 for rec in records
             ]
             
-            return formatted_records[0] if len(formatted_records) == 1 else formatted_records
+            result = formatted_records[0] if len(formatted_records) == 1 else formatted_records
+            return format_salesforce_response(result)
 
         except Exception as e:
             return {"error": str(e)}
@@ -1774,12 +1781,12 @@ class GetSalesPipelineTool(BaseTool):
             for record in results["records"]:
                 record["_query_type"] = "pipeline_by_" + data.group_by
             
-            return results["records"]
+            return format_salesforce_response(results["records"])
             
         except Exception as e:
-            # Return empty list like other tools to prevent looping
+            # Return error dict with clear message to prevent retries
             log_tool_activity("GetSalesPipelineTool", "ERROR", error=str(e))
-            return []
+            return {"error": f"Failed to retrieve sales pipeline: {str(e)}. Please try a different approach or tool."}
 
 
 class GetTopPerformersInput(BaseModel):
@@ -1915,12 +1922,12 @@ class GetTopPerformersTool(BaseTool):
             for record in results["records"]:
                 record["_metric_type"] = data.metric
                 
-            return results["records"]
+            return format_salesforce_response(results["records"])
             
         except Exception as e:
-            # Return empty list like other tools to prevent looping
+            # Return error dict with clear message to prevent retries
             log_tool_activity("GetTopPerformersTool", "ERROR", error=str(e))
-            return []
+            return {"error": f"Failed to retrieve top performers: {str(e)}. Please try a different approach or tool."}
 
 
 class GlobalSearchInput(BaseModel):
@@ -2032,12 +2039,12 @@ class GlobalSearchTool(BaseTool):
             for record in search_records:
                 record["_search_term"] = data.search_term
                 
-            return search_records
+            return format_salesforce_response(search_records)
             
         except Exception as e:
-            # Return empty list like other tools to prevent looping
+            # Return error dict with clear message to prevent retries
             log_tool_activity("GlobalSearchTool", "ERROR", error=str(e))
-            return []
+            return {"error": f"Failed to perform global search: {str(e)}. Please try a different approach or tool."}
 
 
 class GetAccountInsightsInput(BaseModel):
@@ -2128,21 +2135,26 @@ class GetAccountInsightsTool(BaseTool):
             account_data = results['records'][0]
             
             # Calculate summary metrics and add to account data
+            # Handle potential None values from subqueries
+            opportunities = account_data.get("Opportunities") or {}
+            contacts = account_data.get("Contacts") or {}
+            cases = account_data.get("Cases") or {}
+            
             account_data["_summary"] = {
-                "total_opportunities": len(account_data.get("Opportunities", {}).get("records", [])),
-                "pipeline_value": sum(opp.get("Amount", 0) for opp in 
-                                    account_data.get("Opportunities", {}).get("records", [])),
-                "total_contacts": len(account_data.get("Contacts", {}).get("records", [])),
-                "open_cases": len(account_data.get("Cases", {}).get("records", []))
+                "total_opportunities": len(opportunities.get("records", [])),
+                "pipeline_value": sum((opp.get("Amount") or 0) for opp in 
+                                    opportunities.get("records", [])),
+                "total_contacts": len(contacts.get("records", [])),
+                "open_cases": len(cases.get("records", []))
             }
             
-            # Return single account record like other tools
-            return account_data
+            # Format the response before returning
+            return format_salesforce_response(account_data)
             
         except Exception as e:
-            # Return empty list like other tools to prevent looping
+            # Return error dict with clear message to prevent retries
             log_tool_activity("GetAccountInsightsTool", "ERROR", error=str(e))
-            return []
+            return {"error": f"Failed to retrieve account insights: {str(e)}. Please try a different approach or tool."}
 
 
 class GetBusinessMetricsInput(BaseModel):
@@ -2346,12 +2358,12 @@ class GetBusinessMetricsTool(BaseTool):
                 record["_metric_type"] = data.metric_type
                 record["_time_period"] = data.time_period
                 
-            return results["records"]
+            return format_salesforce_response(results["records"])
             
         except Exception as e:
-            # Return empty list like other tools to prevent looping
+            # Return error dict with clear message to prevent retries
             log_tool_activity("GetBusinessMetricsTool", "ERROR", error=str(e))
-            return []
+            return {"error": f"Failed to retrieve business metrics: {str(e)}. Please try a different approach or tool."}
 
 
 # Export all analytics tools

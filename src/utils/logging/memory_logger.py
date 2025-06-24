@@ -53,7 +53,7 @@ logs_dir.mkdir(exist_ok=True)
 class MemoryLogger:
     """Dedicated logger for memory operations"""
     
-    def __init__(self, log_file: str = "logs/memory.log"):
+    def __init__(self, log_file: str = "logs/data/memory.log"):
         self.logger = logging.getLogger("memory_operations")
         self.logger.setLevel(logging.INFO)
         self.logger.propagate = False
@@ -154,7 +154,7 @@ class MemoryLogger:
 class SummaryLogger:
     """Dedicated logger for summary operations"""
     
-    def __init__(self, log_file: str = "logs/summary.log"):
+    def __init__(self, log_file: str = "logs/data/summary.log"):
         self.logger = logging.getLogger("summary_operations")
         self.logger.setLevel(logging.INFO)
         self.logger.propagate = False

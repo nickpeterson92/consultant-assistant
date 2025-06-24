@@ -15,7 +15,8 @@
   },
   "llm": {
     "model": "gpt-4o-mini",
-    "temperature": 0.0,
+    "temperature": 0.3,
+    "top_p": 0.9,
     "max_tokens": 4000,
     "timeout": 120,
     "retry_attempts": 3,
@@ -72,11 +73,18 @@
     "memory_extraction_delay": 0.5,
     "memory_update_turn_threshold": 3,
     "max_event_history": 50,
-    "default_user_id": "user-1",
+    "default_user_id": "user-666",
     "default_thread_id": "default",
     "memory_namespace_prefix": "memory",
     "summary_key": "conversation_summary",
-    "memory_key": "SimpleMemory"
+    "memory_key": "SimpleMemory",
+    "typing_effect_enabled": true,
+    "typing_char_delay": 0.02,
+    "typing_chunk_delay": 0.15,
+    "typing_line_delay": 0.03,
+    "typing_paragraph_delay": 0.15,
+    "typing_first_line_char_limit": 100,
+    "typing_instant_elements": true
   },
   "agents": {
     "salesforce-agent": {

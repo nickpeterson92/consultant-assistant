@@ -16,6 +16,10 @@ from pathlib import Path
 LOG_DIR = Path(__file__).parent.parent.parent.parent / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 
+# Create subdirectories
+for subdir in ['agents', 'communication', 'data', 'system', 'debug', 'archive']:
+    (LOG_DIR / subdir).mkdir(exist_ok=True)
+
 class StructuredLogger:
     """Enhanced logger with structured data and external file output"""
     
@@ -158,21 +162,28 @@ def get_logger(component: str) -> StructuredLogger:
     
     log_level = logging.INFO
     
-    # Component-specific log files
+    # Component-specific log files with subdirectories
     log_files = {
-        'orchestrator': 'orchestrator.log',
-        'salesforce_agent': 'salesforce_agent.log', 
-        'a2a_protocol': 'a2a_protocol.log',
-        'cost_tracking': 'cost_tracking.log',
-        'performance': 'performance.log',
-        'multi_agent': 'multi_agent.log',
-        'tools': 'tools.log'
+        'orchestrator': 'agents/orchestrator.log',
+        'salesforce_agent': 'agents/salesforce.log', 
+        'a2a_protocol': 'communication/a2a_protocol.log',
+        'cost_tracking': 'system/cost_tracking.log',
+        'performance': 'system/performance.log',
+        'multi_agent': 'system/multi_agent.log',
+        'tools': 'communication/tool_calls.log',
+        'agent_registry': 'agents/agent_registry.log',
+        'circuit_breaker': 'communication/circuit_breaker.log',
+        'memory_extraction': 'debug/memory_extraction.log',
+        'error_details': 'debug/error_details.log'
     }
     
     log_file = log_files.get(component, f'{component}.log')
     
     # All log files go to logs/ directory
     log_path = LOG_DIR / log_file
+    
+    # Ensure parent directory exists
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     
     logger = StructuredLogger(component, str(log_path), log_level)
     LOGGERS[component] = logger

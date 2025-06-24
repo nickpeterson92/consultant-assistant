@@ -37,6 +37,7 @@ import logging
 from src.utils.logging import get_logger, get_performance_tracker
 from src.utils.logging import log_a2a_activity, log_performance_activity
 from src.utils.input_validation import AgentInputValidator, ValidationError
+from src.utils.message_serialization import serialize_message
 from .circuit_breaker import CircuitBreakerConfig, RetryConfig, resilient_call
 from src.utils.config import get_a2a_config, get_system_config
 
@@ -139,8 +140,41 @@ class A2ATask:
             self.created_at = datetime.now(timezone.utc).isoformat()
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
-        return asdict(self)
+        """Convert to dictionary for JSON serialization.
+        
+        Uses centralized message serialization utility for LangChain objects.
+        """
+        try:
+            # Try standard asdict first - should work if all objects are serialized
+            return asdict(self)
+        except (TypeError, ValueError):
+            # Fallback: manually serialize any LangChain objects using centralized utility
+            result = {
+                "id": self.id,
+                "instruction": self.instruction,
+                "status": self.status,
+                "created_at": self.created_at,
+                "context": self._serialize_dict_with_messages(self.context),
+                "state_snapshot": self._serialize_dict_with_messages(self.state_snapshot)
+            }
+            return result
+    
+    def _serialize_dict_with_messages(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Helper to serialize dictionaries using centralized message serialization."""
+        if not isinstance(data, dict):
+            return data
+        
+        result = data.copy()
+        
+        # Handle recent_messages using centralized utility
+        if "recent_messages" in result and isinstance(result["recent_messages"], list):
+            result["recent_messages"] = [serialize_message(msg) for msg in result["recent_messages"]]
+        
+        # Handle messages field (for state_snapshot) using centralized utility
+        if "messages" in result and isinstance(result["messages"], list):
+            result["messages"] = [serialize_message(msg) for msg in result["messages"]]
+        
+        return result
 
 @dataclass
 class A2AArtifact:

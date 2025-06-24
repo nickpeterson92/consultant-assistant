@@ -45,28 +45,21 @@ def main():
     """Start all components of the multi-agent system"""
     # Setup command-line argument parsing
     parser = argparse.ArgumentParser(description="Multi-Agent Orchestrator System")
-    parser.add_argument("-d", "--debug", action="store_true", help="Enable debug mode (detailed logging and no animations)")
-    
     args = parser.parse_args()
-    DEBUG_MODE = args.debug
     
-    # Set environment variable for all child processes
-    os.environ['DEBUG_MODE'] = 'true' if DEBUG_MODE else 'false'
+    # Log system startup
     
     print("=== Multi-Agent Orchestrator System ===")
     log_orchestrator_activity("SYSTEM_START", components=["orchestrator", "salesforce-agent"])
     print("Starting specialized agents and orchestrator...")
-    if DEBUG_MODE:
-        print("DEBUG MODE ENABLED - Detailed logging active")
     print("Press Ctrl+C to stop all components\n")
     
-    # Commands to run - add debug flag if enabled
-    debug_flag = " -d" if DEBUG_MODE else ""
+    # Commands to run
     commands = [
-        (f"python3 salesforce_agent.py{debug_flag}", "Salesforce-Agent"),
+        ("python3 salesforce_agent.py --port 8001", "Salesforce-Agent"),
         # Add more agents here as they're implemented:
-        # (f"python3 travel_agent.py{debug_flag}", "Travel-Agent"),
-        # (f"python3 expense_agent.py{debug_flag}", "Expense-Agent"),
+        # ("python3 travel_agent.py --port 8002", "Travel-Agent"),
+        # ("python3 expense_agent.py --port 8003", "Expense-Agent"),
     ]
     
     processes = []
@@ -91,7 +84,7 @@ def main():
         print("Starting Orchestrator...")
         # Start orchestrator in main thread so we can interact with it
         orchestrator_process = subprocess.Popen(
-            f"python3 orchestrator.py{debug_flag}",
+            "python3 orchestrator.py",
             shell=True,
             stdin=sys.stdin,
             stdout=sys.stdout,

@@ -82,3 +82,7 @@ HEALTH_CHECK_TIMEOUT = 10
 CIRCUIT_BREAKER_FAILURE_THRESHOLD = 5
 CIRCUIT_BREAKER_TIMEOUT = 30
 CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS = 3
+
+# Deterministic LLM settings for background tasks
+DETERMINISTIC_TEMPERATURE = 0.0  # For summarization, memory extraction
+DETERMINISTIC_TOP_P = 0.1  # Focused sampling for consistency

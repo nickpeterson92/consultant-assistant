@@ -56,15 +56,18 @@ logging.getLogger('httpcore.connection').setLevel(logging.WARNING)
 def create_azure_openai_chat():
     """Create Azure OpenAI chat instance using global config"""
     llm_config = get_llm_config()
-    return AzureChatOpenAI(
-        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],  # Keep sensitive info in env
-        azure_deployment=llm_config.azure_deployment,
-        openai_api_version=llm_config.api_version,
-        openai_api_key=os.environ["AZURE_OPENAI_API_KEY"],  # Keep sensitive info in env
-        temperature=llm_config.temperature,
-        max_tokens=llm_config.max_tokens,
-        timeout=llm_config.timeout,
-    )
+    llm_kwargs = {
+        "azure_endpoint": os.environ["AZURE_OPENAI_ENDPOINT"],  # Keep sensitive info in env
+        "azure_deployment": llm_config.azure_deployment,
+        "openai_api_version": llm_config.api_version,
+        "openai_api_key": os.environ["AZURE_OPENAI_API_KEY"],  # Keep sensitive info in env
+        "temperature": llm_config.temperature,
+        "max_tokens": llm_config.max_tokens,
+        "timeout": llm_config.timeout,
+    }
+    if llm_config.top_p is not None:
+        llm_kwargs["top_p"] = llm_config.top_p
+    return AzureChatOpenAI(**llm_kwargs)
 
 def build_salesforce_graph():
     """Build and compile the Salesforce agent LangGraph"""

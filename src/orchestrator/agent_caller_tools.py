@@ -6,8 +6,12 @@ These tools enable the orchestrator to communicate with specialized agents via A
 import uuid
 import json
 import asyncio
-from typing import Dict, Any, Optional, List
-from langchain_core.tools import BaseTool
+from typing import Dict, Any, Optional, List, Annotated
+from langchain_core.tools import BaseTool, tool
+from langchain_core.runnables import RunnableConfig
+from langchain_core.messages import ToolMessage
+from langgraph.prebuilt import InjectedState
+from langgraph.types import Command
 from pydantic import BaseModel, Field
 import logging
 
@@ -18,10 +22,12 @@ logger = logging.getLogger(__name__)
 
 # Import centralized logging
 from src.utils.logging import log_orchestrator_activity
+from src.utils.logging.memory_extraction_logger import get_memory_extraction_logger
 from src.utils.config import (
     CONVERSATION_SUMMARY_KEY, USER_CONTEXT_KEY, 
     MESSAGES_KEY, MEMORY_KEY, RECENT_MESSAGES_COUNT
 )
+from src.utils.message_serialization import serialize_recent_messages
 
 
 class BaseAgentTool(BaseTool):
@@ -43,18 +49,12 @@ class BaseAgentTool(BaseTool):
         context = {}
         
         # Include conversation summary if available
-        if CONVERSATION_SUMMARY_KEY in state:
-            context[CONVERSATION_SUMMARY_KEY] = state[CONVERSATION_SUMMARY_KEY]
+        if "summary" in state:
+            context["conversation_summary"] = state["summary"]
         
-        # Include recent messages
+        # Include recent messages using centralized serialization utility
         if MESSAGES_KEY in state and state[MESSAGES_KEY]:
-            recent_messages = []
-            for msg in state[MESSAGES_KEY][-message_count:]:
-                if hasattr(msg, 'content'):
-                    recent_messages.append({
-                        "role": getattr(msg, '__class__', type(msg)).__name__,
-                        "content": msg.content
-                    })
+            recent_messages = serialize_recent_messages(state[MESSAGES_KEY], message_count)
             if recent_messages:
                 context["recent_messages"] = recent_messages
         
@@ -69,9 +69,9 @@ class BaseAgentTool(BaseTool):
                 if filtered_memory:
                     context["filtered_memory"] = filtered_memory
         
-        # Include user context
-        if USER_CONTEXT_KEY in state:
-            context[USER_CONTEXT_KEY] = state[USER_CONTEXT_KEY]
+        # Include user context if it exists
+        if "user_context" in state:
+            context["user_context"] = state["user_context"]
         
         return context
     
@@ -86,7 +86,7 @@ class BaseAgentTool(BaseTool):
         Returns:
             Minimal state snapshot
         """
-        default_keys = [CONVERSATION_SUMMARY_KEY, "events", MEMORY_KEY, USER_CONTEXT_KEY]
+        default_keys = ["summary", "events", "memory"]
         keys_to_include = include_keys or default_keys
         
         return {
@@ -110,9 +110,8 @@ class AgentCallInput(BaseModel):
     - Extensibility: New agents automatically discoverable via capabilities
     """
     instruction: str = Field(
-        description="Natural language task instruction for the specialized agent. "
-        "Be specific about desired outcomes. Examples: 'get all contacts for Acme Corp', "
-        "'create a new lead for John Smith at TechCorp', 'book flight to NYC next Tuesday'"
+        description="The user's EXACT request in their own words. "
+        "DO NOT translate or modify. Pass through exactly as the user stated it."
     )
     context: Optional[Dict[str, Any]] = Field(
         default=None, 
@@ -176,124 +175,259 @@ class SalesforceAgentTool(BaseAgentTool):
     - Contact Management: Customer relationships, communication (create/get/update contacts)
     - Case Management: Service tickets, issue resolution (create/get/update cases)
     - Task Management: Activity coordination, follow-ups (create/get/update tasks)
+    - ANALYTICS & INSIGHTS: Business metrics, KPIs, revenue analysis, pipeline analytics
     
-    OPTIMAL USE CASES:
-    - Basic account lookup: "get the [account]" or "find [account] account"
-    - Individual record queries: "find account/lead/opportunity by [criteria]"
-    - Record creation: "create new lead/opportunity/case/task"
-    - Comprehensive account data: "get all contacts/opportunities/cases/tasks for [account]"
-    - Pipeline analysis: "show me all opportunities for [account]"
-    - Customer service: "get all cases for [customer]"
+    CRITICAL - NATURAL LANGUAGE PASSTHROUGH:
+    Pass the user's EXACT words to the Salesforce agent without translation or modification.
+    The Salesforce agent understands natural language in CRM context.
+    
+    EXAMPLES OF CORRECT PASSTHROUGH:
+    - User: "whats the lowdown on this account" → Pass: "whats the lowdown on this account"
+    - User: "gimme the scoop on our pipeline" → Pass: "gimme the scoop on our pipeline"
+    - User: "get the genepoint account" → Pass: "get the genepoint account"
+    
+    The Salesforce agent handles ALL CRM operations and will interpret the user's intent.
     
     Returns structured CRM data with Salesforce IDs for downstream processing."""
     
-    args_schema: type = AgentCallInput
+    # Note: Removed args_schema to fix InjectedState detection bug in LangGraph
+    # See: https://github.com/langchain-ai/langgraph/issues/2220
     
     def __init__(self, registry: AgentRegistry):
         super().__init__(metadata={"registry": registry})
     
     
-    async def _arun(self, instruction: str, context: Optional[Dict[str, Any]] = None, **kwargs) -> str:
-        """Execute the Salesforce agent call"""
-        try:
+    def _extract_conversation_context(self, state: Optional[Dict[str, Any]], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Extract and serialize conversation context from LangGraph state.
+        
+        Args:
+            state: LangGraph injected state containing messages, memory, etc.
+            context: Additional context to merge
             
-            # Create a minimal state to avoid circular references
-            state = {
-                "messages": [],
-                "memory": {},
-                "turns": 0
+        Returns:
+            Dictionary of serialized context ready for A2A transmission
+        """
+        messages = state.get("messages", []) if state else []
+        memory = state.get("memory", {}) if state else {}
+        
+        extracted_context = {}
+        
+        # Include recent messages using centralized serialization
+        if messages:
+            recent_messages = serialize_recent_messages(messages, count=5)
+            if recent_messages:
+                extracted_context["recent_messages"] = recent_messages
+        
+        # Include memory data
+        if memory:
+            extracted_context["memory"] = memory
+        
+        # Include conversation summary if available  
+        if state and "summary" in state:
+            extracted_context["conversation_summary"] = state["summary"]
+        
+        # Merge any additional context
+        if context:
+            extracted_context.update(context)
+        
+        return extracted_context
+    
+    def _serialize_state_snapshot(self, state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Serialize LangGraph state for A2A transmission.
+        
+        Args:
+            state: Raw LangGraph state that may contain LangChain objects
+            
+        Returns:
+            JSON-serializable state snapshot
+        """
+        serialized_state = {}
+        if state:
+            for key, value in state.items():
+                if key == "messages" and isinstance(value, list):
+                    # Serialize messages using centralized utility
+                    serialized_state[key] = serialize_recent_messages(value)
+                else:
+                    # Keep other state as-is
+                    serialized_state[key] = value
+        return serialized_state
+    
+    def _find_salesforce_agent(self):
+        """Locate the Salesforce agent in the registry.
+        
+        Returns:
+            Agent instance or None if not found
+        """
+        registry = self.metadata["registry"]
+        agent = registry.find_agents_by_capability("salesforce_operations")
+        
+        if not agent:
+            logger.warning("Salesforce agent not found by capability, trying by name...")
+            agent = registry.get_agent("salesforce-agent")
+        
+        # Handle list return from find_agents_by_capability
+        if isinstance(agent, list) and agent:
+            agent = agent[0]
+        
+        return agent
+    
+    def _create_error_command(self, error_message: str, tool_call_id: str) -> Command:
+        """Create a standardized error Command response.
+        
+        Args:
+            error_message: Error description for the user
+            tool_call_id: Tool call identifier for response tracking
+            
+        Returns:
+            Command object with error message
+        """
+        return Command(
+            update={
+                "messages": [ToolMessage(
+                    content=error_message,
+                    tool_call_id=tool_call_id
+                )]
             }
+        )
+    
+    def _extract_response_content(self, result: Dict[str, Any]) -> str:
+        """Extract response content from A2A result.
+        
+        Args:
+            result: Raw A2A response result
+            
+        Returns:
+            Extracted content string
+        """
+        response_content = ""
+        
+        if "artifacts" in result:
+            response = result["artifacts"]
+            
+            if isinstance(response, list) and len(response) > 0:
+                response = response[0]
+                
+            if isinstance(response, dict) and "content" in response:
+                response_content = response["content"]
+            else:
+                response_content = str(response)
+        
+        return response_content
+    
+    def _process_tool_results(self, result: Dict[str, Any], response_content: str, task_id: str) -> str:
+        """Process and augment response with structured tool data.
+        
+        Args:
+            result: A2A response containing potential tool results
+            response_content: Base response content
+            task_id: Task identifier for logging
+            
+        Returns:
+            Final response content with structured data if available
+        """
+        # Check for tool results in state_updates
+        tool_results_data = None
+        if "state_updates" in result and "tool_results" in result["state_updates"]:
+            tool_results_data = result["state_updates"]["tool_results"]
+        
+        if tool_results_data:
+            final_response = response_content + "\n\n[STRUCTURED_TOOL_DATA]:\n" + json.dumps(tool_results_data, indent=2)
+            
+            # Log structured data addition
+            extraction_logger = get_memory_extraction_logger()
+            extraction_logger.log_structured_data_found(
+                tool_name="salesforce_agent",
+                data_preview=str(tool_results_data)[:200],
+                data_size=len(json.dumps(tool_results_data)),
+                record_count=len(tool_results_data) if isinstance(tool_results_data, list) else 1
+            )
+            log_orchestrator_activity("STRUCTURED_DATA_ADDED",
+                                    agent="salesforce-agent",
+                                    task_id=task_id,
+                                    data_size=len(json.dumps(tool_results_data)))
+            return final_response
+        else:
+            return response_content
+    
+    async def _arun(self, instruction: str, context: Optional[Dict[str, Any]] = None, state: Annotated[Dict[str, Any], InjectedState] = None, **kwargs) -> Command:
+        """Execute the Salesforce agent call using Command pattern.
+        
+        This method orchestrates the entire flow but delegates specific responsibilities
+        to focused helper methods for better maintainability.
+        """
+        try:
+            # Extract and serialize conversation context
+            extracted_context = self._extract_conversation_context(state, context)
             
             # Find the Salesforce agent
-            registry = self.metadata["registry"]
-            agent = registry.find_agents_by_capability("salesforce_operations")
-            if not agent:
-                logger.warning("Salesforce agent not found by capability, trying by name...")
-                agent = registry.get_agent("salesforce-agent")
-            
-            if isinstance(agent, list) and agent:
-                agent = agent[0]
-            
+            agent = self._find_salesforce_agent()
             if not agent:
                 logger.error("Salesforce agent not available")
-                return "Error: Salesforce agent not available. Please ensure the Salesforce agent is running and registered."
+                return self._create_error_command(
+                    "Error: Salesforce agent not available. Please ensure the Salesforce agent is running and registered.",
+                    kwargs.get("tool_call_id", str(uuid.uuid4()))
+                )
             
-            # Extract context and create state snapshot
-            # Use base class method with Salesforce-specific keywords
-            salesforce_keywords = ["account", "lead", "opportunity", "contact", "case", "task", "salesforce"]
-            extracted_context = self._extract_relevant_context(state, filter_keywords=salesforce_keywords)
-            
-            # Rename filtered_memory to salesforce_memory for clarity
-            if "filtered_memory" in extracted_context:
-                extracted_context["salesforce_memory"] = extracted_context.pop("filtered_memory")
-            if context:
-                extracted_context.update(context)
-            
-            state_snapshot = self._create_state_snapshot(state)
-            
-            # Create A2A task
+            # Create A2A task with serialized state
             task_id = str(uuid.uuid4())
+            serialized_state = self._serialize_state_snapshot(state)
+            
             task = A2ATask(
                 id=task_id,
                 instruction=instruction,
                 context=extracted_context,
-                state_snapshot=state_snapshot
+                state_snapshot=serialized_state
             )
             
+            # Execute A2A call
             async with A2AClient() as client:
                 endpoint = agent.endpoint + "/a2a"
                 
-                                
                 # Log A2A dispatch
                 log_orchestrator_activity("A2A_DISPATCH",
                                         agent="salesforce-agent",
                                         task_id=task_id,
                                         instruction_preview=instruction[:100],
-                                        endpoint=endpoint)
-                result = await client.process_task(
-                    endpoint=endpoint,
-                    task=task
-                )
+                                        endpoint=endpoint,
+                                        context_keys=list(extracted_context.keys()),
+                                        context_size=len(str(extracted_context)))
                 
+                result = await client.process_task(endpoint=endpoint, task=task)
                 
-                # Extract the response and any tool results
-                response_content = ""
-                tool_results_data = None
+                # Process response
+                response_content = self._extract_response_content(result)
+                final_response = self._process_tool_results(result, response_content, task_id)
                 
-                if "artifacts" in result:
-                    response = result["artifacts"]
-                    
-                    if isinstance(response, list) and len(response) > 0:
-                        response = response[0]
-                        
-                    if isinstance(response, dict) and "content" in response:
-                        response_content = response["content"]
-                    else:
-                        response_content = str(response)
-                
-                # Check for tool results in state_updates
-                if "state_updates" in result and "tool_results" in result["state_updates"]:
-                    tool_results_data = result["state_updates"]["tool_results"]
-                
-                # Combine conversational response with structured tool data for better summaries
-                if tool_results_data:
-                    final_response = response_content + "\n\n[STRUCTURED_TOOL_DATA]:\n" + json.dumps(tool_results_data, indent=2)
-                else:
-                    final_response = response_content
                 log_orchestrator_activity("A2A_RESPONSE_SUCCESS",
                                         agent="salesforce-agent", 
                                         task_id=task_id,
                                         response_length=len(final_response))
-                return final_response
+                
+                # Return Command with processed response
+                return Command(
+                    update={
+                        "messages": [ToolMessage(
+                            content=final_response,
+                            tool_call_id=kwargs.get("tool_call_id", str(uuid.uuid4())),
+                            name="salesforce_agent"
+                        )]
+                    }
+                )
         
         except A2AException as e:
             logger.error(f"Failed to communicate with Salesforce agent: {e}")
-            return f"Error: Failed to communicate with Salesforce agent - {str(e)}"
+            return self._create_error_command(
+                f"Error: Failed to communicate with Salesforce agent - {str(e)}",
+                kwargs.get("tool_call_id", str(uuid.uuid4()))
+            )
         except Exception as e:
             logger.error(f"Unexpected error in Salesforce agent tool: {type(e).__name__}: {e}")
-            return f"Error: Unexpected error - {str(e)}"
+            return self._create_error_command(
+                f"Error: Unexpected error - {str(e)}",
+                kwargs.get("tool_call_id", str(uuid.uuid4()))
+            )
     
-    def _run(self, instruction: str, context: Optional[Dict[str, Any]] = None, **kwargs) -> str:
+    def _run(self, instruction: str, context: Optional[Dict[str, Any]] = None, **kwargs) -> Command:
         """Synchronous wrapper for async execution"""
         return asyncio.run(self._arun(instruction, context, **kwargs))
 
@@ -343,12 +477,11 @@ class GenericAgentTool(BaseAgentTool):
     - Financial Systems: Expense reporting, receipt processing, approval workflows
     - Communication: Email automation, notification systems, team coordination
     
-    OPTIMAL USE CASES:
-    - "Book a flight to San Francisco next week"
-    - "Process this expense report and submit for approval" 
-    - "Extract data from this PDF document"
-    - "Submit employee feedback for Q4 review"
-    - "Schedule a team meeting and send calendar invites"
+    CRITICAL - NATURAL LANGUAGE PASSTHROUGH:
+    Pass the user's EXACT words to the selected agent without translation or modification.
+    Each specialized agent understands natural language in its domain context.
+    
+    DO NOT translate user requests - pass them through verbatim.
     
     ADVANCED FEATURES:
     - Multi-agent workflows: Complex tasks requiring multiple specialized systems
@@ -358,14 +491,15 @@ class GenericAgentTool(BaseAgentTool):
     
     Returns structured responses with agent identification and task completion status."""
     
-    args_schema: type = AgentCallInput
+    # Note: Removed args_schema to fix InjectedState detection bug in LangGraph
+    # See: https://github.com/langchain-ai/langgraph/issues/2220
     
     def __init__(self, registry: AgentRegistry):
         super().__init__(metadata={"registry": registry})
     
     
     async def _arun(self, instruction: str, context: Optional[Dict[str, Any]] = None, 
-                   agent_name: Optional[str] = None, required_capabilities: Optional[List[str]] = None, **kwargs) -> str:
+                   agent_name: Optional[str] = None, required_capabilities: Optional[List[str]] = None, **kwargs) -> Command:
         """Execute a call to a specialized agent"""
         # Create a minimal state to avoid circular references
         state = {
@@ -383,7 +517,15 @@ class GenericAgentTool(BaseAgentTool):
         
         if not agent:
             available_agents = [a.name for a in registry.list_agents() if a.status == "online"]
-            return f"Error: No suitable agent found for the task. Available agents: {', '.join(available_agents) if available_agents else 'None'}"
+            error_msg = f"Error: No suitable agent found for the task. Available agents: {', '.join(available_agents) if available_agents else 'None'}"
+            return Command(
+                update={
+                    "messages": [ToolMessage(
+                        content=error_msg,
+                        tool_call_id=kwargs.get("tool_call_id", str(uuid.uuid4()))
+                    )]
+                }
+            )
         
         # Extract context and create state snapshot
         # Use base class method with agent-specific capabilities as filter
@@ -420,27 +562,53 @@ class GenericAgentTool(BaseAgentTool):
                     task=task
                 )
                 
-                # Extract the response
+                # Extract the response and convert to Command
+                response_content = ""
                 if "artifacts" in result:
                     response = result["artifacts"]
                     if isinstance(response, list) and len(response) > 0:
                         response = response[0]
                     if isinstance(response, dict) and "content" in response:
-                        response = response["content"]
-                    return str(response)
+                        response_content = response["content"]
+                    else:
+                        response_content = str(response)
+                else:
+                    response_content = str(result.get("result", f"No response from {agent.name}"))
                 
-                return str(result.get("result", f"No response from {agent.name}"))
+                return Command(
+                    update={
+                        "messages": [ToolMessage(
+                            content=response_content,
+                            tool_call_id=kwargs.get("tool_call_id", str(uuid.uuid4())),
+                            name="generic_agent"
+                        )]
+                    }
+                )
         
         except A2AException as e:
             logger.error(f"Error calling agent {agent.name}: {e}")
-            return f"Error: Failed to communicate with {agent.name} - {str(e)}"
+            return Command(
+                update={
+                    "messages": [ToolMessage(
+                        content=f"Error: Failed to communicate with {agent.name} - {str(e)}",
+                        tool_call_id=kwargs.get("tool_call_id", str(uuid.uuid4()))
+                    )]
+                }
+            )
         except Exception as e:
             logger.error(f"Unexpected error calling agent {agent.name}: {e}")
             logger.exception("Full traceback:")
-            return f"Error: Unexpected error - {str(e)}"
+            return Command(
+                update={
+                    "messages": [ToolMessage(
+                        content=f"Error: Unexpected error - {str(e)}",
+                        tool_call_id=kwargs.get("tool_call_id", str(uuid.uuid4()))
+                    )]
+                }
+            )
     
     def _run(self, instruction: str, context: Optional[Dict[str, Any]] = None, 
-           agent_name: Optional[str] = None, required_capabilities: Optional[List[str]] = None, **kwargs) -> str:
+           agent_name: Optional[str] = None, required_capabilities: Optional[List[str]] = None, **kwargs) -> Command:
         """Synchronous wrapper for async execution"""
         return asyncio.run(self._arun(instruction, context, agent_name, required_capabilities, **kwargs))
 

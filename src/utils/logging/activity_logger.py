@@ -74,14 +74,10 @@ def log_activity(component: str, operation_type: str, **data: Any) -> None:
             **safe_data
         }
         
-        # Determine log file path (project root logs directory)
-        log_file = Path(__file__).parent.parent.parent.parent / "logs" / f"{component}.log"
-        log_file.parent.mkdir(exist_ok=True)
-        
-        # Write to log file
-        with open(log_file, 'a') as f:
-            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {component} - INFO - {json.dumps(log_entry)}\n")
-            f.flush()
+        # Use centralized logging configuration
+        from .logging_config import get_logger
+        logger = get_logger(component)
+        logger.info(operation_type, **safe_data)
             
     except Exception:
         # Fire-and-forget pattern: logging failures never impact system operation

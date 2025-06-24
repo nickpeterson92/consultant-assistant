@@ -73,38 +73,170 @@ def smart_preserve_messages(messages: list, keep_count: int = 2):
         return messages[-keep_count:]
 
 
-async def type_out(text, delay=0.02):
-    """Asynchronously animate text output with typewriter effect.
+async def type_out(text, delay=None):
+    """Stream text output using semantic chunking for optimal UX.
     
-    Creates a natural conversational feel by printing text one character
-    at a time with configurable delay. Useful for AI assistant responses
-    to feel more human-like and engaging.
+    Implements research-backed progressive disclosure and perception of progress
+    patterns. Instead of character-by-character typing, uses semantic chunks
+    (sentences, phrases) to maintain readability while creating streaming effect.
+    
+    Key features:
+    - First sentence types normally to establish rhythm
+    - Subsequent content streams in semantic chunks
+    - Tables/structure appear instantly
+    - Natural pauses at paragraph boundaries
+    - Fully configurable via system_config.json
     
     Args:
         text: String to animate
-        delay: Seconds between each character (default: 0.02)
-        
-    Note:
-        Uses sys.stdout for immediate output without buffering.
-        Requires async context (await) for execution.
+        delay: Override for character delay (uses config if None)
         
     Example:
-        >>> await type_out("Hello, how can I help you today?")
-        # Text appears character by character
+        >>> await type_out("Hello! I found 5 accounts. Here are the details...")
+        # First sentence types normally, rest streams smoothly
     """
-    for char in text:
-        sys.stdout.write(char)
-        sys.stdout.flush()
-        await asyncio.sleep(delay)
+    import re
+    from .config import get_conversation_config
+    
+    config = get_conversation_config()
+    
+    # Check if typing effect is enabled
+    if not config.typing_effect_enabled:
+        print(text, flush=True)
+        return
+    
+    # Use config values or override
+    char_delay = delay or config.typing_char_delay
+    chunk_delay = config.typing_chunk_delay
+    line_delay = config.typing_line_delay
+    paragraph_delay = config.typing_paragraph_delay
+    first_line_limit = config.typing_first_line_char_limit
+    instant_elements = config.typing_instant_elements
+    
+    lines = text.split('\n')
+    first_chunk = True
+    
+    for i, line in enumerate(lines):
+        # Instant display for structured elements (tables, ASCII art, etc.)
+        if instant_elements and (
+            line.strip().startswith(('━', '│', '└', '├', '─', '█', '╔', '╗', '╚', '╝')) or
+            line.strip().startswith('|') or  # Table markers
+            (i > 0 and '|' in line and line.count('|') > 2)):  # Table rows
+            print(line, flush=True)
+            await asyncio.sleep(chunk_delay * 0.5)  # Brief pause for readability
+            continue
+            
+        # Handle empty lines
+        if not line.strip():
+            print()
+            await asyncio.sleep(paragraph_delay)  # Natural paragraph pause
+            continue
+            
+        # Semantic chunking for regular text
+        if first_chunk and len(line) < first_line_limit:
+            # First short line gets character-by-character for engagement
+            for char in line:
+                sys.stdout.write(char)
+                sys.stdout.flush()
+                await asyncio.sleep(char_delay)
+            print()
+            first_chunk = False
+        else:
+            # Split into semantic chunks (sentences or phrases)
+            # This regex splits on sentence endings but keeps the punctuation
+            chunks = re.split(r'([.!?]+\s*)', line)
+            chunks = [chunks[i] + (chunks[i+1] if i+1 < len(chunks) else '') 
+                     for i in range(0, len(chunks), 2) if chunks[i]]
+            
+            for j, chunk in enumerate(chunks):
+                if chunk.strip():
+                    # Stream each chunk
+                    print(chunk, end='', flush=True)
+                    # Pause between chunks for natural reading rhythm
+                    if j < len(chunks) - 1:
+                        await asyncio.sleep(chunk_delay)
+            
+            print()  # New line after the line is complete
+            
+        # Pause between lines for readability
+        if i < len(lines) - 1:
+            await asyncio.sleep(line_delay)
 
 
-def type_out_sync(text, delay=0.02):
-    """Synchronous version of type_out for non-async contexts."""
+def type_out_sync(text, delay=None):
+    """Synchronous streaming with semantic chunking for non-async contexts.
+    
+    Mirrors the async version's intelligent streaming approach using
+    semantic chunks for optimal readability and engagement.
+    Fully configurable via system_config.json.
+    
+    Args:
+        text: String to animate
+        delay: Override for character delay (uses config if None)
+    """
     import time
-    for char in text:
-        sys.stdout.write(char)
-        sys.stdout.flush()
-        time.sleep(delay)
+    import re
+    from .config import get_conversation_config
+    
+    config = get_conversation_config()
+    
+    # Check if typing effect is enabled
+    if not config.typing_effect_enabled:
+        print(text, flush=True)
+        return
+    
+    # Use config values or override
+    char_delay = delay or config.typing_char_delay
+    chunk_delay = config.typing_chunk_delay
+    line_delay = config.typing_line_delay
+    paragraph_delay = config.typing_paragraph_delay
+    first_line_limit = config.typing_first_line_char_limit
+    instant_elements = config.typing_instant_elements
+    
+    lines = text.split('\n')
+    first_chunk = True
+    
+    for i, line in enumerate(lines):
+        # Instant display for structured elements
+        if instant_elements and (
+            line.strip().startswith(('━', '│', '└', '├', '─', '█', '╔', '╗', '╚', '╝')) or
+            line.strip().startswith('|') or
+            (i > 0 and '|' in line and line.count('|') > 2)):
+            print(line, flush=True)
+            time.sleep(chunk_delay * 0.5)
+            continue
+            
+        # Handle empty lines
+        if not line.strip():
+            print()
+            time.sleep(paragraph_delay)
+            continue
+            
+        # Semantic chunking
+        if first_chunk and len(line) < first_line_limit:
+            # First short line gets character effect
+            for char in line:
+                sys.stdout.write(char)
+                sys.stdout.flush()
+                time.sleep(char_delay)
+            print()
+            first_chunk = False
+        else:
+            # Stream semantic chunks
+            chunks = re.split(r'([.!?]+\s*)', line)
+            chunks = [chunks[i] + (chunks[i+1] if i+1 < len(chunks) else '') 
+                     for i in range(0, len(chunks), 2) if chunks[i]]
+            
+            for j, chunk in enumerate(chunks):
+                if chunk.strip():
+                    print(chunk, end='', flush=True)
+                    if j < len(chunks) - 1:
+                        time.sleep(chunk_delay)
+            
+            print()
+            
+        if i < len(lines) - 1:
+            time.sleep(line_delay)
 
 
 def get_empty_input_response():

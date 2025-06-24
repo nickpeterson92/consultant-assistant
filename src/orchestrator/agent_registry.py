@@ -35,6 +35,7 @@ Enterprise Integration:
 import json
 import os
 import asyncio
+import time
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 import logging
@@ -199,6 +200,16 @@ class AgentRegistry:
         for agent in self.agents.values():
             if capability in agent.agent_card.capabilities:
                 matching_agents.append(agent)
+        
+        # Log capability query
+        logger.info(json.dumps({
+            "timestamp": time.time(),
+            "operation": "CAPABILITY_QUERY",
+            "capability": capability,
+            "agents_found": len(matching_agents),
+            "agent_names": [agent.name for agent in matching_agents]
+        }))
+        
         return matching_agents
     
     def find_best_agent_for_task(self, task_description: str, required_capabilities: List[str] = None) -> Optional[RegisteredAgent]:
@@ -215,7 +226,17 @@ class AgentRegistry:
                     candidates.append(agent)
             
             if candidates:
-                return candidates[0]
+                selected = candidates[0]
+                logger.info(json.dumps({
+                    "timestamp": time.time(),
+                    "operation": "AGENT_SELECTED",
+                    "selection_method": "required_capabilities",
+                    "task_description": task_description[:100],
+                    "required_capabilities": required_capabilities,
+                    "selected_agent": selected.name,
+                    "candidates_count": len(candidates)
+                }))
+                return selected
         
         task_lower = task_description.lower()
         for agent in self.agents.values():
@@ -244,7 +265,13 @@ class AgentRegistry:
         previous_status = agent.status
         
         try:
-            logger.info(f"Starting health check for agent {agent_name} at {agent.endpoint} (current status: {previous_status})")
+            logger.info(json.dumps({
+                "timestamp": time.time(),
+                "operation": "HEALTH_CHECK_START",
+                "agent_name": agent_name,
+                "endpoint": agent.endpoint,
+                "current_status": previous_status
+            }))
             
             from src.utils.config import get_a2a_config
             a2a_config = get_a2a_config()
@@ -257,23 +284,55 @@ class AgentRegistry:
                 agent.last_health_check = asyncio.get_event_loop().time()
                 
                 elapsed = asyncio.get_event_loop().time() - start_time
-                logger.info(f"Health check PASSED for agent {agent_name} in {elapsed:.2f}s (status: {previous_status} -> online)")
+                logger.info(json.dumps({
+                    "timestamp": time.time(),
+                    "operation": "HEALTH_CHECK_PASSED",
+                    "agent_name": agent_name,
+                    "duration_seconds": elapsed,
+                    "status_change": f"{previous_status} -> online",
+                    "capabilities": agent_card.capabilities,
+                    "version": agent_card.version
+                }))
                 return True
                 
         except A2AException as e:
             agent.status = "error"
             elapsed = asyncio.get_event_loop().time() - start_time
-            logger.warning(f"Health check FAILED for agent {agent_name} in {elapsed:.2f}s (status: {previous_status} -> error): A2A error - {e}")
+            logger.warning(json.dumps({
+                "timestamp": time.time(),
+                "operation": "HEALTH_CHECK_FAILED",
+                "agent_name": agent_name,
+                "duration_seconds": elapsed,
+                "status_change": f"{previous_status} -> error",
+                "error_type": "A2AException",
+                "error_message": str(e)
+            }))
             return False
         except asyncio.TimeoutError:
             agent.status = "offline"
             elapsed = asyncio.get_event_loop().time() - start_time
-            logger.warning(f"Health check FAILED for agent {agent_name} in {elapsed:.2f}s (status: {previous_status} -> offline): Timeout")
+            logger.warning(json.dumps({
+                "timestamp": time.time(),
+                "operation": "HEALTH_CHECK_FAILED",
+                "agent_name": agent_name,
+                "duration_seconds": elapsed,
+                "status_change": f"{previous_status} -> offline",
+                "error_type": "Timeout",
+                "timeout_value": a2a_config.health_check_timeout
+            }))
             return False
         except Exception as e:
             agent.status = "offline"
             elapsed = asyncio.get_event_loop().time() - start_time
-            logger.warning(f"Health check FAILED for agent {agent_name} in {elapsed:.2f}s (status: {previous_status} -> offline): {type(e).__name__} - {e}")
+            logger.warning(json.dumps({
+                "timestamp": time.time(),
+                "operation": "HEALTH_CHECK_FAILED",
+                "agent_name": agent_name,
+                "duration_seconds": elapsed,
+                "status_change": f"{previous_status} -> offline",
+                "error_type": type(e).__name__,
+                "error_message": str(e)
+            }))
             return False
     
     async def health_check_all_agents(self) -> Dict[str, bool]:
