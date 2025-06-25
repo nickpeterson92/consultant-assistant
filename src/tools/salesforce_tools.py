@@ -134,24 +134,7 @@ class GetLeadTool(BaseTool):
                     return {"error": "No search criteria provided."}
 
             query = builder.build()
-            
-            # Log Salesforce API call
-            logger.info("salesforce_api_call",
-                component="tools",
-                operation="query",
-                tool="GetLeadTool",
-                query=query,
-                object_type="Lead"
-            )
-            
             records = sf.query(query)['records']
-            
-            logger.info("salesforce_api_success",
-                component="tools",
-                operation="query",
-                tool="GetLeadTool",
-                record_count=len(records)
-            )
 
             if not records:
                 return []
@@ -460,9 +443,26 @@ class GetAccountTool(BaseTool):
             ]
             
             result = formatted_records[0] if len(formatted_records) == 1 else formatted_records
-            return format_salesforce_response(result)
+            final_result = format_salesforce_response(result)
+            
+            # Log tool result - IDENTICAL format to orchestrator pattern
+            logger.info("tool_result",
+                component="salesforce",
+                tool_name="get_account_tool",
+                result_type=type(final_result).__name__,
+                result_preview=str(final_result)[:200] if final_result else "None"
+            )
+            
+            return final_result
 
         except Exception as e:
+            # Log tool error
+            logger.error("tool_error",
+                component="salesforce",
+                tool_name="get_account_tool",
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {"error": str(e)}
 
 
