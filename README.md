@@ -86,15 +86,17 @@ Traditional single-agent systems hit scalability walls. This architecture solves
                             │  Connection Pooling     │
                             └────────────┬────────────┘
                                          │
-                    ┌────────────────────┴─────────────────────┐
-                    ▼                                          ▼
-┌─────────────────────────────────┐           ┌──────────────────────────────┐
-│     SALESFORCE AGENT            │           │    EXTENSIBLE AGENTS         │
-│  - 15 Specialized CRM Tools     │           │  - Travel Management         │
-│  - 5 Analytics Tools            │           │  - Expense Processing        │
-│  - Flexible Search Patterns     │           │  - HR Operations             │
-│  - LangGraph Integration        │           │  - Document Processing       │
-└─────────────────────────────────┘           └──────────────────────────────┘
+          ┌──────────────────────────────┴────────────────────────────┐
+          │                              │                            │ 
+          ▼                              ▼                            ▼
+┌────────────────────────┐ ┌────────────────────────┐ ┌──────────────────────┐
+│   SALESFORCE AGENT     │ │     JIRA AGENT         │ │  EXTENSIBLE AGENTS   │
+│ - 15 Specialized CRM   │ │ - 15 Issue Tracking    │ │ - Travel Management  │
+│   Tools                │ │   Tools                │ │ - Expense Processing │
+│ - 5 Analytics Tools    │ │ - JQL Search           │ │ - HR Operations      │
+│ - Flexible Search      │ │ - Sprint Management    │ │ - Document Processing│
+│ - LangGraph Integration│ │ - LangGraph Integration│ │ - And more!          │
+└────────────────────────┘ └────────────────────────┘ └──────────────────────┘
 ```
 
 ### Core Components
@@ -290,6 +292,17 @@ The system features a specialized Salesforce agent with 20 enterprise-grade tool
 - **Security-First Design**: SOQL injection prevention and comprehensive input validation
 
 For detailed Salesforce capabilities, examples, and API reference, see the [Salesforce Agent README](src/agents/salesforce/README.md).
+
+### Jira Project Management Integration
+The system features a specialized Jira agent with 15 enterprise-grade tools covering:
+
+- **Issue Management**: Create, read, update, and transition issues across all types (bug, story, task, epic)
+- **Advanced Search**: JQL-powered queries for complex filtering and reporting
+- **Agile Workflows**: Sprint tracking, epic management, kanban/scrum board operations
+- **Project Analytics**: Team velocity, burndown charts, cycle time analysis
+- **Security-First Design**: JQL injection prevention and comprehensive input validation
+
+For detailed Jira capabilities, examples, and API reference, see the [Jira Agent README](src/agents/jira/README.md).
 
 ### Multi-Agent Extensibility
 The architecture supports adding new specialized agents for:

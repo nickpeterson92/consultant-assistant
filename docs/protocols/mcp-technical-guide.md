@@ -22,22 +22,22 @@ The Model Context Protocol (MCP) is an open standard introduced by Anthropic in 
 MCP follows a client-host-server architecture with four main components:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                         HOST                                 │
-│  (LLM Application: Claude Desktop, Cursor IDE, etc.)        │
-│                                                             │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐       │
-│  │   Client 1   │  │   Client 2   │  │   Client 3   │       │
-│  │   (1:1)     │  │   (1:1)     │  │   (1:1)     │       │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘       │
-└─────────┼─────────────────┼─────────────────┼──────────────┘
-          │                 │                 │
-          │ JSON-RPC 2.0    │ JSON-RPC 2.0    │ JSON-RPC 2.0
-          │                 │                 │
-┌─────────▼──────┐ ┌────────▼──────┐ ┌────────▼──────┐
-│   MCP Server   │ │  MCP Server   │ │  MCP Server   │
-│  (File System) │ │  (Database)   │ │   (Slack)     │
-└────────────────┘ └───────────────┘ └───────────────┘
+┌────────────────────────────────────────────────────────────┐
+│                         HOST                               │
+│  (LLM Application: Claude Desktop, Cursor IDE, etc.)       │
+│                                                            │
+│  ┌─────────────┐  ┌──────────────┐  ┌─────────────┐        │
+│  │   Client 1  │  │   Client 2   │  │   Client 3  │        │
+│  │   (1:1)     │  │   (1:1)      │  │   (1:1)     │        │
+│  └──────┬──────┘  └───────┬──────┘  └──────┬──────┘        │
+└─────────┼─────────────────┼────────────────┼───────────────┘
+          │                 │                │
+          │ JSON-RPC 2.0    │ JSON-RPC 2.0   │ JSON-RPC 2.0
+          │                 │                │
+┌─────────▼──────┐ ┌────────▼──────┐ ┌───────▼──────┐
+│   MCP Server   │ │  MCP Server   │ │  MCP Server  │
+│  (File System) │ │  (Database)   │ │   (Slack)    │
+└────────────────┘ └───────────────┘ └──────────────┘
 ```
 
 ### 1. **Hosts**
