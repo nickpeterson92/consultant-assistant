@@ -127,15 +127,7 @@ def build_salesforce_graph():
                 response_length=len(str(response.content)) if hasattr(response, 'content') else 0
             )
             
-            # Log cost tracking
-            message_chars = sum(len(str(m.content if hasattr(m, 'content') else m)) for m in messages)
-            estimated_tokens = message_chars // 4
-            
-            from src.utils.logging.activity_logger import log_cost_activity
-            log_cost_activity("SALESFORCE_LLM_CALL", estimated_tokens,
-                             message_count=len(messages),
-                             response_length=len(str(response.content)) if hasattr(response, 'content') else 0,
-                             task_id=task_context.get("task_id", "unknown"))
+            # Cost tracking removed - activity logger no longer exists
             
             return {"messages": [response]}
             
