@@ -86,3 +86,10 @@ CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS = 3
 # Deterministic LLM settings for background tasks
 DETERMINISTIC_TEMPERATURE = 0.0  # For summarization, memory extraction
 DETERMINISTIC_TOP_P = 0.1  # Focused sampling for consistency
+
+# JSON-RPC 2.0 Error Codes
+JSONRPC_PARSE_ERROR = -32700       # Parse error
+JSONRPC_INVALID_REQUEST = -32600   # Invalid Request
+JSONRPC_METHOD_NOT_FOUND = -32601  # Method not found
+JSONRPC_INVALID_PARAMS = -32602    # Invalid params
+JSONRPC_INTERNAL_ERROR = -32603    # Internal error

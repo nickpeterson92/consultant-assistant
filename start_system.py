@@ -13,33 +13,17 @@ from src.utils.logging import log_orchestrator_activity
 
 import time
 import argparse
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
-def run_process(command, name):
-    """Run a process and handle its output"""
-    print(f"Starting {name}...")
+def consume_output(process, name):
+    """Consume process output in a separate thread"""
     try:
-        process = subprocess.Popen(
-            command,
-            shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            universal_newlines=True,
-            bufsize=1
-        )
-        
-        # Stream output
         for line in iter(process.stdout.readline, ''):
-            print(f"[{name}] {line.strip()}")
-        
-        process.wait()
-        
-    except KeyboardInterrupt:
-        print(f"Stopping {name}...")
-        process.terminate()
-        process.wait()
+            if line:
+                print(f"[{name}] {line.strip()}")
     except Exception as e:
-        print(f"Error running {name}: {e}")
+        print(f"Error reading {name} output: {e}")
 
 def main():
     """Start all components of the multi-agent system"""
@@ -50,19 +34,21 @@ def main():
     # Log system startup
     
     print("=== Multi-Agent Orchestrator System ===")
-    log_orchestrator_activity("SYSTEM_START", components=["orchestrator", "salesforce-agent"])
+    log_orchestrator_activity("SYSTEM_START", components=["orchestrator", "salesforce-agent", "jira-agent"])
     print("Starting specialized agents and orchestrator...")
     print("Press Ctrl+C to stop all components\n")
     
     # Commands to run
     commands = [
         ("python3 salesforce_agent.py --port 8001", "Salesforce-Agent"),
+        ("python3 jira_agent.py --port 8002", "Jira-Agent"),
         # Add more agents here as they're implemented:
-        # ("python3 travel_agent.py --port 8002", "Travel-Agent"),
-        # ("python3 expense_agent.py --port 8003", "Expense-Agent"),
+        # ("python3 travel_agent.py --port 8003", "Travel-Agent"),
+        # ("python3 expense_agent.py --port 8004", "Expense-Agent"),
     ]
     
     processes = []
+    output_threads = []
     
     try:
         # Start all agent processes
@@ -73,9 +59,20 @@ def main():
                 shell=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                universal_newlines=True
+                universal_newlines=True,
+                bufsize=1
             )
             processes.append((process, name))
+            
+            # Start thread to consume output
+            output_thread = threading.Thread(
+                target=consume_output,
+                args=(process, name),
+                daemon=True
+            )
+            output_thread.start()
+            output_threads.append(output_thread)
+            
             time.sleep(2)  # Small delay between starts
         
         print("Waiting for agents to initialize...")

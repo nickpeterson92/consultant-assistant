@@ -31,6 +31,10 @@ import logging
 from typing import Dict, Any, List, TypedDict, Literal, Annotated
 import operator
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_openai import AzureChatOpenAI
@@ -38,7 +42,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.memory import MemorySaver
 
-from ..tools.jira_tools import (
+from src.tools.jira_tools import (
     SearchJiraIssuesTool,
     GetJiraIssueTool,
     CreateJiraIssueTool,
@@ -55,8 +59,8 @@ from ..tools.jira_tools import (
     LinkIssuesTool,
     GetSprintIssuesTool
 )
-from src.a2a import A2AServer, A2ATask, A2AResult, A2AArtifact, AgentCard
-from src.utils.config import get_llm_config, get_jira_config
+from src.a2a import A2AServer, A2ATask, A2AResponse, A2AArtifact, AgentCard
+from src.utils.config import get_llm_config
 from src.utils.logging import get_logger
 
 logger = get_logger("jira_agent")
@@ -341,7 +345,7 @@ async def handle_a2a_request(request: Dict[str, Any]) -> Dict[str, Any]:
             issue_keys=extract_issue_keys(response_content)
         )
         
-        return A2AResult(
+        return A2AResponse(
             task_id=task.id,
             status="completed",
             result={
@@ -366,7 +370,7 @@ async def handle_a2a_request(request: Dict[str, Any]) -> Dict[str, Any]:
             error=str(e),
             error_type=type(e).__name__
         )
-        return A2AResult(
+        return A2AResponse(
             task_id=request.get("id", "unknown"),
             status="failed",
             result={
@@ -437,14 +441,80 @@ def get_agent_card() -> Dict[str, Any]:
     )
     return card.model_dump()
 
-# A2A Server setup
-server = A2AServer(
-    name="jira-agent",
-    port=8002,  # Different port from Salesforce
-    process_task=handle_a2a_request,
-    get_agent_card=get_agent_card
-)
+async def main():
+    """Main entry point for Jira agent."""
+    import argparse
+    import asyncio
+    
+    parser = argparse.ArgumentParser(description="Jira Agent - A2A Protocol Server")
+    parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
+    parser.add_argument("--port", type=int, default=8002, help="Port to listen on")
+    parser.add_argument("-d", "--debug", action="store_true", help="Enable debug logging")
+    
+    args = parser.parse_args()
+    
+    # Set debug logging if requested
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
+    
+    # Create agent card
+    agent_card = AgentCard(
+        name="jira-agent",
+        version="1.0.0",
+        description="Specialized agent for Jira issue tracking and project management",
+        capabilities=[
+            "jira_operations",
+            "issue_management", 
+            "jql_search",
+            "epic_tracking",
+            "sprint_management",
+            "agile_workflows",
+            "project_analytics"
+        ],
+        endpoints={
+            "process_task": "/a2a",
+            "agent_card": "/a2a/agent-card"
+        },
+        communication_modes=["sync", "streaming"],
+        metadata={
+            "framework": "langgraph",
+            "tools_count": len(jira_tools),
+            "tool_names": [tool.name for tool in jira_tools]
+        }
+    )
+    
+    # Create A2A server
+    server = A2AServer(agent_card, args.host, args.port)
+    
+    # Register handlers
+    server.register_handler("process_task", handle_a2a_request)
+    async def get_agent_card_handler(params):
+        return agent_card.to_dict()
+    
+    server.register_handler("get_agent_card", get_agent_card_handler)
+    
+    # Start the server
+    logger.info(f"Starting Jira agent on {args.host}:{args.port}")
+    runner = await server.start()
+    
+    logger.info("jira_agent_started",
+        component="jira",
+        operation="startup",
+        host=args.host,
+        port=args.port,
+        endpoint=f"http://{args.host}:{args.port}"
+    )
+    logger.info("Agent capabilities: " + ", ".join(agent_card.capabilities))
+    logger.info("Press Ctrl+C to stop")
+    
+    try:
+        # Keep the server running
+        while True:
+            await asyncio.sleep(1)
+    except KeyboardInterrupt:
+        logger.info("Shutting down Jira Agent...")
+        await server.stop(runner)
 
 if __name__ == "__main__":
     import asyncio
-    asyncio.run(server.start())
+    asyncio.run(main())

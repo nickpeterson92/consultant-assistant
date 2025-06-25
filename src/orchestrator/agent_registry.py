@@ -87,7 +87,9 @@ class AgentRegistry:
     
     def __init__(self, config_path: Optional[str] = None):
         self.agents: Dict[str, RegisteredAgent] = {}
-        self.config_path = config_path or "agent_registry.json"
+        from ..utils.config import get_system_config
+        system_config = get_system_config()
+        self.config_path = config_path or system_config.agent_registry_path
         self.client = None
         self._load_config()
     

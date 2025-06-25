@@ -32,7 +32,7 @@ from simple_salesforce import Salesforce
 from src.utils.logging import get_logger
 
 # Initialize logger
-logger = get_logger()
+logger = get_logger("salesforce")
 from src.utils.soql_query_builder import (
     SOQLQueryBuilder,
     SearchQueryBuilder,

@@ -91,7 +91,7 @@ Traditional single-agent systems hit scalability walls. This architecture solves
 ┌─────────────────────────────────┐           ┌──────────────────────────────┐
 │     SALESFORCE AGENT            │           │    EXTENSIBLE AGENTS         │
 │  - 15 Specialized CRM Tools     │           │  - Travel Management         │
-│  - SOQL Injection Prevention    │           │  - Expense Processing        │
+│  - 5 Analytics Tools            │           │  - Expense Processing        │
 │  - Flexible Search Patterns     │           │  - HR Operations             │
 │  - LangGraph Integration        │           │  - Document Processing       │
 └─────────────────────────────────┘           └──────────────────────────────┘

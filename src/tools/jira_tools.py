@@ -37,7 +37,6 @@ from src.utils.logging import get_logger
 # Initialize logger
 logger = get_logger()
 # No validation needed - trust LLM-generated inputs
-from src.utils.helpers import parse_natural_date
 
 
 def get_jira_connection():

@@ -38,7 +38,7 @@ from src.utils.config import get_llm_config
 from src.utils.sys_msg import salesforce_agent_sys_msg
 
 # Initialize structured logger
-logger = get_logger()
+logger = get_logger("salesforce")
 
 # Suppress verbose HTTP debug logs
 logging.getLogger('openai._base_client').setLevel(logging.WARNING)
@@ -346,7 +346,7 @@ async def main():
     logging.getLogger('aiohttp').setLevel(logging.WARNING)
     logging.getLogger('simple_salesforce').setLevel(logging.WARNING)
     
-    logger.info("Starting Salesforce Specialized Agent...")
+    logger.info("Starting Salesforce Specialized Agent...", component="salesforce")
     
     # Create the agent card
     agent_card = AgentCard(
@@ -367,9 +367,9 @@ async def main():
     )
     
     # Build the graph with debug mode if requested
-    logger.info("Building Salesforce graph...")
+    logger.info("Building Salesforce graph...", component="salesforce")
     local_graph = build_salesforce_graph()
-    logger.info("Graph built successfully")
+    logger.info("Graph built successfully", component="salesforce")
     
     # Create A2A handler
     handler = SalesforceA2AHandler(local_graph)
@@ -389,15 +389,15 @@ async def main():
         port=args.port,
         endpoint=f"http://{args.host}:{args.port}"
     )
-    logger.info("Agent capabilities: " + ", ".join(agent_card.capabilities))
-    logger.info("Press Ctrl+C to stop")
+    logger.info("Agent capabilities: " + ", ".join(agent_card.capabilities), component="salesforce")
+    logger.info("Press Ctrl+C to stop", component="salesforce")
     
     try:
         # Keep the server running
         while True:
             await asyncio.sleep(1)
     except KeyboardInterrupt:
-        logger.info("Shutting down Salesforce Agent...")
+        logger.info("Shutting down Salesforce Agent...", component="salesforce")
         await server.stop(runner)
 
 if __name__ == "__main__":

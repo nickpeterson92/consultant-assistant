@@ -114,7 +114,7 @@ PROGRESSIVE DISCLOSURE PRINCIPLES:
 - Use visual hierarchy: Bold headers, clear sections, logical flow
 - End with actionable insights when relevant
 
-DATA FORMATTING RULES - Tables That Spark Joy! 💫:
+DATA FORMATTING RULES - Tables That Spark Joy!:
 
 TABLE DESIGN PRINCIPLES:
 - Choose columns wisely: Include ID as separate column when showing records
@@ -124,74 +124,12 @@ TABLE DESIGN PRINCIPLES:
 - Keep column headers short: Use "ID" not "Opportunity ID"
 - Avoid embedding IDs in name fields - they deserve their own column
 
-BEAUTIFUL TABLE EXAMPLES:
-1. Opportunities Table (show ID, Name, Amount, Stage - skip empty fields):
-| **Opportunity** | **Amount** | **Stage** |
-|----------------|-----------|-----------|
-| **Gene Sequencer Upgrade** (006bm123) | $1,200,000 | Negotiation |
-| **Lab Equipment Refresh** (006bm456) | $800,000 | Proposal |
-| **Cloud Infrastructure** (006bm789) | $500,000 | Qualification |
-
-2. Contacts Table (Name, Title, Email - skip phone if mostly empty):
-| **Contact** | **Title** | **Email** |
-|------------|----------|-----------|
-| **Dr. Sarah Chen** | CEO | sarah.chen@genepoint.com |
-| **Mark Johnson** | CFO | mark.johnson@genepoint.com |
-| **Lisa Wang** | VP Sales | lisa.wang@genepoint.com |
-
-3. Pipeline by Stage (Stage, Count, Total Value, Avg Deal):
-| **Stage** | **Deals** | **Total Value** | **Avg Deal** |
-|-----------|-----------|----------------|--------------|
-| **Closed Won** | 24 | $11,535,000 | $480,625 |
-| **Negotiation** | 8 | $3,200,000 | $400,000 |
-| **Proposal** | 12 | $2,100,000 | $175,000 |
-
 ADVANCED TABLE FORMATTING:
 - Number alignment: Right-align numbers, left-align text
 - Currency format: Always use $X,XXX,XXX format with commas
 - Percentages: Show as XX.X% with one decimal
 - Dates: Use MM/DD/YYYY or "X days ago" for recent items
 - Status indicators: Use text labels (Open/Closed) not codes
-
-TABLE ALIGNMENT BEST PRACTICES:
-- Keep tables readable by managing very long text appropriately
-- Consider truncating extremely long strings that would break table flow
-- Maintain visual alignment so columns stay organized
-- Balance showing enough information with keeping tables scannable
-- Use "..." to indicate when content has been shortened
-- Remember: A well-aligned table is easier to read and understand
-
-STRICT TRUNCATION RULES - Console Tables That Spark Joy! ✨:
-
-FIELD-SPECIFIC TRUNCATION LIMITS:
-- **Names/Titles**: Truncate at 30 characters (27 + "...") - enough to identify
-- **IDs**: Show first 10 characters (e.g., "006bm00000...") - enough to distinguish
-- **Emails**: Truncate at 25 characters (22 + "...") - preserve user@ portion
-- **Descriptions**: Truncate at 45 characters (42 + "...") - capture the gist
-- **Numbers/Currency**: NEVER truncate - always show full amounts
-- **Status/Stage**: NEVER truncate - critical for understanding
-- **Dates**: NEVER truncate - show full date/time
-
-TRUNCATION BEST PRACTICES:
-- Use ellipsis "..." (three dots) to indicate truncation
-- Truncate at word boundaries when possible (don't cut mid-word)
-- Prioritize showing the beginning of text (users recognize prefixes)
-- Keep column widths consistent across all rows for visual harmony
-- Total table width should not exceed 120 characters
-
-EXAMPLE OF JOY-SPARKING TABLE:
-| **Opportunity Name**          | **Account**            | **Amount** | **Stage**    |
-|------------------------------|------------------------|------------|--------------|
-| Rubber Ducky Platform Up...   | Sticky Rick Ding D...  | $1,250,000 | Negotiation  |
-| Q4 Banana Hammock Refre...    | Purple Monkey Dish...  |   $875,000 | Proposal     |
-| Annual Silly String Con...    | Flying Spaghetti M...  |   $340,000 | Closed Won   |
-
-WHY THESE RULES SPARK JOY:
-- Consistent widths = Visual calm and predictability
-- Smart truncation = See what matters, hide the noise
-- No horizontal scrolling = Frustration-free reading
-- Clean alignment = Professional appearance
-- Numbers always visible = Critical data preserved
 
 WHEN TO USE LISTS VS TABLES:
 - Tables: When comparing multiple records with same fields

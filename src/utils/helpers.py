@@ -48,12 +48,15 @@ def smart_preserve_messages(messages: list, keep_count: int = 2):
         from langchain_core.messages.utils import trim_messages
         
         # CALIBRATED: Realistic token counter based on actual usage analysis
+        from .config import get_conversation_config
+        conv_config = get_conversation_config()
+        
         def simple_token_counter(messages):
-            return len(messages) * 400  # Calibrated from logs: 717 avg with ~1.5K tool overhead
+            return len(messages) * conv_config.token_per_message_estimate  # Calibrated from logs
         
         # CALIBRATED: Token budget based on real multi-tool conversation analysis
         # More aggressive since we're summarizing more frequently
-        max_tokens = keep_count * 800  # Reduced from 1200 - tighter token budget
+        max_tokens = keep_count * conv_config.token_budget_multiplier  # Configurable token budget
         
         # Use trim_messages with tool call preservation
         preserved = trim_messages(
@@ -253,4 +256,275 @@ def get_empty_input_response():
         "I'm all ears! How can I help you with your enterprise data or tasks?",
     ]
     return random.choice(responses)
+
+
+async def animated_banner_display(banner_text):
+    """Display an animated 'explosion' effect for the ASCII banner.
+    
+    Creates a cinematic reveal of the banner with:
+    - Initial flash/explosion effect
+    - Progressive reveal from center outward
+    - Subtle fade-in for dramatic effect
+    - Final static display
+    
+    Args:
+        banner_text: The ASCII art banner to animate
+    """
+    import random
+    import os
+    
+    lines = banner_text.strip().split('\n')
+    if not lines:
+        return
+    
+    # Get terminal dimensions
+    try:
+        terminal_width = os.get_terminal_size().columns
+    except:
+        terminal_width = 80
+    
+    # Clear screen for dramatic effect
+    print('\033[2J\033[H', end='')  # Clear screen and move cursor to top
+    
+    # Phase 1: Flash effect - rapid random characters
+    flash_frames = 3
+    for frame in range(flash_frames):
+        print('\033[H', end='')  # Move cursor to top
+        for line in lines:
+            flash_line = ''
+            for char in line:
+                if char != ' ':
+                    # Random "explosion" characters
+                    flash_line += random.choice('*+×·•○◊◈★☆✦✧⚡')
+                else:
+                    flash_line += ' '
+            print(flash_line.center(terminal_width))
+        await asyncio.sleep(0.1)
+        if frame < flash_frames - 1:
+            print('\033[2J', end='')  # Clear for next frame
+    
+    # Phase 2: Ripple reveal from center
+    print('\033[2J\033[H', end='')  # Clear screen
+    
+    # Calculate center points
+    center_y = len(lines) // 2
+    max_line_len = max(len(line) for line in lines)
+    center_x = max_line_len // 2
+    
+    # Create reveal mask
+    revealed = [[False for _ in line] for line in lines]
+    
+    # Maximum distance from center
+    max_distance = max(
+        max(center_y, len(lines) - center_y),
+        max(center_x, max_line_len - center_x)
+    )
+    
+    # Reveal in expanding circles
+    for radius in range(max_distance + 1):
+        print('\033[H', end='')  # Move cursor to top
+        
+        # Mark characters to reveal based on distance from center
+        for y, line in enumerate(lines):
+            for x, char in enumerate(line):
+                if char != ' ':
+                    # Calculate distance from center
+                    dist = ((x - center_x) ** 2 + ((y - center_y) * 2) ** 2) ** 0.5
+                    if dist <= radius * 3:  # Scale factor for oval shape
+                        revealed[y][x] = True
+        
+        # Display current state
+        for y, line in enumerate(lines):
+            display_line = ''
+            for x, char in enumerate(line):
+                if revealed[y][x]:
+                    display_line += char
+                else:
+                    display_line += ' '
+            print(display_line.center(terminal_width))
+        
+        # Speed up as we go
+        delay = 0.05 if radius < 5 else 0.02
+        await asyncio.sleep(delay)
+    
+    # Phase 3: Final shimmer effect
+    print('\033[H', end='')  # Move cursor to top
+    for line in lines:
+        print(line.center(terminal_width))
+    
+    # Add a subtle sparkle finish
+    sparkle_positions = []
+    for y, line in enumerate(lines):
+        for x, char in enumerate(line):
+            if char != ' ' and random.random() < 0.1:  # 10% chance
+                sparkle_positions.append((x, y))
+    
+    # Quick sparkle animation
+    for _ in range(3):
+        print('\033[H', end='')  # Move cursor to top
+        for y, line in enumerate(lines):
+            display_line = ''
+            for x, char in enumerate(line):
+                if (x, y) in sparkle_positions and random.random() < 0.5:
+                    display_line += random.choice('✦✧★☆')
+                else:
+                    display_line += char
+            print(display_line.center(terminal_width))
+        await asyncio.sleep(0.1)
+    
+    # Final static display
+    print('\033[H', end='')  # Move cursor to top
+    for line in lines:
+        print(line.center(terminal_width))
+    
+    print()  # Extra line after banner
+
+
+async def display_capabilities_banner(capabilities_list, terminal_width=None, agent_stats=None):
+    """Display a stylish sub-banner for system capabilities.
+    
+    Creates a modern, clean display of available capabilities with:
+    - Elegant box drawing
+    - Smart column layout
+    - Category grouping
+    - Smooth fade-in animation
+    
+    Args:
+        capabilities_list: List of capability strings
+        terminal_width: Terminal width (auto-detected if None)
+        agent_stats: Optional dict with agent statistics (online_agents, total_agents, etc.)
+    """
+    import os
+    import math
+    from .config import get_conversation_config
+    
+    if not capabilities_list:
+        return
+    
+    config = get_conversation_config()
+    
+    # Get terminal dimensions
+    if terminal_width is None:
+        try:
+            terminal_width = os.get_terminal_size().columns
+        except:
+            terminal_width = 80
+    
+    # Group capabilities by category (based on common prefixes/suffixes)
+    categories = {
+        "CRM & Sales": [],
+        "Project Management": [],
+        "Analytics": [],
+        "Operations": []
+    }
+    
+    # Categorize capabilities
+    for cap in sorted(capabilities_list):
+        cap_lower = cap.lower()
+        if any(word in cap_lower for word in ['salesforce', 'lead', 'account', 'opportunity', 'contact', 'crm']):
+            categories["CRM & Sales"].append(cap)
+        elif any(word in cap_lower for word in ['jira', 'sprint', 'agile', 'epic', 'project']):
+            categories["Project Management"].append(cap)
+        elif any(word in cap_lower for word in ['analytics', 'metrics', 'analysis', 'reporting']):
+            categories["Analytics"].append(cap)
+        else:
+            categories["Operations"].append(cap)
+    
+    # Remove empty categories
+    categories = {k: v for k, v in categories.items() if v}
+    
+    # Calculate layout
+    max_width = min(terminal_width - 4, 120)  # Max 120 chars wide
+    content_width = max_width - 4  # Account for borders
+    
+    # Build the banner content
+    lines = []
+    
+    # Top border with title
+    title = " SYSTEM CAPABILITIES "
+    padding = (max_width - len(title) - 2) // 2
+    top_line = "╔" + "═" * padding + title + "═" * (max_width - padding - len(title) - 2) + "╗"
+    lines.append(top_line)
+    
+    # Status line
+    if agent_stats:
+        online_count = agent_stats.get('online_agents', 0)
+        total_count = agent_stats.get('total_agents', 0)
+        agent_text = f"Online Agents: {online_count}/{total_count}"
+    else:
+        agent_text = f"Categories: {len(categories)}"
+    
+    status = f"{agent_text} | Total Capabilities: {len(capabilities_list)}"
+    lines.append("║ " + status.center(content_width) + " ║")
+    lines.append("╟" + "─" * (max_width - 2) + "╢")
+    
+    # Categories
+    for cat_name, caps in categories.items():
+        # Category header
+        cat_header = f" ▸ {cat_name} "
+        lines.append("║" + cat_header.ljust(content_width + 1) + "║")
+        
+        # Capabilities in columns
+        num_columns = 3 if content_width >= 80 else 2 if content_width >= 50 else 1
+        col_width = (content_width - 2) // num_columns - 2
+        
+        # Sort and format capabilities
+        sorted_caps = sorted(caps)
+        rows = math.ceil(len(sorted_caps) / num_columns)
+        
+        for row in range(rows):
+            row_items = []
+            for col in range(num_columns):
+                idx = row + col * rows
+                if idx < len(sorted_caps):
+                    # Format capability with bullet
+                    cap = sorted_caps[idx]
+                    # Convert snake_case to Title Case
+                    formatted = ' '.join(word.capitalize() for word in cap.split('_'))
+                    # Truncate if needed
+                    if len(formatted) > col_width - 3:
+                        formatted = formatted[:col_width-6] + "..."
+                    row_items.append(f"• {formatted}")
+                else:
+                    row_items.append("")
+            
+            # Build row
+            row_line = "║  "
+            for i, item in enumerate(row_items):
+                row_line += item.ljust(col_width)
+                if i < len(row_items) - 1:
+                    row_line += "  "
+            row_line = row_line.ljust(max_width - 1) + "║"
+            lines.append(row_line)
+        
+        # Add spacing between categories
+        if cat_name != list(categories.keys())[-1]:
+            lines.append("║" + " " * content_width + " ║")
+    
+    # Bottom section with quick tips
+    lines.append("╟" + "─" * (max_width - 2) + "╢")
+    lines.append("║ " + "Quick Start: Type your request naturally - I'll route it to the right agent!".center(content_width) + " ║")
+    lines.append("║ " + "Commands: /help • /state • /new • /list • /switch <id>".center(content_width) + " ║")
+    
+    # Bottom border
+    lines.append("╚" + "═" * (max_width - 2) + "╝")
+    
+    # Animate the display
+    if config.animated_capabilities_enabled:
+        print('\033[?25l', end='')  # Hide cursor
+        
+        # Quick fade-in effect
+        for i, line in enumerate(lines):
+            # Center the line
+            centered_line = line.center(terminal_width)
+            print(centered_line)
+            await asyncio.sleep(0.02)  # Fast cascade effect
+        
+        print('\033[?25h', end='')  # Show cursor
+    else:
+        # Static display
+        for line in lines:
+            print(line.center(terminal_width))
+    
+    print()  # Extra line after banner
 

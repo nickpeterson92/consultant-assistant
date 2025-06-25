@@ -428,7 +428,7 @@ class A2AConnectionPool:
             # - Cleanup removes stale connections automatically
             connector = aiohttp.TCPConnector(
                 limit=a2a_config.connection_pool_size,
-                limit_per_host=max(20, a2a_config.connection_pool_size),
+                limit_per_host=max(a2a_config.min_connections_per_host, a2a_config.connection_pool_size),
                 ttl_dns_cache=a2a_config.connection_pool_ttl,
                 enable_cleanup_closed=True,
                 force_close=False,
@@ -576,7 +576,7 @@ class A2AClient:
             )
             connector = aiohttp.TCPConnector(
                 limit=a2a_config.connection_pool_size,
-                limit_per_host=max(20, a2a_config.connection_pool_size),  # Allow many concurrent connections per host (support 8+ tools)
+                limit_per_host=max(a2a_config.min_connections_per_host, a2a_config.connection_pool_size),  # Allow many concurrent connections per host (support 8+ tools)
                 ttl_dns_cache=a2a_config.connection_pool_ttl
             )
             self.session = aiohttp.ClientSession(

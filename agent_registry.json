@@ -37,7 +37,7 @@
         }
       },
       "status": "online",
-      "last_health_check": 1287179.526912125
+      "last_health_check": 1293360.450162083
     },
     {
       "name": "jira-agent",
@@ -66,11 +66,27 @@
         "metadata": {
           "framework": "langgraph",
           "tools_count": 15,
-          "memory_type": "none"
+          "tool_names": [
+            "search_jira_issues",
+            "get_jira_issue",
+            "create_jira_issue",
+            "update_jira_issue",
+            "add_jira_comment",
+            "get_project_issues",
+            "get_my_issues",
+            "get_epic_issues",
+            "transition_issue",
+            "assign_issue",
+            "add_attachment",
+            "get_issue_history",
+            "create_subtask",
+            "link_issues",
+            "get_sprint_issues"
+          ]
         }
       },
-      "status": "error",
-      "last_health_check": null
+      "status": "online",
+      "last_health_check": 1293360.450037625
     }
   ]
 }

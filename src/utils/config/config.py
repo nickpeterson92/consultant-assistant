@@ -55,6 +55,8 @@ class DatabaseConfig:
     timeout: int = 30
     pool_size: int = 5
     auto_commit: bool = True
+    thread_pool_size: int = 4  # Thread pool size for async operations
+    thread_prefix: str = "sqlite_"  # Thread name prefix for debugging
 
 @dataclass 
 class LoggingConfig:
@@ -167,6 +169,7 @@ class A2AConfig:
     connection_pool_size: int = 20  # Supports burst traffic
     connection_pool_ttl: int = 300  # 5-minute TTL balances efficiency and freshness
     connection_pool_max_idle: int = 300  # Matches TTL for consistency
+    min_connections_per_host: int = 20  # Minimum connections per host
 
 @dataclass
 class SecurityConfig:
@@ -226,6 +229,11 @@ class ConversationConfig:
     typing_paragraph_delay: float = 0.15  # Delay at paragraph breaks
     typing_first_line_char_limit: int = 100  # Max chars for first line animation
     typing_instant_elements: bool = True  # Instant display for tables/structure
+    animated_banner_enabled: bool = True  # Enable animated banner on startup
+    animated_capabilities_enabled: bool = True  # Enable animated capabilities sub-banner
+    token_per_message_estimate: int = 400  # Estimated tokens per message
+    token_budget_multiplier: int = 800  # Token budget multiplier for message preservation
+    response_preview_length: int = 500  # Characters to show in response preview logs
 
 @dataclass
 class SystemConfig:
@@ -243,6 +251,7 @@ class SystemConfig:
     conversation: ConversationConfig
     agents: Dict[str, AgentConfig]
     environment: str = "development"  # Controls environment-specific behaviors
+    agent_registry_path: str = "agent_registry.json"  # Path to agent registry file
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization"""
@@ -282,8 +291,15 @@ class SystemConfig:
         # Handle agents dict
         agents_data = data.get('agents', {})
         agents = {}
+        registry_path = None
+        
         for name, agent_data in agents_data.items():
-            agents[name] = AgentConfig(name=name, **agent_data)
+            if name == 'registry_path':
+                # Extract registry_path separately
+                registry_path = agent_data
+            elif isinstance(agent_data, dict):
+                # Only create AgentConfig for actual agent entries
+                agents[name] = AgentConfig(name=name, **agent_data)
         
         return cls(
             database=database,
@@ -293,7 +309,8 @@ class SystemConfig:
             security=security,
             conversation=conversation,
             agents=agents,
-            environment=data.get('environment', 'development')
+            environment=data.get('environment', 'development'),
+            agent_registry_path=registry_path or 'agent_registry.json'
         )
 
 class ConfigManager:

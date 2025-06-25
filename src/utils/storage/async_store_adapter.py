@@ -21,19 +21,22 @@ logger = get_logger()
 class AsyncStoreAdapter:
     """Simple async adapter for SQLiteStore using thread pool executor."""
     
-    def __init__(self, db_path: str = "memory_store.db", max_workers: int = 4):
-        self.db_path = db_path
-        self.max_workers = max_workers
+    def __init__(self, db_path: str = None, max_workers: int = None):
+        from ..config import get_database_config
+        db_config = get_database_config()
+        
+        self.db_path = db_path or db_config.path
+        self.max_workers = max_workers or db_config.thread_pool_size
         
         # Single SQLiteStore instance - SQLite handles concurrency internally
-        self._store = SQLiteStore(db_path)
+        self._store = SQLiteStore(self.db_path)
         
         # Thread pool for async operations
         self._executor = ThreadPoolExecutor(
-            max_workers=max_workers, 
-            thread_name_prefix="sqlite_"
+            max_workers=self.max_workers, 
+            thread_name_prefix=db_config.thread_prefix
         )
-        logger.info(f"Initialized AsyncStoreAdapter at {db_path}")
+        logger.info(f"Initialized AsyncStoreAdapter at {self.db_path}")
     
     async def get(self, namespace: Tuple[str, ...], key: str) -> Optional[Any]:
         """Get a value from the store asynchronously."""

@@ -1142,7 +1142,7 @@ ORCHESTRATOR TOOLS:
                 
                 # Create a new store instance for this thread
                 thread_local_store = get_async_store_adapter(
-                    db_path="memory_store.db",
+                    db_path=get_database_config().path,
                     max_workers=1  # Single worker for background thread
                 )
                 
@@ -1219,7 +1219,7 @@ async def initialize_orchestrator():
     # Clear any existing conversation summaries for fresh start
     try:
         memory_store = get_async_store_adapter(
-            db_path="memory_store.db",
+            db_path=get_database_config().path,
             max_workers=4
         )
         
@@ -1302,19 +1302,29 @@ async def main():
     # Use the default orchestrator graph
     local_graph = orchestrator_graph
     
-    print(ENTERPRISE_ASSISTANT_BANNER)
-    print("Multi-agent system ready. Available capabilities:")
+    # Banner display
+    from src.utils.helpers import animated_banner_display, display_capabilities_banner
+    conv_config = get_conversation_config()
     
-    # Show available agents and capabilities
-    stats = agent_registry.get_registry_stats()
-    if stats['available_capabilities']:
-        for capability in stats['available_capabilities']:
-            print(f"  • {capability}")
+    if conv_config.animated_banner_enabled:
+        # Animated explosion effect
+        await animated_banner_display(ENTERPRISE_ASSISTANT_BANNER)
     else:
-        print("  • No agents currently available")
+        # Simple static display
+        print(ENTERPRISE_ASSISTANT_BANNER)
     
-    print("\nType your request, or 'quit' to exit.")
-    print("Commands: /help, /state, /new, /list, /switch <thread_id>")
+    # Get available capabilities
+    stats = agent_registry.get_registry_stats()
+    
+    # Display the slick capabilities sub-banner
+    if stats['available_capabilities']:
+        await display_capabilities_banner(stats['available_capabilities'], agent_stats=stats)
+    else:
+        # Fallback if no agents available
+        print("\n╔════════════════════════════════════════╗")
+        print("║      No agents currently available     ║")
+        print("║    Please check agent configuration    ║")
+        print("╚════════════════════════════════════════╝\n")
     
     conv_config = get_conversation_config()
     import uuid

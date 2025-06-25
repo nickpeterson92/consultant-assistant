@@ -3,7 +3,9 @@
     "path": "memory_store.db",
     "timeout": 30,
     "pool_size": 5,
-    "auto_commit": true
+    "auto_commit": true,
+    "thread_pool_size": 4,
+    "thread_prefix": "sqlite_"
   },
   "logging": {
     "level": "INFO",
@@ -57,7 +59,8 @@
     "circuit_breaker_timeout": 30,
     "connection_pool_size": 20,
     "connection_pool_ttl": 300,
-    "connection_pool_max_idle": 300
+    "connection_pool_max_idle": 300,
+    "min_connections_per_host": 20
   },
   "security": {
     "input_validation_enabled": true,
@@ -81,9 +84,15 @@
     "typing_line_delay": 0.03,
     "typing_paragraph_delay": 0.15,
     "typing_first_line_char_limit": 100,
-    "typing_instant_elements": true
+    "typing_instant_elements": true,
+    "animated_banner_enabled": true,
+    "animated_capabilities_enabled": true,
+    "token_per_message_estimate": 400,
+    "token_budget_multiplier": 800,
+    "response_preview_length": 500
   },
   "agents": {
+    "registry_path": "agent_registry.json",
     "salesforce-agent": {
       "endpoint": "http://localhost",
       "port": 8001,
