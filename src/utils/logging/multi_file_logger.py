@@ -39,17 +39,31 @@ class MultiFileLogger(StructuredLogger):
         'async_store_adapter_sync': 'storage.log',  # Storage alias
     }
     
-    def __init__(self, log_dir: str = "logs", level: int = logging.INFO):
-        """Initialize multi-file logger.
+    def __init__(self, log_dir: str = None, level: int = None):
+        """Initialize multi-file logger using global config.
         
         Args:
-            log_dir: Directory for log files
-            level: Logging level (default: INFO)
+            log_dir: Directory for log files (default: from config)
+            level: Logging level (default: from config)
         """
-        # Don't call parent __init__ - we'll set up our own logger
-        self.log_dir = Path(log_dir)
+        # Lazy import to avoid circular dependency
+        try:
+            from ..config import get_logging_config
+            config = get_logging_config()
+            
+            # Use provided values or fall back to config
+            self.log_dir = Path(log_dir or config.external_logs_dir)
+            
+            # Convert string level to int if needed
+            if level is None:
+                level = getattr(logging, config.level.upper(), logging.INFO)
+        except ImportError:
+            # Fallback if config not available (during initial import)
+            self.log_dir = Path(log_dir or "logs")
+            if level is None:
+                level = logging.INFO
+                
         self.log_dir.mkdir(parents=True, exist_ok=True)
-        
         self.level = level
         self.handlers: Dict[str, logging.Handler] = {}
         self.lock = Lock()
@@ -72,11 +86,22 @@ class MultiFileLogger(StructuredLogger):
     
     def _setup_handlers(self):
         """Create a handler for each component log file."""
+        # Lazy import and use config if available
+        try:
+            from ..config import get_logging_config
+            config = get_logging_config()
+            max_bytes = config.max_file_size
+            backup_count = config.backup_count
+        except ImportError:
+            # Fallback values
+            max_bytes = 50*1024*1024  # 50MB
+            backup_count = 5
+        
         for component, filename in self.COMPONENT_FILES.items():
             handler = logging.handlers.RotatingFileHandler(
                 self.log_dir / filename,
-                maxBytes=50*1024*1024,  # 50MB per file
-                backupCount=5,
+                maxBytes=max_bytes,
+                backupCount=backup_count,
                 encoding='utf-8'
             )
             handler.setFormatter(logging.Formatter('%(message)s'))
@@ -85,10 +110,21 @@ class MultiFileLogger(StructuredLogger):
     
     def _setup_error_handler(self):
         """Create special handler for all ERROR level messages."""
+        # Lazy import and use config if available
+        try:
+            from ..config import get_logging_config
+            config = get_logging_config()
+            max_bytes = config.max_file_size
+            backup_count = config.backup_count * 2  # Keep more error logs
+        except ImportError:
+            # Fallback values
+            max_bytes = 50*1024*1024  # 50MB
+            backup_count = 10
+        
         error_handler = logging.handlers.RotatingFileHandler(
             self.log_dir / 'errors.log',
-            maxBytes=50*1024*1024,  # 50MB
-            backupCount=10,  # Keep more error logs
+            maxBytes=max_bytes,
+            backupCount=backup_count,
             encoding='utf-8'
         )
         error_handler.setFormatter(logging.Formatter('%(message)s'))

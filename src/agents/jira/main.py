@@ -62,6 +62,7 @@ from src.tools.jira_tools import (
 from src.a2a import A2AServer, A2ATask, A2AResponse, A2AArtifact, AgentCard
 from src.utils.config import get_llm_config
 from src.utils.logging import get_logger
+from src.utils.sys_msg import jira_agent_sys_msg
 
 logger = get_logger("jira")
 
@@ -91,9 +92,15 @@ class JiraAgentState(TypedDict):
     current_task: str
     tool_results: List[Dict[str, Any]]
     error: str
+    task_context: Dict[str, Any]
+    external_context: Dict[str, Any]
 
-def get_jira_system_message() -> str:
+def get_jira_system_message(task_context: dict = None, external_context: dict = None) -> str:
     """Generate the system message that defines the Jira agent's behavior and capabilities.
+    
+    Args:
+        task_context: Optional task-specific context to include
+        external_context: Optional external context from orchestrator
     
     Returns:
         str: Comprehensive system prompt including capabilities, best practices,
@@ -103,29 +110,7 @@ def get_jira_system_message() -> str:
         This message is injected at the start of each conversation to ensure
         consistent behavior and proper tool usage guidance.
     """
-    return """You are a specialized Jira agent that helps users manage issues, projects, and agile workflows.
-
-Your capabilities include:
-- Searching issues using JQL (Jira Query Language)
-- Creating, updating, and transitioning issues
-- Managing epics, stories, and subtasks
-- Tracking sprints and releases
-- Managing issue relationships and dependencies
-- Adding comments and attachments
-- Analyzing project metrics and progress
-
-Always:
-- Include issue keys (e.g., PROJ-123) in responses
-- Provide clear status updates after operations
-- Use proper JQL syntax for searches
-- Respect project workflows and permissions
-
-Common JQL examples:
-- "project = PROJ AND status = 'In Progress'"
-- "assignee = currentUser() AND due < now()"
-- "sprint in openSprints() AND type = Bug"
-- "labels = urgent AND priority = High"
-"""
+    return jira_agent_sys_msg(task_context=task_context, external_context=external_context)
 
 def build_jira_agent():
     """Build and compile the Jira agent LangGraph workflow.
@@ -184,14 +169,20 @@ def build_jira_agent():
             operation="process_messages",
             task_id=task_id,
             message_count=len(state.get("messages", [])),
-            has_tool_results=bool(state.get("tool_results"))
+            has_tool_results=bool(state.get("tool_results")),
+            has_task_context=bool(state.get("task_context")),
+            has_external_context=bool(state.get("external_context"))
         )
         
         messages = state["messages"]
         
-        # Add system message if not present
+        # Get contexts for system message
+        task_context = state.get("task_context", {})
+        external_context = state.get("external_context", {})
+        
+        # Add system message with contexts
         if not messages or messages[0].type != "system":
-            messages = [SystemMessage(content=get_jira_system_message())] + messages
+            messages = [SystemMessage(content=get_jira_system_message(task_context=task_context, external_context=external_context))] + messages
         
         # Log LLM invocation
         logger.info("jira_llm_invocation_start",
@@ -289,13 +280,10 @@ async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
             "messages": [HumanMessage(content=instruction)],
             "current_task": task_id,
             "tool_results": [],
-            "error": ""
+            "error": "",
+            "task_context": {"task_id": task_id, "instruction": instruction},
+            "external_context": context or {}
         }
-        
-        # Add context if provided
-        if context:
-            context_msg = f"Additional context: {context}"
-            initial_state["messages"].insert(0, SystemMessage(content=context_msg))
         
         # Log agent invocation
         logger.info("jira_agent_invocation_start",
@@ -486,25 +474,45 @@ async def main():
     server.register_handler("get_agent_card", get_agent_card_handler)
     
     # Start the server
-    logger.info(f"Starting Jira agent on {args.host}:{args.port}")
+    logger.info("agent_starting",
+        component="system",
+        agent="jira",
+        host=args.host,
+        port=args.port,
+        operation="startup"
+    )
     runner = await server.start()
     
     logger.info("jira_agent_started",
-        component="jira",
+        component="system",
         operation="startup",
+        agent="jira",
         host=args.host,
         port=args.port,
         endpoint=f"http://{args.host}:{args.port}"
     )
-    logger.info("Agent capabilities: " + ", ".join(agent_card.capabilities))
-    logger.info("Press Ctrl+C to stop")
+    logger.info("agent_capabilities",
+        component="system",
+        agent="jira",
+        capabilities=agent_card.capabilities,
+        capability_count=len(agent_card.capabilities)
+    )
+    logger.info("agent_ready",
+        component="system",
+        agent="jira",
+        operation="ready"
+    )
     
     try:
         # Keep the server running
         while True:
             await asyncio.sleep(1)
     except KeyboardInterrupt:
-        logger.info("Shutting down Jira Agent...")
+        logger.info("agent_shutdown",
+            component="system",
+            agent="jira",
+            operation="shutdown"
+        )
         await server.stop(runner)
 
 if __name__ == "__main__":

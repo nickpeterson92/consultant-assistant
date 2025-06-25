@@ -346,7 +346,11 @@ async def main():
     logging.getLogger('aiohttp').setLevel(logging.WARNING)
     logging.getLogger('simple_salesforce').setLevel(logging.WARNING)
     
-    logger.info("Starting Salesforce Specialized Agent...", component="salesforce")
+    logger.info("agent_starting",
+        component="system",
+        agent="salesforce",
+        operation="startup"
+    )
     
     # Create the agent card
     agent_card = AgentCard(
@@ -367,9 +371,18 @@ async def main():
     )
     
     # Build the graph with debug mode if requested
-    logger.info("Building Salesforce graph...", component="salesforce")
+    logger.info("graph_building",
+        component="system",
+        agent="salesforce",
+        operation="build_graph"
+    )
     local_graph = build_salesforce_graph()
-    logger.info("Graph built successfully", component="salesforce")
+    logger.info("graph_built",
+        component="system",
+        agent="salesforce",
+        operation="build_graph",
+        success=True
+    )
     
     # Create A2A handler
     handler = SalesforceA2AHandler(local_graph)
@@ -383,21 +396,35 @@ async def main():
     runner = await server.start()
     
     logger.info("salesforce_agent_started",
-        component="salesforce",
+        component="system",
         operation="startup",
+        agent="salesforce",
         host=args.host,
         port=args.port,
         endpoint=f"http://{args.host}:{args.port}"
     )
-    logger.info("Agent capabilities: " + ", ".join(agent_card.capabilities), component="salesforce")
-    logger.info("Press Ctrl+C to stop", component="salesforce")
+    logger.info("agent_capabilities",
+        component="system",
+        agent="salesforce",
+        capabilities=agent_card.capabilities,
+        capability_count=len(agent_card.capabilities)
+    )
+    logger.info("agent_ready",
+        component="system",
+        agent="salesforce",
+        operation="ready"
+    )
     
     try:
         # Keep the server running
         while True:
             await asyncio.sleep(1)
     except KeyboardInterrupt:
-        logger.info("Shutting down Salesforce Agent...", component="salesforce")
+        logger.info("agent_shutdown",
+            component="system",
+            agent="salesforce",
+            operation="shutdown"
+        )
         await server.stop(runner)
 
 if __name__ == "__main__":

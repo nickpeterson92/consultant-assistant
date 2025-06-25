@@ -112,7 +112,12 @@ def load_events_with_limit(state: dict, limit: Optional[int] = None) -> List[Orc
     if len(stored_events) > limit:
         # Keep only recent events
         stored_events = stored_events[-limit:]
-        logger.info(f"Trimmed event history from {len(state.get('events', []))} to {limit} events")
+        logger.info("event_history_trimmed",
+            component="orchestrator",
+            operation="trim_events",
+            original_count=len(state.get('events', [])),
+            new_count=limit
+        )
     return [OrchestratorEvent.from_dict(e) for e in stored_events]
 
 def build_orchestrator_graph():
@@ -312,11 +317,11 @@ ORCHESTRATOR TOOLS:
                         msg_count
                     )
                     events.append(event)
-                    logger.info("user_request".lower(), component="orchestrator", user_message=str(last_msg.content)[:200],
+                    logger.info("user_request", component="orchestrator", user_message=str(last_msg.content)[:200],
                                              message_count=msg_count,
                                              event_count=len(events))
                 elif isinstance(last_msg, AIMessage):
-                    logger.info("ai_response_processing".lower(), component="orchestrator", ai_message=str(last_msg.content)[:200],
+                    logger.info("ai_response_processing", component="orchestrator", ai_message=str(last_msg.content)[:200],
                                              message_count=msg_count,
                                              event_count=len(events))
                         
@@ -374,13 +379,13 @@ ORCHESTRATOR TOOLS:
                     if stored_summary and "summary" in stored_summary:
                         state["summary"] = stored_summary["summary"]
                         summary = stored_summary["summary"]
-                        logger.info("summary_loaded_from_store".lower(), component="orchestrator", summary_preview=summary[:200],
+                        logger.info("summary_loaded_from_store", component="orchestrator", summary_preview=summary[:200],
                                                 thread_id=thread_id,
                                                 timestamp=stored_summary.get("timestamp"))
                 except Exception as e:
-                    logger.info("summary_load_error".lower(), component="orchestrator", error=str(e), thread_id=thread_id)
+                    logger.info("summary_load_error", component="orchestrator", error=str(e), thread_id=thread_id)
             
-            logger.info("summary_state_check".lower(), component="orchestrator", operation="conversation_node_entry",
+            logger.info("summary_state_check", component="orchestrator", operation="conversation_node_entry",
                                     has_summary=bool(summary and summary != "No summary available"),
                                     summary_length=len(summary) if summary else 0,
                                     summary_preview=summary[:200] if summary else "NO_SUMMARY")
@@ -408,7 +413,7 @@ ORCHESTRATOR TOOLS:
                         msg_count
                     )
                     events.append(tool_event)
-                    logger.info("tool_call".lower(), component="orchestrator", tool_name=tool_call.get('name', 'unknown'),
+                    logger.info("tool_call", component="orchestrator", tool_name=tool_call.get('name', 'unknown'),
                                              tool_args=tool_call.get('args', {}),
                                              event_count=len(events))
             
@@ -427,12 +432,12 @@ ORCHESTRATOR TOOLS:
             )
             events.append(ai_event)
             
-            logger.info("llm_generation_complete".lower(), component="orchestrator", response_length=len(response_content),
+            logger.info("llm_generation_complete", component="orchestrator", response_length=len(response_content),
                                      response_content=response_content[:500],  # Truncate for readability
                                      has_tool_calls=bool(hasattr(response, 'tool_calls') and response.tool_calls),
                                      event_count=len(events))
             
-            logger.track_cost("ORCHESTRATOR_LLM".lower(), tokens=estimated_tokens, 
+            logger.track_cost("ORCHESTRATOR_LLM", tokens=estimated_tokens, 
                             message_count=len(messages),
                             event_count=len(events))
             
@@ -445,7 +450,7 @@ ORCHESTRATOR TOOLS:
             
             # Log if we're trimming events
             if len(events) > max_events:
-                logger.info("event_history_trimmed".lower(), component="orchestrator", total_events=len(events),
+                logger.info("event_history_trimmed", component="orchestrator", total_events=len(events),
                                         kept_events=max_events,
                                         trimmed_events=len(events) - max_events)
             
@@ -458,7 +463,7 @@ ORCHESTRATOR TOOLS:
             # Check if we need to initialize summary
             if "summary" not in state or not state.get("summary"):
                 updated_state["summary"] = "No summary available"
-                logger.info("summary_initialized".lower(), component="orchestrator", operation="setting_default_summary")
+                logger.info("summary_initialized", component="orchestrator", operation="setting_default_summary")
             
             # Check and mark if we need background tasks
             conv_config = get_conversation_config()
@@ -477,7 +482,7 @@ ORCHESTRATOR TOOLS:
                 events.append(summary_event)
                 event_dicts.append(summary_event.to_dict())
                 
-                logger.info("summary_trigger".lower(), component="orchestrator", message_count=len(state["messages"]), 
+                logger.info("summary_trigger", component="orchestrator", message_count=len(state["messages"]), 
                                         event_count=len(events))
                 
                 # Fire and forget background summarization
@@ -510,7 +515,7 @@ ORCHESTRATOR TOOLS:
                 events.append(memory_event)
                 event_dicts.append(memory_event.to_dict())
                 
-                logger.info("memory_trigger".lower(), component="orchestrator", event_count=len(events),
+                logger.info("memory_trigger", component="orchestrator", event_count=len(events),
                                         message_count=len(state["messages"]))
                 
                 # Fire and forget background memory extraction
@@ -529,7 +534,12 @@ ORCHESTRATOR TOOLS:
             return updated_state
             
         except Exception as e:
-            logger.error(f"Error processing request: {e}")
+            logger.error("request_processing_error",
+                component="orchestrator",
+                operation="process_request",
+                error=str(e),
+                error_type=type(e).__name__
+            )
             raise
     
     async def summarize_conversation(state: OrchestratorState):
@@ -584,7 +594,7 @@ ORCHESTRATOR TOOLS:
         ])
         
         # Log format validation
-        logger.info("summary_format_validation".lower(), component="orchestrator", operation="format_check",
+        logger.info("summary_format_validation", component="orchestrator", operation="format_check",
                                 is_valid_format=is_valid_format,
                                 has_technical_section=has_technical_section,
                                 has_user_section=has_user_section,
@@ -595,8 +605,12 @@ ORCHESTRATOR TOOLS:
         
         # If invalid format, log debug and use a fallback
         if not is_valid_format or has_conversational_intro:
-            logger.debug(f"Invalid summary format detected - using fallback structured summary")
-            logger.info("summary_format_error".lower(), component="orchestrator", error="Invalid summary format",
+            logger.debug("summary_format_fallback",
+                component="orchestrator",
+                operation="format_validation",
+                reason="Invalid summary format detected"
+            )
+            logger.info("summary_format_error", component="orchestrator", error="Invalid summary format",
                                     response_content=response_content[:500])
             
             # Use a fallback structured summary with dynamic data
@@ -644,7 +658,7 @@ ORCHESTRATOR TOOLS:
                 messages_to_delete.append(RemoveMessage(id=msg.id))
         
         # Don't overwrite response_content - it may have been updated with fallback
-        logger.info("llm_generation_complete".lower(), component="orchestrator", response_length=len(response_content),
+        logger.info("llm_generation_complete", component="orchestrator", response_length=len(response_content),
                                  response_content=response_content[:500],
                                  operation="SUMMARIZATION",
                                  event_count=len(events))
@@ -652,7 +666,7 @@ ORCHESTRATOR TOOLS:
         # Log token usage based on preserved message count
         message_chars = sum(len(str(m.content if hasattr(m, 'content') else m)) for m in messages)
         estimated_tokens = message_chars // 4
-        logger.track_cost("ORCHESTRATOR_LLM_CALL".lower(), tokens=estimated_tokens, 
+        logger.track_cost("ORCHESTRATOR_LLM_CALL", tokens=estimated_tokens, 
                          message_count=len(messages_to_preserve),
                          response_length=len(str(response.content)) if hasattr(response, 'content') else 0,
                          event_count=len(events))
@@ -737,7 +751,7 @@ ORCHESTRATOR TOOLS:
         recent_tool_responses = []
         messages = state.get("messages", [])
         
-        logger.info("memory_extraction_start".lower(), component="orchestrator", message_count=len(messages),
+        logger.info("memory_extraction_start", component="orchestrator", message_count=len(messages),
                                 user_id=user_id)
         
         # Scan recent messages for tool responses with data
@@ -756,7 +770,7 @@ ORCHESTRATOR TOOLS:
                 msg_content = getattr(msg, 'content', '')
             
             # Log what we're examining
-            logger.info("memory_extraction_debug".lower(), component="orchestrator", operation="examining_message",
+            logger.info("memory_extraction_debug", component="orchestrator", operation="examining_message",
                                     msg_type=type(msg).__name__,
                                     msg_name=msg_name[:50] if msg_name else "NO_NAME",
                                     msg_content_length=len(msg_content) if msg_content else 0,
@@ -784,7 +798,7 @@ ORCHESTRATOR TOOLS:
                             # Format for TrustCall extraction
                             enhanced_content = f"{conversational_part}\n\nDETAILED SALESFORCE RECORDS WITH REAL IDS:\n{json.dumps(structured_part, indent=2)}"
                             recent_tool_responses.append(enhanced_content[:2000])
-                            logger.info("memory_extraction_debug".lower(), component="orchestrator", operation="structured_data_found",
+                            logger.info("memory_extraction_debug", component="orchestrator", operation="structured_data_found",
                                                     records_count=len(structured_part) if isinstance(structured_part, list) else 1)
                             
                             # Log structured data found
@@ -797,7 +811,7 @@ ORCHESTRATOR TOOLS:
                                 record_count=len(structured_part) if isinstance(structured_part, list) else 1
                             )
                         except (json.JSONDecodeError, IndexError) as e:
-                            logger.info("memory_extraction_debug".lower(), component="orchestrator", operation="structured_data_parse_error",
+                            logger.info("memory_extraction_debug", component="orchestrator", operation="structured_data_parse_error",
                                                     error=str(e))
                             recent_tool_responses.append(msg_content[:1500])
                     else:
@@ -807,7 +821,7 @@ ORCHESTRATOR TOOLS:
         summary_content = state.get("summary", "")
         
         # DEBUG LOGGING: Track summary extraction issue
-        logger.info("memory_extraction_debug".lower(), component="orchestrator", operation="summary_retrieval",
+        logger.info("memory_extraction_debug", component="orchestrator", operation="summary_retrieval",
                                 summary_exists=bool(summary_content),
                                 summary_length=len(summary_content) if summary_content else 0,
                                 summary_preview=summary_content[:200] if summary_content else "NO_SUMMARY",
@@ -820,17 +834,19 @@ ORCHESTRATOR TOOLS:
             for i, response in enumerate(recent_tool_responses):
                 extraction_content += f"\nTool Response {i+1}:\n{response}\n"
                 # Log each tool response being added
-                logger.info("memory_extraction_debug".lower(), component="orchestrator", operation="tool_response_added",
+                logger.info("memory_extraction_debug", component="orchestrator", operation="tool_response_added",
                                         response_index=i,
                                         response_length=len(response),
                                         response_preview=response[:100])
         else:
             extraction_content += "No recent tool responses found."
-            logger.info("memory_extraction_debug".lower(), component="orchestrator", operation="no_tool_responses",
-                                    message="No recent tool responses found for extraction")
+            logger.info("memory_extraction_debug", 
+                component="orchestrator", 
+                operation="no_tool_responses",
+                detail="No recent tool responses found for extraction")
         
         # Log final extraction content
-        logger.info("memory_extraction_debug".lower(), component="orchestrator", operation="final_extraction_content",
+        logger.info("memory_extraction_debug", component="orchestrator", operation="final_extraction_content",
                                 content_length=len(extraction_content),
                                 content_preview=extraction_content[:500],
                                 has_summary=bool(summary_content),
@@ -1066,7 +1082,7 @@ ORCHESTRATOR TOOLS:
                 
         except Exception as e:
             logger.error("background_summary_error",
-                component="orchestrator",
+                component="system",
                 operation="background_summary",
                 error=str(e),
                 error_type=type(e).__name__
@@ -1103,7 +1119,7 @@ ORCHESTRATOR TOOLS:
             
         except Exception as e:
             logger.error("background_memory_error",
-                component="orchestrator",
+                component="system",
                 operation="background_memory",
                 error=str(e),
                 error_type=type(e).__name__
@@ -1129,7 +1145,7 @@ ORCHESTRATOR TOOLS:
             
             if result and "summary" in result:
                 new_summary = result["summary"]
-                logger.info("background_summary_save".lower(), component="orchestrator", operation="saving_summary_to_store",
+                logger.info("background_summary_save", component="system", operation="saving_summary_to_store",
                                         summary_preview=new_summary[:200] if new_summary else "NO_SUMMARY")
                 
                 # Save the entire state to the persistent store using thread_id as key
@@ -1149,7 +1165,7 @@ ORCHESTRATOR TOOLS:
                 
         except Exception as e:
             import traceback
-            logger.info("background_summary_error".lower(), component="orchestrator", error=str(e),
+            logger.info("background_summary_error", component="orchestrator", error=str(e),
                                      traceback=traceback.format_exc()[:500])
     
     def _run_background_memory(messages, summary, events, memory):
@@ -1172,8 +1188,12 @@ ORCHESTRATOR TOOLS:
             result = asyncio.run(memorize_records(mock_state, mock_config))
         except Exception as e:
             import traceback
-            logger.info("background_memory_error".lower(), component="orchestrator", error=str(e),
-                                     traceback=traceback.format_exc()[:500])
+            logger.error("background_memory_error",
+                component="system",
+                operation="background_memory", 
+                error=str(e),
+                error_type=type(e).__name__,
+                traceback=traceback.format_exc()[:500])
     
     # Build graph with tool integration supporting Command pattern
     tool_node = create_tool_node(tools)
@@ -1221,7 +1241,12 @@ async def initialize_orchestrator():
         # Thread-specific summaries are preserved across sessions
         logger.info("Initialized without clearing summaries - thread-specific summaries preserved")
     except Exception as e:
-        logger.warning(f"Could not clear summaries: {e}")
+        logger.warning("summary_clear_failed",
+            component="system",
+            operation="clear_summaries",
+            error=str(e),
+            error_type=type(e).__name__
+        )
     
     logger.info("Checking agent health...")
     health_results = await agent_registry.health_check_all_agents()
@@ -1230,9 +1255,19 @@ async def initialize_orchestrator():
     offline_agents = [name for name, status in health_results.items() if not status]
     
     if online_agents:
-        logger.info(f"Online agents: {', '.join(online_agents)}")
+        logger.info("agents_online",
+            component="system",
+            operation="agent_discovery",
+            agents=online_agents,
+            count=len(online_agents)
+        )
     if offline_agents:
-        logger.warning(f"Offline agents: {', '.join(offline_agents)}")
+        logger.warning("agents_offline",
+            component="system",
+            operation="agent_discovery",
+            agents=offline_agents,
+            count=len(offline_agents)
+        )
     
     # Attempt auto-discovery if no agents registered
     if not agent_registry.list_agents():
@@ -1247,7 +1282,11 @@ async def initialize_orchestrator():
         
         discovered = await agent_registry.discover_agents(discovery_endpoints)
         if discovered > 0:
-            logger.info(f"Discovered {discovered} agents")
+            logger.info("agents_discovered",
+                component="system",
+                operation="agent_discovery",
+                count=discovered
+            )
         else:
             logger.warning("No agents discovered - you may need to start specialized agents manually")
     
@@ -1334,9 +1373,9 @@ async def main():
             stored_threads = global_memory_store.sync_get(namespace, thread_list_key) or {}
             if "threads" in stored_threads:
                 active_threads.update(stored_threads["threads"])
-                logger.info("threads_loaded".lower(), component="orchestrator", thread_count=len(stored_threads["threads"]))
+                logger.info("threads_loaded", component="system", thread_count=len(stored_threads["threads"]))
     except Exception as e:
-        logger.info("thread_load_error".lower(), component="orchestrator", error=str(e))
+        logger.info("thread_load_error", component="system", error=str(e))
     
     print(f"\nStarting new conversation thread: {current_thread_id}\n")
     
@@ -1344,7 +1383,7 @@ async def main():
         try:
             user_input = input("USER: ")
             
-            logger.info("user_input_raw".lower(), component="orchestrator", input=user_input[:1000])
+            logger.info("user_input_raw", component="orchestrator", input=user_input[:1000])
             
             if user_input.lower() in ["quit", "exit", "q"]:
                 print("Goodbye!")
@@ -1486,10 +1525,10 @@ async def main():
                                 "updated": time.time()
                             })
                     except Exception as e:
-                        logger.info("thread_save_error".lower(), component="orchestrator", error=str(e))
+                        logger.info("thread_save_error", component="system", error=str(e))
                     
                     print(f"\nStarted new conversation thread: {current_thread_id}\n")
-                    logger.info("new_thread_created".lower(), component="orchestrator", thread_id=current_thread_id)
+                    logger.info("new_thread_created", component="system", thread_id=current_thread_id)
                     continue
                 
                 elif command == "/list":
@@ -1604,11 +1643,11 @@ async def main():
                     
                     if thread_found:
                         print(f"\nSwitched to thread: {current_thread_id}\n")
-                        logger.info("thread_switched".lower(), component="orchestrator", thread_id=current_thread_id)
+                        logger.info("thread_switched", component="system", thread_id=current_thread_id)
                     else:
                         print(f"\nStarting new thread: {current_thread_id}\n")
                         active_threads[current_thread_id] = {"created": time.time(), "messages": 0}
-                        logger.info("new_thread_created".lower(), component="orchestrator", thread_id=current_thread_id)
+                        logger.info("new_thread_created", component="system", thread_id=current_thread_id)
                     continue
                 
                 else:
@@ -1639,14 +1678,19 @@ async def main():
                 else:
                     print(f"\n❌ Validation Error: {error_message}")
                     
-                logger.info("validation_error".lower(), component="orchestrator", error_type="user_input",
+                logger.info("validation_error", component="orchestrator", error_type="user_input",
                                         error_message=error_message,
                                         input_length=len(user_input))
                 continue
             except Exception as e:
                 # Catch any other unexpected errors during validation
                 print(f"\n❌ Unexpected error during input validation: {e}")
-                logger.error(f"Unexpected validation error: {type(e).__name__}: {e}")
+                logger.error("validation_error_unexpected",
+                    component="orchestrator",
+                    operation="input_validation",
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
                 continue
             
             print("\nASSISTANT: ", end="", flush=True)
@@ -1696,7 +1740,7 @@ async def main():
                             indicator_thread.join(timeout=1.0)
                             
                             conversation_response = last_msg.content
-                            logger.info("user_message_displayed".lower(), component="orchestrator", response=conversation_response[:1000],
+                            logger.info("user_message_displayed", component="orchestrator", response=conversation_response[:1000],
                                                     full_length=len(conversation_response))
                             await type_out(conversation_response, delay=0.01)
                             response_shown = True
@@ -1767,7 +1811,12 @@ async def main():
             print("\nInput stream ended. Goodbye!")
             break
         except Exception as e:
-            logger.error(f"Error processing request: {e}")
+            logger.error("main_request_error",
+                component="orchestrator",
+                operation="main_loop",
+                error=str(e),
+                error_type=type(e).__name__
+            )
             print(f"Error: {e}")
             # Exit on critical network errors
             if "connection" in str(e).lower() or "network" in str(e).lower():
