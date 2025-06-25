@@ -1140,14 +1140,8 @@ ORCHESTRATOR TOOLS:
                 # Update mock_state with the new summary
                 mock_state["summary"] = new_summary
                 
-                # Create a new store instance for this thread
-                thread_local_store = get_async_store_adapter(
-                    db_path=get_database_config().path,
-                    max_workers=1  # Single worker for background thread
-                )
-                
-                # Save the complete state
-                thread_local_store.sync_put(namespace, key, {
+                # Use the global memory store which now handles thread-local connections
+                memory_store.sync_put(namespace, key, {
                     "state": mock_state,
                     "thread_id": thread_id,
                     "timestamp": time.time()

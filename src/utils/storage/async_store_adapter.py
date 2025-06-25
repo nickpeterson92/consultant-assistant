@@ -8,6 +8,7 @@ concurrency handling without unnecessary abstractions.
 
 import asyncio
 import logging
+import threading
 from typing import Any, Dict, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor
 
@@ -28,8 +29,8 @@ class AsyncStoreAdapter:
         self.db_path = db_path or db_config.path
         self.max_workers = max_workers or db_config.thread_pool_size
         
-        # Single SQLiteStore instance - SQLite handles concurrency internally
-        self._store = SQLiteStore(self.db_path)
+        # Thread-local storage for SQLite connections
+        self._thread_local = threading.local()
         
         # Thread pool for async operations
         self._executor = ThreadPoolExecutor(
@@ -37,6 +38,17 @@ class AsyncStoreAdapter:
             thread_name_prefix=db_config.thread_prefix
         )
         logger.info(f"Initialized AsyncStoreAdapter at {self.db_path}")
+    
+    def _get_store(self) -> SQLiteStore:
+        """Get thread-local SQLiteStore instance."""
+        if not hasattr(self._thread_local, 'store'):
+            self._thread_local.store = SQLiteStore(self.db_path)
+            logger.info("Created thread-local SQLiteStore",
+                component="storage",
+                thread_id=threading.current_thread().ident,
+                db_path=self.db_path
+            )
+        return self._thread_local.store
     
     async def get(self, namespace: Tuple[str, ...], key: str) -> Optional[Any]:
         """Get a value from the store asynchronously."""
@@ -54,9 +66,7 @@ class AsyncStoreAdapter:
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
                 self._executor, 
-                self._store.get, 
-                namespace, 
-                key
+                lambda: self._get_store().get(namespace, key)
             )
             
             # Log successful read
@@ -100,10 +110,7 @@ class AsyncStoreAdapter:
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
                 self._executor,
-                self._store.put,
-                namespace,
-                key,
-                value
+                lambda: self._get_store().put(namespace, key, value)
             )
             
             # Log successful write
@@ -142,9 +149,7 @@ class AsyncStoreAdapter:
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
                 self._executor,
-                self._store.delete,
-                namespace,
-                key
+                lambda: self._get_store().delete(namespace, key)
             )
             
             # Log successful delete
@@ -172,8 +177,7 @@ class AsyncStoreAdapter:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
             self._executor,
-            self._store.list,
-            namespace
+            lambda: self._get_store().list(namespace)
         )
     
     async def batch_get(self, requests: List[Tuple[Tuple[str, ...], str]]) -> List[Optional[Any]]:
@@ -197,7 +201,7 @@ class AsyncStoreAdapter:
     # Sync methods for backward compatibility
     def sync_get(self, namespace: Tuple[str, ...], key: str) -> Optional[Any]:
         """Synchronous get for backward compatibility."""
-        result = self._store.get(namespace, key)
+        result = self._get_store().get(namespace, key)
         
         # Log the operation
         user_id = namespace[1] if namespace and len(namespace) > 1 else "unknown"
@@ -212,7 +216,7 @@ class AsyncStoreAdapter:
         logger.info("memory_put", component="async_store_adapter_sync", namespace=namespace, key=key, value=value, 
                                    user_id=user_id)
         
-        self._store.put(namespace, key, value)
+        self._get_store().put(namespace, key, value)
 
 
 # Global async store adapter instance
