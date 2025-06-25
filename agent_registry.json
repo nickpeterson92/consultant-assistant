@@ -37,7 +37,7 @@
         }
       },
       "status": "online",
-      "last_health_check": 1293360.450162083
+      "last_health_check": 1298551.155527708
     },
     {
       "name": "jira-agent",
@@ -86,7 +86,7 @@
         }
       },
       "status": "online",
-      "last_health_check": 1293360.450037625
+      "last_health_check": 1298551.155391083
     }
   ]
 }
