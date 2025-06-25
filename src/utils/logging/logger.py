@@ -29,7 +29,7 @@ _thread_local = local()
 class StructuredLogger:
     """Unified logger for all components with built-in correlation and performance tracking."""
     
-    def __init__(self, log_file: str = "logs/app.log", level: int = logging.INFO):
+    def __init__(self, log_file: str = "logs/system.log", level: int = logging.INFO):
         """Initialize the unified logger.
         
         Args:

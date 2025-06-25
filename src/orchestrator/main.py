@@ -743,6 +743,13 @@ ORCHESTRATOR TOOLS:
             stored = None
         
         if stored:
+            # Ensure stored data has all required fields from SimpleMemory schema
+            memory_template = SimpleMemory().model_dump()
+            if isinstance(stored, dict):
+                # Merge stored data with template to ensure all fields exist
+                for field in memory_template:
+                    if field not in stored:
+                        stored[field] = memory_template[field]
             existing_records = {"SimpleMemory": stored}
         else:
             existing_records = {"SimpleMemory": SimpleMemory().model_dump()}

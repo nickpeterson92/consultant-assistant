@@ -52,6 +52,23 @@ def get_salesforce_connection():
     )
 
 
+def log_soql_query(tool_name: str, query: str, operation: str = "query_built"):
+    """Log SOQL query for debugging and monitoring.
+    
+    Args:
+        tool_name: Name of the tool building the query
+        query: The SOQL query string
+        operation: Type of operation (query_built, query_executed, etc.)
+    """
+    logger.info("soql_query",
+        component="salesforce",
+        tool_name=tool_name,
+        operation=operation,
+        query=query,
+        query_length=len(query)
+    )
+
+
 # Lead Tools
 class GetLeadTool(BaseTool):
     """Salesforce Lead Retrieval Tool.
@@ -134,6 +151,7 @@ class GetLeadTool(BaseTool):
                     return {"error": "No search criteria provided."}
 
             query = builder.build()
+            log_soql_query("get_lead_tool", query)
             records = sf.query(query)['records']
 
             if not records:
@@ -424,6 +442,7 @@ class GetAccountTool(BaseTool):
                 return {"error": "Please provide either account_id or account_name"}
 
             query = builder.build()
+            log_soql_query("get_account_tool", query)
             records = sf.query(query)['records']
 
             if not records:
@@ -745,6 +764,7 @@ class GetOpportunityTool(BaseTool):
                     return {"error": "No search criteria provided."}
 
             query = builder.order_by('Amount', descending=True).build()
+            log_soql_query("get_opportunity_tool", query)
             records = sf.query(query)['records']
 
             if not records:
@@ -1101,6 +1121,7 @@ class GetContactTool(BaseTool):
                     return {"error": "No search criteria provided."}
 
             query = builder.build()
+            log_soql_query("get_contact_tool", query)
             records = sf.query(query)['records']
 
             if not records:
@@ -1437,6 +1458,7 @@ class GetCaseTool(BaseTool):
                     return {"error": "No search criteria provided."}
 
             query = builder.order_by('CreatedDate', descending=True).build()
+            log_soql_query("get_case_tool", query)
             records = sf.query(query)['records']
 
             if not records:
@@ -1789,6 +1811,7 @@ class GetTaskTool(BaseTool):
                     return {"error": "No search criteria provided."}
 
             query = builder.order_by('ActivityDate', descending=True).build()
+            log_soql_query("get_task_tool", query)
             records = sf.query(query)['records']
 
             if not records:
@@ -2113,6 +2136,7 @@ class GetSalesPipelineTool(BaseTool):
                     .having("SUM(Amount)", SOQLOperator.GREATER_THAN, 0)
                     .order_by("SUM(Amount)", descending=True)  # Use aggregate function, not alias
                     .build())
+                log_soql_query("get_sales_pipeline_tool", query)
             elif data.group_by == "OwnerId":
                 # Group opportunities by owner (sales rep) with open pipeline only
                 query_builder = (SOQLQueryBuilder("Opportunity")
@@ -2132,6 +2156,7 @@ class GetSalesPipelineTool(BaseTool):
                     .order_by("SUM(Amount)", descending=True)  # Use aggregate function, not alias
                     .limit(20)
                     .build())
+                log_soql_query("get_sales_pipeline_tool", query)
             else:  # CloseDate monthly
                 # Group opportunities by month/year for trend analysis
                 query_builder = (SOQLQueryBuilder("Opportunity")
@@ -2149,6 +2174,7 @@ class GetSalesPipelineTool(BaseTool):
                     .order_by(["CALENDAR_YEAR(CloseDate)", "CALENDAR_MONTH(CloseDate)"])  # Use functions, not aliases
                     .build())
             
+            log_soql_query("get_sales_pipeline_tool", query)
             results = sf.query(query)
             
             # Return results in same format as other tools
@@ -2259,6 +2285,7 @@ class GetTopPerformersTool(BaseTool):
                     .order_by('SUM(Amount)', descending=True)  # Use aggregate function, not alias
                     .limit(data.limit)
                     .build())
+                log_soql_query("get_top_performers_tool", query)
             elif data.metric == "deal_count":
                 query = (SOQLQueryBuilder('Opportunity')
                     .select(['OwnerId', 'Owner.Name'])
@@ -2270,6 +2297,7 @@ class GetTopPerformersTool(BaseTool):
                     .order_by('COUNT(Id)', descending=True)  # Use aggregate function, not alias
                     .limit(data.limit)
                     .build())
+                log_soql_query("get_top_performers_tool", query)
             else:  # win_rate - Calculate in post-processing since SOQL doesn't support CASE in aggregates
                 # Get total opportunities and won opportunities separately
                 query = (SOQLQueryBuilder('Opportunity')
@@ -2281,6 +2309,7 @@ class GetTopPerformersTool(BaseTool):
                     .order_by('COUNT(Id)', descending=True)  # Order by total opportunities
                     .limit(data.limit * 2)  # Get more records to filter after win rate calculation
                     .build())
+                log_soql_query("get_top_performers_tool", query)
                 
                 # Need a second query to get won deals count
                 won_query = (SOQLQueryBuilder('Opportunity')
@@ -2290,6 +2319,7 @@ class GetTopPerformersTool(BaseTool):
                     .where('IsWon', SOQLOperator.EQUALS, True)
                     .group_by(['OwnerId', 'Owner.Name'])
                     .build())
+                log_soql_query("get_top_performers_tool", won_query)
             
             results = sf.query(query)
             
@@ -2434,6 +2464,7 @@ class GlobalSearchTool(BaseTool):
             
             # Construct SOSL query - searches all fields across specified objects
             query = f"FIND {{{search_term}}} IN ALL FIELDS RETURNING {', '.join(returning_clauses)}"
+            log_soql_query("global_search_tool", query)
             
             # Use search() for SOSL queries
             results = sf.search(query)
@@ -2717,6 +2748,7 @@ class GetBusinessMetricsTool(BaseTool):
                     .group_by('Industry')
                     .order_by('COUNT(Id)', descending=True)  # Use aggregate function, not alias
                     .build())
+                log_soql_query("get_account_insights_tool", query)
                 
             elif data.metric_type == "leads":
                 query_builder = SOQLQueryBuilder('Lead')
@@ -2732,6 +2764,7 @@ class GetBusinessMetricsTool(BaseTool):
                 base_query = (query_builder
                     .select_count('Id', 'TotalLeads')
                     .build())
+                log_soql_query("get_account_insights_tool", base_query)
                 
                 # Add date filter manually to avoid quoting issues
                 if 'WHERE' in base_query:
@@ -2753,9 +2786,11 @@ class GetBusinessMetricsTool(BaseTool):
                     .select_count('Id', 'ConvertedLeads')
                     .where('IsConverted', SOQLOperator.EQUALS, True)
                     .build())
+                log_soql_query("get_account_insights_tool", base_converted_query)
                 
                 # Add date filter manually
                 converted_query = base_converted_query.replace('WHERE', f'WHERE CreatedDate = {data.time_period} AND')
+                log_soql_query("get_account_insights_tool", converted_query)
                 
             else:  # cases
                 query_builder = SOQLQueryBuilder('Case')
@@ -2772,6 +2807,7 @@ class GetBusinessMetricsTool(BaseTool):
                     .select_count('Id', 'CaseCount')
                     .order_by('COUNT(Id)', descending=True)  # Use aggregate function, not alias
                     .build())
+                log_soql_query("get_account_insights_tool", base_query)
                 
                 # Add date filter manually to avoid quoting issues
                 if 'WHERE' in base_query:

@@ -69,6 +69,23 @@ def escape_jql(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
+def log_jql_query(tool_name: str, query: str, operation: str = "query_built"):
+    """Log JQL query for debugging and monitoring.
+    
+    Args:
+        tool_name: Name of the tool building the query
+        query: The JQL query string
+        operation: Type of operation (query_built, query_executed, etc.)
+    """
+    logger.info("jql_query",
+        component="jira",
+        tool_name=tool_name,
+        operation=operation,
+        query=query,
+        query_length=len(query)
+    )
+
+
 # Search and Query Tools
 class SearchJiraIssuesTool(BaseTool):
     """Advanced JQL search for Jira issues with natural language support.
@@ -123,6 +140,7 @@ class SearchJiraIssuesTool(BaseTool):
             
             # Convert natural language to JQL if needed
             jql = self._build_jql_query(data.query)
+            log_jql_query("search_jira_issues", jql)
             
             # Default fields if not specified
             fields = data.fields or ["key", "summary", "status", "assignee", "priority", "created"]
@@ -1210,6 +1228,7 @@ class GetProjectIssuesTool(BaseTool):
                     jql_parts.append(f"assignee = '{escape_jql(data.assignee)}'")
             
             jql = " AND ".join(jql_parts)
+            log_jql_query("get_project_issues", jql)
             
             # Use search tool internally
             search_tool = SearchJiraIssuesTool()
@@ -1314,6 +1333,7 @@ class GetMyIssuesTool(BaseTool):
             
             jql = " AND ".join(jql_parts)
             jql += " ORDER BY priority DESC, duedate ASC"
+            log_jql_query("get_my_issues", jql)
             
             # Use search tool internally
             search_tool = SearchJiraIssuesTool()
@@ -1431,6 +1451,7 @@ class GetEpicIssuesTool(BaseTool):
                 jql += ' AND type != Sub-task'
             
             jql += ' ORDER BY type ASC, priority DESC'
+            log_jql_query("get_epic_issues", jql)
             
             # Use search tool
             search_tool = SearchJiraIssuesTool()
@@ -1563,6 +1584,7 @@ class GetSprintIssuesTool(BaseTool):
             
             jql = " AND ".join(jql_parts) if jql_parts else "sprint in openSprints()"
             jql += " ORDER BY priority DESC, created ASC"
+            log_jql_query("get_sprint_issues", jql)
             
             # Use search tool
             search_tool = SearchJiraIssuesTool()
