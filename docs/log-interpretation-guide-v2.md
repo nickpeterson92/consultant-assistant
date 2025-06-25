@@ -1,5 +1,34 @@
 # 📊 Enhanced Log Interpretation Guide v2
 
+## 📁 NEW: Multi-File Logging System
+
+As of 2025-06-25, logs are now separated by component for easier debugging:
+
+```bash
+logs/
+├── orchestrator.log      # Orchestrator operations, LLM calls, user interactions
+├── salesforce.log        # Salesforce agent AND tool operations combined
+├── a2a_protocol.log      # Network calls, circuit breakers, retries
+├── storage.log           # SQLite operations, memory persistence
+├── system.log            # Startup/shutdown, config loads, health checks
+└── errors.log            # ALL ERROR level messages across components
+```
+
+### Quick Commands for Multi-File Logs
+```bash
+# Watch Salesforce operations (agent + tools together)
+tail -f logs/salesforce.log
+
+# Track a request across ALL components  
+grep "task_id:abc123" logs/*.log | sort
+
+# Monitor all errors in real-time
+tail -f logs/errors.log
+
+# See what's happening right now across system
+tail -f logs/*.log | grep -v "health_check"
+```
+
 ## 🎯 Quick Reference - What to Search For
 
 ### 🚨 Error Patterns (Priority Searches)
@@ -235,23 +264,33 @@ Search for `"token_usage"` to track costs:
 
 ## 🛠️ Troubleshooting Workflows
 
-### "Bot Not Responding"
-1. Search: `"user_input_raw"` - Find last user input
-2. Search: `"llm_invocation_start"` - Did AI start processing?
-3. Search: `"level\": \"ERROR\"` - Any errors after that timestamp?
-4. Search: `"timeout"` - Did something timeout?
+### Which Log File to Check?
+| Issue | Primary Log | Secondary Logs |
+|-------|-------------|----------------|
+| Bot not responding | `orchestrator.log` | `errors.log` |
+| Tool execution errors | `salesforce.log` | `errors.log` |
+| Agent offline/timeout | `a2a_protocol.log` | `system.log` |
+| Memory not persisting | `storage.log` | `orchestrator.log` |
+| Startup issues | `system.log` | `errors.log` |
+| Any unknown error | `errors.log` first! | Then component logs |
 
-### "Wrong Agent Response"
-1. Search: `"tool_call"` - Which tool was selected?
-2. Search: `"a2a_dispatch"` - What was sent to agent?
-3. Search: `"a2a_task_complete"` - What came back?
-4. Search: `"user_message_displayed"` - What user saw?
+### "Bot Not Responding"
+1. Check `orchestrator.log`: `"user_input_raw"` - Find last user input
+2. Check `orchestrator.log`: `"llm_invocation_start"` - Did AI start processing?
+3. Check `errors.log`: Any errors after that timestamp?
+4. Check `a2a_protocol.log`: `"timeout"` - Did agent call timeout?
+
+### "Wrong Agent Response"  
+1. Check `orchestrator.log`: `"tool_call"` - Which tool was selected?
+2. Check `salesforce.log`: Tool execution details
+3. Check `a2a_protocol.log`: `"a2a_task_complete"` - What came back?
+4. Check `orchestrator.log`: `"user_message_displayed"` - What user saw?
 
 ### "Memory Not Working"
-1. Search: `"memory_load_start"` - Loading attempt?
-2. Search: `"sqlite_get"` with `"found": false` - Missing data?
-3. Search: `"memory_extraction"` - Extraction attempts?
-4. Search: `"memory_put"` - Save attempts?
+1. Check `storage.log`: `"memory_load_start"` - Loading attempt?
+2. Check `storage.log`: `"sqlite_get"` with `"found": false` - Missing data?
+3. Check `orchestrator.log`: `"memory_extraction"` - Extraction attempts?
+4. Check `storage.log`: `"memory_put"` - Save attempts?
 
 ## 🎨 Visual Log Flow Patterns
 
@@ -318,32 +357,45 @@ user_input_raw
 
 ## 🔧 Advanced Filtering
 
-### Using grep/ripgrep
+### Using grep/ripgrep with Multi-File Logs
 ```bash
-# Find all errors in last 5 minutes
-rg '"level": "ERROR"' logs/app.log | tail -50
+# Find all errors across all components
+rg '"level": "ERROR"' logs/*.log | tail -50
+# OR just check the errors.log file directly!
+tail -50 logs/errors.log
 
-# Track specific user session
-rg '"thread_id": "orchestrator-39283fe3"' logs/app.log
+# Track specific user session across components
+rg '"thread_id": "orchestrator-39283fe3"' logs/*.log | sort
 
-# Find slow operations (>3 seconds)
-rg '"elapsed_seconds": [3-9]\.' logs/app.log
-rg '"duration_seconds": [3-9]\.' logs/app.log
+# Find slow operations in A2A calls
+rg '"elapsed_seconds": [3-9]\.' logs/a2a_protocol.log
 
-# Agent communication issues
-rg '"message": "a2a_network_error|retry_attempt_failed|all_retry_attempts_failed"' logs/app.log
+# Check tool execution issues  
+rg '"tool_error"' logs/salesforce.log
+
+# Agent communication issues (now in dedicated file)
+rg '"message": "a2a_network_error|retry_attempt_failed"' logs/a2a_protocol.log
+
+# Memory/storage issues
+rg '"sqlite_error"' logs/storage.log
 ```
 
 ### Using jq for JSON Processing
 ```bash
-# Extract error summary
-jq 'select(.level == "ERROR") | {time: .timestamp, error: .error, type: .error_type}' logs/app.log
+# Extract error summary from all errors
+jq 'select(.level == "ERROR") | {time: .timestamp, error: .error, type: .error_type}' logs/errors.log
 
-# Show request/response pairs
-jq 'select(.message == "user_input_raw" or .message == "user_message_displayed")' logs/app.log
+# Show request/response pairs in orchestrator
+jq 'select(.message == "user_input_raw" or .message == "user_message_displayed")' logs/orchestrator.log
 
-# Performance analysis
-jq 'select(.elapsed_seconds != null and .elapsed_seconds > 2)' logs/app.log
+# Performance analysis of A2A calls
+jq 'select(.elapsed_seconds != null and .elapsed_seconds > 2)' logs/a2a_protocol.log
+
+# Tool execution summary
+jq 'select(.message == "tool_call" or .message == "tool_result" or .message == "tool_error")' logs/salesforce.log
+
+# Combine logs for full trace (example)
+cat logs/orchestrator.log logs/a2a_protocol.log logs/salesforce.log | jq -s 'sort_by(.timestamp)' | jq '.[] | select(.task_id == "abc123")'
 ```
 
 ## 🚦 Quick Status Checks

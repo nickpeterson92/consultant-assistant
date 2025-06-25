@@ -228,6 +228,51 @@ namespace = ("memory", user_id)
 8. **Constants**: Centralized in `constants.py`
 9. **YAGNI Applied**: Removed speculative features
 
+## 📊 Multi-File Logging System
+
+### Log Files by Component
+```bash
+logs/
+├── orchestrator.log      # Orchestrator operations, LLM calls, user interactions
+├── salesforce.log        # Both SF agent AND tool operations in one place
+├── a2a_protocol.log      # Network calls, circuit breakers, retries
+├── storage.log           # SQLite operations, memory persistence
+├── system.log            # Startup/shutdown, config loads, health checks
+└── errors.log            # ALL errors across components (for quick debugging)
+```
+
+### Quick Debugging Commands
+```bash
+# Watch Salesforce operations (agent + tools)
+tail -f logs/salesforce.log | grep -E "(tool_call|tool_result|tool_error)"
+
+# Track a request across all components
+grep "task_id:abc123" logs/*.log | sort
+
+# Monitor errors in real-time
+tail -f logs/errors.log
+
+# See A2A circuit breaker issues
+tail -f logs/a2a_protocol.log | grep -E "(CIRCUIT_BREAKER|retry|timeout)"
+
+# Check tool execution flow
+tail -f logs/salesforce.log | jq -r 'select(.tool_name) | [.timestamp,.tool_name,.message] | @csv'
+```
+
+### Component Mappings
+- `component="orchestrator"` → orchestrator.log
+- `component="salesforce"` → salesforce.log (includes both agent & tools)
+- `component="a2a"` → a2a_protocol.log
+- `component="storage"` or `component="async_store_adapter_sync"` → storage.log
+- `component="system"` or `component="config"` → system.log
+
+### Key Log Messages to Watch
+- **Tool issues**: Look for `tool_error` in salesforce.log
+- **Agent offline**: Check `health_check_failed` in orchestrator.log
+- **Memory errors**: Search `sqlite_error` in storage.log
+- **Network issues**: Find `a2a_network_error` in a2a_protocol.log
+- **All critical errors**: Always check errors.log first!
+
 ## 🎯 Quick Task Reference
 
 ### Adding a New Constant
