@@ -190,7 +190,7 @@ async def memory_store(tmp_path):
     
     db_path = tmp_path / "test_memory.db"
     # AsyncStoreAdapter expects a path string, not a store object
-    store = AsyncStoreAdapter(str(db_path), use_async=False)
+    store = AsyncStoreAdapter(str(db_path))
     
     yield store
     

@@ -37,7 +37,40 @@
         }
       },
       "status": "online",
-      "last_health_check": 1248787.325768708
+      "last_health_check": 1281491.136161916
+    },
+    {
+      "name": "jira-agent",
+      "endpoint": "http://localhost:8002",
+      "agent_card": {
+        "name": "jira-agent",
+        "version": "1.0.0",
+        "description": "Specialized agent for Jira issue tracking and project management",
+        "capabilities": [
+          "jira_operations",
+          "issue_management",
+          "jql_search",
+          "epic_tracking",
+          "sprint_management",
+          "agile_workflows",
+          "project_analytics"
+        ],
+        "endpoints": {
+          "process_task": "/a2a",
+          "agent_card": "/a2a/agent-card"
+        },
+        "communication_modes": [
+          "sync",
+          "streaming"
+        ],
+        "metadata": {
+          "framework": "langgraph",
+          "tools_count": 15,
+          "memory_type": "none"
+        }
+      },
+      "status": "error",
+      "last_health_check": null
     }
   ]
 }

@@ -1,0 +1,450 @@
+"""Jira Specialized Agent - Enterprise Issue Tracking and Agile Management.
+
+This module implements a LangGraph-based agent for comprehensive Jira operations,
+providing natural language interfaces to issue tracking, project management, and
+agile workflows through the A2A protocol.
+
+Architecture Philosophy:
+- **Natural Language Processing**: Understands context and intent for Jira operations
+- **Comprehensive Tool Suite**: 15+ tools covering all major Jira workflows
+- **State Management**: Maintains conversation context across interactions
+- **Error Resilience**: Graceful error handling with informative responses
+- **Enterprise Security**: Input validation and safe JQL query construction
+
+Integration Pattern:
+- Receives tasks via A2A protocol from orchestrator
+- Processes using LangGraph workflow with specialized tools
+- Returns structured responses with issue keys and operation results
+- Maintains thread-based conversation state for context
+
+Key Capabilities:
+- Issue CRUD operations (create, read, update, delete)
+- Advanced JQL searching with natural language translation
+- Epic and sprint management for agile workflows
+- Issue linking and relationship management
+- Bulk operations and workflow transitions
+- Project analytics and reporting
+"""
+
+import os
+import logging
+from typing import Dict, Any, List, TypedDict, Literal, Annotated
+import operator
+from datetime import datetime
+
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_openai import AzureChatOpenAI
+from langgraph.graph import StateGraph, END
+from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.checkpoint.memory import MemorySaver
+
+from ..tools.jira_tools import (
+    SearchJiraIssuesTool,
+    GetJiraIssueTool,
+    CreateJiraIssueTool,
+    UpdateJiraIssueTool,
+    AddJiraCommentTool,
+    GetProjectIssuesTool,
+    GetMyIssuesTool,
+    GetEpicIssuesTool,
+    TransitionIssueTool,
+    AssignIssueTool,
+    AddAttachmentTool,
+    GetIssueHistoryTool,
+    CreateSubtaskTool,
+    LinkIssuesTool,
+    GetSprintIssuesTool
+)
+from src.a2a import A2AServer, A2ATask, A2AResult, A2AArtifact, AgentCard
+from src.utils.config import get_llm_config, get_jira_config
+from src.utils.logging import get_logger
+
+logger = get_logger("jira_agent")
+
+# Jira tools
+jira_tools = [
+    SearchJiraIssuesTool(),
+    GetJiraIssueTool(),
+    CreateJiraIssueTool(),
+    UpdateJiraIssueTool(),
+    AddJiraCommentTool(),
+    GetProjectIssuesTool(),
+    GetMyIssuesTool(),
+    GetEpicIssuesTool(),
+    TransitionIssueTool(),
+    AssignIssueTool(),
+    AddAttachmentTool(),
+    GetIssueHistoryTool(),
+    CreateSubtaskTool(),
+    LinkIssuesTool(),
+    GetSprintIssuesTool()
+]
+
+# Agent state definition
+class JiraAgentState(TypedDict):
+    """State for the Jira agent."""
+    messages: Annotated[List[Any], operator.add]
+    current_task: str
+    tool_results: List[Dict[str, Any]]
+    error: str
+
+def get_jira_system_message() -> str:
+    """Generate the system message that defines the Jira agent's behavior and capabilities.
+    
+    Returns:
+        str: Comprehensive system prompt including capabilities, best practices,
+             and JQL examples for effective Jira operations.
+             
+    Note:
+        This message is injected at the start of each conversation to ensure
+        consistent behavior and proper tool usage guidance.
+    """
+    return """You are a specialized Jira agent that helps users manage issues, projects, and agile workflows.
+
+Your capabilities include:
+- Searching issues using JQL (Jira Query Language)
+- Creating, updating, and transitioning issues
+- Managing epics, stories, and subtasks
+- Tracking sprints and releases
+- Managing issue relationships and dependencies
+- Adding comments and attachments
+- Analyzing project metrics and progress
+
+Always:
+- Include issue keys (e.g., PROJ-123) in responses
+- Provide clear status updates after operations
+- Use proper JQL syntax for searches
+- Respect project workflows and permissions
+
+Common JQL examples:
+- "project = PROJ AND status = 'In Progress'"
+- "assignee = currentUser() AND due < now()"
+- "sprint in openSprints() AND type = Bug"
+- "labels = urgent AND priority = High"
+"""
+
+def build_jira_agent():
+    """Build and compile the Jira agent LangGraph workflow.
+    
+    Creates a state-based graph that processes user requests through:
+    1. Agent node - LLM reasoning and tool selection
+    2. Tools node - Execution of selected Jira tools
+    3. Conditional routing based on tool needs
+    
+    Returns:
+        CompiledGraph: Compiled LangGraph with memory checkpointing enabled
+        
+    Architecture Notes:
+        - Uses prebuilt tools_condition for standard tool routing
+        - Implements MemorySaver for conversation persistence
+        - Binds all 15 Jira tools to the LLM for function calling
+    """
+    
+    # Initialize LLM with Azure OpenAI configuration
+    llm_config = get_llm_config()
+    llm = AzureChatOpenAI(
+        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+        azure_deployment=llm_config.azure_deployment,
+        openai_api_version=llm_config.api_version,
+        openai_api_key=os.environ["AZURE_OPENAI_API_KEY"],
+        temperature=llm_config.temperature,
+        max_tokens=llm_config.max_tokens,
+        timeout=llm_config.timeout,
+    )
+    
+    # Bind tools to LLM
+    llm_with_tools = llm.bind_tools(jira_tools)
+    
+    # Create workflow
+    workflow = StateGraph(JiraAgentState)
+    
+    def agent_node(state: JiraAgentState):
+        """Main agent logic node that processes messages and generates responses.
+        
+        Args:
+            state: Current agent state containing messages and context
+            
+        Returns:
+            dict: Updated state with new AI response message
+            
+        Processing Flow:
+            1. Ensures system message is present for consistent behavior
+            2. Invokes LLM with bound tools for function calling
+            3. Returns response for conditional routing to tools or end
+        """
+        task_id = state.get("current_task", "unknown")
+        
+        # Log agent node entry
+        logger.info("jira_agent_node_entry",
+            component="jira",
+            operation="process_messages",
+            task_id=task_id,
+            message_count=len(state.get("messages", [])),
+            has_tool_results=bool(state.get("tool_results"))
+        )
+        
+        messages = state["messages"]
+        
+        # Add system message if not present
+        if not messages or messages[0].type != "system":
+            messages = [SystemMessage(content=get_jira_system_message())] + messages
+        
+        # Log LLM invocation
+        logger.info("jira_llm_invocation_start",
+            component="jira",
+            operation="invoke_llm",
+            task_id=task_id,
+            message_count=len(messages)
+        )
+        
+        # Get response from LLM with tool bindings
+        response = llm_with_tools.invoke(messages)
+        
+        # Log LLM response
+        logger.info("jira_llm_invocation_complete",
+            component="jira",
+            operation="invoke_llm",
+            task_id=task_id,
+            has_tool_calls=bool(hasattr(response, 'tool_calls') and response.tool_calls),
+            response_length=len(str(response.content)) if hasattr(response, 'content') else 0
+        )
+        
+        return {"messages": [response]}
+    
+    # Build graph following 2024 best practices
+    graph_builder = StateGraph(JiraAgentState)
+    
+    # Add nodes
+    graph_builder.add_node("agent", agent_node)
+    graph_builder.add_node("tools", ToolNode(jira_tools))
+    
+    # Modern routing using prebuilt tools_condition
+    graph_builder.set_entry_point("agent")
+    graph_builder.add_conditional_edges(
+        "agent",
+        tools_condition,  # Use prebuilt condition like Salesforce agent
+        {
+            "tools": "tools",
+            "__end__": END,  # Note: double underscore for END
+        }
+    )
+    graph_builder.add_edge("tools", "agent")
+    
+    # Compile with memory
+    memory = MemorySaver()
+    return graph_builder.compile(checkpointer=memory)
+
+# Global agent instance
+jira_agent = build_jira_agent()
+
+async def handle_a2a_request(request: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle incoming A2A protocol requests for Jira operations.
+    
+    Args:
+        request: A2A task request containing:
+            - id: Task identifier
+            - instruction: Natural language request
+            - context: Optional context dictionary
+            - state_snapshot: Optional orchestrator state
+            
+    Returns:
+        Dict[str, Any]: A2A result with:
+            - task_id: Original task ID
+            - status: "completed" or "failed"
+            - result: Success/error information
+            - artifacts: Response data including issue keys
+            - metadata: Agent name, tools used, timestamp
+            
+    Error Handling:
+        - Catches and logs all exceptions
+        - Returns structured error responses
+        - Preserves task ID for correlation
+    """
+    try:
+        # Parse the A2A task
+        task = A2ATask(**request)
+        
+        # Log task processing start
+        logger.info("jira_a2a_task_start",
+            component="jira",
+            operation="process_a2a_task",
+            task_id=task.id,
+            instruction_preview=task.instruction[:100] if task.instruction else "",
+            instruction_length=len(task.instruction) if task.instruction else 0,
+            has_context=bool(task.context),
+            has_state_snapshot=bool(task.state_snapshot)
+        )
+        
+        # Prepare initial state
+        initial_state = {
+            "messages": [HumanMessage(content=task.instruction)],
+            "current_task": task.id,
+            "tool_results": [],
+            "error": ""
+        }
+        
+        # Add context if provided
+        if task.context:
+            context_msg = f"Additional context: {task.context}"
+            initial_state["messages"].insert(0, SystemMessage(content=context_msg))
+        
+        # Log agent invocation
+        logger.info("jira_agent_invocation_start",
+            component="jira",
+            operation="invoke_agent",
+            task_id=task.id,
+            message_count=len(initial_state["messages"]),
+            thread_id=task.id
+        )
+        
+        # Run the agent
+        config = {"configurable": {"thread_id": task.id}}
+        result = await jira_agent.ainvoke(initial_state, config)
+        
+        # Log agent invocation complete
+        logger.info("jira_agent_invocation_complete",
+            component="jira",
+            operation="invoke_agent",
+            task_id=task.id,
+            tool_results_count=len(result.get("tool_results", [])),
+            message_count=len(result.get("messages", [])),
+            has_error=bool(result.get("error"))
+        )
+        
+        # Extract the final response
+        final_message = result["messages"][-1]
+        response_content = final_message.content
+        
+        # Check for tool results to include
+        tool_data = None
+        if result.get("tool_results"):
+            tool_data = result["tool_results"]
+        
+        # Create A2A result
+        artifact = A2AArtifact(
+            type="jira_response",
+            data={
+                "response": response_content,
+                "tool_results": tool_data,
+                "issue_keys": extract_issue_keys(response_content)
+            }
+        )
+        
+        # Log successful task completion
+        logger.info("jira_a2a_task_complete",
+            component="jira",
+            operation="process_a2a_task",
+            task_id=task.id,
+            success=True,
+            response_length=len(response_content),
+            tool_results_count=len(result.get("tool_results", [])),
+            issue_keys=extract_issue_keys(response_content)
+        )
+        
+        return A2AResult(
+            task_id=task.id,
+            status="completed",
+            result={
+                "success": True,
+                "message": response_content
+            },
+            artifacts=[artifact.model_dump()],
+            metadata={
+                "agent": "jira-agent",
+                "tools_used": len(result.get("tool_results", [])),
+                "timestamp": datetime.now().isoformat()
+            }
+        ).model_dump()
+        
+    except Exception as e:
+        # Log task failure
+        task_id = request.get("id", "unknown")
+        logger.error("jira_a2a_task_error",
+            component="jira",
+            operation="process_a2a_task",
+            task_id=task_id,
+            error=str(e),
+            error_type=type(e).__name__
+        )
+        return A2AResult(
+            task_id=request.get("id", "unknown"),
+            status="failed",
+            result={
+                "success": False,
+                "error": str(e)
+            },
+            metadata={
+                "agent": "jira-agent",
+                "error_type": type(e).__name__
+            }
+        ).model_dump()
+
+def extract_issue_keys(text: str) -> List[str]:
+    """Extract Jira issue keys from text using regex pattern matching.
+    
+    Args:
+        text: Input text that may contain issue keys
+        
+    Returns:
+        List[str]: Unique list of issue keys found (e.g., ['PROJ-123', 'TEST-456'])
+        
+    Pattern:
+        Matches standard Jira issue key format: PROJECT-NUMBER
+        where PROJECT is uppercase letters and NUMBER is digits
+    """
+    import re
+    pattern = r'[A-Z]+-\d+'
+    return list(set(re.findall(pattern, text)))
+
+def get_agent_card() -> Dict[str, Any]:
+    """Generate the agent card for A2A protocol capability advertisement.
+    
+    Returns:
+        Dict[str, Any]: Serialized AgentCard containing:
+            - name: Agent identifier
+            - version: Semantic version
+            - description: Human-readable purpose
+            - capabilities: List of capability tags
+            - endpoints: Available API endpoints
+            - metadata: Tool information
+            
+    Note:
+        This card is used by the orchestrator for agent discovery
+        and capability-based routing decisions.
+    """
+    card = AgentCard(
+        name="jira-agent",
+        version="1.0.0",
+        description="Specialized agent for Jira issue tracking and project management",
+        capabilities=[
+            "jira_operations",
+            "issue_management",
+            "jql_search",
+            "epic_tracking",
+            "sprint_management",
+            "agile_workflows",
+            "project_analytics"
+        ],
+        endpoints={
+            "a2a": "/a2a",
+            "health": "/health",
+            "agent_card": "/a2a/agent-card"
+        },
+        metadata={
+            "tools_count": len(jira_tools),
+            "tool_names": [tool.name for tool in jira_tools]
+        }
+    )
+    return card.model_dump()
+
+# A2A Server setup
+server = A2AServer(
+    name="jira-agent",
+    port=8002,  # Different port from Salesforce
+    process_task=handle_a2a_request,
+    get_agent_card=get_agent_card
+)
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(server.start())

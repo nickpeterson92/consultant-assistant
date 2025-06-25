@@ -56,26 +56,40 @@ class CircuitBreaker:
                 time_in_open = current_time - self.last_failure_time
                 self.state = CircuitBreakerState.HALF_OPEN
                 self.half_open_calls = 0
-                logger.info(json.dumps({
-                    "timestamp": time.time(),
-                    "operation": "CIRCUIT_STATE_CHANGE",
-                    "circuit_name": self.name,
-                    "transition": "OPEN -> HALF_OPEN",
-                    "time_in_open": time_in_open,
-                    "timeout_duration": self.config.timeout,
-                    "reason": "timeout_expired"
-                }))
+                logger.info("circuit_breaker_state_change",
+                    component="a2a",
+                    operation="state_transition",
+                    circuit_name=self.name,
+                    from_state="OPEN",
+                    to_state="HALF_OPEN",
+                    time_in_open=time_in_open,
+                    timeout_duration=self.config.timeout,
+                    reason="timeout_expired"
+                )
             
             # Fast fail if circuit is open
             if self.state == CircuitBreakerState.OPEN:
                 time_since_failure = current_time - self.last_failure_time
-                logger.warning(f"Circuit breaker {self.name} is OPEN - failing fast (failures={self.failure_count}, time_since_last_failure={time_since_failure:.1f}s)")
+                logger.warning("circuit_breaker_open",
+                    component="a2a",
+                    operation="fast_fail",
+                    circuit_name=self.name,
+                    state="OPEN",
+                    failure_count=self.failure_count,
+                    time_since_last_failure=round(time_since_failure, 1)
+                )
                 raise CircuitBreakerException(f"Circuit breaker {self.name} is open")
             
             # Limit calls in half-open state
             if (self.state == CircuitBreakerState.HALF_OPEN and 
                 self.half_open_calls >= self.config.half_open_max_calls):
-                logger.warning(f"Circuit breaker {self.name} HALF_OPEN limit exceeded")
+                logger.warning("circuit_breaker_half_open_limit",
+                    component="a2a",
+                    operation="call",
+                    circuit_name=self.name,
+                    half_open_calls=self.half_open_calls,
+                    limit=self.config.half_open_max_calls
+                )
                 raise CircuitBreakerException(f"Circuit breaker {self.name} half-open limit exceeded")
         
         # Execute the function
@@ -106,14 +120,15 @@ class CircuitBreaker:
                 self.state = CircuitBreakerState.CLOSED
                 self.failure_count = 0
                 self.success_count = 0
-                logger.info(json.dumps({
-                    "timestamp": time.time(),
-                    "operation": "CIRCUIT_STATE_CHANGE",
-                    "circuit_name": self.name,
-                    "transition": "HALF_OPEN -> CLOSED",
-                    "success_count": self.success_count,
-                    "reason": "success_threshold_reached"
-                }))
+                logger.info("circuit_breaker_state_change",
+                    component="a2a",
+                    operation="state_transition",
+                    circuit_name=self.name,
+                    from_state="HALF_OPEN",
+                    to_state="CLOSED",
+                    success_count=self.success_count,
+                    reason="success_threshold_reached"
+                )
         elif self.state == CircuitBreakerState.CLOSED:
             # Reset failure count on success in closed state
             self.failure_count = 0
@@ -126,28 +141,30 @@ class CircuitBreaker:
         if self.state == CircuitBreakerState.CLOSED:
             if self.failure_count >= self.config.failure_threshold:
                 self.state = CircuitBreakerState.OPEN
-                logger.warning(json.dumps({
-                    "timestamp": time.time(),
-                    "operation": "CIRCUIT_STATE_CHANGE",
-                    "circuit_name": self.name,
-                    "transition": "CLOSED -> OPEN",
-                    "failure_count": self.failure_count,
-                    "failure_threshold": self.config.failure_threshold,
-                    "reason": "failure_threshold_exceeded"
-                }))
+                logger.warning("circuit_breaker_state_change",
+                    component="a2a",
+                    operation="state_transition",
+                    circuit_name=self.name,
+                    from_state="CLOSED",
+                    to_state="OPEN",
+                    failure_count=self.failure_count,
+                    failure_threshold=self.config.failure_threshold,
+                    reason="failure_threshold_exceeded"
+                )
         
         elif self.state == CircuitBreakerState.HALF_OPEN:
             # Any failure in half-open goes back to open
             self.state = CircuitBreakerState.OPEN
             self.success_count = 0
-            logger.warning(json.dumps({
-                    "timestamp": time.time(),
-                    "operation": "CIRCUIT_STATE_CHANGE",
-                    "circuit_name": self.name,
-                    "transition": "HALF_OPEN -> OPEN",
-                    "success_count_before_failure": self.success_count,
-                    "reason": "failure_in_half_open"
-                }))
+            logger.warning("circuit_breaker_state_change",
+                component="a2a",
+                operation="state_transition",
+                circuit_name=self.name,
+                from_state="HALF_OPEN",
+                to_state="OPEN",
+                success_count_before_failure=self.success_count,
+                reason="failure_in_half_open"
+            )
     
     def get_state(self) -> Dict[str, Any]:
         """Get current circuit breaker state"""
@@ -172,14 +189,22 @@ class CircuitBreakerRegistry:
         if name not in self._breakers:
             breaker_config = config or self._default_config
             self._breakers[name] = CircuitBreaker(name, breaker_config)
-            logger.info(f"Created circuit breaker: {name}")
+            logger.info("circuit_breaker_created",
+                component="a2a",
+                operation="get_breaker",
+                circuit_name=name
+            )
         return self._breakers[name]
     
     def remove_breaker(self, name: str):
         """Remove a circuit breaker"""
         if name in self._breakers:
             del self._breakers[name]
-            logger.info(f"Removed circuit breaker: {name}")
+            logger.info("circuit_breaker_removed",
+                component="a2a",
+                operation="remove_breaker",
+                circuit_name=name
+            )
     
     def get_all_states(self) -> Dict[str, Dict[str, Any]]:
         """Get states of all circuit breakers"""
@@ -193,7 +218,11 @@ class CircuitBreakerRegistry:
             breaker.failure_count = 0
             breaker.success_count = 0
             breaker.half_open_calls = 0
-            logger.info(f"Reset circuit breaker: {name}")
+            logger.info("circuit_breaker_reset",
+                component="a2a",
+                operation="reset_breaker",
+                circuit_name=name
+            )
 
 # Global circuit breaker registry
 _registry: Optional[CircuitBreakerRegistry] = None
@@ -257,11 +286,22 @@ async def retry_with_exponential_backoff(func: Callable, config: RetryConfig,
             if config.jitter:
                 delay *= (0.5 + random.random() * 0.5)
             
-            logger.warning(f"Attempt {attempt + 1} failed, retrying in {delay:.2f}s: {type(e).__name__}: {str(e)}")
+            logger.warning("retry_attempt_failed",
+                component="a2a",
+                operation="retry",
+                attempt=attempt + 1,
+                delay_seconds=round(delay, 2),
+                error_type=type(e).__name__,
+                error=str(e)
+            )
             await asyncio.sleep(delay)
     
     # All attempts failed
-    logger.error(f"All {config.max_attempts} attempts failed")
+    logger.error("all_retry_attempts_failed",
+        component="a2a",
+        operation="retry",
+        max_attempts=config.max_attempts
+    )
     raise last_exception
 
 async def resilient_call(func: Callable, circuit_breaker_name: str,

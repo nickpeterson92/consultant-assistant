@@ -14,7 +14,9 @@ from dataclasses import dataclass
 import weakref
 import time
 
-logger = logging.getLogger(__name__)
+from ..logging import get_logger
+
+logger = get_logger()
 
 @dataclass
 class ConnectionConfig:
@@ -54,7 +56,10 @@ class AsyncSQLitePool:
             Path(self.config.database_path).parent.mkdir(parents=True, exist_ok=True)
             
             self._initialized = True
-            logger.info(f"Initialized SQLite pool")
+            logger.info("sqlite_pool_initialized",
+                component="storage",
+                operation="init"
+            )
     
     async def _create_connection(self) -> aiosqlite.Connection:
         """Create a new SQLite connection with optimal settings"""
@@ -117,7 +122,12 @@ class AsyncSQLitePool:
             try:
                 await conn.close()
             except Exception as e:
-                logger.warning(f"Error closing connection: {e}")
+                logger.warning("connection_close_error",
+                    component="storage",
+                    operation="close",
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
         
         self._initialized = False
 

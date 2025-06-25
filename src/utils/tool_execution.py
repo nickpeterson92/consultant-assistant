@@ -8,15 +8,20 @@ which is the modern LangGraph pattern for state management and tool execution.
 import uuid
 from typing import Dict, Any, List
 from langchain_core.messages import ToolMessage
+from src.utils.logging import get_logger
+
+# Initialize logger
+logger = get_logger()
 
 
-async def execute_command_tools(state: Dict[str, Any], tools: List[Any]) -> Dict[str, Any]:
+async def execute_command_tools(state: Dict[str, Any], tools: List[Any], component: str = "tools") -> Dict[str, Any]:
     """
     Execute tools that may return Command objects and handle state updates.
     
     Args:
         state: The current LangGraph state
         tools: List of available tools
+        component: Component name for logging (e.g., "salesforce", "jira")
         
     Returns:
         Dictionary of state updates to apply
@@ -50,12 +55,31 @@ async def execute_command_tools(state: Dict[str, Any], tools: List[Any]) -> Dict
         
         if tool:
             try:
-                # Call tool with state injection and tool_call_id
-                tool_args["tool_call_id"] = tool_call_id
+                # Create clean args copy for tool (no custom params)
+                clean_args = {k: v for k, v in tool_args.items() if k not in ['tool_call_id']}
+                
+                # Log tool call - IDENTICAL format to orchestrator
+                logger.info("tool_call",
+                    component=component,
+                    tool_name=tool_name,
+                    tool_args=clean_args,
+                    tool_call_id=tool_call_id
+                )
+                
+                # Call tool using standard LangChain interface (no state injection)
                 if hasattr(tool, '_arun'):
-                    result = await tool._arun(**tool_args, state=state)
+                    result = await tool._arun(**clean_args)
                 else:
-                    result = tool._run(**tool_args, state=state)
+                    result = tool._run(**clean_args)
+                
+                # Log tool success - IDENTICAL format to orchestrator pattern
+                logger.info("tool_result",
+                    component=component,
+                    tool_name=tool_name,
+                    tool_call_id=tool_call_id,
+                    result_type=type(result).__name__,
+                    result_preview=str(result)[:200] if result else "None"
+                )
                 
                 # Handle Command result
                 if hasattr(result, 'update') and isinstance(result.update, dict):
@@ -73,6 +97,15 @@ async def execute_command_tools(state: Dict[str, Any], tools: List[Any]) -> Dict
                         name=tool_name
                     ))
             except Exception as e:
+                # Log tool call error
+                logger.error("tool_call_error",
+                    component=component,
+                    tool_name=tool_name,
+                    tool_call_id=tool_call_id,
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
+                
                 # Error handling
                 message_updates.append(ToolMessage(
                     content=f"Error executing {tool_name}: {str(e)}",
@@ -86,18 +119,19 @@ async def execute_command_tools(state: Dict[str, Any], tools: List[Any]) -> Dict
     return result
 
 
-def create_tool_node(tools: List[Any]):
+def create_tool_node(tools: List[Any], component: str = "tools"):
     """
     Create a LangGraph tool node that supports Command pattern tools.
     
     Args:
         tools: List of tools to include in the node
+        component: Component name for logging (e.g., "salesforce", "jira")
         
     Returns:
         Async function that can be used as a LangGraph node
     """
     async def tool_node(state: Dict[str, Any]) -> Dict[str, Any]:
         """Custom tool node that handles Command-returning tools."""
-        return await execute_command_tools(state, tools)
+        return await execute_command_tools(state, tools, component)
     
     return tool_node

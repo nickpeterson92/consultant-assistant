@@ -91,6 +91,14 @@
       "health_check_interval": 60,
       "max_memory_usage": 512,
       "timeout": 120
+    },
+    "jira-agent": {
+      "endpoint": "http://localhost",
+      "port": 8002,
+      "enabled": true,
+      "health_check_interval": 60,
+      "max_memory_usage": 512,
+      "timeout": 120
     }
   },
   "debug_mode": false,

@@ -12,10 +12,10 @@ from typing import Any, Dict, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor
 
 from .sqlite_store import SQLiteStore
-from ..logging.memory_logger import get_memory_logger
+from ..logging import get_logger
 
-logger = logging.getLogger(__name__)
-memory_logger = get_memory_logger()
+# Initialize logger
+logger = get_logger()
 
 
 class AsyncStoreAdapter:
@@ -37,53 +37,132 @@ class AsyncStoreAdapter:
     
     async def get(self, namespace: Tuple[str, ...], key: str) -> Optional[Any]:
         """Get a value from the store asynchronously."""
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            self._executor, 
-            self._store.get, 
-            namespace, 
-            key
+        # Log operation start
+        user_id = namespace[1] if namespace and len(namespace) > 1 else "unknown"
+        logger.info("async_storage_read_start",
+            component="storage",
+            operation="async_get",
+            namespace=str(namespace),
+            key=key,
+            user_id=user_id
         )
         
-        # Log the operation
-        user_id = namespace[1] if namespace and len(namespace) > 1 else "unknown"
-        memory_logger.log_memory_get(namespace, key, result, 
-                                   user_id=user_id,
-                                   component="async_store_adapter")
-        return result
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                self._executor, 
+                self._store.get, 
+                namespace, 
+                key
+            )
+            
+            # Log successful read
+            logger.info("async_storage_read_success",
+                component="storage",
+                operation="async_get",
+                namespace=str(namespace),
+                key=key,
+                user_id=user_id,
+                found=result is not None,
+                value_size=len(str(result)) if result else 0
+            )
+            
+            return result
+        except Exception as e:
+            logger.error("async_storage_read_error",
+                component="storage",
+                operation="async_get",
+                namespace=str(namespace),
+                key=key,
+                user_id=user_id,
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            raise
     
     async def put(self, namespace: Tuple[str, ...], key: str, value: Any) -> None:
         """Put a value into the store asynchronously."""
-        # Log before the operation
+        # Log operation start
         user_id = namespace[1] if namespace and len(namespace) > 1 else "unknown"
-        memory_logger.log_memory_put(namespace, key, value, 
-                                   user_id=user_id,
-                                   component="async_store_adapter")
-        
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(
-            self._executor,
-            self._store.put,
-            namespace,
-            key,
-            value
+        logger.info("async_storage_write_start",
+            component="storage",
+            operation="async_put",
+            namespace=str(namespace),
+            key=key,
+            user_id=user_id,
+            value_size=len(str(value))
         )
+        
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                self._executor,
+                self._store.put,
+                namespace,
+                key,
+                value
+            )
+            
+            # Log successful write
+            logger.info("async_storage_write_success",
+                component="storage",
+                operation="async_put",
+                namespace=str(namespace),
+                key=key,
+                user_id=user_id
+            )
+        except Exception as e:
+            logger.error("async_storage_write_error",
+                component="storage",
+                operation="async_put",
+                namespace=str(namespace),
+                key=key,
+                user_id=user_id,
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            raise
     
     async def delete(self, namespace: Tuple[str, ...], key: str) -> None:
         """Delete a value from the store asynchronously."""
-        # Log before the operation
+        # Log operation start
         user_id = namespace[1] if namespace and len(namespace) > 1 else "unknown"
-        memory_logger.log_memory_delete(namespace, key, 
-                                      user_id=user_id,
-                                      component="async_store_adapter")
-        
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(
-            self._executor,
-            self._store.delete,
-            namespace,
-            key
+        logger.info("async_storage_delete_start",
+            component="storage",
+            operation="async_delete",
+            namespace=str(namespace),
+            key=key,
+            user_id=user_id
         )
+        
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                self._executor,
+                self._store.delete,
+                namespace,
+                key
+            )
+            
+            # Log successful delete
+            logger.info("async_storage_delete_success",
+                component="storage",
+                operation="async_delete",
+                namespace=str(namespace),
+                key=key,
+                user_id=user_id
+            )
+        except Exception as e:
+            logger.error("async_storage_delete_error",
+                component="storage",
+                operation="async_delete",
+                namespace=str(namespace),
+                key=key,
+                user_id=user_id,
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            raise
     
     async def list_keys(self, namespace: Tuple[str, ...]) -> List[str]:
         """List all keys in a namespace asynchronously."""
@@ -119,18 +198,16 @@ class AsyncStoreAdapter:
         
         # Log the operation
         user_id = namespace[1] if namespace and len(namespace) > 1 else "unknown"
-        memory_logger.log_memory_get(namespace, key, result, 
-                                   user_id=user_id,
-                                   component="async_store_adapter_sync")
+        logger.info("memory_get", component="async_store_adapter_sync", namespace=namespace, key=key, result=result, 
+                                   user_id=user_id)
         return result
     
     def sync_put(self, namespace: Tuple[str, ...], key: str, value: Any) -> None:
         """Synchronous put for backward compatibility."""
         # Log before the operation
         user_id = namespace[1] if namespace and len(namespace) > 1 else "unknown"
-        memory_logger.log_memory_put(namespace, key, value, 
-                                   user_id=user_id,
-                                   component="async_store_adapter_sync")
+        logger.info("memory_put", component="async_store_adapter_sync", namespace=namespace, key=key, value=value, 
+                                   user_id=user_id)
         
         self._store.put(namespace, key, value)
 

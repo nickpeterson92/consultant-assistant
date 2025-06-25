@@ -32,15 +32,13 @@ import logging
 # Disable LangSmith tracing to avoid circular reference errors
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
-# Add structured logging
-# Path manipulation no longer needed
-from src.utils.logging import log_salesforce_activity
+# Import unified logger
+from src.utils.logging import get_logger
 from src.utils.config import get_llm_config
 from src.utils.sys_msg import salesforce_agent_sys_msg
 
-# Logging function now imported from centralized activity_logger
-
-logger = logging.getLogger(__name__)
+# Initialize structured logger
+logger = get_logger()
 
 # Suppress verbose HTTP debug logs
 logging.getLogger('openai._base_client').setLevel(logging.WARNING)
@@ -88,6 +86,18 @@ def build_salesforce_graph():
     # Simplified agent node following 2024 patterns
     def salesforce_agent(state: SalesforceState, config: RunnableConfig):
         """Modern Salesforce agent node"""
+        task_id = state.get("task_context", {}).get("task_id", "unknown")
+        
+        # Log agent node entry
+        logger.info("salesforce_agent_node_entry",
+            component="salesforce",
+            operation="process_messages",
+            task_id=task_id,
+            message_count=len(state.get("messages", [])),
+            has_task_context=bool(state.get("task_context")),
+            has_external_context=bool(state.get("external_context"))
+        )
+        
         try:
             task_context = state.get("task_context", {})
             external_context = state.get("external_context", {})
@@ -97,12 +107,25 @@ def build_salesforce_graph():
             messages = [SystemMessage(content=system_message_content)] + state["messages"]
             
             # Log LLM call
-            log_salesforce_activity("SALESFORCE_LLM_CALL",
-                                   message_count=len(messages),
-                                   task_id=task_context.get("task_id", "unknown"))
+            logger.info("salesforce_llm_invocation_start",
+                component="salesforce",
+                operation="invoke_llm",
+                task_id=task_id,
+                message_count=len(messages),
+                system_message_length=len(system_message_content)
+            )
             
             # Invoke LLM with tools
             response = llm_with_tools.invoke(messages)
+            
+            # Log LLM response
+            logger.info("salesforce_llm_invocation_complete",
+                component="salesforce",
+                operation="invoke_llm",
+                task_id=task_id,
+                has_tool_calls=bool(hasattr(response, 'tool_calls') and response.tool_calls),
+                response_length=len(str(response.content)) if hasattr(response, 'content') else 0
+            )
             
             # Log cost tracking
             message_chars = sum(len(str(m.content if hasattr(m, 'content') else m)) for m in messages)
@@ -117,7 +140,13 @@ def build_salesforce_graph():
             return {"messages": [response]}
             
         except Exception as e:
-            logger.error(f"Error in Salesforce agent: {e}")
+            logger.error("salesforce_agent_error",
+                component="salesforce",
+                operation="process_messages",
+                task_id=task_id,
+                error=str(e),
+                error_type=type(e).__name__
+            )
             raise
     
     # Build modern graph following 2024 best practices
@@ -157,10 +186,16 @@ class SalesforceA2AHandler:
             instruction = task_data.get("instruction", "")
             context = task_data.get("context", {})
             
-            # Log task start
-            log_salesforce_activity("A2A_TASK_START", 
-                                   task_id=task_id,
-                                   instruction_preview=instruction[:100])
+            # Log task start with more detail
+            logger.info("salesforce_a2a_task_start",
+                component="salesforce",
+                operation="process_a2a_task",
+                task_id=task_id,
+                instruction_preview=instruction[:100] if instruction else "",
+                instruction_length=len(instruction) if instruction else 0,
+                context_keys=list(context.keys()) if context else [],
+                context_size=len(str(context)) if context else 0
+            )
             
             # Simple state preparation - modern LangGraph prefers minimal state
             initial_state = {
@@ -192,13 +227,17 @@ class SalesforceA2AHandler:
             for msg in messages:
                 if hasattr(msg, 'tool_calls') and msg.tool_calls:
                     for tool_call in msg.tool_calls:
-                        log_salesforce_activity("TOOL_CALL",
+                        logger.info("tool_call", component="salesforce",
                                                task_id=task_id,
                                                tool_name=tool_call.get("name", "unknown"),
                                                tool_args=tool_call.get("args", {}))
             
-            log_salesforce_activity("TASK_COMPLETED", 
-                                   task_id=task_id,
+            # Log task completion
+            logger.info("salesforce_a2a_task_complete",
+                component="salesforce",
+                operation="process_a2a_task",
+                task_id=task_id,
+                success=True,
                                    response_preview=response_content[:200])
             
             # Modern simplified response
@@ -213,7 +252,13 @@ class SalesforceA2AHandler:
             }
             
         except Exception as e:
-            logger.error(f"Error processing A2A task: {e}")
+            logger.error("salesforce_a2a_task_error",
+                component="salesforce",
+                operation="process_a2a_task",
+                task_id=task_id,
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {
                 "artifacts": [{
                     "id": f"sf-error-{task_data.get('id', 'unknown')}",
@@ -265,9 +310,8 @@ async def main():
     parser.add_argument("--host", type=str, default="0.0.0.0", help="Host to bind the A2A server to")
     args = parser.parse_args()
     
-    # Setup logging - suppress console output
-    log_level = logging.WARNING
-    logging.basicConfig(level=log_level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    # Use unified logging system - don't override global config
+    # Individual tools will log at INFO level to logs/app.log
 
     # Suppress ALL HTTP noise comprehensively
     # OpenAI/Azure related
@@ -289,7 +333,8 @@ async def main():
     
     # Salesforce related
     logging.getLogger('simple_salesforce').setLevel(logging.WARNING)
-    logging.getLogger('salesforce').setLevel(logging.WARNING)
+    # Don't suppress our own tool logging!
+    # logging.getLogger('salesforce').setLevel(logging.WARNING)
     
     # Any other potential HTTP noise
     for logger_name in logging.root.manager.loggerDict:
@@ -345,7 +390,13 @@ async def main():
     # Start the server
     runner = await server.start()
     
-    logger.info(f"Salesforce Agent running on {args.host}:{args.port}")
+    logger.info("salesforce_agent_started",
+        component="salesforce",
+        operation="startup",
+        host=args.host,
+        port=args.port,
+        endpoint=f"http://{args.host}:{args.port}"
+    )
     logger.info("Agent capabilities: " + ", ".join(agent_card.capabilities))
     logger.info("Press Ctrl+C to stop")
     

@@ -18,11 +18,11 @@ import logging
 from .agent_registry import AgentRegistry
 from ..a2a import A2AClient, A2ATask, A2AException
 
-logger = logging.getLogger(__name__)
+# Import unified logger
+from src.utils.logging import get_logger
 
-# Import centralized logging
-from src.utils.logging import log_orchestrator_activity
-from src.utils.logging.memory_extraction_logger import get_memory_extraction_logger
+# Initialize structured logger
+logger = get_logger()
 from src.utils.config import (
     CONVERSATION_SUMMARY_KEY, USER_CONTEXT_KEY, 
     MESSAGES_KEY, MEMORY_KEY, RECENT_MESSAGES_COUNT
@@ -271,24 +271,28 @@ class SalesforceAgentTool(BaseAgentTool):
         
         return agent
     
-    def _create_error_command(self, error_message: str, tool_call_id: str) -> Command:
+    def _create_error_command(self, error_message: str, tool_call_id: Optional[str] = None):
         """Create a standardized error Command response.
         
         Args:
             error_message: Error description for the user
-            tool_call_id: Tool call identifier for response tracking
+            tool_call_id: Optional tool call identifier for response tracking
             
         Returns:
-            Command object with error message
+            Command object with error message or plain error string
         """
-        return Command(
-            update={
-                "messages": [ToolMessage(
-                    content=error_message,
-                    tool_call_id=tool_call_id
-                )]
-            }
-        )
+        if tool_call_id:
+            return Command(
+                update={
+                    "messages": [ToolMessage(
+                        content=error_message,
+                        tool_call_id=tool_call_id
+                    )]
+                }
+            )
+        else:
+            # Return plain error message when no tool_call_id
+            return error_message
     
     def _extract_response_content(self, result: Dict[str, Any]) -> str:
         """Extract response content from A2A result.
@@ -334,17 +338,15 @@ class SalesforceAgentTool(BaseAgentTool):
             final_response = response_content + "\n\n[STRUCTURED_TOOL_DATA]:\n" + json.dumps(tool_results_data, indent=2)
             
             # Log structured data addition
-            extraction_logger = get_memory_extraction_logger()
-            extraction_logger.log_structured_data_found(
+            logger.info("structured_data_found",
+                component="orchestrator",
                 tool_name="salesforce_agent",
                 data_preview=str(tool_results_data)[:200],
                 data_size=len(json.dumps(tool_results_data)),
-                record_count=len(tool_results_data) if isinstance(tool_results_data, list) else 1
+                record_count=len(tool_results_data) if isinstance(tool_results_data, list) else 1,
+                agent="salesforce-agent",
+                task_id=task_id
             )
-            log_orchestrator_activity("STRUCTURED_DATA_ADDED",
-                                    agent="salesforce-agent",
-                                    task_id=task_id,
-                                    data_size=len(json.dumps(tool_results_data)))
             return final_response
         else:
             return response_content
@@ -355,6 +357,18 @@ class SalesforceAgentTool(BaseAgentTool):
         This method orchestrates the entire flow but delegates specific responsibilities
         to focused helper methods for better maintainability.
         """
+        # Log tool invocation start
+        tool_call_id = kwargs.get("tool_call_id", None)
+        logger.info("tool_invocation_start",
+            component="orchestrator",
+            operation="salesforce_agent_tool",
+            tool_name="salesforce_agent",
+            tool_call_id=tool_call_id,
+            instruction_preview=instruction[:100] if instruction else "",
+            has_context=bool(context),
+            has_state=bool(state)
+        )
+        
         try:
             # Extract and serialize conversation context
             extracted_context = self._extract_conversation_context(state, context)
@@ -362,10 +376,16 @@ class SalesforceAgentTool(BaseAgentTool):
             # Find the Salesforce agent
             agent = self._find_salesforce_agent()
             if not agent:
-                logger.error("Salesforce agent not available")
+                logger.error("agent_not_found",
+                    component="orchestrator",
+                    operation="salesforce_agent_tool",
+                    agent_type="salesforce",
+                    tool_call_id=tool_call_id,
+                    error="Salesforce agent not available"
+                )
                 return self._create_error_command(
                     "Error: Salesforce agent not available. Please ensure the Salesforce agent is running and registered.",
-                    kwargs.get("tool_call_id", str(uuid.uuid4()))
+                    tool_call_id
                 )
             
             # Create A2A task with serialized state
@@ -384,13 +404,15 @@ class SalesforceAgentTool(BaseAgentTool):
                 endpoint = agent.endpoint + "/a2a"
                 
                 # Log A2A dispatch
-                log_orchestrator_activity("A2A_DISPATCH",
-                                        agent="salesforce-agent",
-                                        task_id=task_id,
-                                        instruction_preview=instruction[:100],
-                                        endpoint=endpoint,
-                                        context_keys=list(extracted_context.keys()),
-                                        context_size=len(str(extracted_context)))
+                logger.info("a2a_dispatch", 
+                    component="orchestrator",
+                    agent="salesforce-agent",
+                    task_id=task_id,
+                    instruction_preview=instruction[:100],
+                    endpoint=endpoint,
+                    context_keys=list(extracted_context.keys()),
+                    context_size=len(str(extracted_context))
+                )
                 
                 result = await client.process_task(endpoint=endpoint, task=task)
                 
@@ -398,33 +420,64 @@ class SalesforceAgentTool(BaseAgentTool):
                 response_content = self._extract_response_content(result)
                 final_response = self._process_tool_results(result, response_content, task_id)
                 
-                log_orchestrator_activity("A2A_RESPONSE_SUCCESS",
-                                        agent="salesforce-agent", 
-                                        task_id=task_id,
-                                        response_length=len(final_response))
+                logger.info("a2a_response_success",
+                    component="orchestrator",
+                    agent="salesforce-agent", 
+                    task_id=task_id,
+                    response_length=len(final_response)
+                )
+                
+                # Log successful tool completion
+                logger.info("tool_invocation_complete",
+                    component="orchestrator",
+                    operation="salesforce_agent_tool",
+                    tool_name="salesforce_agent",
+                    tool_call_id=tool_call_id,
+                    response_length=len(final_response),
+                    success=True
+                )
                 
                 # Return Command with processed response
-                return Command(
-                    update={
-                        "messages": [ToolMessage(
-                            content=final_response,
-                            tool_call_id=kwargs.get("tool_call_id", str(uuid.uuid4())),
-                            name="salesforce_agent"
-                        )]
-                    }
-                )
+                # If we have a tool_call_id, return a ToolMessage, otherwise return the content directly
+                if tool_call_id:
+                    return Command(
+                        update={
+                            "messages": [ToolMessage(
+                                content=final_response,
+                                tool_call_id=tool_call_id,
+                                name="salesforce_agent"
+                            )]
+                        }
+                    )
+                else:
+                    # Return plain response when called without tool_call_id
+                    return final_response
         
         except A2AException as e:
-            logger.error(f"Failed to communicate with Salesforce agent: {e}")
+            logger.error("tool_invocation_error",
+                component="orchestrator",
+                operation="salesforce_agent_tool",
+                tool_name="salesforce_agent",
+                tool_call_id=tool_call_id,
+                error_type="A2AException",
+                error=str(e)
+            )
             return self._create_error_command(
                 f"Error: Failed to communicate with Salesforce agent - {str(e)}",
-                kwargs.get("tool_call_id", str(uuid.uuid4()))
+                tool_call_id
             )
         except Exception as e:
-            logger.error(f"Unexpected error in Salesforce agent tool: {type(e).__name__}: {e}")
+            logger.error("tool_invocation_error",
+                component="orchestrator",
+                operation="salesforce_agent_tool",
+                tool_name="salesforce_agent",
+                tool_call_id=tool_call_id,
+                error_type=type(e).__name__,
+                error=str(e)
+            )
             return self._create_error_command(
                 f"Error: Unexpected error - {str(e)}",
-                kwargs.get("tool_call_id", str(uuid.uuid4()))
+                tool_call_id
             )
     
     def _run(self, instruction: str, context: Optional[Dict[str, Any]] = None, **kwargs) -> Command:
@@ -518,14 +571,18 @@ class GenericAgentTool(BaseAgentTool):
         if not agent:
             available_agents = [a.name for a in registry.list_agents() if a.status == "online"]
             error_msg = f"Error: No suitable agent found for the task. Available agents: {', '.join(available_agents) if available_agents else 'None'}"
-            return Command(
-                update={
-                    "messages": [ToolMessage(
-                        content=error_msg,
-                        tool_call_id=kwargs.get("tool_call_id", str(uuid.uuid4()))
-                    )]
-                }
-            )
+            tool_call_id = kwargs.get("tool_call_id", None)
+            if tool_call_id:
+                return Command(
+                    update={
+                        "messages": [ToolMessage(
+                            content=error_msg,
+                            tool_call_id=tool_call_id
+                        )]
+                    }
+                )
+            else:
+                return error_msg
         
         # Extract context and create state snapshot
         # Use base class method with agent-specific capabilities as filter
@@ -575,37 +632,51 @@ class GenericAgentTool(BaseAgentTool):
                 else:
                     response_content = str(result.get("result", f"No response from {agent.name}"))
                 
-                return Command(
-                    update={
-                        "messages": [ToolMessage(
-                            content=response_content,
-                            tool_call_id=kwargs.get("tool_call_id", str(uuid.uuid4())),
-                            name="generic_agent"
-                        )]
-                    }
-                )
+                tool_call_id = kwargs.get("tool_call_id", None)
+                if tool_call_id:
+                    return Command(
+                        update={
+                            "messages": [ToolMessage(
+                                content=response_content,
+                                tool_call_id=tool_call_id,
+                                name="generic_agent"
+                            )]
+                        }
+                    )
+                else:
+                    return response_content
         
         except A2AException as e:
             logger.error(f"Error calling agent {agent.name}: {e}")
-            return Command(
-                update={
-                    "messages": [ToolMessage(
-                        content=f"Error: Failed to communicate with {agent.name} - {str(e)}",
-                        tool_call_id=kwargs.get("tool_call_id", str(uuid.uuid4()))
-                    )]
-                }
-            )
+            error_msg = f"Error: Failed to communicate with {agent.name} - {str(e)}"
+            tool_call_id = kwargs.get("tool_call_id", None)
+            if tool_call_id:
+                return Command(
+                    update={
+                        "messages": [ToolMessage(
+                            content=error_msg,
+                            tool_call_id=tool_call_id
+                        )]
+                    }
+                )
+            else:
+                return error_msg
         except Exception as e:
             logger.error(f"Unexpected error calling agent {agent.name}: {e}")
             logger.exception("Full traceback:")
-            return Command(
-                update={
-                    "messages": [ToolMessage(
-                        content=f"Error: Unexpected error - {str(e)}",
-                        tool_call_id=kwargs.get("tool_call_id", str(uuid.uuid4()))
-                    )]
-                }
-            )
+            error_msg = f"Error: Unexpected error - {str(e)}"
+            tool_call_id = kwargs.get("tool_call_id", None)
+            if tool_call_id:
+                return Command(
+                    update={
+                        "messages": [ToolMessage(
+                            content=error_msg,
+                            tool_call_id=tool_call_id
+                        )]
+                    }
+                )
+            else:
+                return error_msg
     
     def _run(self, instruction: str, context: Optional[Dict[str, Any]] = None, 
            agent_name: Optional[str] = None, required_capabilities: Optional[List[str]] = None, **kwargs) -> Command:

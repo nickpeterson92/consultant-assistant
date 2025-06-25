@@ -42,9 +42,10 @@ import logging
 from datetime import datetime
 
 from ..a2a import AgentCard, A2AClient, A2AException
-from ..utils.logging import log_orchestrator_activity
+from ..utils.logging import get_logger
 
-logger = logging.getLogger(__name__)
+# Initialize logger
+logger = get_logger()
 
 @dataclass
 class RegisteredAgent:
@@ -123,9 +124,18 @@ class AgentRegistry:
         try:
             with open(self.config_path, 'w') as f:
                 json.dump(config, f, indent=2)
-            logger.info(f"Saved agent registry config with {len(self.agents)} agents")
+            logger.info("agent_registry_saved",
+                component="orchestrator",
+                operation="save_config",
+                agent_count=len(self.agents)
+            )
         except Exception as e:
-            logger.error(f"Error saving agent registry config: {e}")
+            logger.error("agent_registry_save_error",
+                component="orchestrator",
+                operation="save_config",
+                error=str(e),
+                error_type=type(e).__name__
+            )
     
     def register_agent(self, name: str, endpoint: str, agent_card: Optional[AgentCard] = None):
         """Register a service instance with the discovery system.
@@ -151,18 +161,27 @@ class AgentRegistry:
         
         self.agents[name] = registered_agent
         
-        log_orchestrator_activity("AGENT_REGISTERED",
+        logger.info("agent_registered", component="orchestrator",
                                 agent_name=name,
                                 endpoint=endpoint,
                                 capabilities=agent_card.capabilities if agent_card else [])
-        logger.info(f"Registered agent: {name} at {endpoint}")
+        logger.info("agent_registered_success",
+            component="orchestrator",
+            operation="register_agent",
+            agent_name=name,
+            endpoint=endpoint
+        )
         self.save_config()
     
     def unregister_agent(self, name: str):
         """Remove an agent from the registry"""
         if name in self.agents:
             del self.agents[name]
-            logger.info(f"Unregistered agent: {name}")
+            logger.info("agent_unregistered_success",
+                component="orchestrator",
+                operation="unregister_agent",
+                agent_name=name
+            )
             self.save_config()
     
     def remove_agent(self, name: str) -> bool:
@@ -265,13 +284,13 @@ class AgentRegistry:
         previous_status = agent.status
         
         try:
-            logger.info(json.dumps({
-                "timestamp": time.time(),
-                "operation": "HEALTH_CHECK_START",
-                "agent_name": agent_name,
-                "endpoint": agent.endpoint,
-                "current_status": previous_status
-            }))
+            logger.info("health_check_start",
+                component="orchestrator",
+                operation="health_check_agent",
+                agent_name=agent_name,
+                endpoint=agent.endpoint,
+                current_status=previous_status
+            )
             
             from src.utils.config import get_a2a_config
             a2a_config = get_a2a_config()
@@ -284,55 +303,59 @@ class AgentRegistry:
                 agent.last_health_check = asyncio.get_event_loop().time()
                 
                 elapsed = asyncio.get_event_loop().time() - start_time
-                logger.info(json.dumps({
-                    "timestamp": time.time(),
-                    "operation": "HEALTH_CHECK_PASSED",
-                    "agent_name": agent_name,
-                    "duration_seconds": elapsed,
-                    "status_change": f"{previous_status} -> online",
-                    "capabilities": agent_card.capabilities,
-                    "version": agent_card.version
-                }))
+                logger.info("health_check_success",
+                    component="orchestrator",
+                    operation="health_check_agent",
+                    agent_name=agent_name,
+                    duration_seconds=round(elapsed, 3),
+                    previous_status=previous_status,
+                    new_status="online",
+                    capabilities=agent_card.capabilities,
+                    version=agent_card.version
+                )
                 return True
                 
         except A2AException as e:
             agent.status = "error"
             elapsed = asyncio.get_event_loop().time() - start_time
-            logger.warning(json.dumps({
-                "timestamp": time.time(),
-                "operation": "HEALTH_CHECK_FAILED",
-                "agent_name": agent_name,
-                "duration_seconds": elapsed,
-                "status_change": f"{previous_status} -> error",
-                "error_type": "A2AException",
-                "error_message": str(e)
-            }))
+            logger.warning("health_check_failed",
+                component="orchestrator",
+                operation="health_check_agent",
+                agent_name=agent_name,
+                duration_seconds=round(elapsed, 3),
+                previous_status=previous_status,
+                new_status="error",
+                error_type="A2AException",
+                error=str(e)
+            )
             return False
         except asyncio.TimeoutError:
             agent.status = "offline"
             elapsed = asyncio.get_event_loop().time() - start_time
-            logger.warning(json.dumps({
-                "timestamp": time.time(),
-                "operation": "HEALTH_CHECK_FAILED",
-                "agent_name": agent_name,
-                "duration_seconds": elapsed,
-                "status_change": f"{previous_status} -> offline",
-                "error_type": "Timeout",
-                "timeout_value": a2a_config.health_check_timeout
-            }))
+            logger.warning("health_check_timeout",
+                component="orchestrator",
+                operation="health_check_agent",
+                agent_name=agent_name,
+                duration_seconds=round(elapsed, 3),
+                previous_status=previous_status,
+                new_status="offline",
+                error_type="Timeout",
+                timeout_value=a2a_config.health_check_timeout
+            )
             return False
         except Exception as e:
             agent.status = "offline"
             elapsed = asyncio.get_event_loop().time() - start_time
-            logger.warning(json.dumps({
-                "timestamp": time.time(),
-                "operation": "HEALTH_CHECK_FAILED",
-                "agent_name": agent_name,
-                "duration_seconds": elapsed,
-                "status_change": f"{previous_status} -> offline",
-                "error_type": type(e).__name__,
-                "error_message": str(e)
-            }))
+            logger.warning("health_check_error",
+                component="orchestrator",
+                operation="health_check_agent",
+                agent_name=agent_name,
+                duration_seconds=round(elapsed, 3),
+                previous_status=previous_status,
+                new_status="offline",
+                error_type=type(e).__name__,
+                error=str(e)
+            )
             return False
     
     async def health_check_all_agents(self) -> Dict[str, bool]:
@@ -344,7 +367,11 @@ class AgentRegistry:
         """
         results = {}
         
-        logger.info(f"Starting health check for {len(self.agents)} registered agents")
+        logger.info("health_check_all_start",
+            component="orchestrator",
+            operation="health_check_all_agents",
+            agent_count=len(self.agents)
+        )
         start_time = asyncio.get_event_loop().time()
         
         tasks = []
@@ -356,14 +383,28 @@ class AgentRegistry:
             try:
                 results[agent_name] = await task
             except Exception as e:
-                logger.error(f"Unexpected error during health check for {agent_name}: {e}")
+                logger.error("health_check_unexpected_error",
+                    component="orchestrator",
+                    operation="health_check_all_agents",
+                    agent_name=agent_name,
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
                 results[agent_name] = False
         
         self.save_config()
         
         elapsed = asyncio.get_event_loop().time() - start_time
         online_count = sum(1 for status in results.values() if status)
-        logger.info(f"Health check completed in {elapsed:.2f}s: {online_count}/{len(results)} agents online")
+        logger.info("health_check_all_complete",
+            component="orchestrator",
+            operation="health_check_all_agents",
+            duration_seconds=round(elapsed, 2),
+            total_agents=len(results),
+            online_count=online_count,
+            offline_count=len(results) - online_count,
+            success_rate=round(online_count / len(results) * 100, 1) if results else 0
+        )
         
         return results
     

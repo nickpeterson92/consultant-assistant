@@ -2,6 +2,10 @@
 
 Essential guidance for Claude Code when working with this multi-agent orchestrator system. No fluff, just what you need to know.
 
+## 📅 Current Year
+
+The current year is 2025. Use this year along with 2024 for web searching.
+
 ## 🏗️ System Architecture
 
 Multi-agent orchestrator using LangGraph with specialized agents communicating via A2A protocol.
@@ -163,6 +167,9 @@ CREATE TABLE store (
 - **Avoid premature optimization** without evidence
 - **Delete dead code** aggressively
 
+### PEP8 Formatting and Commenting
+- **Adhere** to it!
+
 ## 🚨 Common Gotchas (Read This First!)
 
 ### Message Serialization 
@@ -199,7 +206,7 @@ namespace = ("memory", user_id)
 
 ## 📊 Code Metrics
 
-### Infrastructure to Business Logic Ratio: 0.72:1
+### Infrastructure to Business Logic Ratio: 0.72:1 TARGET: Between 0.5:1 and 0.75:1
 - **Business Logic**: 4,183 lines (58.2%)
 - **Infrastructure**: 3,009 lines (41.8%)
 - **Improvement**: 58.9% reduction from previous 1.75:1 ratio

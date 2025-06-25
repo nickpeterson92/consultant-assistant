@@ -39,7 +39,9 @@ from .constants import (
     LOCALHOST
 )
 
-logger = logging.getLogger(__name__)
+from ..logging import get_logger
+
+logger = get_logger()
 
 @dataclass
 class DatabaseConfig:
@@ -326,10 +328,20 @@ class ConfigManager:
                 with open(self.config_path, 'r') as f:
                     file_config = json.load(f)
                     config_data = self._merge_configs(config_data, file_config)
-                logger.info(f"Loaded configuration from {self.config_path}")
+                logger.info("config_loaded",
+                    component="config",
+                    operation="load",
+                    config_path=self.config_path
+                )
             except Exception as e:
                 # System continues with defaults on config errors
-                logger.warning(f"Failed to load config file {self.config_path}: {e}")
+                logger.warning("config_load_failed",
+                    component="config",
+                    operation="load",
+                    config_path=self.config_path,
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
         
         # Environment variables provide deployment-specific overrides
         env_overrides = self._get_env_overrides()
@@ -383,12 +395,22 @@ class ConfigManager:
             try:
                 llm_overrides['temperature'] = float(temp)
             except ValueError:
-                logger.warning(f"Invalid LLM_TEMPERATURE: {temp}")
+                logger.warning("invalid_llm_temperature",
+                    component="config",
+                    operation="validation",
+                    invalid_value=temp,
+                    using_default=defaults.temperature
+                )
         if max_tokens := os.environ.get('LLM_MAX_TOKENS'):
             try:
                 llm_overrides['max_tokens'] = int(max_tokens)
             except ValueError:
-                logger.warning(f"Invalid LLM_MAX_TOKENS: {max_tokens}")
+                logger.warning("invalid_llm_max_tokens",
+                    component="config",
+                    operation="validation",
+                    invalid_value=max_tokens,
+                    using_default=defaults.max_tokens
+                )
         
         if llm_overrides:
             overrides['llm'] = llm_overrides
@@ -436,9 +458,18 @@ class ConfigManager:
         try:
             with open(self.config_path, 'w') as f:
                 json.dump(self._config.to_dict(), f, indent=2)
-            logger.info(f"Configuration saved to {self.config_path}")
+            logger.info("config_saved",
+                component="config",
+                operation="save",
+                config_path=self.config_path
+            )
         except Exception as e:
-            logger.error(f"Failed to save configuration: {e}")
+            logger.error("config_save_failed",
+                component="config",
+                operation="save",
+                error=str(e),
+                error_type=type(e).__name__
+            )
     
     def get_config(self) -> SystemConfig:
         """Lazy initialization ensures configuration is always available."""
@@ -452,7 +483,11 @@ class ConfigManager:
         Useful when configuration file has been modified and you want
         to pick up changes without restarting the application.
         """
-        logger.info(f"Reloading configuration from {self.config_path}")
+        logger.info("config_reloading",
+            component="config",
+            operation="reload",
+            config_path=self.config_path
+        )
         self._config = None
         self._load_config()
     
@@ -537,6 +572,24 @@ def get_conversation_config() -> ConversationConfig:
 def get_agent_config(agent_name: str) -> Optional[AgentConfig]:
     """Agent-specific configuration for dynamic discovery."""
     return get_config_manager().get_agent_config(agent_name)
+
+
+def get_salesforce_config():
+    """Get Salesforce configuration from environment."""
+    return {
+        "username": os.environ.get("SFDC_USER"),
+        "password": os.environ.get("SFDC_PASS"),
+        "security_token": os.environ.get("SFDC_TOKEN")
+    }
+
+
+def get_jira_config():
+    """Get Jira configuration from environment."""
+    return {
+        "base_url": os.environ.get("JIRA_BASE_URL"),
+        "user": os.environ.get("JIRA_USER"),
+        "api_token": os.environ.get("JIRA_API_TOKEN")
+    }
 
 
 def get_memory_namespace(user_id: str = None) -> tuple:

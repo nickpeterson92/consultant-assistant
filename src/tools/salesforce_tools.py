@@ -29,7 +29,10 @@ from pydantic import BaseModel, field_validator
 from langchain.tools import BaseTool
 from simple_salesforce import Salesforce
 
-from src.utils.logging import log_tool_activity
+from src.utils.logging import get_logger
+
+# Initialize logger
+logger = get_logger()
 from src.utils.soql_query_builder import (
     SOQLQueryBuilder,
     SearchQueryBuilder,
@@ -50,14 +53,6 @@ def get_salesforce_connection():
 
 
 # Lead Tools
-class GetLeadInput(BaseModel):
-    lead_id: Optional[str] = None
-    email: Optional[str] = None
-    name: Optional[str] = None
-    phone: Optional[str] = None
-    company: Optional[str] = None
-
-
 class GetLeadTool(BaseTool):
     """Salesforce Lead Retrieval Tool.
     
@@ -89,14 +84,27 @@ class GetLeadTool(BaseTool):
         "Returns specific lead records - NOT aggregated analytics or metrics. "
         "For lead analytics/trends, use GetBusinessMetricsTool instead."
     )
-    args_schema: type = GetLeadInput
+    class Input(BaseModel):
+        """Input validation for lead search parameters."""
+        lead_id: Optional[str] = None
+        email: Optional[str] = None
+        name: Optional[str] = None
+        phone: Optional[str] = None
+        company: Optional[str] = None
+    
+    args_schema: type = Input
 
     def _run(self, **kwargs) -> dict:
-        data = GetLeadInput(**kwargs)
+        data = self.Input(**kwargs)
+
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="salesforce",
+            tool_name="get_lead_tool",
+            tool_args=kwargs
+        )
 
         try:
-            log_tool_activity("GetLeadTool", "RETRIEVE_LEAD", 
-                            search_params={k: v for k, v in kwargs.items()})
             sf = get_salesforce_connection()
             
             # Use query builder for cleaner, safer queries
@@ -126,7 +134,24 @@ class GetLeadTool(BaseTool):
                     return {"error": "No search criteria provided."}
 
             query = builder.build()
+            
+            # Log Salesforce API call
+            logger.info("salesforce_api_call",
+                component="tools",
+                operation="query",
+                tool="GetLeadTool",
+                query=query,
+                object_type="Lead"
+            )
+            
             records = sf.query(query)['records']
+            
+            logger.info("salesforce_api_success",
+                component="tools",
+                operation="query",
+                tool="GetLeadTool",
+                record_count=len(records)
+            )
 
             if not records:
                 return []
@@ -145,25 +170,27 @@ class GetLeadTool(BaseTool):
             ]
             
             result = formatted_records[0] if len(formatted_records) == 1 else formatted_records
-            return format_salesforce_response(result)
+            final_result = format_salesforce_response(result)
+            
+            # Log tool result - IDENTICAL format to orchestrator pattern
+            logger.info("tool_result",
+                component="salesforce",
+                tool_name="get_lead_tool",
+                result_type=type(final_result).__name__,
+                result_preview=str(final_result)[:200] if final_result else "None"
+            )
+            
+            return final_result
             
         except Exception as e:
+            # Log tool error
+            logger.error("tool_error",
+                component="salesforce",
+                tool_name="get_lead_tool",
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {"error": str(e)}
-
-
-class CreateLeadInput(BaseModel):
-    name: str
-    company: str
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    lead_status: Optional[str] = "New"
-
-    @field_validator('lead_status')
-    def validate_status(cls, v):
-        valid_statuses = ["New", "Working", "Nurturing", "Qualified", "Unqualified"]
-        if v not in valid_statuses:
-            raise ValueError(f"Status must be one of: {', '.join(valid_statuses)}")
-        return v
 
 
 class CreateLeadTool(BaseTool):
@@ -196,14 +223,35 @@ class CreateLeadTool(BaseTool):
         "Creates single lead record - NOT for bulk operations or analytics. "
         "Returns new lead ID for follow-up workflows."
     )
-    args_schema: type = CreateLeadInput
+    class Input(BaseModel):
+        """Input validation for lead creation with status validation."""
+        name: str
+        company: str
+        email: Optional[str] = None
+        phone: Optional[str] = None
+        lead_status: Optional[str] = "New"
+
+        @field_validator('lead_status')
+        def validate_status(cls, v):
+            valid_statuses = ["New", "Working", "Nurturing", "Qualified", "Unqualified"]
+            if v not in valid_statuses:
+                raise ValueError(f"Status must be one of: {', '.join(valid_statuses)}")
+            return v
+    
+    args_schema: type = Input
 
     def _run(self, **kwargs) -> dict:
+        data = self.Input(**kwargs)
+
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="salesforce",
+            tool_name="create_lead_tool",
+            tool_args=kwargs
+        )
+
         try:
-            log_tool_activity("CreateLeadTool", "CREATE_LEAD", 
-                            input_data={k: v for k, v in kwargs.items()})
             sf = get_salesforce_connection()
-            data = CreateLeadInput(**kwargs)
             result = sf.Lead.create({
                 "LastName": data.name,
                 "Company": data.company,
@@ -212,18 +260,24 @@ class CreateLeadTool(BaseTool):
                 "Status": data.lead_status
             })
             
-            log_tool_activity("CreateLeadTool", "CREATE_LEAD_SUCCESS", 
-                              record_id=result['id'])
+            # Log tool result - IDENTICAL format to orchestrator pattern
+            logger.info("tool_result",
+                component="salesforce", 
+                tool_name="create_lead_tool",
+                result_type=type(result).__name__,
+                result_preview=str(result)[:200] if result else "None"
+            )
+            
             return result
         except Exception as e:
+            # Log tool error
+            logger.error("tool_error",
+                component="salesforce",
+                tool_name="create_lead_tool", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {"error": str(e)}
-
-
-class UpdateLeadInput(BaseModel):
-    lead_id: str
-    company: Optional[str] = None
-    email: Optional[str] = None
-    phone: Optional[str] = None
 
 
 class UpdateLeadTool(BaseTool):
@@ -262,14 +316,27 @@ class UpdateLeadTool(BaseTool):
         "Updates single lead record - NOT for bulk operations or status changes. "
         "Requires lead_id and preserves existing data."
     )
-    args_schema: type = UpdateLeadInput
+    class Input(BaseModel):
+        """Input validation for lead updates with optional fields."""
+        lead_id: str
+        company: Optional[str] = None
+        email: Optional[str] = None
+        phone: Optional[str] = None
+    
+    args_schema: type = Input
 
     def _run(self, **kwargs) -> dict:
+        data = self.Input(**kwargs)
+
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="salesforce",
+            tool_name="update_lead_tool",
+            tool_args=kwargs
+        )
+
         try:
-            log_tool_activity("UpdateLeadTool", "UPDATE_LEAD", 
-                            input_data={k: v for k, v in kwargs.items()})
             sf = get_salesforce_connection()
-            data = UpdateLeadInput(**kwargs)
             
             update_fields = {}
             if data.company:
@@ -281,19 +348,29 @@ class UpdateLeadTool(BaseTool):
                 
             sf.Lead.update(data.lead_id, update_fields)
             
-            log_tool_activity("UpdateLeadTool", "UPDATE_LEAD_SUCCESS", 
-                              record_id=data.lead_id)
-            return {"success": True, "id": data.lead_id}
+            result = {"success": True, "id": data.lead_id}
+            
+            # Log tool result - IDENTICAL format to orchestrator pattern
+            logger.info("tool_result",
+                component="salesforce", 
+                tool_name="update_lead_tool",
+                result_type=type(result).__name__,
+                result_preview=str(result)[:200] if result else "None"
+            )
+            
+            return result
         except Exception as e:
+            # Log tool error
+            logger.error("tool_error",
+                component="salesforce",
+                tool_name="update_lead_tool", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {"error": str(e)}
 
 
 # Account Tools
-class GetAccountInput(BaseModel):
-    account_id: Optional[str] = None
-    account_name: Optional[str] = None
-
-
 class GetAccountTool(BaseTool):
     """Salesforce Account Retrieval Tool.
     
@@ -331,14 +408,24 @@ class GetAccountTool(BaseTool):
         "Returns specific account records - NOT comprehensive analytics or related data. "
         "For 360-degree account analysis, use GetAccountInsightsTool instead."
     )
-    args_schema: type = GetAccountInput
+    class Input(BaseModel):
+        """Input validation for account search by ID or name."""
+        account_id: Optional[str] = None
+        account_name: Optional[str] = None
+    
+    args_schema: type = Input
 
     def _run(self, **kwargs) -> dict:
-        data = GetAccountInput(**kwargs)
+        data = self.Input(**kwargs)
+
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="salesforce",
+            tool_name="get_account_tool",
+            tool_args=kwargs
+        )
 
         try:
-            log_tool_activity("GetAccountTool", "RETRIEVE_ACCOUNT", 
-                            search_params={k: v for k, v in kwargs.items()})
             sf = get_salesforce_connection()
             
             builder = SOQLQueryBuilder('Account').select([
@@ -379,13 +466,6 @@ class GetAccountTool(BaseTool):
             return {"error": str(e)}
 
 
-class CreateAccountInput(BaseModel):
-    name: str
-    phone: Optional[str] = None
-    website: Optional[str] = None
-    industry: Optional[str] = None
-
-
 class CreateAccountTool(BaseTool):
     """Salesforce Account Creation Tool.
     
@@ -422,14 +502,27 @@ class CreateAccountTool(BaseTool):
         "Creates single account record - NOT for bulk operations or analytics. "
         "Returns new account ID for relationship building."
     )
-    args_schema: type = CreateAccountInput
+    class Input(BaseModel):
+        """Input validation for account creation with business profile."""
+        name: str
+        phone: Optional[str] = None
+        website: Optional[str] = None
+        industry: Optional[str] = None
+    
+    args_schema: type = Input
 
     def _run(self, **kwargs) -> dict:
+        data = self.Input(**kwargs)
+
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="salesforce",
+            tool_name="create_account_tool",
+            tool_args=kwargs
+        )
+
         try:
-            log_tool_activity("CreateAccountTool", "CREATE_ACCOUNT", 
-                            input_data={k: v for k, v in kwargs.items()})
             sf = get_salesforce_connection()
-            data = CreateAccountInput(**kwargs)
             
             create_data = {"Name": data.name}
             if data.phone:
@@ -441,19 +534,24 @@ class CreateAccountTool(BaseTool):
                 
             result = sf.Account.create(create_data)
             
-            log_tool_activity("CreateAccountTool", "CREATE_ACCOUNT_SUCCESS", 
-                              record_id=result['id'])
+            # Log tool result - IDENTICAL format to orchestrator pattern
+            logger.info("tool_result",
+                component="salesforce", 
+                tool_name="create_account_tool",
+                result_type=type(result).__name__,
+                result_preview=str(result)[:200] if result else "None"
+            )
+            
             return result
         except Exception as e:
+            # Log tool error
+            logger.error("tool_error",
+                component="salesforce",
+                tool_name="create_account_tool", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {"error": str(e)}
-
-
-class UpdateAccountInput(BaseModel):
-    account_id: str
-    name: Optional[str] = None
-    phone: Optional[str] = None
-    website: Optional[str] = None
-    industry: Optional[str] = None
 
 
 class UpdateAccountTool(BaseTool):
@@ -492,14 +590,28 @@ class UpdateAccountTool(BaseTool):
         "Updates single account record - NOT for bulk operations or relationship changes. "
         "Requires account_id and preserves existing data."
     )
-    args_schema: type = UpdateAccountInput
+    class Input(BaseModel):
+        """Input validation for account updates with selective field modification."""
+        account_id: str
+        name: Optional[str] = None
+        phone: Optional[str] = None
+        website: Optional[str] = None
+        industry: Optional[str] = None
+    
+    args_schema: type = Input
 
     def _run(self, **kwargs) -> dict:
+        data = self.Input(**kwargs)
+
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="salesforce",
+            tool_name="update_account_tool",
+            tool_args=kwargs
+        )
+
         try:
-            log_tool_activity("UpdateAccountTool", "UPDATE_ACCOUNT", 
-                            input_data={k: v for k, v in kwargs.items()})
             sf = get_salesforce_connection()
-            data = UpdateAccountInput(**kwargs)
             
             update_fields = {}
             if data.name:
@@ -513,21 +625,29 @@ class UpdateAccountTool(BaseTool):
                 
             sf.Account.update(data.account_id, update_fields)
             
-            log_tool_activity("UpdateAccountTool", "UPDATE_ACCOUNT_SUCCESS", 
-                              record_id=data.account_id)
-            return {"success": True, "id": data.account_id}
+            result = {"success": True, "id": data.account_id}
+            
+            # Log tool result - IDENTICAL format to orchestrator pattern
+            logger.info("tool_result",
+                component="salesforce", 
+                tool_name="update_account_tool",
+                result_type=type(result).__name__,
+                result_preview=str(result)[:200] if result else "None"
+            )
+            
+            return result
         except Exception as e:
+            # Log tool error
+            logger.error("tool_error",
+                component="salesforce",
+                tool_name="update_account_tool", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {"error": str(e)}
 
 
 # Opportunity Tools
-class GetOpportunityInput(BaseModel):
-    opportunity_id: Optional[str] = None
-    opportunity_name: Optional[str] = None
-    account_name: Optional[str] = None
-    account_id: Optional[str] = None
-
-
 class GetOpportunityTool(BaseTool):
     """Salesforce Opportunity Retrieval Tool.
     
@@ -565,14 +685,26 @@ class GetOpportunityTool(BaseTool):
         "Returns specific opportunity records - NOT pipeline analytics or aggregated metrics. "
         "For pipeline analysis/trends, use GetSalesPipelineTool instead."
     )
-    args_schema: type = GetOpportunityInput
+    class Input(BaseModel):
+        """Input validation for opportunity search with account relationship."""
+        opportunity_id: Optional[str] = None
+        opportunity_name: Optional[str] = None
+        account_name: Optional[str] = None
+        account_id: Optional[str] = None
+    
+    args_schema: type = Input
 
     def _run(self, **kwargs) -> dict:
-        data = GetOpportunityInput(**kwargs)
+        data = self.Input(**kwargs)
+
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="salesforce",
+            tool_name="get_opportunity_tool",
+            tool_args=kwargs
+        )
 
         try:
-            log_tool_activity("GetOpportunityTool", "RETRIEVE_OPPORTUNITY", 
-                            search_params={k: v for k, v in kwargs.items()})
             sf = get_salesforce_connection()
             
             builder = SOQLQueryBuilder('Opportunity').select([
@@ -633,29 +765,27 @@ class GetOpportunityTool(BaseTool):
             ]
             
             result = formatted_records[0] if len(formatted_records) == 1 else formatted_records
-            return format_salesforce_response(result)
+            final_result = format_salesforce_response(result)
+            
+            # Log tool result - IDENTICAL format to orchestrator pattern
+            logger.info("tool_result",
+                component="salesforce", 
+                tool_name="get_opportunity_tool",
+                result_type=type(final_result).__name__,
+                result_preview=str(final_result)[:200] if final_result else "None"
+            )
+            
+            return final_result
 
         except Exception as e:
+            # Log tool error
+            logger.error("tool_error",
+                component="salesforce",
+                tool_name="get_opportunity_tool", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {"error": str(e)}
-
-
-class CreateOpportunityInput(BaseModel):
-    name: str
-    stage: str
-    close_date: str
-    account_id: str
-    amount: Optional[float] = None
-    
-    @field_validator('stage')
-    def validate_stage(cls, v):
-        valid_stages = [
-            "Prospecting", "Qualification", "Needs Analysis",
-            "Value Proposition", "Id. Decision Makers", "Perception Analysis",
-            "Proposal/Price Quote", "Negotiation/Review", "Closed Won", "Closed Lost"
-        ]
-        if v not in valid_stages:
-            raise ValueError(f"Invalid stage. Must be one of: {', '.join(valid_stages)}")
-        return v
 
 
 class CreateOpportunityTool(BaseTool):
@@ -694,14 +824,39 @@ class CreateOpportunityTool(BaseTool):
         "Creates single opportunity record - NOT for bulk operations or pipeline analytics. "
         "Returns new opportunity ID for sales tracking."
     )
-    args_schema: type = CreateOpportunityInput
+    class Input(BaseModel):
+        """Input validation for opportunity creation with stage validation."""
+        name: str
+        stage: str
+        close_date: str
+        account_id: str
+        amount: Optional[float] = None
+        
+        @field_validator('stage')
+        def validate_stage(cls, v):
+            valid_stages = [
+                "Prospecting", "Qualification", "Needs Analysis",
+                "Value Proposition", "Id. Decision Makers", "Perception Analysis",
+                "Proposal/Price Quote", "Negotiation/Review", "Closed Won", "Closed Lost"
+            ]
+            if v not in valid_stages:
+                raise ValueError(f"Invalid stage. Must be one of: {', '.join(valid_stages)}")
+            return v
+    
+    args_schema: type = Input
 
     def _run(self, **kwargs) -> dict:
+        data = self.Input(**kwargs)
+
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="salesforce",
+            tool_name="create_opportunity_tool",
+            tool_args=kwargs
+        )
+
         try:
-            log_tool_activity("CreateOpportunityTool", "CREATE_OPPORTUNITY", 
-                            input_data={k: v for k, v in kwargs.items()})
             sf = get_salesforce_connection()
-            data = CreateOpportunityInput(**kwargs)
             
             create_data = {
                 "Name": data.name,
@@ -714,31 +869,24 @@ class CreateOpportunityTool(BaseTool):
                 
             result = sf.Opportunity.create(create_data)
             
-            log_tool_activity("CreateOpportunityTool", "CREATE_OPPORTUNITY_SUCCESS", 
-                              record_id=result['id'])
+            # Log tool result - IDENTICAL format to orchestrator pattern
+            logger.info("tool_result",
+                component="salesforce", 
+                tool_name="create_opportunity_tool",
+                result_type=type(result).__name__,
+                result_preview=str(result)[:200] if result else "None"
+            )
+            
             return result
         except Exception as e:
+            # Log tool error
+            logger.error("tool_error",
+                component="salesforce",
+                tool_name="create_opportunity_tool", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {"error": str(e)}
-
-
-class UpdateOpportunityInput(BaseModel):
-    opportunity_id: str
-    stage: Optional[str] = None
-    amount: Optional[float] = None
-    close_date: Optional[str] = None
-    
-    @field_validator('stage')
-    def validate_stage(cls, v):
-        if v is None:
-            return v
-        valid_stages = [
-            "Prospecting", "Qualification", "Needs Analysis",
-            "Value Proposition", "Id. Decision Makers", "Perception Analysis",
-            "Proposal/Price Quote", "Negotiation/Review", "Closed Won", "Closed Lost"
-        ]
-        if v not in valid_stages:
-            raise ValueError(f"Invalid stage. Must be one of: {', '.join(valid_stages)}")
-        return v
 
 
 class UpdateOpportunityTool(BaseTool):
@@ -777,14 +925,39 @@ class UpdateOpportunityTool(BaseTool):
         "Updates single opportunity record - NOT for bulk operations or pipeline analytics. "
         "Requires opportunity_id for sales progression tracking."
     )
-    args_schema: type = UpdateOpportunityInput
+    class Input(BaseModel):
+        """Input validation for opportunity updates with stage progression."""
+        opportunity_id: str
+        stage: Optional[str] = None
+        amount: Optional[float] = None
+        close_date: Optional[str] = None
+        
+        @field_validator('stage')
+        def validate_stage(cls, v):
+            if v is None:
+                return v
+            valid_stages = [
+                "Prospecting", "Qualification", "Needs Analysis",
+                "Value Proposition", "Id. Decision Makers", "Perception Analysis",
+                "Proposal/Price Quote", "Negotiation/Review", "Closed Won", "Closed Lost"
+            ]
+            if v not in valid_stages:
+                raise ValueError(f"Invalid stage. Must be one of: {', '.join(valid_stages)}")
+            return v
+    
+    args_schema: type = Input
 
     def _run(self, **kwargs) -> dict:
-        data = UpdateOpportunityInput(**kwargs)
+        data = self.Input(**kwargs)
+
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="salesforce",
+            tool_name="update_opportunity_tool",
+            tool_args=kwargs
+        )
 
         try:
-            log_tool_activity("UpdateOpportunityTool", "UPDATE_OPPORTUNITY", 
-                            input_data={k: v for k, v in kwargs.items()})
             sf = get_salesforce_connection()
             
             update_fields = {}
@@ -797,22 +970,29 @@ class UpdateOpportunityTool(BaseTool):
                 
             sf.Opportunity.update(data.opportunity_id, update_fields)
             
-            log_tool_activity("UpdateOpportunityTool", "UPDATE_OPPORTUNITY_SUCCESS", 
-                              record_id=data.opportunity_id)
-            return {"success": True, "id": data.opportunity_id}
+            result = {"success": True, "id": data.opportunity_id}
+            
+            # Log tool result - IDENTICAL format to orchestrator pattern
+            logger.info("tool_result",
+                component="salesforce", 
+                tool_name="update_opportunity_tool",
+                result_type=type(result).__name__,
+                result_preview=str(result)[:200] if result else "None"
+            )
+            
+            return result
         except Exception as e:
+            # Log tool error
+            logger.error("tool_error",
+                component="salesforce",
+                tool_name="update_opportunity_tool", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {"error": str(e)}
 
 
 # Contact Tools
-class GetContactInput(BaseModel):
-    contact_id: Optional[str] = None
-    email: Optional[str] = None
-    name: Optional[str] = None
-    phone: Optional[str] = None
-    account_name: Optional[str] = None
-
-
 class GetContactTool(BaseTool):
     """Salesforce Contact Retrieval Tool.
     
@@ -851,14 +1031,27 @@ class GetContactTool(BaseTool):
         "Returns specific contact records - NOT relationship analytics or engagement metrics. "
         "For comprehensive account contacts, use GetAccountInsightsTool instead."
     )
-    args_schema: type = GetContactInput
+    class Input(BaseModel):
+        """Input validation for contact search with account relationship."""
+        contact_id: Optional[str] = None
+        email: Optional[str] = None
+        name: Optional[str] = None
+        phone: Optional[str] = None
+        account_name: Optional[str] = None
+    
+    args_schema: type = Input
 
     def _run(self, **kwargs) -> dict:
-        data = GetContactInput(**kwargs)
+        data = self.Input(**kwargs)
+
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="salesforce",
+            tool_name="get_contact_tool",
+            tool_args=kwargs
+        )
 
         try:
-            log_tool_activity("GetContactTool", "RETRIEVE_CONTACT", 
-                            search_params={k: v for k, v in kwargs.items()})
             sf = get_salesforce_connection()
             
             builder = SOQLQueryBuilder('Contact').select([
@@ -928,19 +1121,27 @@ class GetContactTool(BaseTool):
             ]
             
             result = formatted_records[0] if len(formatted_records) == 1 else formatted_records
-            return format_salesforce_response(result)
+            final_result = format_salesforce_response(result)
+            
+            # Log tool result - IDENTICAL format to orchestrator pattern
+            logger.info("tool_result",
+                component="salesforce", 
+                tool_name="get_contact_tool",
+                result_type=type(final_result).__name__,
+                result_preview=str(final_result)[:200] if final_result else "None"
+            )
+            
+            return final_result
 
         except Exception as e:
+            # Log tool error
+            logger.error("tool_error",
+                component="salesforce",
+                tool_name="get_contact_tool", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {"error": str(e)}
-
-
-class CreateContactInput(BaseModel):
-    first_name: str
-    last_name: str
-    account_id: str
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    title: Optional[str] = None
 
 
 class CreateContactTool(BaseTool):
@@ -979,14 +1180,29 @@ class CreateContactTool(BaseTool):
         "Creates single contact record - NOT for bulk operations or relationship analytics. "
         "Returns new contact ID for customer engagement."
     )
-    args_schema: type = CreateContactInput
+    class Input(BaseModel):
+        """Input validation for contact creation with account linking."""
+        first_name: str
+        last_name: str
+        account_id: str
+        email: Optional[str] = None
+        phone: Optional[str] = None
+        title: Optional[str] = None
+    
+    args_schema: type = Input
 
     def _run(self, **kwargs) -> dict:
+        data = self.Input(**kwargs)
+
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="salesforce",
+            tool_name="create_contact_tool",
+            tool_args=kwargs
+        )
+
         try:
-            log_tool_activity("CreateContactTool", "CREATE_CONTACT", 
-                            input_data={k: v for k, v in kwargs.items()})
             sf = get_salesforce_connection()
-            data = CreateContactInput(**kwargs)
             
             create_data = {
                 "FirstName": data.first_name,
@@ -1002,18 +1218,24 @@ class CreateContactTool(BaseTool):
                 
             result = sf.Contact.create(create_data)
             
-            log_tool_activity("CreateContactTool", "CREATE_CONTACT_SUCCESS", 
-                              record_id=result['id'])
+            # Log tool result - IDENTICAL format to orchestrator pattern
+            logger.info("tool_result",
+                component="salesforce", 
+                tool_name="create_contact_tool",
+                result_type=type(result).__name__,
+                result_preview=str(result)[:200] if result else "None"
+            )
+            
             return result
         except Exception as e:
+            # Log tool error
+            logger.error("tool_error",
+                component="salesforce",
+                tool_name="create_contact_tool", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {"error": str(e)}
-
-
-class UpdateContactInput(BaseModel):
-    contact_id: str
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    title: Optional[str] = None
 
 
 class UpdateContactTool(BaseTool):
@@ -1052,14 +1274,27 @@ class UpdateContactTool(BaseTool):
         "Updates single contact record - NOT for bulk operations or relationship changes. "
         "Requires contact_id and preserves relationship data."
     )
-    args_schema: type = UpdateContactInput
+    class Input(BaseModel):
+        """Input validation for contact updates with communication fields."""
+        contact_id: str
+        email: Optional[str] = None
+        phone: Optional[str] = None
+        title: Optional[str] = None
+    
+    args_schema: type = Input
 
     def _run(self, **kwargs) -> dict:
+        data = self.Input(**kwargs)
+
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="salesforce",
+            tool_name="update_contact_tool",
+            tool_args=kwargs
+        )
+
         try:
-            log_tool_activity("UpdateContactTool", "UPDATE_CONTACT", 
-                            input_data={k: v for k, v in kwargs.items()})
             sf = get_salesforce_connection()
-            data = UpdateContactInput(**kwargs)
             
             update_fields = {}
             if data.email:
@@ -1071,22 +1306,29 @@ class UpdateContactTool(BaseTool):
                 
             sf.Contact.update(data.contact_id, update_fields)
             
-            log_tool_activity("UpdateContactTool", "UPDATE_CONTACT_SUCCESS", 
-                              record_id=data.contact_id)
-            return {"success": True, "id": data.contact_id}
+            result = {"success": True, "id": data.contact_id}
+            
+            # Log tool result - IDENTICAL format to orchestrator pattern
+            logger.info("tool_result",
+                component="salesforce", 
+                tool_name="update_contact_tool",
+                result_type=type(result).__name__,
+                result_preview=str(result)[:200] if result else "None"
+            )
+            
+            return result
         except Exception as e:
+            # Log tool error
+            logger.error("tool_error",
+                component="salesforce",
+                tool_name="update_contact_tool", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {"error": str(e)}
 
 
 # Case Tools
-class GetCaseInput(BaseModel):
-    case_id: Optional[str] = None
-    case_number: Optional[str] = None
-    subject: Optional[str] = None
-    account_name: Optional[str] = None
-    contact_name: Optional[str] = None
-
-
 class GetCaseTool(BaseTool):
     """Salesforce Case Retrieval Tool.
     
@@ -1126,14 +1368,27 @@ class GetCaseTool(BaseTool):
         "Returns specific case records - NOT support analytics or volume trends. "
         "For case analytics/trends, use GetBusinessMetricsTool instead."
     )
-    args_schema: type = GetCaseInput
+    class Input(BaseModel):
+        """Input validation for case search with customer relationships."""
+        case_id: Optional[str] = None
+        case_number: Optional[str] = None
+        subject: Optional[str] = None
+        account_name: Optional[str] = None
+        contact_name: Optional[str] = None
+    
+    args_schema: type = Input
 
     def _run(self, **kwargs) -> dict:
-        data = GetCaseInput(**kwargs)
+        data = self.Input(**kwargs)
+
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="salesforce",
+            tool_name="get_case_tool",
+            tool_args=kwargs
+        )
 
         try:
-            log_tool_activity("GetCaseTool", "RETRIEVE_CASE", 
-                            search_params={k: v for k, v in kwargs.items()})
             sf = get_salesforce_connection()
             
             builder = SOQLQueryBuilder('Case').select([
@@ -1203,25 +1458,27 @@ class GetCaseTool(BaseTool):
             ]
             
             result = formatted_records[0] if len(formatted_records) == 1 else formatted_records
-            return format_salesforce_response(result)
+            final_result = format_salesforce_response(result)
+            
+            # Log tool result - IDENTICAL format to orchestrator pattern
+            logger.info("tool_result",
+                component="salesforce", 
+                tool_name="get_case_tool",
+                result_type=type(final_result).__name__,
+                result_preview=str(final_result)[:200] if final_result else "None"
+            )
+            
+            return final_result
 
         except Exception as e:
+            # Log tool error
+            logger.error("tool_error",
+                component="salesforce",
+                tool_name="get_case_tool", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {"error": str(e)}
-
-
-class CreateCaseInput(BaseModel):
-    subject: str
-    description: str
-    account_id: Optional[str] = None
-    contact_id: Optional[str] = None
-    priority: Optional[str] = "Medium"
-    
-    @field_validator('priority')
-    def validate_priority(cls, v):
-        valid_priorities = ["Low", "Medium", "High"]
-        if v not in valid_priorities:
-            raise ValueError(f"Priority must be one of: {', '.join(valid_priorities)}")
-        return v
 
 
 class CreateCaseTool(BaseTool):
@@ -1260,14 +1517,35 @@ class CreateCaseTool(BaseTool):
         "Creates single case record - NOT for bulk operations or support analytics. "
         "Returns new case ID for support tracking."
     )
-    args_schema: type = CreateCaseInput
+    class Input(BaseModel):
+        """Input validation for case creation with priority classification."""
+        subject: str
+        description: str
+        account_id: Optional[str] = None
+        contact_id: Optional[str] = None
+        priority: Optional[str] = "Medium"
+        
+        @field_validator('priority')
+        def validate_priority(cls, v):
+            valid_priorities = ["Low", "Medium", "High"]
+            if v not in valid_priorities:
+                raise ValueError(f"Priority must be one of: {', '.join(valid_priorities)}")
+            return v
+    
+    args_schema: type = Input
 
     def _run(self, **kwargs) -> dict:
+        data = self.Input(**kwargs)
+
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="salesforce",
+            tool_name="create_case_tool",
+            tool_args=kwargs
+        )
+
         try:
-            log_tool_activity("CreateCaseTool", "CREATE_CASE", 
-                            input_data={k: v for k, v in kwargs.items()})
             sf = get_salesforce_connection()
-            data = CreateCaseInput(**kwargs)
             
             create_data = {
                 "Subject": data.subject,
@@ -1282,35 +1560,24 @@ class CreateCaseTool(BaseTool):
                 
             result = sf.Case.create(create_data)
             
-            log_tool_activity("CreateCaseTool", "CREATE_CASE_SUCCESS", 
-                              record_id=result['id'])
+            # Log tool result - IDENTICAL format to orchestrator pattern
+            logger.info("tool_result",
+                component="salesforce", 
+                tool_name="create_case_tool",
+                result_type=type(result).__name__,
+                result_preview=str(result)[:200] if result else "None"
+            )
+            
             return result
         except Exception as e:
+            # Log tool error
+            logger.error("tool_error",
+                component="salesforce",
+                tool_name="create_case_tool", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {"error": str(e)}
-
-
-class UpdateCaseInput(BaseModel):
-    case_id: str
-    status: Optional[str] = None
-    priority: Optional[str] = None
-    
-    @field_validator('priority')
-    def validate_priority(cls, v):
-        if v is None:
-            return v
-        valid_priorities = ["Low", "Medium", "High"]
-        if v not in valid_priorities:
-            raise ValueError(f"Priority must be one of: {', '.join(valid_priorities)}")
-        return v
-    
-    @field_validator('status')
-    def validate_status(cls, v):
-        if v is None:
-            return v
-        valid_statuses = ["New", "Working", "Escalated", "Closed"]
-        if v not in valid_statuses:
-            raise ValueError(f"Status must be one of: {', '.join(valid_statuses)}")
-        return v
 
 
 class UpdateCaseTool(BaseTool):
@@ -1349,14 +1616,44 @@ class UpdateCaseTool(BaseTool):
         "Updates single case record - NOT for bulk operations or support analytics. "
         "Requires case_id for support lifecycle management."
     )
-    args_schema: type = UpdateCaseInput
+    class Input(BaseModel):
+        """Input validation for case updates with status and priority management."""
+        case_id: str
+        status: Optional[str] = None
+        priority: Optional[str] = None
+        
+        @field_validator('priority')
+        def validate_priority(cls, v):
+            if v is None:
+                return v
+            valid_priorities = ["Low", "Medium", "High"]
+            if v not in valid_priorities:
+                raise ValueError(f"Priority must be one of: {', '.join(valid_priorities)}")
+            return v
+        
+        @field_validator('status')
+        def validate_status(cls, v):
+            if v is None:
+                return v
+            valid_statuses = ["New", "Working", "Escalated", "Closed"]
+            if v not in valid_statuses:
+                raise ValueError(f"Status must be one of: {', '.join(valid_statuses)}")
+            return v
+    
+    args_schema: type = Input
 
     def _run(self, **kwargs) -> dict:
+        data = self.Input(**kwargs)
+
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="salesforce",
+            tool_name="update_case_tool",
+            tool_args=kwargs
+        )
+
         try:
-            log_tool_activity("UpdateCaseTool", "UPDATE_CASE", 
-                            input_data={k: v for k, v in kwargs.items()})
             sf = get_salesforce_connection()
-            data = UpdateCaseInput(**kwargs)
             
             update_fields = {}
             if data.status:
@@ -1366,21 +1663,29 @@ class UpdateCaseTool(BaseTool):
                 
             sf.Case.update(data.case_id, update_fields)
             
-            log_tool_activity("UpdateCaseTool", "UPDATE_CASE_SUCCESS", 
-                              record_id=data.case_id)
-            return {"success": True, "id": data.case_id}
+            result = {"success": True, "id": data.case_id}
+            
+            # Log tool result - IDENTICAL format to orchestrator pattern
+            logger.info("tool_result",
+                component="salesforce", 
+                tool_name="update_case_tool",
+                result_type=type(result).__name__,
+                result_preview=str(result)[:200] if result else "None"
+            )
+            
+            return result
         except Exception as e:
+            # Log tool error
+            logger.error("tool_error",
+                component="salesforce",
+                tool_name="update_case_tool", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {"error": str(e)}
 
 
 # Task Tools
-class GetTaskInput(BaseModel):
-    task_id: Optional[str] = None
-    subject: Optional[str] = None
-    account_name: Optional[str] = None
-    contact_name: Optional[str] = None
-
-
 class GetTaskTool(BaseTool):
     """Salesforce Task Retrieval Tool.
     
@@ -1418,14 +1723,26 @@ class GetTaskTool(BaseTool):
         "Returns specific task records - NOT activity analytics or productivity metrics. "
         "For activity trends/analysis, use other analytics tools."
     )
-    args_schema: type = GetTaskInput
+    class Input(BaseModel):
+        """Input validation for task search with relationship mapping."""
+        task_id: Optional[str] = None
+        subject: Optional[str] = None
+        account_name: Optional[str] = None
+        contact_name: Optional[str] = None
+    
+    args_schema: type = Input
 
     def _run(self, **kwargs) -> dict:
-        data = GetTaskInput(**kwargs)
+        data = self.Input(**kwargs)
+
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="salesforce",
+            tool_name="get_task_tool",
+            tool_args=kwargs
+        )
 
         try:
-            log_tool_activity("GetTaskTool", "RETRIEVE_TASK", 
-                            search_params={k: v for k, v in kwargs.items()})
             sf = get_salesforce_connection()
             
             builder = SOQLQueryBuilder('Task').select([
@@ -1493,26 +1810,27 @@ class GetTaskTool(BaseTool):
             ]
             
             result = formatted_records[0] if len(formatted_records) == 1 else formatted_records
-            return format_salesforce_response(result)
+            final_result = format_salesforce_response(result)
+            
+            # Log tool result - IDENTICAL format to orchestrator pattern
+            logger.info("tool_result",
+                component="salesforce", 
+                tool_name="get_task_tool",
+                result_type=type(final_result).__name__,
+                result_preview=str(final_result)[:200] if final_result else "None"
+            )
+            
+            return final_result
 
         except Exception as e:
+            # Log tool error
+            logger.error("tool_error",
+                component="salesforce",
+                tool_name="get_task_tool", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {"error": str(e)}
-
-
-class CreateTaskInput(BaseModel):
-    subject: str
-    due_date: str  # YYYY-MM-DD format
-    priority: Optional[str] = "Normal"
-    account_id: Optional[str] = None
-    contact_id: Optional[str] = None
-    description: Optional[str] = None
-    
-    @field_validator('priority')
-    def validate_priority(cls, v):
-        valid_priorities = ["Low", "Normal", "High"]
-        if v not in valid_priorities:
-            raise ValueError(f"Priority must be one of: {', '.join(valid_priorities)}")
-        return v
 
 
 class CreateTaskTool(BaseTool):
@@ -1551,14 +1869,36 @@ class CreateTaskTool(BaseTool):
         "Creates single task record - NOT for bulk operations or activity analytics. "
         "Returns new task ID for activity tracking."
     )
-    args_schema: type = CreateTaskInput
+    class Input(BaseModel):
+        """Input validation for task creation with workflow integration."""
+        subject: str
+        due_date: str  # YYYY-MM-DD format
+        priority: Optional[str] = "Normal"
+        account_id: Optional[str] = None
+        contact_id: Optional[str] = None
+        description: Optional[str] = None
+        
+        @field_validator('priority')
+        def validate_priority(cls, v):
+            valid_priorities = ["Low", "Normal", "High"]
+            if v not in valid_priorities:
+                raise ValueError(f"Priority must be one of: {', '.join(valid_priorities)}")
+            return v
+    
+    args_schema: type = Input
 
     def _run(self, **kwargs) -> dict:
+        data = self.Input(**kwargs)
+
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="salesforce",
+            tool_name="create_task_tool",
+            tool_args=kwargs
+        )
+
         try:
-            log_tool_activity("CreateTaskTool", "CREATE_TASK", 
-                            input_data={k: v for k, v in kwargs.items()})
             sf = get_salesforce_connection()
-            data = CreateTaskInput(**kwargs)
             
             create_data = {
                 "Subject": data.subject,
@@ -1575,35 +1915,24 @@ class CreateTaskTool(BaseTool):
                 
             result = sf.Task.create(create_data)
             
-            log_tool_activity("CreateTaskTool", "CREATE_TASK_SUCCESS", 
-                              record_id=result['id'])
+            # Log tool result - IDENTICAL format to orchestrator pattern
+            logger.info("tool_result",
+                component="salesforce", 
+                tool_name="create_task_tool",
+                result_type=type(result).__name__,
+                result_preview=str(result)[:200] if result else "None"
+            )
+            
             return result
         except Exception as e:
+            # Log tool error
+            logger.error("tool_error",
+                component="salesforce",
+                tool_name="create_task_tool", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {"error": str(e)}
-
-
-class UpdateTaskInput(BaseModel):
-    task_id: str
-    status: Optional[str] = None
-    priority: Optional[str] = None
-    
-    @field_validator('status')
-    def validate_status(cls, v):
-        if v is None:
-            return v
-        valid_statuses = ["Not Started", "In Progress", "Completed", "Waiting on someone else", "Deferred"]
-        if v not in valid_statuses:
-            raise ValueError(f"Status must be one of: {', '.join(valid_statuses)}")
-        return v
-    
-    @field_validator('priority')
-    def validate_priority(cls, v):
-        if v is None:
-            return v
-        valid_priorities = ["Low", "Normal", "High"]
-        if v not in valid_priorities:
-            raise ValueError(f"Priority must be one of: {', '.join(valid_priorities)}")
-        return v
 
 
 class UpdateTaskTool(BaseTool):
@@ -1642,14 +1971,44 @@ class UpdateTaskTool(BaseTool):
         "Updates single task record - NOT for bulk operations or activity analytics. "
         "Requires task_id for activity lifecycle management."
     )
-    args_schema: type = UpdateTaskInput
+    class Input(BaseModel):
+        """Input validation for task updates with lifecycle management."""
+        task_id: str
+        status: Optional[str] = None
+        priority: Optional[str] = None
+        
+        @field_validator('status')
+        def validate_status(cls, v):
+            if v is None:
+                return v
+            valid_statuses = ["Not Started", "In Progress", "Completed", "Waiting on someone else", "Deferred"]
+            if v not in valid_statuses:
+                raise ValueError(f"Status must be one of: {', '.join(valid_statuses)}")
+            return v
+        
+        @field_validator('priority')
+        def validate_priority(cls, v):
+            if v is None:
+                return v
+            valid_priorities = ["Low", "Normal", "High"]
+            if v not in valid_priorities:
+                raise ValueError(f"Priority must be one of: {', '.join(valid_priorities)}")
+            return v
+    
+    args_schema: type = Input
 
     def _run(self, **kwargs) -> dict:
+        data = self.Input(**kwargs)
+
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="salesforce",
+            tool_name="update_task_tool",
+            tool_args=kwargs
+        )
+
         try:
-            log_tool_activity("UpdateTaskTool", "UPDATE_TASK", 
-                            input_data={k: v for k, v in kwargs.items()})
             sf = get_salesforce_connection()
-            data = UpdateTaskInput(**kwargs)
             
             update_fields = {}
             if data.status:
@@ -1659,28 +2018,29 @@ class UpdateTaskTool(BaseTool):
                 
             sf.Task.update(data.task_id, update_fields)
             
-            log_tool_activity("UpdateTaskTool", "UPDATE_TASK_SUCCESS", 
-                              record_id=data.task_id)
-            return {"success": True, "id": data.task_id}
+            result = {"success": True, "id": data.task_id}
+            
+            # Log tool result - IDENTICAL format to orchestrator pattern
+            logger.info("tool_result",
+                component="salesforce", 
+                tool_name="update_task_tool",
+                result_type=type(result).__name__,
+                result_preview=str(result)[:200] if result else "None"
+            )
+            
+            return result
         except Exception as e:
+            # Log tool error
+            logger.error("tool_error",
+                component="salesforce",
+                tool_name="update_task_tool", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {"error": str(e)}
 
 
 # Analytics Tools - Advanced SOQL Aggregate Functions
-
-class GetSalesPipelineInput(BaseModel):
-    """Input validation for sales pipeline analysis parameters."""
-    group_by: str = "StageName"
-    min_amount: Optional[float] = None
-
-    @field_validator("group_by")
-    def validate_group_by(cls, v):
-        """Validate group_by parameter against supported SOQL grouping options."""
-        valid_options = ["StageName", "OwnerId", "CloseDate"]
-        if v not in valid_options:
-            raise ValueError(f"group_by must be one of: {', '.join(valid_options)}")
-        return v
-
 
 class GetSalesPipelineTool(BaseTool):
     """Salesforce Sales Pipeline Analysis Tool.
@@ -1713,14 +2073,32 @@ class GetSalesPipelineTool(BaseTool):
         "Groups and aggregates opportunities - NOT for individual opportunity lookup. "
         "Returns summary metrics and business intelligence dashboards."
     )
-    args_schema: type = GetSalesPipelineInput
+    class Input(BaseModel):
+        """Input validation for sales pipeline analysis parameters."""
+        group_by: str = "StageName"
+        min_amount: Optional[float] = None
+
+        @field_validator("group_by")
+        def validate_group_by(cls, v):
+            """Validate group_by parameter against supported SOQL grouping options."""
+            valid_options = ["StageName", "OwnerId", "CloseDate"]
+            if v not in valid_options:
+                raise ValueError(f"group_by must be one of: {', '.join(valid_options)}")
+            return v
+    
+    args_schema: type = Input
     
     def _run(self, **kwargs) -> dict:
-        data = GetSalesPipelineInput(**kwargs)
+        data = self.Input(**kwargs)
+
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="salesforce",
+            tool_name="get_sales_pipeline_tool",
+            tool_args=kwargs
+        )
         
         try:
-            log_tool_activity("GetSalesPipelineTool", "ANALYZE_PIPELINE", 
-                            params={"group_by": data.group_by})
             sf = get_salesforce_connection()
             
             # Build aggregate query based on grouping
@@ -1781,27 +2159,27 @@ class GetSalesPipelineTool(BaseTool):
             for record in results["records"]:
                 record["_query_type"] = "pipeline_by_" + data.group_by
             
-            return format_salesforce_response(results["records"])
+            final_result = format_salesforce_response(results["records"])
+            
+            # Log tool result - IDENTICAL format to orchestrator pattern
+            logger.info("tool_result",
+                component="salesforce", 
+                tool_name="get_sales_pipeline_tool",
+                result_type=type(final_result).__name__,
+                result_preview=str(final_result)[:200] if final_result else "None"
+            )
+            
+            return final_result
             
         except Exception as e:
-            # Return error dict with clear message to prevent retries
-            log_tool_activity("GetSalesPipelineTool", "ERROR", error=str(e))
+            # Log tool error
+            logger.error("tool_error",
+                component="salesforce",
+                tool_name="get_sales_pipeline_tool", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {"error": f"Failed to retrieve sales pipeline: {str(e)}. Please try a different approach or tool."}
-
-
-class GetTopPerformersInput(BaseModel):
-    """Input validation for top performers analysis parameters."""
-    metric: str = "revenue"
-    min_threshold: Optional[float] = 100000
-    limit: int = 10
-
-    @field_validator("metric")
-    def validate_metric(cls, v):
-        """Validate metric type against supported performance measurements."""
-        valid_metrics = ["revenue", "deal_count", "win_rate"]
-        if v not in valid_metrics:
-            raise ValueError(f"metric must be one of: {', '.join(valid_metrics)}")
-        return v
 
 
 class GetTopPerformersTool(BaseTool):
@@ -1840,14 +2218,33 @@ class GetTopPerformersTool(BaseTool):
         "Calculates rankings and statistics - NOT for individual rep lookup. "
         "Returns ranked performance leaderboards with calculated metrics."
     )
-    args_schema: type = GetTopPerformersInput
+    class Input(BaseModel):
+        """Input validation for top performers analysis parameters."""
+        metric: str = "revenue"
+        min_threshold: Optional[float] = 100000
+        limit: int = 10
+
+        @field_validator("metric")
+        def validate_metric(cls, v):
+            """Validate metric type against supported performance measurements."""
+            valid_metrics = ["revenue", "deal_count", "win_rate"]
+            if v not in valid_metrics:
+                raise ValueError(f"metric must be one of: {', '.join(valid_metrics)}")
+            return v
+    
+    args_schema: type = Input
     
     def _run(self, **kwargs) -> dict:
-        data = GetTopPerformersInput(**kwargs)
+        data = self.Input(**kwargs)
+
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="salesforce",
+            tool_name="get_top_performers_tool",
+            tool_args=kwargs
+        )
         
         try:
-            log_tool_activity("GetTopPerformersTool", "ANALYZE_PERFORMERS",
-                            params={"metric": data.metric, "limit": data.limit})
             sf = get_salesforce_connection()
             
             if data.metric == "revenue":
@@ -1922,19 +2319,27 @@ class GetTopPerformersTool(BaseTool):
             for record in results["records"]:
                 record["_metric_type"] = data.metric
                 
-            return format_salesforce_response(results["records"])
+            final_result = format_salesforce_response(results["records"])
+            
+            # Log tool result - IDENTICAL format to orchestrator pattern
+            logger.info("tool_result",
+                component="salesforce", 
+                tool_name="get_top_performers_tool",
+                result_type=type(final_result).__name__,
+                result_preview=str(final_result)[:200] if final_result else "None"
+            )
+            
+            return final_result
             
         except Exception as e:
-            # Return error dict with clear message to prevent retries
-            log_tool_activity("GetTopPerformersTool", "ERROR", error=str(e))
+            # Log tool error
+            logger.error("tool_error",
+                component="salesforce",
+                tool_name="get_top_performers_tool", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {"error": f"Failed to retrieve top performers: {str(e)}. Please try a different approach or tool."}
-
-
-class GlobalSearchInput(BaseModel):
-    """Input validation for global cross-object search parameters."""
-    search_term: str
-    object_types: Optional[List[str]] = ["Account", "Contact", "Opportunity", "Lead"]
-    limit: int = 20
 
 
 class GlobalSearchTool(BaseTool):
@@ -1974,14 +2379,25 @@ class GlobalSearchTool(BaseTool):
         "Searches ALL object types simultaneously - NOT for single object searches. "
         "Returns grouped results from Accounts, Contacts, Opportunities, and Leads."
     )
-    args_schema: type = GlobalSearchInput
+    class Input(BaseModel):
+        """Input validation for global cross-object search parameters."""
+        search_term: str
+        object_types: Optional[List[str]] = ["Account", "Contact", "Opportunity", "Lead"]
+        limit: int = 20
+    
+    args_schema: type = Input
     
     def _run(self, **kwargs) -> dict:
-        data = GlobalSearchInput(**kwargs)
+        data = self.Input(**kwargs)
+
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="salesforce",
+            tool_name="global_search_tool",
+            tool_args=kwargs
+        )
         
         try:
-            log_tool_activity("GlobalSearchTool", "GLOBAL_SEARCH",
-                            params={"term": data.search_term, "objects": data.object_types})
             sf = get_salesforce_connection()
             
             # Build SOSL (Salesforce Object Search Language) query
@@ -2039,19 +2455,27 @@ class GlobalSearchTool(BaseTool):
             for record in search_records:
                 record["_search_term"] = data.search_term
                 
-            return format_salesforce_response(search_records)
+            final_result = format_salesforce_response(search_records)
+            
+            # Log tool result - IDENTICAL format to orchestrator pattern
+            logger.info("tool_result",
+                component="salesforce", 
+                tool_name="global_search_tool",
+                result_type=type(final_result).__name__,
+                result_preview=str(final_result)[:200] if final_result else "None"
+            )
+            
+            return final_result
             
         except Exception as e:
-            # Return error dict with clear message to prevent retries
-            log_tool_activity("GlobalSearchTool", "ERROR", error=str(e))
+            # Log tool error
+            logger.error("tool_error",
+                component="salesforce",
+                tool_name="global_search_tool", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {"error": f"Failed to perform global search: {str(e)}. Please try a different approach or tool."}
-
-
-class GetAccountInsightsInput(BaseModel):
-    """Input validation for comprehensive account analysis parameters."""
-    account_id: Optional[str] = None
-    account_name: Optional[str] = None
-    include_subqueries: bool = True
 
 
 class GetAccountInsightsTool(BaseTool):
@@ -2091,14 +2515,25 @@ class GetAccountInsightsTool(BaseTool):
         "Retrieves account + ALL related data in one call - NOT for basic account lookup. "
         "Returns comprehensive account profile with opportunities, contacts, cases, and metrics."
     )
-    args_schema: type = GetAccountInsightsInput
+    class Input(BaseModel):
+        """Input validation for comprehensive account analysis parameters."""
+        account_id: Optional[str] = None
+        account_name: Optional[str] = None
+        include_subqueries: bool = True
+    
+    args_schema: type = Input
     
     def _run(self, **kwargs) -> dict:
-        data = GetAccountInsightsInput(**kwargs)
+        data = self.Input(**kwargs)
+
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="salesforce",
+            tool_name="get_account_insights_tool",
+            tool_args=kwargs
+        )
         
         try:
-            log_tool_activity("GetAccountInsightsTool", "GET_INSIGHTS",
-                            params={"account_id": data.account_id, "account_name": data.account_name})
             sf = get_salesforce_connection()
             
             # Build main query
@@ -2149,35 +2584,27 @@ class GetAccountInsightsTool(BaseTool):
             }
             
             # Format the response before returning
-            return format_salesforce_response(account_data)
+            final_result = format_salesforce_response(account_data)
+            
+            # Log tool result - IDENTICAL format to orchestrator pattern
+            logger.info("tool_result",
+                component="salesforce", 
+                tool_name="get_account_insights_tool",
+                result_type=type(final_result).__name__,
+                result_preview=str(final_result)[:200] if final_result else "None"
+            )
+            
+            return final_result
             
         except Exception as e:
-            # Return error dict with clear message to prevent retries
-            log_tool_activity("GetAccountInsightsTool", "ERROR", error=str(e))
+            # Log tool error
+            logger.error("tool_error",
+                component="salesforce",
+                tool_name="get_account_insights_tool", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {"error": f"Failed to retrieve account insights: {str(e)}. Please try a different approach or tool."}
-
-
-class GetBusinessMetricsInput(BaseModel):
-    """Input validation for business metrics and KPI analysis parameters."""
-    metric_type: str = "revenue"
-    time_period: str = "THIS_QUARTER"
-    group_by: Optional[str] = None
-
-    @field_validator("metric_type")
-    def validate_metric_type(cls, v):
-        """Validate metric type against supported business intelligence categories."""
-        valid_types = ["revenue", "accounts", "leads", "cases"]
-        if v not in valid_types:
-            raise ValueError(f"metric_type must be one of: {', '.join(valid_types)}")
-        return v
-
-    @field_validator("time_period")
-    def validate_time_period(cls, v):
-        """Validate time period against supported Salesforce date literals."""
-        valid_periods = ["THIS_MONTH", "LAST_MONTH", "THIS_QUARTER", "THIS_YEAR"]
-        if v not in valid_periods:
-            raise ValueError(f"time_period must be one of: {', '.join(valid_periods)}")
-        return v
 
 
 class GetBusinessMetricsTool(BaseTool):
@@ -2222,14 +2649,41 @@ class GetBusinessMetricsTool(BaseTool):
         "Calculates KPIs and trends over time periods - NOT for individual record metrics. "
         "Returns calculated business metrics, conversion rates, and trend analysis."
     )
-    args_schema: type = GetBusinessMetricsInput
+    class Input(BaseModel):
+        """Input validation for business metrics and KPI analysis parameters."""
+        metric_type: str = "revenue"
+        time_period: str = "THIS_QUARTER"
+        group_by: Optional[str] = None
+
+        @field_validator("metric_type")
+        def validate_metric_type(cls, v):
+            """Validate metric type against supported business intelligence categories."""
+            valid_types = ["revenue", "accounts", "leads", "cases"]
+            if v not in valid_types:
+                raise ValueError(f"metric_type must be one of: {', '.join(valid_types)}")
+            return v
+
+        @field_validator("time_period")
+        def validate_time_period(cls, v):
+            """Validate time period against supported Salesforce date literals."""
+            valid_periods = ["THIS_MONTH", "LAST_MONTH", "THIS_QUARTER", "THIS_YEAR"]
+            if v not in valid_periods:
+                raise ValueError(f"time_period must be one of: {', '.join(valid_periods)}")
+            return v
+    
+    args_schema: type = Input
     
     def _run(self, **kwargs) -> dict:
-        data = GetBusinessMetricsInput(**kwargs)
+        data = self.Input(**kwargs)
+
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="salesforce",
+            tool_name="get_business_metrics_tool",
+            tool_args=kwargs
+        )
         
         try:
-            log_tool_activity("GetBusinessMetricsTool", "CALCULATE_METRICS",
-                            params={"metric": data.metric_type, "period": data.time_period})
             sf = get_salesforce_connection()
             
             if data.metric_type == "revenue":
@@ -2358,11 +2812,26 @@ class GetBusinessMetricsTool(BaseTool):
                 record["_metric_type"] = data.metric_type
                 record["_time_period"] = data.time_period
                 
-            return format_salesforce_response(results["records"])
+            final_result = format_salesforce_response(results["records"])
+            
+            # Log tool result - IDENTICAL format to orchestrator pattern
+            logger.info("tool_result",
+                component="salesforce", 
+                tool_name="get_business_metrics_tool",
+                result_type=type(final_result).__name__,
+                result_preview=str(final_result)[:200] if final_result else "None"
+            )
+            
+            return final_result
             
         except Exception as e:
-            # Return error dict with clear message to prevent retries
-            log_tool_activity("GetBusinessMetricsTool", "ERROR", error=str(e))
+            # Log tool error
+            logger.error("tool_error",
+                component="salesforce",
+                tool_name="get_business_metrics_tool", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {"error": f"Failed to retrieve business metrics: {str(e)}. Please try a different approach or tool."}
 
 

@@ -7,7 +7,9 @@ Provides standardized JSON serialization for LangChain messages using modern Pyd
 from typing import List, Dict, Any, Union
 import logging
 
-logger = logging.getLogger(__name__)
+from .logging import get_logger
+
+logger = get_logger()
 
 
 def serialize_message(message) -> Dict[str, Any]:
@@ -45,7 +47,11 @@ def serialize_message(message) -> Dict[str, Any]:
         
         # Ensure we have at minimum the required fields
         if "type" not in result and "content" not in result:
-            logger.warning(f"Serialized message missing type/content: {result}")
+            logger.warning("serialized_message_incomplete",
+                component="utils",
+                operation="serialize_message",
+                result=result
+            )
             # Add missing fields with safe defaults
             result.setdefault("type", type(message).__name__)
             result.setdefault("content", str(getattr(message, 'content', str(message))))
@@ -53,7 +59,13 @@ def serialize_message(message) -> Dict[str, Any]:
         return result
         
     except Exception as e:
-        logger.error(f"Message serialization failed for {type(message)}: {e}")
+        logger.error("message_serialization_failed",
+            component="utils",
+            operation="serialize_message",
+            message_type=type(message).__name__,
+            error=str(e),
+            error_type=type(e).__name__
+        )
         # Return safe fallback
         return {
             "type": "serialization_error",

@@ -22,7 +22,10 @@ import sqlite3
 import json
 import asyncio
 from langgraph.store.base import BaseStore  # Adjust this import as needed
-from src.utils.logging import log_performance_activity
+from src.utils.logging import get_logger
+
+# Initialize logger
+logger = get_logger()
 
 class SQLiteStore(BaseStore):
     """Thread-safe SQLite key-value store with namespace support.
@@ -60,7 +63,7 @@ class SQLiteStore(BaseStore):
         self.db_path = db_path
         self.conn = sqlite3.connect(self.db_path)
         self._create_table()
-        log_performance_activity("SQLITE_INIT", db_path=db_path)
+        logger.info("sqlite_init", component="storage", db_path=db_path)
 
     def get_connection(self, db_path: str = None):
         """Create a new SQLiteStore instance for thread-safe operations.
@@ -133,7 +136,7 @@ class SQLiteStore(BaseStore):
         )
         row = cursor.fetchone()
         result = json.loads(row[0]) if row else None
-        log_performance_activity("SQLITE_GET", 
+        logger.info("sqlite_get", component="storage", 
                                namespace=namespace, 
                                key=key, 
                                found=result is not None)
@@ -195,7 +198,7 @@ class SQLiteStore(BaseStore):
             (json.dumps(namespace), key, json.dumps(value))
         )
         self.conn.commit()
-        log_performance_activity("SQLITE_PUT", 
+        logger.info("sqlite_put", component="storage", 
                                namespace=namespace, 
                                key=key)
 
@@ -243,11 +246,38 @@ class SQLiteStore(BaseStore):
             This design choice simplifies error handling and supports
             idempotent operations in distributed systems.
         """
-        self.conn.execute(
-            "DELETE FROM store WHERE namespace = ? AND key = ?",
-            (json.dumps(namespace), key)
+        # Log database delete start
+        logger.info("database_delete_start",
+            component="storage",
+            operation="delete",
+            namespace=str(namespace),
+            key=key
         )
-        self.conn.commit()
+        
+        try:
+            cursor = self.conn.execute(
+                "DELETE FROM store WHERE namespace = ? AND key = ?",
+                (json.dumps(namespace), key)
+            )
+            self.conn.commit()
+            
+            logger.info("database_delete_success",
+                component="storage",
+                operation="delete",
+                namespace=str(namespace),
+                key=key,
+                rows_affected=cursor.rowcount
+            )
+        except Exception as e:
+            logger.error("database_delete_error",
+                component="storage",
+                operation="delete",
+                namespace=str(namespace),
+                key=key,
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            raise
 
     def batch(self, items: list[tuple]) -> None:
         """Perform multiple storage operations in a single batch.
