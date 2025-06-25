@@ -31,6 +31,7 @@ class MultiFileLogger(StructuredLogger):
     COMPONENT_FILES = {
         'orchestrator': 'orchestrator.log',
         'salesforce': 'salesforce.log',
+        'jira': 'jira.log',
         'a2a': 'a2a_protocol.log',
         'storage': 'storage.log',
         'system': 'system.log',

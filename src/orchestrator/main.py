@@ -44,7 +44,7 @@ from langchain_openai import AzureChatOpenAI
 
 
 from .agent_registry import AgentRegistry
-from .agent_caller_tools import SalesforceAgentTool, GenericAgentTool, AgentRegistryTool
+from .agent_caller_tools import SalesforceAgentTool, JiraAgentTool, AgentRegistryTool
 from src.utils.helpers import type_out, smart_preserve_messages
 from src.utils.message_serialization import serialize_messages
 from src.utils.storage import get_async_store_adapter
@@ -161,7 +161,7 @@ def build_orchestrator_graph():
     # Initialize orchestrator tools
     tools = [
         SalesforceAgentTool(agent_registry),
-        GenericAgentTool(agent_registry),
+        JiraAgentTool(agent_registry),
         AgentRegistryTool(agent_registry)
     ]
     

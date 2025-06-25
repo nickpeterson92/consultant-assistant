@@ -34,17 +34,18 @@ from requests.auth import HTTPBasicAuth
 
 from src.utils.logging import get_logger
 
-# Initialize logger
-logger = get_logger()
+# Initialize logger with Jira component
+logger = get_logger("jira")
 # No validation needed - trust LLM-generated inputs
 
 
 def get_jira_connection():
     """Create and return Jira connection configuration."""
-    logger.info("jira_connection_start",
-        component="tools",
-        operation="connect",
-        base_url=os.environ.get('JIRA_BASE_URL', 'not_set')
+    logger.info("jira_connection_init",
+        component="jira",
+        operation="create_connection",
+        base_url=os.environ.get('JIRA_BASE_URL', 'not_set'),
+        has_auth=bool(os.environ.get('JIRA_USER') and os.environ.get('JIRA_API_TOKEN'))
     )
     
     return {
@@ -109,8 +110,14 @@ class SearchJiraIssuesTool(BaseTool):
     def _run(self, **kwargs) -> dict:
         data = self.Input(**kwargs)
         
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="jira",
+            tool_name="search_jira_issues",
+            tool_args=kwargs
+        )
+        
         try:
-            logger.info("SEARCH_ISSUES".lower(), component="tools", tool="SearchJiraIssuesTool", query=data.query, max_results=data.max_results)
             
             conn = get_jira_connection()
             
@@ -127,11 +134,12 @@ class SearchJiraIssuesTool(BaseTool):
             }
             
             # Log Jira API call
-            logger.info("jira_api_call",
-                component="tools",
-                operation="search",
-                tool="SearchJiraIssuesTool",
-                jql=jql,
+            logger.info("jira_api_request",
+                component="jira",
+                operation="search_issues",
+                url=f"{conn['base_url']}/rest/api/3/search",
+                method="GET",
+                jql_query=jql,
                 max_results=data.max_results
             )
             
@@ -146,15 +154,13 @@ class SearchJiraIssuesTool(BaseTool):
                 result = response.json()
                 issues = result.get("issues", [])
                 
-                logger.info("jira_api_success",
-                    component="tools",
-                    operation="search",
-                    tool="SearchJiraIssuesTool",
+                logger.info("jira_api_response",
+                    component="jira",
+                    operation="search_issues",
                     status_code=response.status_code,
-                    issue_count=len(issues)
+                    issue_count=len(issues),
+                    total_results=result.get("total", 0)
                 )
-                
-                logger.info("SEARCH_SUCCESS".lower(), component="tools", tool="SearchJiraIssuesTool", issue_count=len(issues))
                 
                 # Format response
                 formatted_issues = []
@@ -173,32 +179,58 @@ class SearchJiraIssuesTool(BaseTool):
                     
                     formatted_issues.append(formatted_issue)
                 
-                return {
+                result = {
                     "success": True,
                     "issue_count": len(formatted_issues),
                     "issues": formatted_issues,
                     "jql_used": jql
                 }
+                
+                # Log tool result - IDENTICAL format to orchestrator pattern
+                logger.info("tool_result",
+                    component="jira", 
+                    tool_name="search_jira_issues",
+                    result_type=type(result).__name__,
+                    result_preview=f"Found {len(formatted_issues)} issues"
+                )
+                
+                return result
             else:
                 error_msg = response.json().get("errorMessages", ["Unknown error"])[0]
                 
                 logger.error("jira_api_error",
-                    component="tools",
-                    operation="search",
-                    tool="SearchJiraIssuesTool",
+                    component="jira",
+                    operation="search_issues",
                     status_code=response.status_code,
-                    error=error_msg
+                    error=error_msg,
+                    jql_query=jql
                 )
                 
-                logger.info("SEARCH_ERROR".lower(), component="tools", tool="SearchJiraIssuesTool", error=error_msg, status_code=response.status_code)
-                return {
+                error_result = {
                     "success": False,
                     "error": f"Search failed: {error_msg}",
                     "jql_attempted": jql
                 }
                 
+                # Log tool error
+                logger.error("tool_error",
+                    component="jira",
+                    tool_name="search_jira_issues", 
+                    error=error_msg,
+                    error_type="APIError",
+                    status_code=response.status_code
+                )
+                
+                return error_result
+                
         except Exception as e:
-            logger.info("SEARCH_EXCEPTION".lower(), component="tools", tool="SearchJiraIssuesTool", error=str(e))
+            # Log tool error
+            logger.error("tool_error",
+                component="jira",
+                tool_name="search_jira_issues", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {
                 "success": False,
                 "error": f"Unexpected error during search: {str(e)}"
@@ -293,8 +325,14 @@ class GetJiraIssueTool(BaseTool):
     def _run(self, **kwargs) -> dict:
         data = self.Input(**kwargs)
         
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="jira",
+            tool_name="get_jira_issue",
+            tool_args=kwargs
+        )
+        
         try:
-            logger.info("RETRIEVE_ISSUE".lower(), component="tools", tool="GetJiraIssueTool", issue_key=data.issue_key)
             
             conn = get_jira_connection()
             
@@ -307,6 +345,16 @@ class GetJiraIssueTool(BaseTool):
             
             params = {"expand": ",".join(expand_params)} if expand_params else {}
             
+            # Log API request
+            logger.info("jira_api_request",
+                component="jira",
+                operation="get_issue",
+                url=f"{conn['base_url']}/rest/api/3/issue/{data.issue_key}",
+                method="GET",
+                issue_key=data.issue_key,
+                expand_params=expand_params
+            )
+            
             response = requests.get(
                 f"{conn['base_url']}/rest/api/3/issue/{data.issue_key}",
                 auth=conn['auth'],
@@ -316,6 +364,14 @@ class GetJiraIssueTool(BaseTool):
             
             if response.status_code == 200:
                 issue = response.json()
+                
+                logger.info("jira_api_response",
+                    component="jira",
+                    operation="get_issue",
+                    status_code=response.status_code,
+                    issue_key=data.issue_key,
+                    has_comments="comment" in issue.get("fields", {})
+                )
                 
                 # Format response with key details
                 formatted = {
@@ -346,26 +402,78 @@ class GetJiraIssueTool(BaseTool):
                         for c in comments[-3:]  # Last 3 comments
                     ]
                 
-                logger.info("RETRIEVE_SUCCESS".lower(), component="tools", tool="GetJiraIssueTool", issue_key=data.issue_key)
-                
-                return {
+                result = {
                     "success": True,
                     "issue": formatted
                 }
+                
+                # Log tool result - IDENTICAL format to orchestrator pattern
+                logger.info("tool_result",
+                    component="jira", 
+                    tool_name="get_jira_issue",
+                    result_type=type(result).__name__,
+                    result_preview=f"Retrieved issue {data.issue_key}"
+                )
+                
+                return result
             elif response.status_code == 404:
-                return {
+                logger.warning("jira_issue_not_found",
+                    component="jira",
+                    operation="get_issue",
+                    issue_key=data.issue_key,
+                    status_code=404
+                )
+                
+                error_result = {
                     "success": False,
                     "error": f"Issue {data.issue_key} not found"
                 }
+                
+                # Log tool error for not found
+                logger.error("tool_error",
+                    component="jira",
+                    tool_name="get_jira_issue", 
+                    error=f"Issue {data.issue_key} not found",
+                    error_type="NotFound",
+                    status_code=404
+                )
+                
+                return error_result
             else:
                 error_msg = response.json().get("errorMessages", ["Unknown error"])[0]
-                return {
+                
+                logger.error("jira_api_error",
+                    component="jira",
+                    operation="get_issue",
+                    status_code=response.status_code,
+                    error=error_msg,
+                    issue_key=data.issue_key
+                )
+                
+                error_result = {
                     "success": False,
                     "error": f"Failed to retrieve issue: {error_msg}"
                 }
                 
+                # Log tool error
+                logger.error("tool_error",
+                    component="jira",
+                    tool_name="get_jira_issue", 
+                    error=error_msg,
+                    error_type="APIError",
+                    status_code=response.status_code
+                )
+                
+                return error_result
+                
         except Exception as e:
-            logger.info("RETRIEVE_EXCEPTION".lower(), component="tools", tool="GetJiraIssueTool", error=str(e))
+            # Log tool error
+            logger.error("tool_error",
+                component="jira",
+                tool_name="get_jira_issue", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {
                 "success": False,
                 "error": f"Unexpected error: {str(e)}"
@@ -419,8 +527,14 @@ class CreateJiraIssueTool(BaseTool):
     def _run(self, **kwargs) -> dict:
         data = self.Input(**kwargs)
         
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="jira",
+            tool_name="create_jira_issue",
+            tool_args=kwargs
+        )
+        
         try:
-            logger.info("CREATE_ISSUE".lower(), component="tools", tool="CreateJiraIssueTool", project=data.project_key, type=data.issue_type)
             
             conn = get_jira_connection()
             
@@ -469,6 +583,15 @@ class CreateJiraIssueTool(BaseTool):
                 issue_data["fields"].update(data.custom_fields)
             
             # Create the issue
+            logger.info("jira_api_request",
+                component="jira",
+                operation="create_issue",
+                url=f"{conn['base_url']}/rest/api/3/issue",
+                method="POST",
+                project_key=data.project_key,
+                issue_type=data.issue_type
+            )
+            
             response = requests.post(
                 f"{conn['base_url']}/rest/api/3/issue",
                 auth=conn['auth'],
@@ -480,14 +603,30 @@ class CreateJiraIssueTool(BaseTool):
                 result = response.json()
                 issue_key = result["key"]
                 
-                logger.info("CREATE_SUCCESS".lower(), component="tools", tool="CreateJiraIssueTool", issue_key=issue_key)
+                logger.info("jira_api_response",
+                    component="jira",
+                    operation="create_issue",
+                    status_code=response.status_code,
+                    issue_key=issue_key,
+                    issue_type=data.issue_type
+                )
                 
-                return {
+                success_result = {
                     "success": True,
                     "issue_key": issue_key,
                     "issue_url": f"{conn['base_url']}/browse/{issue_key}",
                     "message": f"Successfully created {data.issue_type} {issue_key}"
                 }
+                
+                # Log tool result - IDENTICAL format to orchestrator pattern
+                logger.info("tool_result",
+                    component="jira", 
+                    tool_name="create_jira_issue",
+                    result_type=type(success_result).__name__,
+                    result_preview=f"Created issue {issue_key}"
+                )
+                
+                return success_result
             else:
                 errors = response.json().get("errors", {})
                 error_messages = response.json().get("errorMessages", [])
@@ -500,13 +639,38 @@ class CreateJiraIssueTool(BaseTool):
                 else:
                     error_detail = "Unknown error"
                 
-                return {
+                logger.error("jira_api_error",
+                    component="jira",
+                    operation="create_issue",
+                    status_code=response.status_code,
+                    error=error_detail,
+                    project_key=data.project_key
+                )
+                
+                error_result = {
                     "success": False,
                     "error": f"Failed to create issue: {error_detail}"
                 }
                 
+                # Log tool error
+                logger.error("tool_error",
+                    component="jira",
+                    tool_name="create_jira_issue", 
+                    error=error_detail,
+                    error_type="APIError",
+                    status_code=response.status_code
+                )
+                
+                return error_result
+                
         except Exception as e:
-            logger.info("CREATE_EXCEPTION".lower(), component="tools", tool="CreateJiraIssueTool", error=str(e))
+            # Log tool error
+            logger.error("tool_error",
+                component="jira",
+                tool_name="create_jira_issue", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {
                 "success": False,
                 "error": f"Unexpected error: {str(e)}"
@@ -515,6 +679,12 @@ class CreateJiraIssueTool(BaseTool):
     def _get_user_account_id(self, identifier: str, conn: dict) -> Optional[str]:
         """Look up Jira user account ID by email or username."""
         try:
+            logger.info("jira_user_lookup",
+                component="jira",
+                operation="lookup_user",
+                identifier=identifier
+            )
+            
             response = requests.get(
                 f"{conn['base_url']}/rest/api/3/user/search",
                 auth=conn['auth'],
@@ -525,9 +695,29 @@ class CreateJiraIssueTool(BaseTool):
             if response.status_code == 200:
                 users = response.json()
                 if users:
-                    return users[0]["accountId"]
+                    user_id = users[0]["accountId"]
+                    logger.info("jira_user_found",
+                        component="jira",
+                        operation="lookup_user",
+                        identifier=identifier,
+                        account_id=user_id
+                    )
+                    return user_id
+                else:
+                    logger.warning("jira_user_not_found",
+                        component="jira",
+                        operation="lookup_user",
+                        identifier=identifier
+                    )
             return None
-        except:
+        except Exception as e:
+            logger.error("jira_user_lookup_error",
+                component="jira",
+                operation="lookup_user",
+                identifier=identifier,
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return None
 
 
@@ -578,8 +768,14 @@ class UpdateJiraIssueTool(BaseTool):
     def _run(self, **kwargs) -> dict:
         data = self.Input(**kwargs)
         
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="jira",
+            tool_name="update_jira_issue",
+            tool_args=kwargs
+        )
+        
         try:
-            logger.info("UPDATE_ISSUE".lower(), component="tools", tool="UpdateJiraIssueTool", issue_key=data.issue_key)
             
             conn = get_jira_connection()
             
@@ -646,6 +842,15 @@ class UpdateJiraIssueTool(BaseTool):
                 update_data["fields"].update(data.custom_fields)
             
             # Perform update
+            logger.info("jira_api_request",
+                component="jira",
+                operation="update_issue",
+                url=f"{conn['base_url']}/rest/api/3/issue/{data.issue_key}",
+                method="PUT",
+                issue_key=data.issue_key,
+                fields_to_update=list(update_data["fields"].keys())
+            )
+            
             response = requests.put(
                 f"{conn['base_url']}/rest/api/3/issue/{data.issue_key}",
                 auth=conn['auth'],
@@ -654,7 +859,12 @@ class UpdateJiraIssueTool(BaseTool):
             )
             
             if response.status_code == 204:
-                logger.info("UPDATE_SUCCESS".lower(), component="tools", tool="UpdateJiraIssueTool", issue_key=data.issue_key)
+                logger.info("jira_api_response",
+                    component="jira",
+                    operation="update_issue",
+                    status_code=response.status_code,
+                    issue_key=data.issue_key
+                )
                 
                 # Build summary of what was updated
                 updated_fields = []
@@ -667,12 +877,22 @@ class UpdateJiraIssueTool(BaseTool):
                 if data.due_date: updated_fields.append("due_date")
                 if data.custom_fields: updated_fields.extend(data.custom_fields.keys())
                 
-                return {
+                result = {
                     "success": True,
                     "issue_key": data.issue_key,
                     "updated_fields": updated_fields,
                     "message": f"Successfully updated {data.issue_key}"
                 }
+                
+                # Log tool result - IDENTICAL format to orchestrator pattern
+                logger.info("tool_result",
+                    component="jira", 
+                    tool_name="update_jira_issue",
+                    result_type=type(result).__name__,
+                    result_preview=f"Updated issue {data.issue_key} - fields: {', '.join(updated_fields[:3])}"
+                )
+                
+                return result
             else:
                 errors = response.json().get("errors", {})
                 error_messages = response.json().get("errorMessages", [])
@@ -685,13 +905,38 @@ class UpdateJiraIssueTool(BaseTool):
                 else:
                     error_detail = "Unknown error"
                 
-                return {
+                logger.error("jira_api_error",
+                    component="jira",
+                    operation="update_issue",
+                    status_code=response.status_code,
+                    error=error_detail,
+                    issue_key=data.issue_key
+                )
+                
+                error_result = {
                     "success": False,
                     "error": f"Failed to update issue: {error_detail}"
                 }
                 
+                # Log tool error
+                logger.error("tool_error",
+                    component="jira",
+                    tool_name="update_jira_issue", 
+                    error=error_detail,
+                    error_type="APIError",
+                    status_code=response.status_code
+                )
+                
+                return error_result
+                
         except Exception as e:
-            logger.info("UPDATE_EXCEPTION".lower(), component="tools", tool="UpdateJiraIssueTool", error=str(e))
+            # Log tool error
+            logger.error("tool_error",
+                component="jira",
+                tool_name="update_jira_issue", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {
                 "success": False,
                 "error": f"Unexpected error: {str(e)}"
@@ -700,6 +945,12 @@ class UpdateJiraIssueTool(BaseTool):
     def _get_user_account_id(self, identifier: str, conn: dict) -> Optional[str]:
         """Look up Jira user account ID by email or username."""
         try:
+            logger.info("jira_user_lookup",
+                component="jira",
+                operation="lookup_user",
+                identifier=identifier
+            )
+            
             response = requests.get(
                 f"{conn['base_url']}/rest/api/3/user/search",
                 auth=conn['auth'],
@@ -710,9 +961,29 @@ class UpdateJiraIssueTool(BaseTool):
             if response.status_code == 200:
                 users = response.json()
                 if users:
-                    return users[0]["accountId"]
+                    user_id = users[0]["accountId"]
+                    logger.info("jira_user_found",
+                        component="jira",
+                        operation="lookup_user",
+                        identifier=identifier,
+                        account_id=user_id
+                    )
+                    return user_id
+                else:
+                    logger.warning("jira_user_not_found",
+                        component="jira",
+                        operation="lookup_user",
+                        identifier=identifier
+                    )
             return None
-        except:
+        except Exception as e:
+            logger.error("jira_user_lookup_error",
+                component="jira",
+                operation="lookup_user",
+                identifier=identifier,
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return None
 
 
@@ -755,8 +1026,14 @@ class AddJiraCommentTool(BaseTool):
     def _run(self, **kwargs) -> dict:
         data = self.Input(**kwargs)
         
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="jira",
+            tool_name="add_jira_comment",
+            tool_args=kwargs
+        )
+        
         try:
-            logger.info("ADD_COMMENT".lower(), component="tools", tool="AddJiraCommentTool", issue_key=data.issue_key)
             
             conn = get_jira_connection()
             
@@ -782,6 +1059,16 @@ class AddJiraCommentTool(BaseTool):
                     "value": data.visibility_value
                 }
             
+            # Log API request
+            logger.info("jira_api_request",
+                component="jira",
+                operation="add_comment",
+                url=f"{conn['base_url']}/rest/api/3/issue/{data.issue_key}/comment",
+                method="POST",
+                issue_key=data.issue_key,
+                comment_length=len(data.comment)
+            )
+            
             response = requests.post(
                 f"{conn['base_url']}/rest/api/3/issue/{data.issue_key}/comment",
                 auth=conn['auth'],
@@ -792,23 +1079,65 @@ class AddJiraCommentTool(BaseTool):
             if response.status_code == 201:
                 result = response.json()
                 
-                logger.info("COMMENT_SUCCESS".lower(), component="tools", tool="AddJiraCommentTool", issue_key=data.issue_key, comment_id=result["id"])
+                logger.info("jira_api_response",
+                    component="jira",
+                    operation="add_comment",
+                    status_code=response.status_code,
+                    issue_key=data.issue_key,
+                    comment_id=result["id"]
+                )
                 
-                return {
+                success_result = {
                     "success": True,
                     "issue_key": data.issue_key,
                     "comment_id": result["id"],
                     "message": f"Comment added to {data.issue_key}"
                 }
+                
+                # Log tool result - IDENTICAL format to orchestrator pattern
+                logger.info("tool_result",
+                    component="jira", 
+                    tool_name="add_jira_comment",
+                    result_type=type(success_result).__name__,
+                    result_preview=f"Added comment to {data.issue_key}"
+                )
+                
+                return success_result
             else:
                 error_msg = response.json().get("errorMessages", ["Unknown error"])[0]
-                return {
+                
+                logger.error("jira_api_error",
+                    component="jira",
+                    operation="add_comment",
+                    status_code=response.status_code,
+                    error=error_msg,
+                    issue_key=data.issue_key
+                )
+                
+                error_result = {
                     "success": False,
                     "error": f"Failed to add comment: {error_msg}"
                 }
                 
+                # Log tool error
+                logger.error("tool_error",
+                    component="jira",
+                    tool_name="add_jira_comment", 
+                    error=error_msg,
+                    error_type="APIError",
+                    status_code=response.status_code
+                )
+                
+                return error_result
+                
         except Exception as e:
-            logger.info("COMMENT_EXCEPTION".lower(), component="tools", tool="AddJiraCommentTool", error=str(e))
+            # Log tool error
+            logger.error("tool_error",
+                component="jira",
+                tool_name="add_jira_comment", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {
                 "success": False,
                 "error": f"Unexpected error: {str(e)}"
@@ -856,8 +1185,14 @@ class GetProjectIssuesTool(BaseTool):
     def _run(self, **kwargs) -> dict:
         data = self.Input(**kwargs)
         
+        # Log tool call - IDENTICAL format to orchestrator
+        logger.info("tool_call",
+            component="jira",
+            tool_name="get_project_issues",
+            tool_args=kwargs
+        )
+        
         try:
-            logger.info("GET_PROJECT_ISSUES".lower(), component="tools", tool="GetProjectIssuesTool", project=data.project_key)
             
             # Build JQL query
             jql_parts = [f"project = {data.project_key}"]
@@ -878,10 +1213,27 @@ class GetProjectIssuesTool(BaseTool):
             
             # Use search tool internally
             search_tool = SearchJiraIssuesTool()
-            return search_tool._run(query=jql, max_results=data.max_results)
+            result = search_tool._run(query=jql, max_results=data.max_results)
+            
+            # Log delegated result
+            logger.info("tool_delegation",
+                component="jira",
+                tool_name="get_project_issues",
+                delegated_to="search_jira_issues",
+                project_key=data.project_key,
+                jql_query=jql
+            )
+            
+            return result
             
         except Exception as e:
-            logger.info("PROJECT_EXCEPTION".lower(), component="tools", tool="GetProjectIssuesTool", error=str(e))
+            # Log tool error
+            logger.error("tool_error",
+                component="jira",
+                tool_name="get_project_issues", 
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {
                 "success": False,
                 "error": f"Unexpected error: {str(e)}"
@@ -932,7 +1284,12 @@ class GetMyIssuesTool(BaseTool):
         data = self.Input(**kwargs)
         
         try:
-            logger.info("GET_MY_ISSUES".lower(), component="tools", tool="GetMyIssuesTool", status=data.status_filter)
+            # Log tool call
+            logger.info("tool_call",
+                component="jira",
+                tool_name="get_my_issues",
+                tool_args=kwargs
+            )
             
             # Build JQL query
             jql_parts = ["assignee = currentUser()"]
@@ -966,6 +1323,14 @@ class GetMyIssuesTool(BaseTool):
                 fields=["key", "summary", "status", "priority", "duedate", "type"]
             )
             
+            # Log delegated result
+            logger.info("tool_delegation",
+                component="jira",
+                tool_name="get_my_issues",
+                delegated_to="search_jira_issues",
+                jql_query=jql
+            )
+            
             # Add personal productivity insights if successful
             if result.get("success") and result.get("issues"):
                 issues = result["issues"]
@@ -987,11 +1352,26 @@ class GetMyIssuesTool(BaseTool):
                     "by_status": status_counts,
                     "overdue_count": overdue_count
                 }
+                
+                # Log tool result
+                logger.info("tool_result",
+                    component="jira",
+                    tool_name="get_my_issues",
+                    result_type=type(result).__name__,
+                    total_issues=len(issues),
+                    overdue_count=overdue_count
+                )
             
             return result
             
         except Exception as e:
-            logger.info("MY_ISSUES_EXCEPTION".lower(), component="tools", tool="GetMyIssuesTool", error=str(e))
+            # Log tool error
+            logger.error("tool_error",
+                component="jira",
+                tool_name="get_my_issues",
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {
                 "success": False,
                 "error": f"Unexpected error: {str(e)}"
@@ -1037,7 +1417,12 @@ class GetEpicIssuesTool(BaseTool):
         data = self.Input(**kwargs)
         
         try:
-            logger.info("GET_EPIC_ISSUES".lower(), component="tools", tool="GetEpicIssuesTool", epic_key=data.epic_key)
+            # Log tool call
+            logger.info("tool_call",
+                component="jira",
+                tool_name="get_epic_issues",
+                tool_args=kwargs
+            )
             
             # Build JQL to find issues in epic
             jql = f'"Epic Link" = {data.epic_key} OR parent = {data.epic_key}'
@@ -1053,6 +1438,15 @@ class GetEpicIssuesTool(BaseTool):
                 query=jql,
                 max_results=200,
                 fields=["key", "summary", "status", "type", "priority", "storyPoints"]
+            )
+            
+            # Log delegated result
+            logger.info("tool_delegation",
+                component="jira",
+                tool_name="get_epic_issues",
+                delegated_to="search_jira_issues",
+                epic_key=data.epic_key,
+                jql_query=jql
             )
             
             if result.get("success") and result.get("issues"):
@@ -1078,11 +1472,27 @@ class GetEpicIssuesTool(BaseTool):
                     "progress_percentage": round((completed_count / total_issues * 100) if total_issues > 0 else 0, 1),
                     "issues_by_type": {k: len(v) for k, v in by_type.items()}
                 }
+                
+                # Log tool result
+                logger.info("tool_result",
+                    component="jira",
+                    tool_name="get_epic_issues",
+                    result_type=type(result).__name__,
+                    epic_key=data.epic_key,
+                    total_issues=total_issues,
+                    completed_issues=completed_count
+                )
             
             return result
             
         except Exception as e:
-            logger.info("EPIC_EXCEPTION".lower(), component="tools", tool="GetEpicIssuesTool", error=str(e))
+            # Log tool error
+            logger.error("tool_error",
+                component="jira",
+                tool_name="get_epic_issues",
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {
                 "success": False,
                 "error": f"Unexpected error: {str(e)}"
@@ -1129,7 +1539,12 @@ class GetSprintIssuesTool(BaseTool):
         data = self.Input(**kwargs)
         
         try:
-            logger.info("GET_SPRINT_ISSUES".lower(), component="tools", tool="GetSprintIssuesTool", project=data.project_key)
+            # Log tool call
+            logger.info("tool_call",
+                component="jira",
+                tool_name="get_sprint_issues",
+                tool_args=kwargs
+            )
             
             # Build JQL for sprint issues
             jql_parts = []
@@ -1155,6 +1570,15 @@ class GetSprintIssuesTool(BaseTool):
                 query=jql,
                 max_results=data.max_results,
                 fields=["key", "summary", "status", "type", "priority", "assignee", "storyPoints", "sprint"]
+            )
+            
+            # Log delegated result
+            logger.info("tool_delegation",
+                component="jira",
+                tool_name="get_sprint_issues",
+                delegated_to="search_jira_issues",
+                jql_query=jql,
+                project_key=data.project_key
             )
             
             if result.get("success") and result.get("issues"):
@@ -1193,11 +1617,27 @@ class GetSprintIssuesTool(BaseTool):
                     "by_assignee": by_assignee,
                     "by_status": by_status
                 }
+                
+                # Log tool result
+                logger.info("tool_result",
+                    component="jira",
+                    tool_name="get_sprint_issues",
+                    result_type=type(result).__name__,
+                    total_issues=len(issues),
+                    total_points=total_points,
+                    completed_points=completed_points
+                )
             
             return result
             
         except Exception as e:
-            logger.info("SPRINT_EXCEPTION".lower(), component="tools", tool="GetSprintIssuesTool", error=str(e))
+            # Log tool error
+            logger.error("tool_error",
+                component="jira",
+                tool_name="get_sprint_issues",
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {
                 "success": False,
                 "error": f"Unexpected error: {str(e)}"
@@ -1246,13 +1686,29 @@ class TransitionIssueTool(BaseTool):
         data = self.Input(**kwargs)
         
         try:
-            logger.info("TRANSITION_ISSUE".lower(), component="tools", tool="TransitionIssueTool", issue_key=data.issue_key, target=data.transition_name)
+            # Log tool call
+            logger.info("tool_call",
+                component="jira",
+                tool_name="transition_issue",
+                tool_args=kwargs
+            )
             
             conn = get_jira_connection()
             
             # Get available transitions
+            url = f"{conn['base_url']}/rest/api/3/issue/{data.issue_key}/transitions"
+            
+            # Log API request
+            logger.info("jira_api_request",
+                component="jira",
+                operation="get_transitions",
+                url=url,
+                method="GET",
+                issue_key=data.issue_key
+            )
+            
             response = requests.get(
-                f"{conn['base_url']}/rest/api/3/issue/{data.issue_key}/transitions",
+                url,
                 auth=conn['auth'],
                 headers=conn['headers']
             )
@@ -1262,6 +1718,14 @@ class TransitionIssueTool(BaseTool):
                     "success": False,
                     "error": f"Failed to get transitions for {data.issue_key}"
                 }
+            
+            # Log API response
+            logger.info("jira_api_response",
+                component="jira",
+                operation="get_transitions",
+                status_code=response.status_code,
+                issue_key=data.issue_key
+            )
             
             transitions = response.json()["transitions"]
             
@@ -1294,27 +1758,57 @@ class TransitionIssueTool(BaseTool):
                 transition_data["fields"] = {"resolution": {"name": data.resolution}}
             
             # Perform transition
+            transition_url = f"{conn['base_url']}/rest/api/3/issue/{data.issue_key}/transitions"
+            
+            # Log API request
+            logger.info("jira_api_request",
+                component="jira",
+                operation="perform_transition",
+                url=transition_url,
+                method="POST",
+                issue_key=data.issue_key,
+                target_status=target_transition["to"]["name"]
+            )
+            
             response = requests.post(
-                f"{conn['base_url']}/rest/api/3/issue/{data.issue_key}/transitions",
+                transition_url,
                 auth=conn['auth'],
                 headers=conn['headers'],
                 json=transition_data
             )
             
             if response.status_code == 204:
+                # Log API response
+                logger.info("jira_api_response",
+                    component="jira",
+                    operation="perform_transition",
+                    status_code=response.status_code,
+                    issue_key=data.issue_key,
+                    new_status=target_transition["to"]["name"]
+                )
+                
                 # Add comment if provided
                 if data.comment:
                     comment_tool = AddJiraCommentTool()
                     comment_tool._run(issue_key=data.issue_key, comment=data.comment)
                 
-                logger.info("TRANSITION_SUCCESS".lower(), component="tools", tool="TransitionIssueTool", issue_key=data.issue_key, new_status=target_transition["to"]["name"])
-                
-                return {
+                result = {
                     "success": True,
                     "issue_key": data.issue_key,
                     "new_status": target_transition["to"]["name"],
                     "message": f"Successfully transitioned {data.issue_key} to {target_transition['to']['name']}"
                 }
+                
+                # Log tool result
+                logger.info("tool_result",
+                    component="jira",
+                    tool_name="transition_issue",
+                    result_type=type(result).__name__,
+                    issue_key=data.issue_key,
+                    new_status=target_transition["to"]["name"]
+                )
+                
+                return result
             else:
                 errors = response.json().get("errors", {})
                 error_messages = response.json().get("errorMessages", [])
@@ -1331,7 +1825,13 @@ class TransitionIssueTool(BaseTool):
                 }
                 
         except Exception as e:
-            logger.info("TRANSITION_EXCEPTION".lower(), component="tools", tool="TransitionIssueTool", error=str(e))
+            # Log tool error
+            logger.error("tool_error",
+                component="jira",
+                tool_name="transition_issue",
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {
                 "success": False,
                 "error": f"Unexpected error: {str(e)}"
@@ -1380,9 +1880,12 @@ class AssignIssueTool(BaseTool):
         data = self.Input(**kwargs)
         
         try:
-            action = "unassign" if not data.assignee else "assign"
-            log_tool_activity("AssignIssueTool", f"{action.upper()}_ISSUE",
-                            issue_key=data.issue_key, assignee=data.assignee)
+            # Log tool call
+            logger.info("tool_call",
+                component="jira",
+                tool_name="assign_issue",
+                tool_args=kwargs
+            )
             
             # Use update tool internally
             update_tool = UpdateJiraIssueTool()
@@ -1399,16 +1902,40 @@ class AssignIssueTool(BaseTool):
                 assignee=assignee_value
             )
             
+            # Log delegated result
+            logger.info("tool_delegation",
+                component="jira",
+                tool_name="assign_issue",
+                delegated_to="update_jira_issue",
+                issue_key=data.issue_key,
+                assignee=assignee_value
+            )
+            
             if result.get("success"):
                 if not data.assignee or data.assignee.lower() in ["unassign", "unassigned", "none"]:
                     result["message"] = f"Successfully unassigned {data.issue_key}"
                 else:
                     result["message"] = f"Successfully assigned {data.issue_key} to {data.assignee}"
+                
+                # Log tool result
+                logger.info("tool_result",
+                    component="jira",
+                    tool_name="assign_issue",
+                    result_type=type(result).__name__,
+                    issue_key=data.issue_key,
+                    assignee=data.assignee
+                )
             
             return result
             
         except Exception as e:
-            logger.info("ASSIGN_EXCEPTION".lower(), component="tools", tool="AssignIssueTool", error=str(e))
+            # Log tool error
+            logger.error("tool_error",
+                component="jira",
+                tool_name="assign_issue",
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {
                 "success": False,
                 "error": f"Unexpected error: {str(e)}"
@@ -1457,6 +1984,13 @@ class AddAttachmentTool(BaseTool):
             import os
             import mimetypes
             
+            # Log tool call
+            logger.info("tool_call",
+                component="jira",
+                tool_name="add_attachment",
+                tool_args=kwargs
+            )
+            
             # Validate file exists
             if not os.path.exists(data.file_path):
                 return {
@@ -1475,9 +2009,6 @@ class AddAttachmentTool(BaseTool):
                     "error": f"File too large: {file_size / 1024 / 1024:.1f}MB (max 10MB)"
                 }
             
-            logger.info("ADD_ATTACHMENT".lower(), component="tools", tool="AddAttachmentTool", issue_key=data.issue_key, file_name=file_name, 
-                            file_size=file_size)
-            
             conn = get_jira_connection()
             
             # Prepare file upload
@@ -1491,14 +2022,35 @@ class AddAttachmentTool(BaseTool):
                 headers.pop('Content-Type', None)
                 headers['X-Atlassian-Token'] = 'no-check'
                 
+                url = f"{conn['base_url']}/rest/api/3/issue/{data.issue_key}/attachments"
+                
+                # Log API request
+                logger.info("jira_api_request",
+                    component="jira",
+                    operation="add_attachment",
+                    url=url,
+                    method="POST",
+                    issue_key=data.issue_key,
+                    file_name=file_name,
+                    file_size=file_size
+                )
+                
                 response = requests.post(
-                    f"{conn['base_url']}/rest/api/3/issue/{data.issue_key}/attachments",
+                    url,
                     auth=conn['auth'],
                     headers=headers,
                     files=files
                 )
             
             if response.status_code == 200:
+                # Log API response
+                logger.info("jira_api_response",
+                    component="jira",
+                    operation="add_attachment",
+                    status_code=response.status_code,
+                    issue_key=data.issue_key
+                )
+                
                 attachments = response.json()
                 
                 # Add comment if provided
@@ -1509,9 +2061,7 @@ class AddAttachmentTool(BaseTool):
                         comment=f"{data.comment}\n\nAttached: {file_name}"
                     )
                 
-                logger.info("ATTACHMENT_SUCCESS".lower(), component="tools", tool="AddAttachmentTool", issue_key=data.issue_key, attachment_id=attachments[0]["id"])
-                
-                return {
+                result = {
                     "success": True,
                     "issue_key": data.issue_key,
                     "attachment_id": attachments[0]["id"],
@@ -1519,6 +2069,18 @@ class AddAttachmentTool(BaseTool):
                     "file_size": f"{file_size / 1024:.1f}KB",
                     "message": f"Successfully attached {file_name} to {data.issue_key}"
                 }
+                
+                # Log tool result
+                logger.info("tool_result",
+                    component="jira",
+                    tool_name="add_attachment",
+                    result_type=type(result).__name__,
+                    issue_key=data.issue_key,
+                    file_name=file_name,
+                    attachment_id=attachments[0]["id"]
+                )
+                
+                return result
             else:
                 error_msg = response.text
                 return {
@@ -1527,7 +2089,13 @@ class AddAttachmentTool(BaseTool):
                 }
                 
         except Exception as e:
-            logger.info("ATTACHMENT_EXCEPTION".lower(), component="tools", tool="AddAttachmentTool", error=str(e))
+            # Log tool error
+            logger.error("tool_error",
+                component="jira",
+                tool_name="add_attachment",
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {
                 "success": False,
                 "error": f"Unexpected error: {str(e)}"
@@ -1571,7 +2139,12 @@ class GetIssueHistoryTool(BaseTool):
         data = self.Input(**kwargs)
         
         try:
-            logger.info("GET_HISTORY".lower(), component="tools", tool="GetIssueHistoryTool", issue_key=data.issue_key)
+            # Log tool call
+            logger.info("tool_call",
+                component="jira",
+                tool_name="get_issue_history",
+                tool_args=kwargs
+            )
             
             # Use get issue tool with changelog expansion
             get_tool = GetJiraIssueTool()
@@ -1585,13 +2158,32 @@ class GetIssueHistoryTool(BaseTool):
             
             # Extract and format history
             conn = get_jira_connection()
+            url = f"{conn['base_url']}/rest/api/3/issue/{data.issue_key}?expand=changelog"
+            
+            # Log API request
+            logger.info("jira_api_request",
+                component="jira",
+                operation="get_issue_history",
+                url=url,
+                method="GET",
+                issue_key=data.issue_key
+            )
+            
             response = requests.get(
-                f"{conn['base_url']}/rest/api/3/issue/{data.issue_key}?expand=changelog",
+                url,
                 auth=conn['auth'],
                 headers=conn['headers']
             )
             
             if response.status_code == 200:
+                # Log API response
+                logger.info("jira_api_response",
+                    component="jira",
+                    operation="get_issue_history",
+                    status_code=response.status_code,
+                    issue_key=data.issue_key
+                )
+                
                 issue = response.json()
                 changelog = issue.get("changelog", {})
                 histories = changelog.get("histories", [])
@@ -1616,13 +2208,25 @@ class GetIssueHistoryTool(BaseTool):
                     
                     formatted_history.append(entry)
                 
-                return {
+                result = {
                     "success": True,
                     "issue_key": data.issue_key,
                     "total_changes": changelog.get("total", 0),
                     "history": formatted_history,
                     "showing": len(formatted_history)
                 }
+                
+                # Log tool result
+                logger.info("tool_result",
+                    component="jira",
+                    tool_name="get_issue_history",
+                    result_type=type(result).__name__,
+                    issue_key=data.issue_key,
+                    total_changes=changelog.get("total", 0),
+                    showing=len(formatted_history)
+                )
+                
+                return result
             else:
                 return {
                     "success": False,
@@ -1630,7 +2234,13 @@ class GetIssueHistoryTool(BaseTool):
                 }
                 
         except Exception as e:
-            logger.info("HISTORY_EXCEPTION".lower(), component="tools", tool="GetIssueHistoryTool", error=str(e))
+            # Log tool error
+            logger.error("tool_error",
+                component="jira",
+                tool_name="get_issue_history",
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {
                 "success": False,
                 "error": f"Unexpected error: {str(e)}"
@@ -1678,13 +2288,29 @@ class CreateSubtaskTool(BaseTool):
         data = self.Input(**kwargs)
         
         try:
-            logger.info("CREATE_SUBTASK".lower(), component="tools", tool="CreateSubtaskTool", parent_key=data.parent_key)
+            # Log tool call
+            logger.info("tool_call",
+                component="jira",
+                tool_name="create_subtask",
+                tool_args=kwargs
+            )
             
             conn = get_jira_connection()
             
             # Get parent issue to inherit fields
+            url = f"{conn['base_url']}/rest/api/3/issue/{data.parent_key}"
+            
+            # Log API request
+            logger.info("jira_api_request",
+                component="jira",
+                operation="get_parent_issue",
+                url=url,
+                method="GET",
+                parent_key=data.parent_key
+            )
+            
             response = requests.get(
-                f"{conn['base_url']}/rest/api/3/issue/{data.parent_key}",
+                url,
                 auth=conn['auth'],
                 headers=conn['headers']
             )
@@ -1694,6 +2320,14 @@ class CreateSubtaskTool(BaseTool):
                     "success": False,
                     "error": f"Parent issue {data.parent_key} not found"
                 }
+            
+            # Log API response
+            logger.info("jira_api_response",
+                component="jira",
+                operation="get_parent_issue",
+                status_code=response.status_code,
+                parent_key=data.parent_key
+            )
             
             parent = response.json()
             
@@ -1717,6 +2351,15 @@ class CreateSubtaskTool(BaseTool):
                 }
             )
             
+            # Log delegated result
+            logger.info("tool_delegation",
+                component="jira",
+                tool_name="create_subtask",
+                delegated_to="create_jira_issue",
+                parent_key=data.parent_key,
+                project_key=project_key
+            )
+            
             if result.get("success"):
                 # Add time estimate if provided
                 if data.estimate:
@@ -1725,11 +2368,26 @@ class CreateSubtaskTool(BaseTool):
                 
                 result["parent_key"] = data.parent_key
                 result["message"] = f"Successfully created subtask {result['issue_key']} under {data.parent_key}"
+                
+                # Log tool result
+                logger.info("tool_result",
+                    component="jira",
+                    tool_name="create_subtask",
+                    result_type=type(result).__name__,
+                    parent_key=data.parent_key,
+                    subtask_key=result['issue_key']
+                )
             
             return result
             
         except Exception as e:
-            logger.info("SUBTASK_EXCEPTION".lower(), component="tools", tool="CreateSubtaskTool", error=str(e))
+            # Log tool error
+            logger.error("tool_error",
+                component="jira",
+                tool_name="create_subtask",
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {
                 "success": False,
                 "error": f"Unexpected error: {str(e)}"
@@ -1780,14 +2438,28 @@ class LinkIssuesTool(BaseTool):
         data = self.Input(**kwargs)
         
         try:
-            logger.info("LINK_ISSUES".lower(), component="tools", tool="LinkIssuesTool", from_issue=data.from_issue, to_issue=data.to_issue,
-                            link_type=data.link_type)
+            # Log tool call
+            logger.info("tool_call",
+                component="jira",
+                tool_name="link_issues",
+                tool_args=kwargs
+            )
             
             conn = get_jira_connection()
             
             # Get available link types
+            url = f"{conn['base_url']}/rest/api/3/issueLinkType"
+            
+            # Log API request
+            logger.info("jira_api_request",
+                component="jira",
+                operation="get_link_types",
+                url=url,
+                method="GET"
+            )
+            
             response = requests.get(
-                f"{conn['base_url']}/rest/api/3/issueLinkType",
+                url,
                 auth=conn['auth'],
                 headers=conn['headers']
             )
@@ -1797,6 +2469,13 @@ class LinkIssuesTool(BaseTool):
                     "success": False,
                     "error": "Failed to retrieve link types"
                 }
+            
+            # Log API response
+            logger.info("jira_api_response",
+                component="jira",
+                operation="get_link_types",
+                status_code=response.status_code
+            )
             
             link_types = response.json()["issueLinkTypes"]
             
@@ -1836,17 +2515,37 @@ class LinkIssuesTool(BaseTool):
                     }
                 }
             
+            link_url = f"{conn['base_url']}/rest/api/3/issueLink"
+            
+            # Log API request
+            logger.info("jira_api_request",
+                component="jira",
+                operation="create_issue_link",
+                url=link_url,
+                method="POST",
+                from_issue=data.from_issue,
+                to_issue=data.to_issue,
+                link_type=target_link_type["name"]
+            )
+            
             response = requests.post(
-                f"{conn['base_url']}/rest/api/3/issueLink",
+                link_url,
                 auth=conn['auth'],
                 headers=conn['headers'],
                 json=link_data
             )
             
             if response.status_code == 201:
-                logger.info("LINK_SUCCESS".lower(), component="tools", tool="LinkIssuesTool", from_issue=data.from_issue, to_issue=data.to_issue)
+                # Log API response
+                logger.info("jira_api_response",
+                    component="jira",
+                    operation="create_issue_link",
+                    status_code=response.status_code,
+                    from_issue=data.from_issue,
+                    to_issue=data.to_issue
+                )
                 
-                return {
+                result = {
                     "success": True,
                     "from_issue": data.from_issue,
                     "to_issue": data.to_issue,
@@ -1854,6 +2553,18 @@ class LinkIssuesTool(BaseTool):
                     "relationship": f"{data.from_issue} {target_link_type['outward']} {data.to_issue}",
                     "message": f"Successfully linked {data.from_issue} to {data.to_issue}"
                 }
+                
+                # Log tool result
+                logger.info("tool_result",
+                    component="jira",
+                    tool_name="link_issues",
+                    result_type=type(result).__name__,
+                    from_issue=data.from_issue,
+                    to_issue=data.to_issue,
+                    link_type=target_link_type["name"]
+                )
+                
+                return result
             else:
                 error_msg = response.json().get("errorMessages", ["Unknown error"])[0]
                 return {
@@ -1862,7 +2573,13 @@ class LinkIssuesTool(BaseTool):
                 }
                 
         except Exception as e:
-            logger.info("LINK_EXCEPTION".lower(), component="tools", tool="LinkIssuesTool", error=str(e))
+            # Log tool error
+            logger.error("tool_error",
+                component="jira",
+                tool_name="link_issues",
+                error=str(e),
+                error_type=type(e).__name__
+            )
             return {
                 "success": False,
                 "error": f"Unexpected error: {str(e)}"

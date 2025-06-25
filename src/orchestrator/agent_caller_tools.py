@@ -507,65 +507,63 @@ class SalesforceAgentTool(BaseAgentTool):
         """Synchronous wrapper for async execution"""
         return asyncio.run(self._arun(instruction, context, **kwargs))
 
-class GenericAgentTool(BaseAgentTool):
-    """Orchestrator Tool for Dynamic Multi-Agent Task Delegation.
+class JiraAgentTool(BaseAgentTool):
+    """Orchestrator Tool for Jira Issue Tracking Agent Communication.
     
-    Implements intelligent agent selection and task routing through capability-based
-    discovery and automatic agent matching. Provides extensible architecture for
-    enterprise system integration via distributed specialized agents.
+    Implements loose coupling between the orchestrator and specialized Jira agent
+    via A2A (Agent-to-Agent) protocol. Provides enterprise issue tracking capabilities through
+    distributed agent architecture with state management and context preservation.
     
-    Agent Discovery Architecture:
-    - Capability-based agent selection using registry pattern
-    - Dynamic agent health monitoring and failover
-    - Load balancing across multiple agent instances
-    - Real-time agent capability advertisement and discovery
+    Architecture Pattern:
+    - Follows Service-Oriented Architecture (SOA) principles
+    - Implements Event-Driven Multi-Agent communication
+    - Maintains conversation context across agent boundaries
+    - Preserves memory state for session continuity
     
-    Supported Enterprise Systems:
-    - Travel Management: Booking platforms, expense integration, itinerary coordination
-    - Human Resources: Employee onboarding, feedback systems, policy management
-    - Document Processing: OCR, content extraction, workflow automation
-    - Financial Systems: Expense reporting, approval workflows, budget management
-    - Communication Platforms: Email automation, notification systems, team coordination
+    Jira Capabilities:
+    - Issue Management: Create, read, update, transition issues across all types (bug, story, task, epic)
+    - JQL Search: Advanced query language for complex searches and filtering
+    - Epic Tracking: Parent-child relationships, epic management, story mapping
+    - Sprint Management: Active sprint monitoring, velocity tracking, burndown analytics
+    - Project Analytics: Dashboard metrics, team velocity, cycle time analysis
+    - Agile Workflows: Kanban boards, scrum ceremonies, workflow automation
     
-    Extensibility Patterns:
-    - Plugin architecture for new agent types
-    - Capability inheritance and composition
-    - Cross-agent workflow orchestration
-    - Enterprise service bus integration
+    Integration Patterns:
+    - Individual lookups: "get issue [PROJ-123]" or "find bugs in [project]"
+    - Bulk operations: "show all critical bugs" or "list issues in current sprint"
+    - CRUD operations: create, read, update, transition workflows
+    - Cross-project relationships: epics→stories→subtasks, linked issues
     
-    Task Routing Intelligence:
-    - Natural language requirement analysis
-    - Capability matching algorithms
-    - Multi-agent coordination for complex workflows
-    - Context preservation across agent boundaries
+    Business Intelligence:
+    - Sprint velocity and burndown tracking
+    - Bug resolution metrics and SLA monitoring
+    - Project health dashboards and risk indicators
+    - Team productivity and workload distribution
     """
-    name: str = "call_agent"
-    description: str = """Intelligently routes tasks to specialized enterprise agents based on capability matching.
+    name: str = "jira_agent"
+    description: str = """Delegates Jira issue tracking operations to specialized agent via A2A protocol.
     
-    AUTOMATIC AGENT SELECTION:
-    The orchestrator analyzes your request and selects the best specialized agent automatically.
-    No need to specify which agent - just describe what you need.
-    
-    ENTERPRISE CAPABILITIES:
-    - Travel Management: Flight/hotel booking, itinerary planning, expense integration
-    - Human Resources: Employee feedback, onboarding workflows, policy queries
-    - Document Processing: OCR, PDF extraction, content analysis, workflow automation
-    - Financial Systems: Expense reporting, receipt processing, approval workflows
-    - Communication: Email automation, notification systems, team coordination
+    PRIMARY CAPABILITIES:
+    - Issue Management: Create, read, update all issue types (create/get/update issues)
+    - JQL Search: Advanced queries for complex filtering (search with JQL syntax)
+    - Epic Tracking: Parent-child relationships, story mapping (manage epics and stories)
+    - Sprint Management: Active sprint monitoring, velocity (track sprint progress)
+    - Project Analytics: Dashboards, team metrics, cycle time (analyze project health)
+    - Agile Workflows: Kanban/Scrum boards, transitions (manage workflow states)
+    - Bug Tracking: Find bugs, track resolution, monitor SLAs
     
     CRITICAL - NATURAL LANGUAGE PASSTHROUGH:
-    Pass the user's EXACT words to the selected agent without translation or modification.
-    Each specialized agent understands natural language in its domain context.
+    Pass the user's EXACT words to the Jira agent without translation or modification.
+    The Jira agent understands natural language in issue tracking context.
     
-    DO NOT translate user requests - pass them through verbatim.
+    EXAMPLES OF CORRECT PASSTHROUGH:
+    - User: "find bugs in the IM project" → Pass: "find bugs in the IM project"
+    - User: "show me critical issues" → Pass: "show me critical issues"
+    - User: "what's in the current sprint" → Pass: "what's in the current sprint"
     
-    ADVANCED FEATURES:
-    - Multi-agent workflows: Complex tasks requiring multiple specialized systems
-    - Context awareness: Maintains conversation state across agent handoffs
-    - Error recovery: Automatic failover and retry mechanisms
-    - Enterprise integration: Connects to existing business process workflows
+    The Jira agent handles ALL issue tracking operations and will interpret the user's intent.
     
-    Returns structured responses with agent identification and task completion status."""
+    Returns structured issue data with Jira IDs for downstream processing."""
     
     # Note: Removed args_schema to fix InjectedState detection bug in LangGraph
     # See: https://github.com/langchain-ai/langgraph/issues/2220
@@ -574,137 +572,315 @@ class GenericAgentTool(BaseAgentTool):
         super().__init__(metadata={"registry": registry})
     
     
-    async def _arun(self, instruction: str, context: Optional[Dict[str, Any]] = None, 
-                   agent_name: Optional[str] = None, required_capabilities: Optional[List[str]] = None, **kwargs) -> Command:
-        """Execute a call to a specialized agent"""
-        # Create a minimal state to avoid circular references
-        state = {
-            "messages": [],
-            "memory": {},
-            "turns": 0
-        }
+    def _extract_conversation_context(self, state: Optional[Dict[str, Any]], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Extract and serialize conversation context from LangGraph state.
         
-        # Find the appropriate agent
-        registry = self.metadata["registry"]
-        if agent_name:
-            agent = registry.get_agent(agent_name)
-        else:
-            agent = registry.find_best_agent_for_task(instruction, required_capabilities)
+        Args:
+            state: LangGraph injected state containing messages, memory, etc.
+            context: Additional context to merge
+            
+        Returns:
+            Dictionary of serialized context ready for A2A transmission
+        """
+        messages = state.get("messages", []) if state else []
+        memory = state.get("memory", {}) if state else {}
         
-        if not agent:
-            available_agents = [a.name for a in registry.list_agents() if a.status == "online"]
-            error_msg = f"Error: No suitable agent found for the task. Available agents: {', '.join(available_agents) if available_agents else 'None'}"
-            tool_call_id = kwargs.get("tool_call_id", None)
-            if tool_call_id:
-                return Command(
-                    update={
-                        "messages": [ToolMessage(
-                            content=error_msg,
-                            tool_call_id=tool_call_id
-                        )]
-                    }
-                )
-            else:
-                return error_msg
+        extracted_context = {}
         
-        # Extract context and create state snapshot
-        # Use base class method with agent-specific capabilities as filter
-        extracted_context = self._extract_relevant_context(
-            state, 
-            filter_keywords=agent.agent_card.capabilities,
-            message_count=3  # Use fewer messages for generic agents
-        )
+        # Include recent messages using centralized serialization
+        if messages:
+            recent_messages = serialize_recent_messages(messages, count=5)
+            if recent_messages:
+                extracted_context["recent_messages"] = recent_messages
         
-        # Rename filtered_memory to relevant_memory for clarity
-        if "filtered_memory" in extracted_context:
-            extracted_context["relevant_memory"] = extracted_context.pop("filtered_memory")
+        # Include memory data
+        if memory:
+            extracted_context["memory"] = memory
+        
+        # Include conversation summary if available  
+        if state and "summary" in state:
+            extracted_context["conversation_summary"] = state["summary"]
+        
+        # Merge any additional context
         if context:
             extracted_context.update(context)
         
-        # Use base class method to create state snapshot
-        state_snapshot = self._create_state_snapshot(
-            state, 
-            include_keys=["messages", "memory", "turns"]
+        return extracted_context
+    
+    def _serialize_state_snapshot(self, state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Serialize LangGraph state for A2A transmission.
+        
+        Args:
+            state: Raw LangGraph state that may contain LangChain objects
+            
+        Returns:
+            JSON-serializable state snapshot
+        """
+        serialized_state = {}
+        if state:
+            for key, value in state.items():
+                if key == "messages" and isinstance(value, list):
+                    # Serialize messages using centralized utility
+                    serialized_state[key] = serialize_recent_messages(value)
+                else:
+                    # Keep other state as-is
+                    serialized_state[key] = value
+        return serialized_state
+    
+    def _find_jira_agent(self):
+        """Locate the Jira agent in the registry.
+        
+        Returns:
+            Agent instance or None if not found
+        """
+        registry = self.metadata["registry"]
+        agent = registry.find_agents_by_capability("jira_operations")
+        
+        if not agent:
+            logger.warning("Jira agent not found by capability, trying by name...")
+            agent = registry.get_agent("jira-agent")
+        
+        # Handle list return from find_agents_by_capability
+        if isinstance(agent, list) and agent:
+            agent = agent[0]
+        
+        return agent
+    
+    def _create_error_command(self, error_message: str, tool_call_id: Optional[str] = None):
+        """Create a standardized error Command response.
+        
+        Args:
+            error_message: Error description for the user
+            tool_call_id: Optional tool call identifier for response tracking
+            
+        Returns:
+            Command object with error message or plain error string
+        """
+        if tool_call_id:
+            return Command(
+                update={
+                    "messages": [ToolMessage(
+                        content=error_message,
+                        tool_call_id=tool_call_id
+                    )]
+                }
+            )
+        else:
+            # Return plain error message when no tool_call_id
+            return error_message
+    
+    def _extract_response_content(self, result: Dict[str, Any]) -> str:
+        """Extract response content from A2A result.
+        
+        Args:
+            result: Raw A2A response result
+            
+        Returns:
+            Extracted content string
+        """
+        response_content = ""
+        
+        if "artifacts" in result:
+            response = result["artifacts"]
+            
+            if isinstance(response, list) and len(response) > 0:
+                response = response[0]
+                
+            if isinstance(response, dict) and "content" in response:
+                response_content = response["content"]
+            else:
+                response_content = str(response)
+        
+        return response_content
+    
+    def _process_tool_results(self, result: Dict[str, Any], response_content: str, task_id: str) -> str:
+        """Process and augment response with structured tool data.
+        
+        Args:
+            result: A2A response containing potential tool results
+            response_content: Base response content
+            task_id: Task identifier for logging
+            
+        Returns:
+            Final response content with structured data if available
+        """
+        # Check for tool results in state_updates
+        tool_results_data = None
+        if "state_updates" in result and "tool_results" in result["state_updates"]:
+            tool_results_data = result["state_updates"]["tool_results"]
+        
+        if tool_results_data:
+            final_response = response_content + "\n\n[STRUCTURED_TOOL_DATA]:\n" + json.dumps(tool_results_data, indent=2)
+            
+            # Log structured data addition
+            logger.info("structured_data_found",
+                component="orchestrator",
+                tool_name="jira_agent",
+                data_preview=str(tool_results_data)[:200],
+                data_size=len(json.dumps(tool_results_data)),
+                record_count=len(tool_results_data) if isinstance(tool_results_data, list) else 1,
+                agent="jira-agent",
+                task_id=task_id
+            )
+            return final_response
+        else:
+            return response_content
+    
+    def _run(self, instruction: str, context: Optional[Dict[str, Any]] = None, 
+            state: Annotated[Dict[str, Any], InjectedState] = None, **kwargs) -> Union[str, Command]:
+        """Synchronous wrapper for async execution."""
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(
+                self._arun(instruction, context, state, **kwargs)
+            )
+        finally:
+            loop.close()
+    
+    async def _arun(self, instruction: str, context: Optional[Dict[str, Any]] = None, state: Annotated[Dict[str, Any], InjectedState] = None, **kwargs) -> Command:
+        """Execute the Jira agent call using Command pattern.
+        
+        This method orchestrates the entire flow but delegates specific responsibilities
+        to focused helper methods for better maintainability.
+        """
+        # Debug logging to understand state passing
+        logger.info("jira_tool_debug",
+            component="orchestrator",
+            operation="jira_agent_tool",
+            state_type=type(state).__name__ if state else "None",
+            state_keys=list(state.keys()) if state and isinstance(state, dict) else [],
+            has_messages=bool(state and "messages" in state) if isinstance(state, dict) else False,
+            message_count=len(state.get("messages", [])) if state and isinstance(state, dict) else 0
         )
         
-        # Create A2A task
-        task = A2ATask(
-            id=str(uuid.uuid4()),
-            instruction=instruction,
-            context=extracted_context,
-            state_snapshot=state_snapshot
+        # Log tool invocation start
+        tool_call_id = kwargs.get("tool_call_id", None)
+        logger.info("tool_invocation_start",
+            component="orchestrator",
+            operation="jira_agent_tool",
+            tool_name="jira_agent",
+            tool_call_id=tool_call_id,
+            instruction_preview=instruction[:100] if instruction else "",
+            has_context=bool(context),
+            has_state=bool(state)
         )
         
         try:
+            # Extract and serialize conversation context
+            extracted_context = self._extract_conversation_context(state, context)
+            
+            # Find the Jira agent
+            agent = self._find_jira_agent()
+            if not agent:
+                logger.error("agent_not_found",
+                    component="orchestrator",
+                    operation="jira_agent_tool",
+                    agent_type="jira",
+                    tool_call_id=tool_call_id,
+                    error="Jira agent not available"
+                )
+                return self._create_error_command(
+                    "Error: Jira agent not available. Please ensure the Jira agent is running and registered.",
+                    tool_call_id
+                )
+            
+            # Create A2A task with serialized state
+            task_id = str(uuid.uuid4())
+            serialized_state = self._serialize_state_snapshot(state)
+            
+            task = A2ATask(
+                id=task_id,
+                instruction=instruction,
+                context=extracted_context,
+                state_snapshot=serialized_state
+            )
+            
+            # Execute A2A call
             async with A2AClient() as client:
-                result = await client.process_task(
-                    endpoint=agent.endpoint + "/a2a",
-                    task=task
+                endpoint = agent.endpoint + "/a2a"
+                
+                # Log A2A dispatch
+                logger.info("a2a_dispatch", 
+                    component="orchestrator",
+                    agent="jira-agent",
+                    task_id=task_id,
+                    instruction_preview=instruction[:100],
+                    endpoint=endpoint,
+                    context_keys=list(extracted_context.keys()),
+                    context_size=len(str(extracted_context))
                 )
                 
-                # Extract the response and convert to Command
-                response_content = ""
-                if "artifacts" in result:
-                    response = result["artifacts"]
-                    if isinstance(response, list) and len(response) > 0:
-                        response = response[0]
-                    if isinstance(response, dict) and "content" in response:
-                        response_content = response["content"]
-                    else:
-                        response_content = str(response)
-                else:
-                    response_content = str(result.get("result", f"No response from {agent.name}"))
+                result = await client.process_task(endpoint=endpoint, task=task)
                 
-                tool_call_id = kwargs.get("tool_call_id", None)
+                # Process response
+                response_content = self._extract_response_content(result)
+                final_response = self._process_tool_results(result, response_content, task_id)
+                
+                logger.info("a2a_response_success",
+                    component="orchestrator",
+                    agent="jira-agent", 
+                    task_id=task_id,
+                    response_length=len(final_response)
+                )
+                
+                # Log successful tool completion
+                logger.info("tool_invocation_complete",
+                    component="orchestrator",
+                    operation="jira_agent_tool",
+                    tool_name="jira_agent",
+                    tool_call_id=tool_call_id,
+                    response_length=len(final_response),
+                    success=True
+                )
+                
+                # Return Command with processed response
+                # If we have a tool_call_id, return a ToolMessage, otherwise return the content directly
                 if tool_call_id:
                     return Command(
                         update={
                             "messages": [ToolMessage(
-                                content=response_content,
+                                content=final_response,
                                 tool_call_id=tool_call_id,
-                                name="generic_agent"
+                                name="jira_agent"
                             )]
                         }
                     )
                 else:
-                    return response_content
+                    # Return plain response when called without tool_call_id
+                    return final_response
         
         except A2AException as e:
-            logger.error(f"Error calling agent {agent.name}: {e}")
-            error_msg = f"Error: Failed to communicate with {agent.name} - {str(e)}"
-            tool_call_id = kwargs.get("tool_call_id", None)
-            if tool_call_id:
-                return Command(
-                    update={
-                        "messages": [ToolMessage(
-                            content=error_msg,
-                            tool_call_id=tool_call_id
-                        )]
-                    }
-                )
-            else:
-                return error_msg
+            logger.error("tool_invocation_error",
+                component="orchestrator",
+                operation="jira_agent_tool",
+                tool_name="jira_agent",
+                tool_call_id=tool_call_id,
+                error_type="A2AException",
+                error=str(e)
+            )
+            return self._create_error_command(
+                f"Error: Failed to communicate with Jira agent - {str(e)}",
+                tool_call_id
+            )
         except Exception as e:
-            logger.error(f"Unexpected error calling agent {agent.name}: {e}")
-            logger.exception("Full traceback:")
-            error_msg = f"Error: Unexpected error - {str(e)}"
-            tool_call_id = kwargs.get("tool_call_id", None)
-            if tool_call_id:
-                return Command(
-                    update={
-                        "messages": [ToolMessage(
-                            content=error_msg,
-                            tool_call_id=tool_call_id
-                        )]
-                    }
-                )
-            else:
-                return error_msg
+            logger.error("tool_invocation_error",
+                component="orchestrator",
+                operation="jira_agent_tool",
+                tool_name="jira_agent",
+                tool_call_id=tool_call_id,
+                error_type=type(e).__name__,
+                error=str(e)
+            )
+            return self._create_error_command(
+                f"Error: Unexpected error - {str(e)}",
+                tool_call_id
+            )
     
-    def _run(self, instruction: str, context: Optional[Dict[str, Any]] = None, 
-           agent_name: Optional[str] = None, required_capabilities: Optional[List[str]] = None, **kwargs) -> Command:
+    def _run(self, instruction: str, context: Optional[Dict[str, Any]] = None, **kwargs) -> Command:
         """Synchronous wrapper for async execution"""
-        return asyncio.run(self._arun(instruction, context, agent_name, required_capabilities, **kwargs))
+        return asyncio.run(self._arun(instruction, context, **kwargs))
 
 class AgentRegistryTool(BaseTool):
     """Orchestrator Tool for Multi-Agent System Management and Monitoring.

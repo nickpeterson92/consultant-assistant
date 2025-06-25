@@ -5,7 +5,7 @@ Multi-agent coordination system for the Consultant Assistant
 
 from .main import orchestrator_graph, build_orchestrator_graph, initialize_orchestrator
 from .agent_registry import AgentRegistry, RegisteredAgent
-from .agent_caller_tools import SalesforceAgentTool, GenericAgentTool, AgentRegistryTool
+from .agent_caller_tools import SalesforceAgentTool, JiraAgentTool, AgentRegistryTool
 
 __all__ = [
     "orchestrator_graph",
@@ -14,6 +14,6 @@ __all__ = [
     "AgentRegistry",
     "RegisteredAgent",
     "SalesforceAgentTool",
-    "GenericAgentTool",
+    "JiraAgentTool",
     "AgentRegistryTool"
 ]

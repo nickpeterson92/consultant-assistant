@@ -63,7 +63,7 @@ from src.a2a import A2AServer, A2ATask, A2AResponse, A2AArtifact, AgentCard
 from src.utils.config import get_llm_config
 from src.utils.logging import get_logger
 
-logger = get_logger("jira_agent")
+logger = get_logger("jira")
 
 # Jira tools
 jira_tools = [
@@ -241,15 +241,16 @@ def build_jira_agent():
 # Global agent instance
 jira_agent = build_jira_agent()
 
-async def handle_a2a_request(request: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
     """Handle incoming A2A protocol requests for Jira operations.
     
     Args:
-        request: A2A task request containing:
-            - id: Task identifier
-            - instruction: Natural language request
-            - context: Optional context dictionary
-            - state_snapshot: Optional orchestrator state
+        params: A2A parameters containing:
+            - task: Dictionary with task data including:
+                - id: Task identifier
+                - instruction: Natural language request
+                - context: Optional context dictionary
+                - state_snapshot: Optional orchestrator state
             
     Returns:
         Dict[str, Any]: A2A result with:
@@ -265,51 +266,55 @@ async def handle_a2a_request(request: Dict[str, Any]) -> Dict[str, Any]:
         - Preserves task ID for correlation
     """
     try:
-        # Parse the A2A task
-        task = A2ATask(**request)
+        # Extract task data from params (following Salesforce pattern)
+        task_data = params.get("task", {})
+        task_id = task_data.get("id", "unknown")
+        instruction = task_data.get("instruction", "")
+        context = task_data.get("context", {})
         
         # Log task processing start
         logger.info("jira_a2a_task_start",
             component="jira",
             operation="process_a2a_task",
-            task_id=task.id,
-            instruction_preview=task.instruction[:100] if task.instruction else "",
-            instruction_length=len(task.instruction) if task.instruction else 0,
-            has_context=bool(task.context),
-            has_state_snapshot=bool(task.state_snapshot)
+            task_id=task_id,
+            instruction_preview=instruction[:100] if instruction else "",
+            instruction_length=len(instruction) if instruction else 0,
+            has_context=bool(context),
+            context_keys=list(context.keys()) if context else [],
+            context_size=len(str(context)) if context else 0
         )
         
         # Prepare initial state
         initial_state = {
-            "messages": [HumanMessage(content=task.instruction)],
-            "current_task": task.id,
+            "messages": [HumanMessage(content=instruction)],
+            "current_task": task_id,
             "tool_results": [],
             "error": ""
         }
         
         # Add context if provided
-        if task.context:
-            context_msg = f"Additional context: {task.context}"
+        if context:
+            context_msg = f"Additional context: {context}"
             initial_state["messages"].insert(0, SystemMessage(content=context_msg))
         
         # Log agent invocation
         logger.info("jira_agent_invocation_start",
             component="jira",
             operation="invoke_agent",
-            task_id=task.id,
+            task_id=task_id,
             message_count=len(initial_state["messages"]),
-            thread_id=task.id
+            thread_id=task_id
         )
         
         # Run the agent
-        config = {"configurable": {"thread_id": task.id}}
+        config = {"configurable": {"thread_id": task_id}}
         result = await jira_agent.ainvoke(initial_state, config)
         
         # Log agent invocation complete
         logger.info("jira_agent_invocation_complete",
             component="jira",
             operation="invoke_agent",
-            task_id=task.id,
+            task_id=task_id,
             tool_results_count=len(result.get("tool_results", [])),
             message_count=len(result.get("messages", [])),
             has_error=bool(result.get("error"))
@@ -326,43 +331,36 @@ async def handle_a2a_request(request: Dict[str, Any]) -> Dict[str, Any]:
         
         # Create A2A result
         artifact = A2AArtifact(
-            type="jira_response",
-            data={
+            id=f"artifact_{task_id}",
+            task_id=task_id,
+            content={
                 "response": response_content,
                 "tool_results": tool_data,
                 "issue_keys": extract_issue_keys(response_content)
-            }
+            },
+            content_type="jira_response",
+            metadata={"agent": "jira-agent"}
         )
         
         # Log successful task completion
         logger.info("jira_a2a_task_complete",
             component="jira",
             operation="process_a2a_task",
-            task_id=task.id,
+            task_id=task_id,
             success=True,
             response_length=len(response_content),
             tool_results_count=len(result.get("tool_results", [])),
             issue_keys=extract_issue_keys(response_content)
         )
         
-        return A2AResponse(
-            task_id=task.id,
-            status="completed",
-            result={
-                "success": True,
-                "message": response_content
-            },
-            artifacts=[artifact.model_dump()],
-            metadata={
-                "agent": "jira-agent",
-                "tools_used": len(result.get("tool_results", [])),
-                "timestamp": datetime.now().isoformat()
-            }
-        ).model_dump()
+        # Create successful response in JSON-RPC format
+        return {
+            "artifacts": [artifact.to_dict()],
+            "status": "completed"
+        }
         
     except Exception as e:
         # Log task failure
-        task_id = request.get("id", "unknown")
         logger.error("jira_a2a_task_error",
             component="jira",
             operation="process_a2a_task",
@@ -370,18 +368,12 @@ async def handle_a2a_request(request: Dict[str, Any]) -> Dict[str, Any]:
             error=str(e),
             error_type=type(e).__name__
         )
-        return A2AResponse(
-            task_id=request.get("id", "unknown"),
-            status="failed",
-            result={
-                "success": False,
-                "error": str(e)
-            },
-            metadata={
-                "agent": "jira-agent",
-                "error_type": type(e).__name__
-            }
-        ).model_dump()
+        # Return error in expected format
+        return {
+            "artifacts": [],
+            "status": "failed",
+            "error": str(e)
+        }
 
 def extract_issue_keys(text: str) -> List[str]:
     """Extract Jira issue keys from text using regex pattern matching.

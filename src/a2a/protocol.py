@@ -23,6 +23,7 @@ import json
 import uuid
 import asyncio
 import time
+import traceback
 from typing import Dict, Any, Optional, List, Union
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
@@ -1032,12 +1033,13 @@ class A2AServer:
             
             except Exception as e:
                 # Handler exceptions are logged but sanitized in response
-                logger.exception("handler_error",
+                logger.error("handler_error",
                     component="a2a",
                     operation="handle_request",
                     method=method,
                     error=str(e),
-                    error_type=type(e).__name__
+                    error_type=type(e).__name__,
+                    traceback=traceback.format_exc()
                 )
                 response = A2AResponse(
                     error={"code": -32603, "message": "Internal error", "data": str(e)},
@@ -1053,7 +1055,13 @@ class A2AServer:
             )
         except Exception as e:
             # Catch-all for unexpected errors - log but don't leak details
-            logger.exception("Unexpected error in request handler")
+            logger.error("unexpected_request_error",
+                component="a2a",
+                operation="handle_request",
+                error=str(e),
+                error_type=type(e).__name__,
+                traceback=traceback.format_exc()
+            )
             return web.json_response(
                 A2AResponse(error={"code": -32603, "message": "Internal error"}).to_dict(),
                 status=500
