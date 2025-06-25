@@ -66,11 +66,11 @@ async def execute_command_tools(state: Dict[str, Any], tools: List[Any], compone
                     tool_call_id=tool_call_id
                 )
                 
-                # Call tool using standard LangChain interface (no state injection)
+                # Call tool with state injection
                 if hasattr(tool, '_arun'):
-                    result = await tool._arun(**clean_args)
+                    result = await tool._arun(**clean_args, state=state)
                 else:
-                    result = tool._run(**clean_args)
+                    result = tool._run(**clean_args, state=state)
                 
                 # Log tool success - IDENTICAL format to orchestrator pattern
                 logger.info("tool_result",

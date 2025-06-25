@@ -6,7 +6,7 @@ These tools enable the orchestrator to communicate with specialized agents via A
 import uuid
 import json
 import asyncio
-from typing import Dict, Any, Optional, List, Annotated
+from typing import Dict, Any, Optional, List, Annotated, Union
 from langchain_core.tools import BaseTool, tool
 from langchain_core.runnables import RunnableConfig
 from langchain_core.messages import ToolMessage
@@ -351,12 +351,35 @@ class SalesforceAgentTool(BaseAgentTool):
         else:
             return response_content
     
+    def _run(self, instruction: str, context: Optional[Dict[str, Any]] = None, 
+            state: Annotated[Dict[str, Any], InjectedState] = None, **kwargs) -> Union[str, Command]:
+        """Synchronous wrapper for async execution."""
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(
+                self._arun(instruction, context, state, **kwargs)
+            )
+        finally:
+            loop.close()
+    
     async def _arun(self, instruction: str, context: Optional[Dict[str, Any]] = None, state: Annotated[Dict[str, Any], InjectedState] = None, **kwargs) -> Command:
         """Execute the Salesforce agent call using Command pattern.
         
         This method orchestrates the entire flow but delegates specific responsibilities
         to focused helper methods for better maintainability.
         """
+        # Debug logging to understand state passing
+        logger.info("salesforce_tool_debug",
+            component="orchestrator",
+            operation="salesforce_agent_tool",
+            state_type=type(state).__name__ if state else "None",
+            state_keys=list(state.keys()) if state and isinstance(state, dict) else [],
+            has_messages=bool(state and "messages" in state) if isinstance(state, dict) else False,
+            message_count=len(state.get("messages", [])) if state and isinstance(state, dict) else 0
+        )
+        
         # Log tool invocation start
         tool_call_id = kwargs.get("tool_call_id", None)
         logger.info("tool_invocation_start",

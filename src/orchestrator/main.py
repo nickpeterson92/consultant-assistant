@@ -49,7 +49,7 @@ from src.utils.helpers import type_out, smart_preserve_messages
 from src.utils.message_serialization import serialize_messages
 from src.utils.storage import get_async_store_adapter
 from src.utils.storage.memory_schemas import SimpleMemory
-from src.utils.config import get_llm_config, get_conversation_config
+from src.utils.config import get_llm_config, get_conversation_config, get_database_config
 from src.utils.sys_msg import (
     orchestrator_chatbot_sys_msg, 
     orchestrator_summary_sys_msg, 
@@ -1030,7 +1030,7 @@ ORCHESTRATOR TOOLS:
         try:
             # Create new store instance for this async context
             memory_store = get_async_store_adapter(
-                database_path=get_conversation_config().database_path
+                db_path=get_database_config().path
             )
             
             mock_state = {
@@ -1081,7 +1081,7 @@ ORCHESTRATOR TOOLS:
         try:
             # Create new store instance for this async context
             memory_store = get_async_store_adapter(
-                database_path=get_conversation_config().database_path
+                db_path=get_database_config().path
             )
             mock_state = {
                 "messages": serialize_messages(messages),
