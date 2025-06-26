@@ -42,23 +42,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.memory import MemorySaver
 
-from src.tools.jira_tools import (
-    SearchJiraIssuesTool,
-    GetJiraIssueTool,
-    CreateJiraIssueTool,
-    UpdateJiraIssueTool,
-    AddJiraCommentTool,
-    GetProjectIssuesTool,
-    GetMyIssuesTool,
-    GetEpicIssuesTool,
-    TransitionIssueTool,
-    AssignIssueTool,
-    AddAttachmentTool,
-    GetIssueHistoryTool,
-    CreateSubtaskTool,
-    LinkIssuesTool,
-    GetSprintIssuesTool
-)
+from src.tools.jira_unified import UNIFIED_JIRA_TOOLS
 from src.a2a import A2AServer, A2ATask, A2AResponse, A2AArtifact, AgentCard
 from src.utils.config import get_llm_config
 from src.utils.logging import get_logger
@@ -66,24 +50,8 @@ from src.utils.sys_msg import jira_agent_sys_msg
 
 logger = get_logger("jira")
 
-# Jira tools
-jira_tools = [
-    SearchJiraIssuesTool(),
-    GetJiraIssueTool(),
-    CreateJiraIssueTool(),
-    UpdateJiraIssueTool(),
-    AddJiraCommentTool(),
-    GetProjectIssuesTool(),
-    GetMyIssuesTool(),
-    GetEpicIssuesTool(),
-    TransitionIssueTool(),
-    AssignIssueTool(),
-    AddAttachmentTool(),
-    GetIssueHistoryTool(),
-    CreateSubtaskTool(),
-    LinkIssuesTool(),
-    GetSprintIssuesTool()
-]
+# Unified Jira tools
+jira_tools = UNIFIED_JIRA_TOOLS
 
 # Agent state definition
 class JiraAgentState(TypedDict):
