@@ -154,14 +154,14 @@ class ServiceNowClient:
 
 def get_servicenow_connection() -> ServiceNowClient:
     """Create and return a ServiceNow client using environment variables."""
-    instance = os.getenv('SNOW_INSTANCE')
-    username = os.getenv('SNOW_USER')
-    password = os.getenv('SNOW_PASS')
+    instance = os.getenv('SERVICENOW_INSTANCE')
+    username = os.getenv('SERVICENOW_USER')
+    password = os.getenv('SERVICENOW_PASSWORD')
     
     if not all([instance, username, password]):
         raise ValueError(
-            "Missing ServiceNow credentials. Please set SNOW_INSTANCE, "
-            "SNOW_USER, and SNOW_PASS environment variables."
+            "Missing ServiceNow credentials. Please set SERVICENOW_INSTANCE, "
+            "SERVICENOW_USER, and SERVICENOW_PASSWORD environment variables."
         )
     
     return ServiceNowClient(
@@ -200,6 +200,13 @@ class GetIncidentTool(BaseTool):
     
     def _run(self, query: str, limit: int = 10) -> str:
         """Search for incidents based on query."""
+        # Log tool call
+        logger.info("tool_call",
+            component="servicenow",
+            tool_name=self.name,
+            tool_args={"query": query, "limit": limit}
+        )
+        
         try:
             client = get_servicenow_connection()
             
@@ -275,14 +282,23 @@ class GetIncidentTool(BaseTool):
             
             incidents = client.query("incident", params)
             
+            # Log result
+            logger.info("tool_result",
+                component="servicenow",
+                tool_name=self.name,
+                result_type="list",
+                result_count=len(incidents) if isinstance(incidents, list) else 1
+            )
+            
             # Return raw list of incidents
             return incidents
             
         except Exception as e:
-            logger.error("get_incident_error",
+            logger.error("tool_error",
                 component="servicenow",
-                operation="get_incident",
-                error=str(e)
+                tool_name=self.name,
+                error=str(e),
+                error_type=type(e).__name__
             )
             return {"error": str(e)}
 
@@ -321,6 +337,23 @@ class CreateIncidentTool(BaseTool):
              assignment_group: Optional[str] = None, urgency: Optional[str] = None,
              impact: Optional[str] = None) -> str:
         """Create a new incident."""
+        # Log tool call
+        logger.info("tool_call",
+            component="servicenow",
+            tool_name=self.name,
+            tool_args={
+                "short_description": short_description,
+                "description": description,
+                "priority": priority,
+                "category": category,
+                "subcategory": subcategory,
+                "caller_id": caller_id,
+                "assignment_group": assignment_group,
+                "urgency": urgency,
+                "impact": impact
+            }
+        )
+        
         try:
             client = get_servicenow_connection()
             
@@ -351,14 +384,23 @@ class CreateIncidentTool(BaseTool):
             if "error" in result:
                 return result
             
+            # Log result
+            logger.info("tool_result",
+                component="servicenow",
+                tool_name=self.name,
+                result_type="created",
+                result_preview=result.get("number", "Unknown") if isinstance(result, dict) else "Unknown"
+            )
+            
             # Return raw ServiceNow response - let the LLM format it
             return result
                 
         except Exception as e:
-            logger.error("create_incident_error",
+            logger.error("tool_error",
                 component="servicenow",
-                operation="create_incident",
-                error=str(e)
+                tool_name=self.name,
+                error=str(e),
+                error_type=type(e).__name__
             )
             return {"error": str(e)}
 
@@ -388,6 +430,13 @@ class UpdateIncidentTool(BaseTool):
     
     def _run(self, incident_id: str, **kwargs) -> str:
         """Update an incident."""
+        # Log tool call
+        logger.info("tool_call",
+            component="servicenow",
+            tool_name=self.name,
+            tool_args={"incident_id": incident_id, **kwargs}
+        )
+        
         try:
             client = get_servicenow_connection()
             
@@ -416,15 +465,23 @@ class UpdateIncidentTool(BaseTool):
             # Update the incident
             result = client.update("incident", sys_id, update_data)
             
+            # Log result
+            logger.info("tool_result",
+                component="servicenow",
+                tool_name=self.name,
+                result_type="updated",
+                result_preview=f"Updated {incident_id}"
+            )
+            
             # Return raw response or error
             return result
                 
         except Exception as e:
-            logger.error("update_incident_error",
+            logger.error("tool_error",
                 component="servicenow",
-                operation="update_incident",
+                tool_name=self.name,
                 error=str(e),
-                incident_id=incident_id
+                error_type=type(e).__name__
             )
             return {"error": str(e)}
 
@@ -454,6 +511,13 @@ class GetChangeRequestTool(BaseTool):
     
     def _run(self, query: str, limit: int = 10) -> str:
         """Search for change requests."""
+        # Log tool call
+        logger.info("tool_call",
+            component="servicenow",
+            tool_name=self.name,
+            tool_args={"query": query, "limit": limit}
+        )
+        
         try:
             client = get_servicenow_connection()
             
@@ -516,14 +580,23 @@ class GetChangeRequestTool(BaseTool):
             
             changes = client.query("change_request", params)
             
+            # Log result
+            logger.info("tool_result",
+                component="servicenow",
+                tool_name=self.name,
+                result_type="list",
+                result_count=len(changes) if isinstance(changes, list) else 1
+            )
+            
             # Return raw list of changes
             return changes
             
         except Exception as e:
-            logger.error("get_change_request_error",
+            logger.error("tool_error",
                 component="servicenow",
-                operation="get_change_request",
-                error=str(e)
+                tool_name=self.name,
+                error=str(e),
+                error_type=type(e).__name__
             )
             return {"error": str(e)}
 
@@ -555,6 +628,13 @@ class CreateChangeRequestTool(BaseTool):
     
     def _run(self, short_description: str, type: str, **kwargs) -> str:
         """Create a new change request."""
+        # Log tool call
+        logger.info("tool_call",
+            component="servicenow",
+            tool_name=self.name,
+            tool_args={"short_description": short_description, "type": type, **kwargs}
+        )
+        
         try:
             client = get_servicenow_connection()
             
@@ -578,14 +658,23 @@ class CreateChangeRequestTool(BaseTool):
             
             result = client.create("change_request", change_data)
             
+            # Log result
+            logger.info("tool_result",
+                component="servicenow",
+                tool_name=self.name,
+                result_type="created",
+                result_preview=result.get("number", "Unknown") if isinstance(result, dict) else "Unknown"
+            )
+            
             # Return raw response or error
             return result
                 
         except Exception as e:
-            logger.error("create_change_request_error",
+            logger.error("tool_error",
                 component="servicenow",
-                operation="create_change_request",
-                error=str(e)
+                tool_name=self.name,
+                error=str(e),
+                error_type=type(e).__name__
             )
             return {"error": str(e)}
 
@@ -617,6 +706,13 @@ class UpdateChangeRequestTool(BaseTool):
     
     def _run(self, change_id: str, **kwargs) -> str:
         """Update a change request."""
+        # Log tool call
+        logger.info("tool_call",
+            component="servicenow",
+            tool_name=self.name,
+            tool_args={"change_id": change_id, **kwargs}
+        )
+        
         try:
             client = get_servicenow_connection()
             
@@ -645,15 +741,23 @@ class UpdateChangeRequestTool(BaseTool):
             # Update the change
             result = client.update("change_request", sys_id, update_data)
             
+            # Log result
+            logger.info("tool_result",
+                component="servicenow",
+                tool_name=self.name,
+                result_type="updated",
+                result_preview=f"Updated {change_id}"
+            )
+            
             # Return raw response or error
             return result
                 
         except Exception as e:
-            logger.error("update_change_request_error",
+            logger.error("tool_error",
                 component="servicenow",
-                operation="update_change_request",
+                tool_name=self.name,
                 error=str(e),
-                change_id=change_id
+                error_type=type(e).__name__
             )
             return {"error": str(e)}
 
@@ -683,6 +787,13 @@ class GetProblemTool(BaseTool):
     
     def _run(self, query: str, limit: int = 10) -> str:
         """Search for problems."""
+        # Log tool call
+        logger.info("tool_call",
+            component="servicenow",
+            tool_name=self.name,
+            tool_args={"query": query, "limit": limit}
+        )
+        
         try:
             client = get_servicenow_connection()
             
@@ -732,14 +843,23 @@ class GetProblemTool(BaseTool):
             
             problems = client.query("problem", params)
             
+            # Log result
+            logger.info("tool_result",
+                component="servicenow",
+                tool_name=self.name,
+                result_type="list",
+                result_count=len(problems) if isinstance(problems, list) else 1
+            )
+            
             # Return raw list of problems
             return problems
             
         except Exception as e:
-            logger.error("get_problem_error",
+            logger.error("tool_error",
                 component="servicenow",
-                operation="get_problem",
-                error=str(e)
+                tool_name=self.name,
+                error=str(e),
+                error_type=type(e).__name__
             )
             return {"error": str(e)}
 
@@ -767,6 +887,13 @@ class CreateProblemTool(BaseTool):
     
     def _run(self, short_description: str, **kwargs) -> str:
         """Create a new problem."""
+        # Log tool call
+        logger.info("tool_call",
+            component="servicenow",
+            tool_name=self.name,
+            tool_args={"short_description": short_description, **kwargs}
+        )
+        
         try:
             client = get_servicenow_connection()
             
@@ -784,14 +911,23 @@ class CreateProblemTool(BaseTool):
             
             result = client.create("problem", problem_data)
             
+            # Log result
+            logger.info("tool_result",
+                component="servicenow",
+                tool_name=self.name,
+                result_type="created",
+                result_preview=result.get("number", "Unknown") if isinstance(result, dict) else "Unknown"
+            )
+            
             # Return raw response or error
             return result
                 
         except Exception as e:
-            logger.error("create_problem_error",
+            logger.error("tool_error",
                 component="servicenow",
-                operation="create_problem",
-                error=str(e)
+                tool_name=self.name,
+                error=str(e),
+                error_type=type(e).__name__
             )
             return {"error": str(e)}
 
@@ -821,6 +957,13 @@ class UpdateProblemTool(BaseTool):
     
     def _run(self, problem_id: str, **kwargs) -> str:
         """Update a problem."""
+        # Log tool call
+        logger.info("tool_call",
+            component="servicenow",
+            tool_name=self.name,
+            tool_args={"problem_id": problem_id, **kwargs}
+        )
+        
         try:
             client = get_servicenow_connection()
             
@@ -849,15 +992,23 @@ class UpdateProblemTool(BaseTool):
             # Update the problem
             result = client.update("problem", sys_id, update_data)
             
+            # Log result
+            logger.info("tool_result",
+                component="servicenow",
+                tool_name=self.name,
+                result_type="updated",
+                result_preview=f"Updated {problem_id}"
+            )
+            
             # Return raw response or error
             return result
                 
         except Exception as e:
-            logger.error("update_problem_error",
+            logger.error("tool_error",
                 component="servicenow",
-                operation="update_problem",
+                tool_name=self.name,
                 error=str(e),
-                problem_id=problem_id
+                error_type=type(e).__name__
             )
             return {"error": str(e)}
 
@@ -887,6 +1038,13 @@ class GetTaskTool(BaseTool):
     
     def _run(self, query: str, limit: int = 10) -> str:
         """Search for tasks."""
+        # Log tool call
+        logger.info("tool_call",
+            component="servicenow",
+            tool_name=self.name,
+            tool_args={"query": query, "limit": limit}
+        )
+        
         try:
             client = get_servicenow_connection()
             builder = GlideQueryBuilder()
@@ -931,14 +1089,23 @@ class GetTaskTool(BaseTool):
             
             tasks = client.query("task", params)
             
+            # Log result
+            logger.info("tool_result",
+                component="servicenow",
+                tool_name=self.name,
+                result_type="list",
+                result_count=len(tasks) if isinstance(tasks, list) else 1
+            )
+            
             # Return raw list of tasks
             return tasks
             
         except Exception as e:
-            logger.error("get_task_error",
+            logger.error("tool_error",
                 component="servicenow",
-                operation="get_task",
-                error=str(e)
+                tool_name=self.name,
+                error=str(e),
+                error_type=type(e).__name__
             )
             return {"error": str(e)}
 
@@ -964,6 +1131,13 @@ class CreateTaskTool(BaseTool):
     
     def _run(self, short_description: str, **kwargs) -> str:
         """Create a task."""
+        # Log tool call
+        logger.info("tool_call",
+            component="servicenow",
+            tool_name=self.name,
+            tool_args={"short_description": short_description, **kwargs}
+        )
+        
         try:
             client = get_servicenow_connection()
             
@@ -980,14 +1154,23 @@ class CreateTaskTool(BaseTool):
             
             result = client.create("task", task_data)
             
+            # Log result
+            logger.info("tool_result",
+                component="servicenow",
+                tool_name=self.name,
+                result_type="created",
+                result_preview=result.get("number", "Unknown") if isinstance(result, dict) else "Unknown"
+            )
+            
             # Return raw response or error
             return result
                 
         except Exception as e:
-            logger.error("create_task_error",
+            logger.error("tool_error",
                 component="servicenow",
-                operation="create_task",
-                error=str(e)
+                tool_name=self.name,
+                error=str(e),
+                error_type=type(e).__name__
             )
             return {"error": str(e)}
 
@@ -1015,6 +1198,13 @@ class UpdateTaskTool(BaseTool):
     
     def _run(self, task_id: str, **kwargs) -> str:
         """Update a task."""
+        # Log tool call
+        logger.info("tool_call",
+            component="servicenow",
+            tool_name=self.name,
+            tool_args={"task_id": task_id, **kwargs}
+        )
+        
         try:
             client = get_servicenow_connection()
             
@@ -1030,15 +1220,23 @@ class UpdateTaskTool(BaseTool):
             # Update the task
             result = client.update("task", task_id, update_data)
             
+            # Log result
+            logger.info("tool_result",
+                component="servicenow",
+                tool_name=self.name,
+                result_type="updated",
+                result_preview=f"Updated {task_id}"
+            )
+            
             # Return raw response or error
             return result
                 
         except Exception as e:
-            logger.error("update_task_error",
+            logger.error("tool_error",
                 component="servicenow",
-                operation="update_task",
+                tool_name=self.name,
                 error=str(e),
-                task_id=task_id
+                error_type=type(e).__name__
             )
             return {"error": str(e)}
 
@@ -1067,6 +1265,13 @@ class GetUserTool(BaseTool):
     
     def _run(self, query: str, limit: int = 10) -> str:
         """Search for users."""
+        # Log tool call
+        logger.info("tool_call",
+            component="servicenow",
+            tool_name=self.name,
+            tool_args={"query": query, "limit": limit}
+        )
+        
         try:
             client = get_servicenow_connection()
             
@@ -1098,14 +1303,23 @@ class GetUserTool(BaseTool):
             
             users = client.query("sys_user", params)
             
+            # Log result
+            logger.info("tool_result",
+                component="servicenow",
+                tool_name=self.name,
+                result_type="list",
+                result_count=len(users) if isinstance(users, list) else 1
+            )
+            
             # Return raw list of users
             return users
             
         except Exception as e:
-            logger.error("get_user_error",
+            logger.error("tool_error",
                 component="servicenow",
-                operation="get_user",
-                error=str(e)
+                tool_name=self.name,
+                error=str(e),
+                error_type=type(e).__name__
             )
             return {"error": str(e)}
 
@@ -1132,6 +1346,13 @@ class GetCMDBItemTool(BaseTool):
     
     def _run(self, query: str, ci_class: Optional[str] = None, limit: int = 10) -> str:
         """Search for CMDB items."""
+        # Log tool call
+        logger.info("tool_call",
+            component="servicenow",
+            tool_name=self.name,
+            tool_args={"query": query, "ci_class": ci_class, "limit": limit}
+        )
+        
         try:
             client = get_servicenow_connection()
             
@@ -1179,14 +1400,23 @@ class GetCMDBItemTool(BaseTool):
             
             items = client.query(table, params)
             
+            # Log result
+            logger.info("tool_result",
+                component="servicenow",
+                tool_name=self.name,
+                result_type="list",
+                result_count=len(items) if isinstance(items, list) else 1
+            )
+            
             # Return raw list of items
             return items
             
         except Exception as e:
-            logger.error("get_cmdb_item_error",
+            logger.error("tool_error",
                 component="servicenow",
-                operation="get_cmdb_item",
-                error=str(e)
+                tool_name=self.name,
+                error=str(e),
+                error_type=type(e).__name__
             )
             return {"error": str(e)}
 
@@ -1219,6 +1449,19 @@ class SearchServiceNowTool(BaseTool):
              fields: Optional[List[str]] = None, limit: int = 20,
              order_by: Optional[str] = None) -> str:
         """Perform global search."""
+        # Log tool call
+        logger.info("tool_call",
+            component="servicenow",
+            tool_name=self.name,
+            tool_args={
+                "table": table,
+                "encoded_query": encoded_query,
+                "fields": fields,
+                "limit": limit,
+                "order_by": order_by
+            }
+        )
+        
         try:
             client = get_servicenow_connection()
             
@@ -1258,15 +1501,23 @@ class SearchServiceNowTool(BaseTool):
             
             results = client.query(table, params)
             
+            # Log result
+            logger.info("tool_result",
+                component="servicenow",
+                tool_name=self.name,
+                result_type="list",
+                result_count=len(results) if isinstance(results, list) else 1
+            )
+            
             # Return raw list of results
             return results
             
         except Exception as e:
-            logger.error("search_servicenow_error",
+            logger.error("tool_error",
                 component="servicenow",
-                operation="search_servicenow",
+                tool_name=self.name,
                 error=str(e),
-                table=table
+                error_type=type(e).__name__
             )
             return {"error": str(e)}
 
