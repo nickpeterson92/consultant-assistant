@@ -17,7 +17,7 @@ ORCHESTRATOR AGENT (LangGraph + State Management)
         │
 A2A Protocol Layer (JSON-RPC 2.0)
         │
-SALESFORCE AGENT (+ Future Agents)
+SALESFORCE AGENT + JIRA AGENT + SERVICE NOW AGENT (+ Future Agents)
 ```
 
 ## 🚀 Quick Start
@@ -27,11 +27,11 @@ SALESFORCE AGENT (+ Future Agents)
 python3 start_system.py
 
 # Debug mode
-python3 start_system.py -d
+python3 start_system.py
 
 # Individual components (dev only)
-python3 salesforce_agent.py -d --port 8001
-python3 orchestrator.py -d
+python3 salesforce_agent.py --port 8001
+python3 orchestrator.py
 ```
 
 ### Environment Setup (.env)
@@ -204,18 +204,6 @@ namespace = "memory"
 namespace = ("memory", user_id)
 ```
 
-## 📊 Code Metrics
-
-### Infrastructure to Business Logic Ratio: 0.72:1 TARGET: Between 0.5:1 and 0.75:1
-- **Business Logic**: 4,183 lines (58.2%)
-- **Infrastructure**: 3,009 lines (41.8%)
-- **Improvement**: 58.9% reduction from previous 1.75:1 ratio
-
-### Simplified Components
-- **AsyncStoreAdapter**: 536 → 167 lines (69% reduction)
-- **SecurityConfig**: Removed unused rate limiting and file restrictions
-- **Total Removed**: ~377 lines of unnecessary abstractions
-
 ## 📚 Key Architecture Decisions
 
 1. **Loose Coupling**: Tools as interface contracts
@@ -307,3 +295,155 @@ tail -f logs/a2a_protocol.log | grep CIRCUIT_BREAKER
 2. `agent_caller_tools.py` - How agents communicate
 3. `constants.py` - All hardcoded values
 4. `message_serialization.py` - Critical for state persistence
+
+## 🧪 Direct Agent Testing Cheat Sheet
+
+### Quick Agent Testing (Without Orchestrator)
+
+#### Salesforce Agent Testing
+```bash
+# Start Salesforce agent directly
+python3 salesforce_agent.py --port 8001 &
+
+# Test endpoint availability
+curl http://localhost:8001/a2a/agent-card
+
+# Direct tool testing via A2A protocol
+curl -X POST http://localhost:8001/a2a \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "process_task",
+    "params": {
+      "task_id": "test-001",
+      "instruction": "YOUR_TEST_INSTRUCTION",
+      "context": {}
+    },
+    "id": "test-001"
+  }'
+```
+
+### 📋 Comprehensive Testing Principles
+
+#### 1. **CRUD Coverage** - Test All Operations
+```bash
+# GET: Retrieve existing records
+"instruction": "get account 001bm00000SA8pSAAT"
+
+# SEARCH: Find records with criteria  
+"instruction": "search for accounts in biotechnology industry"
+
+# CREATE: Add new records (expect storage limit errors in dev)
+"instruction": "create a new contact for Mike Davis at GenePoint with email mike@genepoint.com"
+
+# UPDATE: Modify existing records
+"instruction": "update the GenePoint account website to www.updated-site.com"
+
+# ANALYTICS: Aggregate queries
+"instruction": "show me opportunity analytics - total revenue by stage"
+
+# SOSL: Cross-object search
+"instruction": "find anything related to GenePoint across all Salesforce objects"
+```
+
+#### 2. **Error Handling Testing**
+```bash
+# Invalid ID format
+"instruction": "get account invalid-id-123"
+
+# Non-existent records  
+"instruction": "get account 001000000000000AAA"
+
+# Storage limits (expected in dev environments)
+"instruction": "create a new lead for Test User at Test Company"
+
+# Permission errors
+"instruction": "delete account 001bm00000SA8pSAAT"
+```
+
+#### 3. **Edge Cases & Data Validation**
+```bash
+# Empty/minimal data
+"instruction": "create a contact with just a name"
+
+# Special characters
+"instruction": "search for accounts with name containing apostrophe's"
+
+# Large result sets
+"instruction": "search for all opportunities"
+
+# Complex queries
+"instruction": "find all accounts created this year with revenue over 1 million"
+```
+
+#### 4. **Performance & Reliability Testing**
+```bash
+# Multiple concurrent requests (run in parallel)
+for i in {1..5}; do
+  curl -X POST http://localhost:8001/a2a \
+    -H "Content-Type: application/json" \
+    -d "{\"jsonrpc\":\"2.0\",\"method\":\"process_task\",\"params\":{\"task_id\":\"test-$i\",\"instruction\":\"get account 001bm00000SA8pSAAT\",\"context\":{}},\"id\":\"test-$i\"}" &
+done
+wait
+```
+
+#### 5. **Logging & Debugging Verification**
+```bash
+# Monitor tool calls and results
+tail -f logs/salesforce.log | grep -E "(tool_call|tool_result|tool_error)"
+
+# Check SOQL query generation
+tail -f logs/salesforce.log | grep "soql_query"
+
+# Watch for connection issues
+tail -f logs/salesforce.log | grep "salesforce_connection"
+```
+
+### 🎯 Testing Completion Checklist
+
+**✅ Core Functionality**
+- [ ] GET: Retrieve records by ID
+- [ ] SEARCH: Query with filters and natural language
+- [ ] CREATE: Add new records (handle storage limits gracefully)
+- [ ] UPDATE: Modify existing records  
+- [ ] ANALYTICS: Aggregate functions and grouping
+- [ ] SOSL: Cross-object search
+
+**✅ Error Scenarios**
+- [ ] Invalid IDs return proper error messages
+- [ ] Non-existent records handled gracefully
+- [ ] Storage limit errors reported clearly
+- [ ] Network timeouts handled appropriately
+
+**✅ Edge Cases**
+- [ ] Empty queries return appropriate responses
+- [ ] Large result sets paginated or limited properly
+- [ ] Special characters escaped correctly
+- [ ] Complex queries parsed accurately
+
+**✅ Technical Validation**
+- [ ] All queries use SOQLQueryBuilder (no raw `SELECT *`)
+- [ ] Proper JSON-RPC 2.0 response format
+- [ ] Consistent error handling across tools
+- [ ] Logging includes all required fields
+
+### 🔧 Quick Fixes & Common Issues
+
+**Agent Won't Start**: Check port availability
+```bash
+lsof -i :8001  # Check if port is in use
+pkill -f "salesforce_agent"  # Kill existing processes
+```
+
+**Empty Instructions**: Verify JSON formatting
+```bash
+echo '{"jsonrpc":"2.0","method":"process_task","params":{"task_id":"test","instruction":"test message","context":{}},"id":"test"}' | python -m json.tool
+```
+
+**SELECT * Errors**: Tools should use REST API for record retrieval
+- Create/Update tools use `sobject.get(id)` not SOQL queries
+- Search tools use SOQLQueryBuilder with specific fields
+
+**Storage Limits**: Expected in dev environments
+- CREATE operations will fail with `STORAGE_LIMIT_EXCEEDED`
+- This is normal and validates error handling
