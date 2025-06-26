@@ -7,6 +7,8 @@ error log that captures all ERROR level messages across components.
 Log Files:
 - orchestrator.log: Main orchestrator operations
 - salesforce.log: Salesforce agent and tool operations
+- jira.log: Jira agent and tool operations
+- servicenow.log: ServiceNow agent and tool operations
 - a2a_protocol.log: A2A/network communications
 - storage.log: Database operations
 - system.log: System-wide events (startup/shutdown)
@@ -32,6 +34,7 @@ class MultiFileLogger(StructuredLogger):
         'orchestrator': 'orchestrator.log',
         'salesforce': 'salesforce.log',
         'jira': 'jira.log',
+        'servicenow': 'servicenow.log',
         'a2a': 'a2a_protocol.log',
         'storage': 'storage.log',
         'system': 'system.log',

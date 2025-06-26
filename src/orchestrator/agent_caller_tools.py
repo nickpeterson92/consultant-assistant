@@ -882,6 +882,278 @@ class JiraAgentTool(BaseAgentTool):
         """Synchronous wrapper for async execution"""
         return asyncio.run(self._arun(instruction, context, **kwargs))
 
+
+class ServiceNowAgentTool(BaseAgentTool):
+    """Orchestrator Tool for ServiceNow ITSM Agent Communication.
+    
+    Implements loose coupling between the orchestrator and specialized ServiceNow agent
+    via A2A (Agent-to-Agent) protocol. Provides enterprise IT Service Management capabilities
+    through distributed agent architecture with state management and context preservation.
+    
+    Architecture Pattern:
+    - Follows Service-Oriented Architecture (SOA) principles
+    - Implements Event-Driven Multi-Agent communication
+    - Maintains conversation context across agent boundaries
+    - Preserves memory state for session continuity
+    
+    ITSM Capabilities:
+    - Incident Management: Create, read, update incidents with full lifecycle support
+    - Change Management: Handle standard, normal, and emergency changes
+    - Problem Management: Root cause analysis and known error tracking
+    - Task Management: Generic task operations across all tables
+    - User & CMDB: User lookups and configuration item management
+    - Global Search: Flexible queries with encoded query support
+    
+    Integration Patterns:
+    - Individual lookups: "get incident INC0010023" or "find critical incidents"
+    - Bulk operations: "show all changes pending approval"
+    - CRUD operations: create, read, update workflows
+    - Cross-table relationships: incidents→problems→changes→tasks
+    
+    Business Intelligence:
+    - Incident metrics and SLA tracking
+    - Change success rates and implementation windows
+    - Problem trending and known error database
+    - Task completion and assignment analytics
+    """
+    name: str = "servicenow_agent"
+    description: str = """Delegates ServiceNow ITSM operations to specialized agent via A2A protocol.
+    
+    PRIMARY CAPABILITIES:
+    - Incident Management: Create, read, update incidents (create/get/update incidents)
+    - Change Management: Handle change requests through lifecycle (create/get/update changes)
+    - Problem Management: Root cause analysis, known errors (create/get/update problems)
+    - Task Management: Generic task operations (create/get/update tasks)
+    - User & CMDB: User lookups and CI management (get users, get CIs)
+    - Global Search: Flexible queries across any table with encoded queries
+    
+    CRITICAL - NATURAL LANGUAGE PASSTHROUGH:
+    Pass the user's EXACT words to the ServiceNow agent without translation or modification.
+    The ServiceNow agent understands natural language in ITSM context.
+    
+    EXAMPLES OF CORRECT PASSTHROUGH:
+    - User: "show me all P1 incidents" → Pass: "show me all P1 incidents"
+    - User: "create emergency change for server restart" → Pass: "create emergency change for server restart"
+    - User: "find problems related to email" → Pass: "find problems related to email"
+    
+    The ServiceNow agent handles ALL ITSM operations and will interpret the user's intent.
+    
+    Returns structured ITSM data with record numbers for downstream processing."""
+    
+    def __init__(self, registry: AgentRegistry):
+        super().__init__(metadata={"registry": registry})
+    
+    def _run(self, instruction: str, context: Optional[Dict[str, Any]] = None, 
+            state: Annotated[Dict[str, Any], InjectedState] = None, **kwargs) -> Union[str, Command]:
+        """Synchronous wrapper for async execution."""
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(
+                self._arun(instruction, context, state, **kwargs)
+            )
+        finally:
+            loop.close()
+    
+    async def _arun(self, instruction: str, context: Optional[Dict[str, Any]] = None, 
+                    state: Annotated[Dict[str, Any], InjectedState] = None, **kwargs) -> Command:
+        """Execute the ServiceNow agent call using Command pattern."""
+        # Log tool invocation start
+        tool_call_id = kwargs.get("tool_call_id", None)
+        logger.info("tool_invocation_start",
+            component="orchestrator",
+            operation="servicenow_agent_tool",
+            tool_name="servicenow_agent",
+            tool_call_id=tool_call_id,
+            instruction_preview=instruction[:100] if instruction else "",
+            has_context=bool(context),
+            has_state=bool(state)
+        )
+        
+        try:
+            # Extract relevant context
+            extracted_context = self._extract_relevant_context(
+                state, 
+                filter_keywords=["incident", "change", "problem", "task", "cmdb", "user"],
+                message_count=5
+            )
+            
+            # Merge with provided context
+            if context:
+                extracted_context.update(context)
+            
+            # Find the ServiceNow agent
+            registry = self.metadata["registry"]
+            agent = registry.find_agents_by_capability("servicenow_operations")
+            
+            if not agent:
+                logger.warning("ServiceNow agent not found by capability, trying by name...")
+                agent = registry.get_agent("servicenow-agent")
+            
+            # Handle list return from find_agents_by_capability
+            if isinstance(agent, list) and agent:
+                agent = agent[0]
+            
+            if not agent:
+                logger.error("agent_not_found",
+                    component="orchestrator",
+                    operation="servicenow_agent_tool",
+                    agent_type="servicenow",
+                    tool_call_id=tool_call_id,
+                    error="ServiceNow agent not available"
+                )
+                return self._create_error_command(
+                    "Error: ServiceNow agent not available. Please ensure the ServiceNow agent is running and registered.",
+                    tool_call_id
+                )
+            
+            # Create A2A task
+            task_id = str(uuid.uuid4())
+            state_snapshot = self._create_state_snapshot(state) if state else {}
+            
+            task = A2ATask(
+                id=task_id,
+                instruction=instruction,
+                context=extracted_context,
+                state_snapshot=state_snapshot
+            )
+            
+            # Execute A2A call
+            async with A2AClient() as client:
+                endpoint = agent.endpoint + "/a2a"
+                
+                # Log A2A dispatch
+                logger.info("a2a_dispatch", 
+                    component="orchestrator",
+                    agent="servicenow-agent",
+                    task_id=task_id,
+                    instruction_preview=instruction[:100],
+                    endpoint=endpoint,
+                    context_keys=list(extracted_context.keys()),
+                    context_size=len(str(extracted_context))
+                )
+                
+                result = await client.process_task(endpoint=endpoint, task=task)
+                
+                # Process response
+                response_content = self._extract_response_content(result)
+                final_response = self._process_tool_results(result, response_content, task_id)
+                
+                logger.info("a2a_response_success",
+                    component="orchestrator",
+                    agent="servicenow-agent", 
+                    task_id=task_id,
+                    response_length=len(final_response)
+                )
+                
+                # Log successful tool completion
+                logger.info("tool_invocation_complete",
+                    component="orchestrator",
+                    operation="servicenow_agent_tool",
+                    tool_name="servicenow_agent",
+                    tool_call_id=tool_call_id,
+                    response_length=len(final_response),
+                    success=True
+                )
+                
+                # Return Command with processed response
+                if tool_call_id:
+                    return Command(
+                        update={
+                            "messages": [ToolMessage(
+                                content=final_response,
+                                tool_call_id=tool_call_id,
+                                name="servicenow_agent"
+                            )]
+                        }
+                    )
+                else:
+                    return final_response
+        
+        except A2AException as e:
+            logger.error("tool_invocation_error",
+                component="orchestrator",
+                operation="servicenow_agent_tool",
+                tool_name="servicenow_agent",
+                tool_call_id=tool_call_id,
+                error_type="A2AException",
+                error=str(e)
+            )
+            return self._create_error_command(
+                f"Error: Failed to communicate with ServiceNow agent - {str(e)}",
+                tool_call_id
+            )
+        except Exception as e:
+            logger.error("tool_invocation_error",
+                component="orchestrator",
+                operation="servicenow_agent_tool",
+                tool_name="servicenow_agent",
+                tool_call_id=tool_call_id,
+                error_type=type(e).__name__,
+                error=str(e)
+            )
+            return self._create_error_command(
+                f"Error: Unexpected error - {str(e)}",
+                tool_call_id
+            )
+    
+    def _create_error_command(self, error_message: str, tool_call_id: Optional[str] = None):
+        """Create a standardized error Command response."""
+        if tool_call_id:
+            return Command(
+                update={
+                    "messages": [ToolMessage(
+                        content=error_message,
+                        tool_call_id=tool_call_id
+                    )]
+                }
+            )
+        else:
+            return error_message
+    
+    def _extract_response_content(self, result: Dict[str, Any]) -> str:
+        """Extract response content from A2A result."""
+        response_content = ""
+        
+        if "artifacts" in result:
+            response = result["artifacts"]
+            
+            if isinstance(response, list) and len(response) > 0:
+                response = response[0]
+                
+            if isinstance(response, dict) and "content" in response:
+                response_content = response["content"]
+            else:
+                response_content = str(response)
+        
+        return response_content
+    
+    def _process_tool_results(self, result: Dict[str, Any], response_content: str, task_id: str) -> str:
+        """Process and augment response with structured tool data."""
+        # Check for tool results in state_updates
+        tool_results_data = None
+        if "state_updates" in result and "tool_results" in result["state_updates"]:
+            tool_results_data = result["state_updates"]["tool_results"]
+        
+        if tool_results_data:
+            final_response = response_content + "\n\n[STRUCTURED_TOOL_DATA]:\n" + json.dumps(tool_results_data, indent=2)
+            
+            # Log structured data addition
+            logger.info("structured_data_found",
+                component="orchestrator",
+                tool_name="servicenow_agent",
+                data_preview=str(tool_results_data)[:200],
+                data_size=len(json.dumps(tool_results_data)),
+                record_count=len(tool_results_data) if isinstance(tool_results_data, list) else 1,
+                agent="servicenow-agent",
+                task_id=task_id
+            )
+            return final_response
+        else:
+            return response_content
+
+
 class AgentRegistryTool(BaseTool):
     """Orchestrator Tool for Multi-Agent System Management and Monitoring.
     
