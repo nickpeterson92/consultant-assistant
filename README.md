@@ -22,7 +22,7 @@
   [![A2A Protocol](https://img.shields.io/badge/A2A%20Protocol-JSON--RPC%202.0-orange.svg)](https://github.com/google-a2a/A2A)
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
   
-  <p><em>A production-grade, multi-agent AI system implementing Google's Agent-to-Agent (A2A) protocol for enterprise CRM automation, featuring resilient distributed architecture, intelligent orchestration, and seamless Salesforce integration.</em></p>
+  <p><em>A production-grade, multi-agent AI system implementing Google's Agent-to-Agent (A2A) protocol for enterprise automation, featuring resilient distributed architecture, intelligent orchestration, and seamless integration with Salesforce, Jira, and ServiceNow.</em></p>
 </div>
 
 ---
@@ -55,7 +55,7 @@ The Enterprise Multi-Agent Assistant represents the cutting edge of AI agent orc
 
 Traditional single-agent systems hit scalability walls. This architecture solves enterprise challenges:
 
-1. **Specialization at Scale**: Each agent focuses on its domain (CRM, travel, HR, etc.)
+1. **Specialization at Scale**: Each agent focuses on its domain (CRM, ITSM, project management, etc.)
 2. **Resilient Communication**: Network failures don't cascade through the system
 3. **Dynamic Discovery**: Agents can join/leave without system reconfiguration
 4. **Memory Efficiency**: Structured extraction prevents context explosion
@@ -86,17 +86,17 @@ Traditional single-agent systems hit scalability walls. This architecture solves
                             │  Connection Pooling     │
                             └────────────┬────────────┘
                                          │
-          ┌──────────────────────────────┴────────────────────────────┐
-          │                              │                            │ 
-          ▼                              ▼                            ▼
-┌────────────────────────┐ ┌────────────────────────┐ ┌──────────────────────┐
-│   SALESFORCE AGENT     │ │     JIRA AGENT         │ │  EXTENSIBLE AGENTS   │
-│ - 15 Specialized CRM   │ │ - 15 Issue Tracking    │ │ - Travel Management  │
-│   Tools                │ │   Tools                │ │ - Expense Processing │
-│ - 5 Analytics Tools    │ │ - JQL Search           │ │ - HR Operations      │
-│ - Flexible Search      │ │ - Sprint Management    │ │ - Document Processing│
-│ - LangGraph Integration│ │ - LangGraph Integration│ │ - And more!          │
-└────────────────────────┘ └────────────────────────┘ └──────────────────────┘
+     ┌───────────────────────────┬────────────────────────────┬──────────────────────┐
+     │                           │                            │                      │
+     ▼                           ▼                            ▼                      ▼
+┌────────────────────┐ ┌────────────────────┐ ┌────────────────────┐ ┌────────────────────┐
+│ SALESFORCE AGENT   │ │   JIRA AGENT       │ │ SERVICENOW AGENT   │ │ EXTENSIBLE AGENTS  │
+│ - 15 CRM Tools     │ │ - 15 Issue Tools   │ │ - 15 ITSM Tools    │ │ - Travel Mgmt      │
+│ - 5 Analytics      │ │ - JQL Search       │ │ - Incident Mgmt    │ │ - Expense Process  │
+│ - Lead Management  │ │ - Sprint Mgmt      │ │ - Change Mgmt      │ │ - HR Operations    │
+│ - Opportunity Mgmt │ │ - Epic Tracking    │ │ - Problem Mgmt     │ │ - Document Process │
+│ - LangGraph State  │ │ - LangGraph State  │ │ - CMDB Operations  │ │ - Custom Domains   │
+└────────────────────┘ └────────────────────┘ └────────────────────┘ └────────────────────┘
 ```
 
 ### Core Components
@@ -124,12 +124,25 @@ Service discovery inspired by Consul/Kubernetes:
 - Concurrent health checks with circuit breaker integration
 - Real-time availability tracking with graceful degradation
 
-#### 4. **Salesforce Agent** (`src/agents/salesforce/main.py`)
-Domain-specific CRM automation:
-- 15 comprehensive tools covering all major Salesforce objects
+#### 4. **Specialized Agents**
+
+**Salesforce Agent** (`src/agents/salesforce/main.py`)
+- 20 comprehensive tools covering all major CRM operations
+- Advanced analytics tools for business insights
 - Security-first design with SOQL injection prevention
 - Flexible search patterns (ID, email, name, fuzzy matching)
-- Token-optimized responses for cost efficiency
+
+**Jira Agent** (`src/agents/jira/main.py`)
+- 15 tools for complete issue lifecycle management
+- JQL search with natural language support
+- Sprint and epic management capabilities
+- Agile workflow automation
+
+**ServiceNow Agent** (`src/agents/servicenow/main.py`)
+- 15 ITSM tools across 5 operational categories
+- Incident, change, and problem management
+- CMDB integration for configuration items
+- GlideQuery builder for secure, complex queries
 
 ## Key Features
 
@@ -176,9 +189,10 @@ python3 start_system.py
 
 # 5. Interact via CLI
 # In the orchestrator terminal:
-> get all records for GenePoint account
-> update opportunity for Express Logistics
-> show me all Lundgren contacts
+> get all records for GenePoint account      # Salesforce
+> show me all critical incidents             # ServiceNow
+> find all open bugs in project PROJ-123     # Jira
+> create a change request for server upgrade # ServiceNow
 ```
 
 ## System Requirements
@@ -210,10 +224,20 @@ AZURE_OPENAI_CHAT_DEPLOYMENT_NAME=gpt-4o-mini
 AZURE_OPENAI_API_VERSION=2024-06-01
 AZURE_OPENAI_API_KEY=your-api-key
 
-# Salesforce Configuration (Required)
+# Salesforce Configuration
 SFDC_USER=your@email.com
 SFDC_PASS=your-password
 SFDC_TOKEN=your-security-token
+
+# Jira Configuration
+JIRA_URL=https://your-domain.atlassian.net
+JIRA_USERNAME=your@email.com
+JIRA_API_TOKEN=your-api-token
+
+# ServiceNow Configuration
+SNOW_INSTANCE=https://your-instance.service-now.com
+SNOW_USER=your-username
+SNOW_PASS=your-password
 
 # Optional Configuration
 DEBUG_MODE=true
@@ -281,6 +305,24 @@ USER: update the last opportunity for Lundgren, double the opportunity value
 ASSISTANT: I've successfully updated the opportunity "Website Buildout" for Lundgren Karate and Chemistry Academy. The amount has been doubled from $100,000.00 to $200,000.00.
 ```
 
+### ServiceNow ITSM Operations
+```
+USER: show me all critical incidents
+ASSISTANT: Found 2 critical incidents:
+
+| Number      | Short Description        | State       | Priority    | Assigned To  |
+|-------------|-------------------------|-------------|-------------|--------------|
+| INC0010023  | Email server down       | In Progress | 1 - Critical| john.smith   |
+| INC0010024  | Database connection fail| New         | 1 - Critical| Unassigned   |
+```
+
+### Cross-Platform Workflow
+```
+USER: create a Jira ticket for the email server incident
+ASSISTANT: Created Jira issue INFRA-456 linked to ServiceNow incident INC0010023. 
+The issue has been assigned to the Infrastructure team with high priority.
+```
+
 ## Advanced Capabilities
 
 ### Salesforce CRM Integration
@@ -304,6 +346,17 @@ The system features a specialized Jira agent with 15 enterprise-grade tools cove
 
 For detailed Jira capabilities, examples, and API reference, see the [Jira Agent README](src/agents/jira/README.md).
 
+### ServiceNow ITSM Integration
+The system features a specialized ServiceNow agent with 15 enterprise-grade tools covering:
+
+- **Incident Management**: Create, track, and resolve IT service disruptions
+- **Change Management**: Plan and execute infrastructure changes with approval workflows
+- **Problem Management**: Root cause analysis and permanent fix tracking
+- **CMDB Operations**: Configuration item discovery and relationship mapping
+- **GlideQuery Builder**: Secure, complex query construction with injection prevention
+
+For detailed ServiceNow capabilities, examples, and API reference, see the [ServiceNow Agent README](src/agents/servicenow/README.md).
+
 ### Multi-Agent Extensibility
 The architecture supports adding new specialized agents for:
 - Travel management and expense processing
@@ -323,11 +376,15 @@ multi-agent-orchestrator/
 │   │   ├── agent_registry.py # Service discovery
 │   │   └── enhanced_sys_msg.py # Prompt engineering
 │   ├── agents/               # Specialized agents
-│   │   └── salesforce/       # CRM agent
+│   │   ├── salesforce/       # CRM agent
+│   │   ├── jira/            # Issue tracking agent
+│   │   └── servicenow/      # ITSM agent
 │   ├── a2a/                  # Protocol layer
 │   │   └── protocol.py       # A2A implementation
 │   ├── tools/                # Agent capabilities
-│   │   └── salesforce_tools.py # 15 CRM tools
+│   │   ├── salesforce_tools.py # 20 CRM tools
+│   │   ├── jira_tools.py      # 15 issue tracking tools
+│   │   └── servicenow_tools.py # 15 ITSM tools
 │   └── utils/                # Shared utilities
 │       ├── config.py         # Configuration management
 │       ├── circuit_breaker.py # Resilience patterns
