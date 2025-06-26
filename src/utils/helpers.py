@@ -413,22 +413,28 @@ async def display_capabilities_banner(capabilities_list, terminal_width=None, ag
     # Group capabilities by category (based on common prefixes/suffixes)
     categories = {
         "CRM & Sales": [],
+        "IT Service Management": [],
         "Project Management": [],
-        "Analytics": [],
-        "Operations": []
+        "Analytics & Reporting": [],
+        "Operations & Workflows": []
     }
     
+    # Deduplicate capabilities first
+    unique_capabilities = list(set(capabilities_list))
+    
     # Categorize capabilities
-    for cap in sorted(capabilities_list):
+    for cap in sorted(unique_capabilities):
         cap_lower = cap.lower()
         if any(word in cap_lower for word in ['salesforce', 'lead', 'account', 'opportunity', 'contact', 'crm']):
             categories["CRM & Sales"].append(cap)
-        elif any(word in cap_lower for word in ['jira', 'sprint', 'agile', 'epic', 'project']):
+        elif any(word in cap_lower for word in ['servicenow', 'incident', 'change', 'problem', 'cmdb', 'itsm', 'encoded']):
+            categories["IT Service Management"].append(cap)
+        elif any(word in cap_lower for word in ['jira', 'sprint', 'agile', 'epic', 'project', 'jql']):
             categories["Project Management"].append(cap)
-        elif any(word in cap_lower for word in ['analytics', 'metrics', 'analysis', 'reporting']):
-            categories["Analytics"].append(cap)
+        elif any(word in cap_lower for word in ['analytics', 'metrics', 'analysis', 'reporting', 'aggregate', 'business_metrics']):
+            categories["Analytics & Reporting"].append(cap)
         else:
-            categories["Operations"].append(cap)
+            categories["Operations & Workflows"].append(cap)
     
     # Remove empty categories
     categories = {k: v for k, v in categories.items() if v}
@@ -464,37 +470,64 @@ async def display_capabilities_banner(capabilities_list, terminal_width=None, ag
         cat_header = f" ▸ {cat_name} "
         lines.append("║" + cat_header.ljust(content_width + 1) + "║")
         
-        # Capabilities in columns
-        num_columns = 3 if content_width >= 80 else 2 if content_width >= 50 else 1
-        col_width = (content_width - 2) // num_columns - 2
+        # Capabilities in columns - using proper console table rendering
+        num_columns = 3 if content_width >= 90 else 2 if content_width >= 60 else 1
         
-        # Sort and format capabilities
+        # Calculate exact column width accounting for padding and separators
+        # Formula: (content_width - left_padding - (separators * separator_width)) / num_columns
+        left_padding = 2  # "║  " at start
+        separator_width = 2  # "  " between columns
+        available_width = content_width - left_padding - ((num_columns - 1) * separator_width)
+        col_width = available_width // num_columns
+        
+        # Sort and format capabilities first
         sorted_caps = sorted(caps)
-        rows = math.ceil(len(sorted_caps) / num_columns)
+        formatted_caps = []
+        for cap in sorted_caps:
+            # Convert snake_case to Title Case
+            formatted = ' '.join(word.capitalize() for word in cap.split('_'))
+            # Add bullet point
+            bullet_item = f"• {formatted}"
+            # Truncate if needed (leave room for ellipsis)
+            if len(bullet_item) > col_width:
+                bullet_item = bullet_item[:col_width-3] + "..."
+            formatted_caps.append(bullet_item)
         
-        for row in range(rows):
+        # Calculate rows needed
+        rows = math.ceil(len(formatted_caps) / num_columns)
+        
+        # Build rows by filling columns from left to right, top to bottom
+        for row_idx in range(rows):
             row_items = []
-            for col in range(num_columns):
-                idx = row + col * rows
-                if idx < len(sorted_caps):
-                    # Format capability with bullet
-                    cap = sorted_caps[idx]
-                    # Convert snake_case to Title Case
-                    formatted = ' '.join(word.capitalize() for word in cap.split('_'))
-                    # Truncate if needed
-                    if len(formatted) > col_width - 3:
-                        formatted = formatted[:col_width-6] + "..."
-                    row_items.append(f"• {formatted}")
+            for col_idx in range(num_columns):
+                # Calculate index - fill by column first
+                item_idx = col_idx * rows + row_idx
+                if item_idx < len(formatted_caps):
+                    row_items.append(formatted_caps[item_idx])
                 else:
-                    row_items.append("")
+                    row_items.append("")  # Empty cell
             
-            # Build row
-            row_line = "║  "
+            # Build the row with exact spacing
+            row_parts = ["║ "]  # Start with border and single space
+            
             for i, item in enumerate(row_items):
-                row_line += item.ljust(col_width)
+                # Pad each item to exactly col_width
+                padded_item = item.ljust(col_width)
+                row_parts.append(padded_item)
+                
+                # Add separator between columns (not after last)
                 if i < len(row_items) - 1:
-                    row_line += "  "
-            row_line = row_line.ljust(max_width - 1) + "║"
+                    row_parts.append("  ")
+            
+            # Join all parts
+            row_line = "".join(row_parts)
+            
+            # Calculate remaining space and distribute it
+            current_length = len(row_line)
+            remaining_space = max_width - 1 - current_length
+            
+            # Add remaining space before closing border
+            row_line = row_line + " " * remaining_space + "║"
             lines.append(row_line)
         
         # Add spacing between categories

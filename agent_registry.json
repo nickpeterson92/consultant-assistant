@@ -37,7 +37,7 @@
         }
       },
       "status": "online",
-      "last_health_check": 1341703.111775416
+      "last_health_check": 1342872.993855333
     },
     {
       "name": "jira-agent",
@@ -86,7 +86,7 @@
         }
       },
       "status": "online",
-      "last_health_check": 1341703.111938458
+      "last_health_check": 1342872.994014
     },
     {
       "name": "servicenow-agent",
@@ -137,7 +137,7 @@
         }
       },
       "status": "online",
-      "last_health_check": 1341703.11221475
+      "last_health_check": 1342872.994095083
     }
   ]
 }
