@@ -1,10 +1,6 @@
-"""
-Salesforce Specialized Agent
-Handles all Salesforce CRM operations via A2A protocol
-"""
+"""Salesforce specialized agent for CRM operations via A2A protocol."""
 
 import os
-import json
 import asyncio
 import argparse
 from typing import Annotated, Dict, Any
@@ -436,6 +432,11 @@ async def main():
             operation="shutdown"
         )
         await server.stop(runner)
+        
+        # Clean up the global connection pool
+        from src.a2a.protocol import get_connection_pool
+        pool = get_connection_pool()
+        await pool.close_all()
 
 if __name__ == "__main__":
     asyncio.run(main())

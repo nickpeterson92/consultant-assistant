@@ -11,7 +11,6 @@ Philosophy:
 """
 
 import re
-import logging
 
 from .logging import get_logger
 

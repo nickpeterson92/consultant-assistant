@@ -11,20 +11,30 @@ This guide will help you understand the multi-agent orchestrator system from the
 
 ## 🏗️ System Overview
 
-### Architecture Layers
+### Current Architecture (2025)
 ```
 ┌─────────────────────────────────────────┐
 │         User Interface Layer            │
 │      (orchestrator.py CLI)              │
 ├─────────────────────────────────────────┤
 │       Orchestrator Agent Layer          │
-│    (LangGraph State Machine)            │
+│  (LangGraph + Modular Components)       │
+│  ├─ Graph Builder                       │
+│  ├─ Conversation Handler                │
+│  ├─ LLM Handler                         │
+│  ├─ Background Tasks                    │
+│  └─ State Management                    │
 ├─────────────────────────────────────────┤
 │        A2A Protocol Layer               │
 │     (Agent Communication)               │
 ├─────────────────────────────────────────┤
 │      Specialized Agents Layer           │
-│   (Salesforce, Jira, etc.)              │
+│   (Salesforce, Jira, ServiceNow)        │
+├─────────────────────────────────────────┤
+│       Unified Tool Layer                │
+│  ├─ Salesforce Unified                  │
+│  ├─ Jira Unified                        │
+│  └─ ServiceNow Unified                  │
 ├─────────────────────────────────────────┤
 │      Infrastructure Layer               │
 │ (Storage, Logging, Config, Utils)       │
@@ -68,33 +78,35 @@ tail -f logs/orchestrator.log | jq '.'
 
 **Key files to examine:**
 - `orchestrator.py` - Entry point
-- `src/orchestrator/main.py` - Core orchestrator logic
+- `src/orchestrator/main.py` - Core orchestrator logic (legacy)
+- `src/orchestrator/graph_builder.py` - New modular graph construction
+- `src/orchestrator/conversation_handler.py` - Message processing
+- `src/orchestrator/llm_handler.py` - LLM interaction layer
 - `src/utils/helpers.py` - UI helpers
 
-### Stage 2: Message Flow & State
-Understand how messages are processed and state is managed.
+### Stage 2: Modular State Management
+Understand the new modular state system.
 
 ```python
-# Test script: trace_message_flow.py
+# Test script: explore_state_system.py
 import json
-from src.orchestrator.main import OrchestratorState, conversation_node
+from src.orchestrator.state import OrchestratorState
+from src.orchestrator.conversation_handler import ConversationHandler
 
-# Create a minimal state
-state = {
-    "messages": [{"role": "user", "content": "test message"}],
-    "summary": "No summary available",
-    "memory": {},
-    "events": []
-}
+# Explore the new state structure
+handler = ConversationHandler()
+initial_state = handler.create_initial_state()
+print("Initial state structure:", json.dumps(initial_state, indent=2, default=str))
 
-# See how state transforms
-print("Initial state:", json.dumps(state, indent=2))
+# Test state transformations
+updated_state = handler.add_user_message(initial_state, "test message")
+print("After adding message:", updated_state["messages"][-1])
 ```
 
 **Key concepts:**
-- `OrchestratorState` TypedDict
-- `add_messages` reducer
-- Message preservation logic
+- `OrchestratorState` in `src/orchestrator/state.py`
+- Modular conversation handling
+- Separated state management from graph logic
 
 ### Stage 3: Agent Communication
 Understand the A2A protocol in action.
@@ -123,17 +135,22 @@ async def test_agent_communication():
 asyncio.run(test_agent_communication())
 ```
 
-### Stage 4: Tool Execution
-Understand how tools work at the lowest level.
+### Stage 4: Unified Tool System
+Understand the new unified tool architecture.
 
 ```python
-# Test script: test_tools.py
-from src.tools.salesforce_tools import GetAccountTool
+# Test script: test_unified_tools.py
+from src.tools.salesforce_unified import SalesforceGet, SalesforceSearch
 
-# Direct tool usage
-tool = GetAccountTool()
-result = tool._run(query="Genepoint")
-print(f"Tool result: {result}")
+# Test unified GET tool
+get_tool = SalesforceGet()
+result = get_tool._execute(record_id="001bm00000SA8pSAAT")
+print(f"Get result: {result}")
+
+# Test unified SEARCH tool
+search_tool = SalesforceSearch()
+result = search_tool._execute(query="biotechnology", object_type="Account")
+print(f"Search result: {result}")
 ```
 
 ### Stage 5: Memory & Storage
@@ -233,17 +250,25 @@ asyncio.run(profile_request())
 
 ## 🔍 Deep Dive Areas
 
-### 1. LangGraph Mechanics
+### 1. Modular LangGraph Architecture
 **Key files:**
-- `src/orchestrator/main.py::build_orchestrator_graph()`
-- State management and checkpointing
-- Tool nodes vs regular nodes
+- `src/orchestrator/graph_builder.py` - New modular graph construction
+- `src/orchestrator/main.py` - Legacy orchestrator (being phased out)
+- `src/orchestrator/state.py` - State type definitions
+- `src/orchestrator/conversation_handler.py` - Message processing
 
 **Experiments:**
 ```python
-# Visualize the graph
-from src.orchestrator.main import orchestrator_graph
-print(orchestrator_graph.get_graph().draw_mermaid())
+# Explore the new modular graph builder
+from src.orchestrator.graph_builder import GraphBuilder
+
+builder = GraphBuilder()
+graph = builder.build_graph()
+print("Graph nodes:", graph.get_graph().nodes())
+print("Graph edges:", graph.get_graph().edges())
+
+# Visualize the graph structure
+print(graph.get_graph().draw_mermaid())
 ```
 
 ### 2. A2A Protocol Implementation
@@ -264,15 +289,20 @@ curl -X POST http://localhost:8001/a2a \
   }'
 ```
 
-### 3. Tool Design Patterns
+### 3. Unified Tool Architecture
 **Key files:**
-- `src/tools/salesforce_tools.py` - Tool implementations
-- `src/orchestrator/agent_caller_tools.py` - Meta-tools
+- `src/tools/salesforce_unified.py` - Unified Salesforce tools
+- `src/tools/jira_unified.py` - Unified Jira tools
+- `src/tools/servicenow_unified.py` - Unified ServiceNow tools
+- `src/tools/salesforce_base.py` - Base tool classes
+- `src/orchestrator/agent_caller_tools.py` - Agent communication tools
 
-**Patterns to study:**
-- Input validation with Pydantic
-- Error handling
-- Response formatting
+**New patterns to study:**
+- Base class hierarchy (Read/Write/Analytics)
+- Unified tool interfaces
+- Automatic object type detection
+- Query builder integration
+- Cross-object search capabilities
 
 ### 4. Logging Architecture
 **Key files:**
@@ -311,32 +341,40 @@ print(json.dumps(config.model_dump(), indent=2))
 
 ## 🎯 Advanced Explorations
 
-### 1. Create a New Agent
+### 1. Create a New Unified Tool
 Best way to understand the system is to extend it.
 
-```bash
-# Create a minimal weather agent
-cp -r src/agents/salesforce src/agents/weather
-# Modify to create a weather information agent
+```python
+# Create src/tools/weather_unified.py
+from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, Field
+from src.tools.salesforce_base import SalesforceReadTool
+
+class WeatherGet(SalesforceReadTool):
+    """Get weather information for a city."""
+    name: str = "weather_get"
+    description: str = "Get current weather for a city"
+    
+    class Input(BaseModel):
+        city: str = Field(description="City name")
+        units: Optional[str] = Field("metric", description="Temperature units")
+    
+    args_schema: type = Input
+    
+    def _execute(self, city: str, units: Optional[str] = "metric") -> Any:
+        # Implementation here
+        return {
+            "city": city,
+            "temperature": "22°C" if units == "metric" else "72°F",
+            "condition": "Sunny"
+        }
 ```
 
-### 2. Add a New Tool
-```python
-# Create src/tools/weather_tools.py
-from langchain_core.tools import BaseTool
-from pydantic import BaseModel, Field
-
-class GetWeatherInput(BaseModel):
-    city: str = Field(description="City name")
-
-class GetWeatherTool(BaseTool):
-    name: str = "get_weather"
-    description: str = "Get weather for a city"
-    args_schema: type[BaseModel] = GetWeatherInput
-    
-    def _run(self, city: str) -> str:
-        # Implementation here
-        return f"Weather in {city}: Sunny, 72°F"
+### 2. Extend an Existing Agent
+```bash
+# Add weather capability to an existing agent
+# Edit src/agents/salesforce/main.py to include weather tools
+# Update agent capabilities in agent_registry.json
 ```
 
 ### 3. Implement Custom Memory
@@ -374,9 +412,20 @@ sqlite3 memory_store.db "SELECT value FROM store WHERE key='state_orchestrator-x
 
 ## 🚀 Next Steps
 
-1. **Implement a feature end-to-end**: Add a new tool to an existing agent
-2. **Debug a real issue**: Use the logs to trace a problem
-3. **Optimize performance**: Find and fix a bottleneck
-4. **Extend the system**: Add a new agent or communication pattern
+1. **Explore the unified tool system**: Compare old vs new tool implementations
+2. **Test the modular orchestrator**: Understand the new component separation
+3. **Implement a feature end-to-end**: Add a new unified tool to an existing agent
+4. **Debug the new architecture**: Use logs to trace requests through modular components
+5. **Optimize performance**: Profile the new modular system vs legacy
+6. **Extend the system**: Add ServiceNow unified tools or new agent capabilities
+
+## 📋 2025 Architecture Updates
+
+### Key Changes to Explore:
+- **Modular Orchestrator**: Split into separate handler classes
+- **Unified Tools**: Consolidated tool interfaces with base classes
+- **Enhanced Query Builders**: SOQL and GlideRecord query builders
+- **Improved Error Handling**: Better circuit breaker and retry logic
+- **Component Separation**: Clear boundaries between orchestrator components
 
 Remember: The best way to understand is to break things and fix them!

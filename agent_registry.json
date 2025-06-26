@@ -37,7 +37,7 @@
         }
       },
       "status": "online",
-      "last_health_check": 1342872.993855333
+      "last_health_check": 1382900.822258541
     },
     {
       "name": "jira-agent",
@@ -65,28 +65,19 @@
         ],
         "metadata": {
           "framework": "langgraph",
-          "tools_count": 15,
+          "tools_count": 6,
           "tool_names": [
-            "search_jira_issues",
-            "get_jira_issue",
-            "create_jira_issue",
-            "update_jira_issue",
-            "add_jira_comment",
-            "get_project_issues",
-            "get_my_issues",
-            "get_epic_issues",
-            "transition_issue",
-            "assign_issue",
-            "add_attachment",
-            "get_issue_history",
-            "create_subtask",
-            "link_issues",
-            "get_sprint_issues"
+            "jira_get",
+            "jira_search",
+            "jira_create",
+            "jira_update",
+            "jira_collaboration",
+            "jira_analytics"
           ]
         }
       },
       "status": "online",
-      "last_health_check": 1342872.994014
+      "last_health_check": 1382900.822545125
     },
     {
       "name": "servicenow-agent",
@@ -137,7 +128,7 @@
         }
       },
       "status": "online",
-      "last_health_check": 1342872.994095083
+      "last_health_check": 1382900.822656041
     }
   ]
 }

@@ -1,35 +1,7 @@
-"""
-Enterprise Service Discovery and Agent Registry System
+"""Agent registry for service discovery and health monitoring.
 
-This module implements a distributed service discovery pattern for multi-agent architectures,
-providing dynamic agent discovery, health monitoring, and capability-based routing following
-enterprise microservices best practices.
-
-Architecture Patterns Implemented:
-- Service Registry Pattern: Central registry for service discovery and health monitoring
-- Health Check Pattern: Active monitoring with configurable timeouts and circuit breakers
-- Capability-Based Routing: Dynamic agent selection based on advertised capabilities
-- Configuration Management: Persistent registry with hot-reload support
-
-Why Dynamic Agent Discovery is Essential:
-1. Scalability: Agents can be added/removed without orchestrator restarts
-2. Resilience: Failed agents are automatically detected and bypassed
-3. Flexibility: New capabilities can be deployed independently
-4. Load Distribution: Multiple agents can handle the same capability
-5. Zero Downtime Deployments: Rolling updates without service interruption
-
-Health Check Strategy:
-- Concurrent health checks minimize discovery latency
-- Exponential backoff prevents overwhelming recovering agents
-- Circuit breaker pattern prevents cascading failures
-- Agent capabilities are refreshed during health checks
-- Configurable timeouts balance responsiveness vs. network tolerance
-
-Enterprise Integration:
-- Compatible with service mesh architectures (Istio, Linkerd)
-- Supports Kubernetes service discovery patterns
-- Integrates with APM tools (DataDog, New Relic)
-- JSON-based configuration for GitOps workflows
+Handles dynamic agent registration, health checks, and capability-based routing.
+Uses circuit breakers and exponential backoff for resilience.
 """
 
 import json
@@ -38,7 +10,6 @@ import asyncio
 import time
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
-import logging
 from datetime import datetime
 
 from ..a2a import AgentCard, A2AClient, A2AException

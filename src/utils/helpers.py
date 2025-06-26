@@ -1,40 +1,17 @@
-"""Helper utilities for the multi-agent orchestrator system.
-
-This module provides common utility functions used throughout the orchestrator
-and agent implementations. It includes message processing utilities and other
-shared functionality.
-
-Key utilities:
-- Message preservation for conversation context management
-- Token optimization helpers for cost management
-
-Note: UI/UX functions have been moved to the ux module.
-"""
+"""Helper utilities for message processing and token management."""
 
 def smart_preserve_messages(messages: list, keep_count: int = 2):
-    """Preserve complete tool call exchanges while respecting message count limits.
+    """Preserve tool call/response pairs while trimming to keep_count messages.
     
-    Intelligently trims conversation history to maintain context while staying
-    within token limits. Uses LangGraph's trim_messages utility to ensure
-    tool call/response pairs remain intact.
+    Uses LangGraph's trim_messages when available, falls back to simple slicing.
+    Token budget: keep_count * 800 (based on 400 avg + tool overhead).
     
     Args:
-        messages: List of conversation messages (HumanMessage, AIMessage, etc.)
+        messages: List of LangChain message objects
         keep_count: Target number of messages to preserve (default: 2)
         
     Returns:
-        List of preserved messages maintaining tool call integrity.
-        
-    Implementation Notes:
-        - Uses calibrated token estimates based on production usage analysis
-        - Preserves tool calls and their responses as atomic units
-        - Prioritizes recent messages while maintaining conversation flow
-        - Falls back to simple slicing if trim_messages unavailable
-        
-    Token Calibration:
-        - Average message: ~400 tokens (calibrated from logs showing 717 avg)
-        - Tool overhead: ~1.5K tokens for multi-tool responses
-        - Budget calculation: keep_count * 800 tokens (reduced from 1200)
+        List of preserved messages with tool call pairs intact
     """
     if len(messages) <= keep_count:
         return messages

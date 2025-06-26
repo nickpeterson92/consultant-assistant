@@ -1,29 +1,4 @@
-"""
-Enterprise-Grade Configuration Management for Multi-Agent System
-
-This module implements a sophisticated configuration architecture designed for production-scale
-multi-agent systems, providing centralized management with multiple override layers and 
-comprehensive validation.
-
-Architecture Highlights:
-- Type-safe configuration using Python dataclasses for compile-time validation
-- Hierarchical configuration with JSON base, environment overrides, and runtime updates
-- Singleton pattern ensures configuration consistency across the distributed system
-- Immutable defaults with controlled mutation through defined interfaces
-- Zero-config startup with sensible production defaults
-
-Configuration Precedence (highest to lowest):
-1. Runtime updates via ConfigManager API
-2. Environment variables (e.g., DEBUG_MODE, LLM_MODEL)
-3. JSON configuration file (system_config.json)
-4. Hardcoded defaults in dataclass definitions
-
-Design Decisions:
-- JSON format chosen for human readability and broad tooling support
-- Dataclasses provide type safety, validation, and IDE autocompletion
-- Singleton pattern prevents configuration drift in long-running processes
-- Nested configuration objects mirror system architecture for intuitive organization
-"""
+"""Configuration management for the multi-agent system."""
 
 import os
 import json
@@ -45,12 +20,7 @@ logger = get_logger()
 
 @dataclass
 class DatabaseConfig:
-    """Production-grade database configuration with connection pooling.
-    
-    SQLite was chosen for its zero-configuration deployment and excellent performance
-    for single-node deployments. The connection pool prevents resource exhaustion
-    under concurrent load.
-    """
+    """Database configuration."""
     path: str = "memory_store.db"
     timeout: int = 30
     pool_size: int = 5
@@ -60,13 +30,7 @@ class DatabaseConfig:
 
 @dataclass 
 class LoggingConfig:
-    """Enterprise logging with rotation, buffering, and structured output.
-    
-    Implements production best practices:
-    - Log rotation prevents disk exhaustion
-    - Buffering reduces I/O overhead
-    - Structured format enables log aggregation tools
-    """
+    """Logging configuration."""
     level: str = "INFO"
     format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     external_logs_dir: str = "logs"
@@ -76,11 +40,7 @@ class LoggingConfig:
 
 @dataclass
 class ModelPricing:
-    """Cost tracking for LLM usage with per-token granularity.
-    
-    Essential for enterprise cost management and budget allocation.
-    Supports dynamic pricing updates as model costs change.
-    """
+    """Model pricing configuration."""
     input_per_1k: float
     output_per_1k: float
     
@@ -91,14 +51,7 @@ class ModelPricing:
 
 @dataclass
 class LLMConfig:
-    """Enterprise LLM configuration with caching, retries, and cost tracking.
-    
-    Key architectural decisions:
-    - Temperature 0.0 for deterministic business operations
-    - Aggressive caching reduces costs and latency
-    - Exponential backoff retry strategy for resilience
-    - Azure OpenAI for enterprise security and compliance
-    """
+    """LLM configuration."""
     model: str = "gpt-4o-mini"
     temperature: float = 0.0  # Default can be tuned for user interactions via config
     top_p: Optional[float] = None  # Nucleus sampling - None uses model default (1.0)
@@ -114,8 +67,6 @@ class LLMConfig:
     pricing: Dict[str, ModelPricing] = field(default_factory=dict)
     
     def __post_init__(self):
-        # Default pricing from constants acts as fallback when config file lacks pricing data
-        # Ensures cost tracking works out-of-the-box
         if not self.pricing:
             self.pricing = {
                 model: ModelPricing(
@@ -150,12 +101,7 @@ class LLMConfig:
 
 @dataclass
 class A2AConfig:
-    """Production-grade agent communication with resilience patterns.
-    
-    Implements Netflix-style circuit breaker pattern and connection pooling
-    for fault-tolerant inter-agent communication. Timeouts are carefully
-    tuned to balance responsiveness with reliability.
-    """
+    """Agent-to-agent communication configuration."""
     timeout: int = DEFAULT_TIMEOUT_SECONDS  # Total operation timeout
     connect_timeout: int = DEFAULT_CONNECT_TIMEOUT  # TCP handshake timeout
     sock_connect_timeout: int = DEFAULT_SOCKET_TIMEOUT  # Lower-level socket timeout
@@ -173,22 +119,13 @@ class A2AConfig:
 
 @dataclass
 class SecurityConfig:
-    """Security controls focused on what's actually implemented.
-    
-    Current security features:
-    - Input validation in AgentInputValidator (SOQL injection prevention)
-    - Max input length to prevent memory exhaustion
-    """
+    """Security configuration."""
     input_validation_enabled: bool = True
     max_input_length: int = 50000  # Prevents memory exhaustion
 
 @dataclass
 class AgentConfig:
-    """Per-agent configuration supporting heterogeneous deployments.
-    
-    Each agent can have different resource limits and health check
-    intervals based on its workload characteristics.
-    """
+    """Agent-specific configuration."""
     name: str
     endpoint: str
     port: int
@@ -200,13 +137,7 @@ class AgentConfig:
 
 @dataclass
 class ConversationConfig:
-    """Intelligent conversation management with automatic summarization.
-    
-    Balances context window usage with conversation continuity:
-    - Automatic summarization prevents token limit exhaustion
-    - Delayed extraction avoids processing ephemeral data
-    - Turn thresholds ensure meaningful interactions before persistence
-    """
+    """Conversation management configuration."""
     summary_threshold: int = 12  # Summarize before context window pressure
     max_conversation_length: int = 100  # Hard limit prevents unbounded growth
     memory_extraction_enabled: bool = True
@@ -237,12 +168,7 @@ class ConversationConfig:
 
 @dataclass
 class SystemConfig:
-    """Root configuration object implementing the Composite pattern.
-    
-    Aggregates all subsystem configurations into a cohesive whole.
-    The nested structure mirrors the system architecture, making
-    configuration intuitive for operators.
-    """
+    """Root configuration object."""
     database: DatabaseConfig
     logging: LoggingConfig
     llm: LLMConfig
@@ -314,15 +240,7 @@ class SystemConfig:
         )
 
 class ConfigManager:
-    """Singleton configuration manager implementing hierarchical overrides.
-    
-    The singleton pattern ensures configuration consistency across all
-    components in the distributed system. Thread-safe lazy initialization
-    supports both CLI and programmatic usage patterns.
-    
-    Configuration sources are merged in precedence order, allowing
-    operators to override specific settings without modifying defaults.
-    """
+    """Singleton configuration manager."""
     
     def __init__(self, config_path: Optional[str] = None):
         self.config_path = config_path or "system_config.json"
@@ -330,13 +248,7 @@ class ConfigManager:
         self._load_config()
     
     def _load_config(self):
-        """Implements the configuration cascade with validation.
-        
-        Loading order ensures predictable behavior:
-        1. Built-in defaults provide zero-config startup
-        2. JSON file allows persistent customization
-        3. Environment variables enable deployment-specific overrides
-        """
+        """Load configuration from various sources."""
         config_data = self._get_default_config()
         
         # JSON configuration provides persistent customization
@@ -367,11 +279,7 @@ class ConfigManager:
         self._config = SystemConfig.from_dict(config_data)
     
     def _get_default_config(self) -> Dict[str, Any]:
-        """Provides sensible defaults for zero-configuration startup.
-        
-        Defaults are chosen for development convenience while maintaining
-        security. Production deployments should override via JSON or env.
-        """
+        """Get default configuration."""
         return {
             "database": {},
             "logging": {},
@@ -390,13 +298,7 @@ class ConfigManager:
         }
     
     def _get_env_overrides(self) -> Dict[str, Any]:
-        """Maps environment variables to configuration paths.
-        
-        Supports common deployment patterns:
-        - DEBUG_MODE for development
-        - DATABASE_PATH for container volumes
-        - LLM_* for model selection and tuning
-        """
+        """Get configuration overrides from environment variables."""
         overrides = {}
         
         
@@ -451,11 +353,7 @@ class ConfigManager:
         return overrides
     
     def _merge_configs(self, base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
-        """Deep merge preserving nested structure.
-        
-        Recursive merging allows partial overrides of nested configs
-        without losing other settings in the same section.
-        """
+        """Deep merge configuration dictionaries."""
         result = base.copy()
         
         for key, value in override.items():
@@ -467,11 +365,7 @@ class ConfigManager:
         return result
     
     def save_config(self):
-        """Persists runtime configuration changes.
-        
-        Enables configuration updates to survive restarts.
-        Human-readable JSON format supports manual editing.
-        """
+        """Save configuration to file."""
         try:
             with open(self.config_path, 'w') as f:
                 json.dump(self._config.to_dict(), f, indent=2)
@@ -489,17 +383,13 @@ class ConfigManager:
             )
     
     def get_config(self) -> SystemConfig:
-        """Lazy initialization ensures configuration is always available."""
+        """Get configuration instance."""
         if self._config is None:
             self._load_config()
         return self._config
     
     def reload_config(self):
-        """Force reload configuration from disk.
-        
-        Useful when configuration file has been modified and you want
-        to pick up changes without restarting the application.
-        """
+        """Reload configuration from disk."""
         logger.info("config_reloading",
             component="config",
             operation="reload",
@@ -509,13 +399,7 @@ class ConfigManager:
         self._load_config()
     
     def update_config(self, updates: Dict[str, Any]):
-        """Runtime configuration updates without restart.
-        
-        Supports dynamic reconfiguration for:
-        - Feature flags during incidents
-        - Performance tuning under load
-        - Agent registration/deregistration
-        """
+        """Update configuration at runtime."""
         if self._config is None:
             self._load_config()
         
@@ -540,54 +424,50 @@ class ConfigManager:
 _config_manager: Optional[ConfigManager] = None
 
 def get_config_manager(config_path: Optional[str] = None) -> ConfigManager:
-    """Thread-safe singleton accessor.
-    
-    The module-level singleton ensures all components share the same
-    configuration view, preventing drift in distributed systems.
-    """
+    """Get singleton config manager instance."""
     global _config_manager
     if _config_manager is None:
         _config_manager = ConfigManager(config_path)
     return _config_manager
 
 def get_system_config() -> SystemConfig:
-    """Primary API for configuration access throughout the system."""
+    """Get system configuration."""
     return get_config_manager().get_config()
 
 def reload_system_config():
-    """Reload configuration from disk to pick up changes."""
+    """Reload configuration from disk."""
     get_config_manager().reload_config()
 
 # Public API exports - other modules should use these accessors
 __all__ = ['ModelPricing', 'LLMConfig', 'SystemConfig', 'get_system_config', 'get_llm_config', 'reload_system_config']
 
-# Convenience accessors provide type-safe configuration access
+# Convenience accessors
 def get_database_config() -> DatabaseConfig:
-    """Database configuration for storage layer."""
+    """Get database configuration."""
     return get_system_config().database
 
 def get_logging_config() -> LoggingConfig:
-    """Logging configuration for observability."""
+    """Get logging configuration."""
     return get_system_config().logging
 
 def get_llm_config() -> LLMConfig:
-    """LLM configuration for AI operations."""
+    """Get LLM configuration."""
     return get_system_config().llm
 
 def get_a2a_config() -> A2AConfig:
-    """A2A protocol configuration for agent communication."""
+    """Get A2A communication configuration."""
     return get_system_config().a2a
 
 def get_security_config() -> SecurityConfig:
-    """Security configuration for access control."""
+    """Get security configuration."""
     return get_system_config().security
 
 def get_conversation_config() -> ConversationConfig:
-    """Conversation configuration for interaction management."""
+    """Get conversation configuration."""
     return get_system_config().conversation
 
 def get_agent_config(agent_name: str) -> Optional[AgentConfig]:
-    """Agent-specific configuration for dynamic discovery."""
+    """Get agent-specific configuration."""
     return get_config_manager().get_agent_config(agent_name)
 
 

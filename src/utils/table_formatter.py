@@ -10,8 +10,7 @@ Key principles:
 - Truncation happens at the data level for 100% compliance
 """
 
-from typing import Dict, Any, List, Union, Optional
-import json
+from typing import Dict, Any, List
 
 
 class TableFormatter:

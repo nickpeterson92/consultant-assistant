@@ -146,16 +146,31 @@ class BaseSalesforceTool(BaseTool, ABC):
         
         # Simple, focused error responses
         if error_code == 'INVALID_FIELD':
+            # Extract field name from error message if possible
+            import re
+            field_match = re.search(r"relationship '(\w+)'|column '(\w+)'", str(error))
+            field_name = field_match.group(1) or field_match.group(2) if field_match else "unknown"
+            
             return {
                 "error": "Invalid field in query",
                 "error_code": "INVALID_FIELD",
-                "details": str(error)
+                "details": str(error),
+                "guidance": {
+                    "reflection": f"The field '{field_name}' doesn't exist on this object.",
+                    "consider": "What type of data are you looking for? Different objects use different field names for similar concepts.",
+                    "approach": "Think about the object's purpose and what fields it might have."
+                }
             }
         elif error_code == 'MALFORMED_QUERY':
             return {
                 "error": "Malformed SOQL query", 
                 "error_code": "MALFORMED_QUERY",
-                "details": str(error)
+                "details": str(error),
+                "guidance": {
+                    "reflection": "The query syntax is incorrect.",
+                    "consider": "Check for extra characters, unmatched brackets, or invalid SOQL syntax.",
+                    "approach": "Simplify the query or ensure parameters contain only the intended values."
+                }
             }
         elif error_code == 'INVALID_TYPE':
             return {"error": "Invalid object type", "details": str(error)}

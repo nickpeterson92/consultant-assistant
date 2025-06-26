@@ -1,18 +1,6 @@
-"""Multi-File Logging System for Better Traceability.
+"""Component-based logging with separate files per service.
 
-This module provides component-based log file separation for easier debugging
-and monitoring. Each component gets its own log file, with an additional 
-error log that captures all ERROR level messages across components.
-
-Log Files:
-- orchestrator.log: Main orchestrator operations
-- salesforce.log: Salesforce agent and tool operations
-- jira.log: Jira agent and tool operations
-- servicenow.log: ServiceNow agent and tool operations
-- a2a_protocol.log: A2A/network communications
-- storage.log: Database operations
-- system.log: System-wide events (startup/shutdown)
-- errors.log: All ERROR level messages (cross-component)
+Routes logs to component-specific files plus errors.log for all ERROR messages.
 """
 
 import json

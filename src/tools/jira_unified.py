@@ -1,18 +1,4 @@
-"""Unified Jira tools following 2024 best practices.
-
-This module implements a minimal set of powerful, composable tools that
-let the LLM orchestrate complex operations through simple building blocks.
-
-Tools:
-- JiraGet: Retrieve any issue by key
-- JiraSearch: Advanced JQL search with natural language support
-- JiraCreate: Create issues and subtasks
-- JiraUpdate: Update issues, transitions, assignments
-- JiraCollaboration: Comments, attachments, links
-- JiraAnalytics: History and metrics
-
-Each tool is simple, focused, and lets the LLM handle the complexity.
-"""
+"""Unified Jira tools for issue management and JQL queries."""
 
 import json
 from typing import Optional, List, Dict, Any

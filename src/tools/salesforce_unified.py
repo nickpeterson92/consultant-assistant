@@ -1,18 +1,4 @@
-"""Unified Salesforce tools following 2024 best practices.
-
-This module implements a minimal set of powerful, composable tools that
-let the LLM orchestrate complex operations through simple building blocks.
-
-Tools:
-- SalesforceGet: Retrieve any record by ID
-- SalesforceSearch: Natural language search on any object
-- SalesforceCreate: Create any type of record
-- SalesforceUpdate: Update any record
-- SalesforceSOSL: Cross-object search
-- SalesforceAnalytics: Metrics and aggregations
-
-Each tool is simple, focused, and lets the LLM handle the complexity.
-"""
+"""Unified Salesforce tools for CRUD operations and analytics."""
 
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
@@ -25,20 +11,14 @@ from src.tools.salesforce_base import (
 )
 from src.utils.soql_query_builder import (
     SOQLQueryBuilder,
-    SearchQueryBuilder,
-    SOQLOperator,
-    escape_soql
-)
+    SOQLOperator
+    )
 
 
 class SalesforceGet(SalesforceReadTool):
-    """Get any Salesforce record by ID.
-    
-    Simple, direct record retrieval. The LLM determines object type from the ID prefix
-    or can specify it explicitly.
-    """
+    """Get any Salesforce record by ID."""
     name: str = "salesforce_get"
-    description: str = "Get a Salesforce record by ID"
+    description: str = "Retrieve a single record when you have its ID (15 or 18 character identifier)"
     
     class Input(BaseModel):
         record_id: str = Field(description="Salesforce record ID (15 or 18 character)")
@@ -86,13 +66,9 @@ class SalesforceGet(SalesforceReadTool):
 
 
 class SalesforceSearch(SalesforceReadTool):
-    """Search any Salesforce object with natural language or structured queries.
-    
-    Handles everything from simple field matches to complex queries.
-    The LLM can pass natural language or WHERE clause conditions.
-    """
+    """Search any Salesforce object with natural language or structured queries."""
     name: str = "salesforce_search"
-    description: str = "Search Salesforce records with flexible criteria"
+    description: str = "LIST individual records with details - use when you need the actual records, not summaries (e.g., list all opportunities, show contacts)"
     
     class Input(BaseModel):
         object_type: str = Field(description="Object to search (Account, Contact, Lead, etc.)")
@@ -163,13 +139,9 @@ class SalesforceSearch(SalesforceReadTool):
 
 
 class SalesforceCreate(SalesforceWriteTool):
-    """Create any type of Salesforce record.
-    
-    Simple creation tool that works with any object type.
-    The LLM provides the object type and field values.
-    """
+    """Create any type of Salesforce record."""
     name: str = "salesforce_create"
-    description: str = "Create a new Salesforce record"
+    description: str = "Add a new record to Salesforce (lead, contact, opportunity, case, etc.)"
     
     class Input(BaseModel):
         object_type: str = Field(description="Type of object to create")
@@ -203,13 +175,9 @@ class SalesforceCreate(SalesforceWriteTool):
 
 
 class SalesforceUpdate(SalesforceWriteTool):
-    """Update any Salesforce record.
-    
-    Simple update tool that works with any object type.
-    Can update by ID or by matching criteria.
-    """
+    """Update any Salesforce record."""
     name: str = "salesforce_update"
-    description: str = "Update Salesforce record(s)"
+    description: str = "Modify existing records - change field values, update status, etc."
     
     class Input(BaseModel):
         object_type: str = Field(description="Type of object to update")
@@ -264,13 +232,9 @@ class SalesforceUpdate(SalesforceWriteTool):
 
 
 class SalesforceSOSL(SalesforceReadTool):
-    """Cross-object search using Salesforce Object Search Language (SOSL).
-    
-    Search across multiple object types in a single query.
-    Perfect for "find anything related to X" queries.
-    """
+    """Cross-object search using Salesforce Object Search Language (SOSL)."""
     name: str = "salesforce_sosl"
-    description: str = "Search across multiple Salesforce objects simultaneously"
+    description: str = "Search across MULTIPLE object types simultaneously - use ONLY when you don't know which object contains the data"
     
     class Input(BaseModel):
         search_term: str = Field(description="Text to search for across objects")
@@ -342,13 +306,9 @@ class SalesforceSOSL(SalesforceReadTool):
 
 
 class SalesforceAnalytics(SalesforceAnalyticsTool):
-    """Perform analytics and aggregations on Salesforce data.
-    
-    Handles metrics, grouping, and analytical queries.
-    The LLM can request various aggregations and groupings.
-    """
+    """Perform analytics and aggregations on Salesforce data."""
     name: str = "salesforce_analytics"
-    description: str = "Get analytics and metrics from Salesforce data"
+    description: str = "CALCULATE aggregated numbers and statistics - use ONLY for totals, averages, counts, insights (NOT for listing records)"
     
     class Input(BaseModel):
         object_type: str = Field(description="Object to analyze")

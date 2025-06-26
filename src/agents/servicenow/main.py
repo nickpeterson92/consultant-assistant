@@ -1,37 +1,9 @@
-"""ServiceNow Specialized Agent - Enterprise IT Service Management.
-
-This module implements a LangGraph-based agent for comprehensive ServiceNow operations,
-providing natural language interfaces to IT Service Management (ITSM) workflows
-through the A2A protocol.
-
-Architecture Philosophy:
-- **Natural Language Processing**: Understands context and intent for ITSM operations
-- **Comprehensive Tool Suite**: 15 tools covering all major ServiceNow workflows
-- **State Management**: Maintains conversation context across interactions
-- **Error Resilience**: Graceful error handling with informative responses
-- **Enterprise Security**: Input validation and safe query construction
-
-Integration Pattern:
-- Receives tasks via A2A protocol from orchestrator
-- Processes using LangGraph workflow with specialized tools
-- Returns structured responses with record numbers and operation results
-- Maintains thread-based conversation state for context
-
-Key Capabilities:
-- Incident Management: Create, read, update incidents
-- Change Management: Handle change requests through their lifecycle
-- Problem Management: Root cause analysis and known error tracking
-- Task Management: Generic task operations across tables
-- User & CMDB: User lookups and configuration item management
-- Global Search: Flexible queries across any ServiceNow table
-"""
+"""ServiceNow specialized agent for ITSM operations via A2A protocol."""
 
 import os
-import logging
 import asyncio
-from typing import Dict, Any, List, TypedDict, Literal, Annotated
+from typing import Dict, Any, List, TypedDict, Annotated
 import operator
-from datetime import datetime
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -44,7 +16,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.memory import MemorySaver
 
 from src.tools.servicenow_tools import ALL_SERVICENOW_TOOLS
-from src.a2a import A2AServer, A2ATask, A2AResponse, A2AArtifact, AgentCard
+from src.a2a import A2AServer, AgentCard
 from src.utils.config import get_llm_config
 from src.utils.logging import get_logger
 from src.utils.sys_msg import servicenow_agent_sys_msg
@@ -320,6 +292,11 @@ async def main(port: int = 8003):
         pass
     finally:
         await server.stop(runner)
+        
+        # Clean up the global connection pool
+        from src.a2a.protocol import get_connection_pool
+        pool = get_connection_pool()
+        await pool.close_all()
 
 if __name__ == "__main__":
     import asyncio

@@ -1,7 +1,4 @@
-"""
-Circuit Breaker Pattern Implementation for Multi-Agent System
-Provides resilience against cascading failures in agent-to-agent communication
-"""
+"""Circuit breaker pattern for resilient agent-to-agent communication."""
 
 import asyncio
 import time
@@ -9,7 +6,6 @@ import json
 from typing import Dict, Any, Optional, Callable
 from enum import Enum
 from dataclasses import dataclass
-import logging
 from src.utils.logging import get_logger
 
 logger = get_logger('circuit_breaker')

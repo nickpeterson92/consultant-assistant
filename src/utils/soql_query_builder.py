@@ -1,16 +1,4 @@
-"""
-SOQL Query Builder for Salesforce
-
-A flexible, composable query builder that provides a fluent interface for
-constructing SOQL queries with built-in security and optimization features.
-
-Design Benefits:
-- Prevents SOQL injection through automatic escaping
-- Reduces code duplication across tools
-- Enables complex queries with simple syntax
-- Supports dynamic field selection and filtering
-- Optimizes query performance with field limiting
-"""
+"""SOQL query builder with fluent interface and injection protection."""
 
 from typing import List, Dict, Any, Optional, Union
 from dataclasses import dataclass, field
@@ -38,7 +26,14 @@ class LogicalOperator(Enum):
 
 
 def escape_soql(value: Optional[str]) -> str:
-    """Escape special characters to prevent SOQL injection"""
+    """Escape special characters to prevent SOQL injection.
+    
+    Args:
+        value: String to escape
+        
+    Returns:
+        Escaped string safe for SOQL
+    """
     if value is None:
         return ''
     return str(value).replace("'", "\\'").replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r')

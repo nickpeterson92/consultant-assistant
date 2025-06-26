@@ -7,13 +7,11 @@ import uuid
 import json
 import asyncio
 from typing import Dict, Any, Optional, List, Annotated, Union
-from langchain_core.tools import BaseTool, tool
-from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import BaseTool
 from langchain_core.messages import ToolMessage
 from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 from pydantic import BaseModel, Field
-import logging
 
 from .agent_registry import AgentRegistry
 from ..a2a import A2AClient, A2ATask, A2AException
@@ -97,18 +95,7 @@ class BaseAgentTool(BaseTool):
 
 
 class AgentCallInput(BaseModel):
-    """Input Schema for Multi-Agent Task Delegation.
-    
-    Defines the interface contract for orchestrator-to-agent communication
-    following enterprise integration patterns and loose coupling principles.
-    Supports both explicit agent targeting and capability-based auto-selection.
-    
-    Architecture Benefits:
-    - Loose coupling: Agents selected by capability, not hard-coded names
-    - Context preservation: Maintains conversation state across agent boundaries
-    - Flexibility: Supports both specific targeting and intelligent routing
-    - Extensibility: New agents automatically discoverable via capabilities
-    """
+    """Input schema for delegating tasks to agents."""
     instruction: str = Field(
         description="The user's EXACT request in their own words. "
         "DO NOT translate or modify. Pass through exactly as the user stated it."

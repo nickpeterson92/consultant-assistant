@@ -1,155 +1,110 @@
+```
+███████╗███████╗██████╗ ██╗   ██╗██╗ ██████╗███████╗███╗   ██╗ ██████╗ ██╗    ██╗
+██╔════╝██╔════╝██╔══██╗██║   ██║██║██╔════╝██╔════╝████╗  ██║██╔═══██╗██║    ██║
+███████╗█████╗  ██████╔╝██║   ██║██║██║     █████╗  ██╔██╗ ██║██║   ██║██║ █╗ ██║
+╚════██║██╔══╝  ██╔══██╗╚██╗ ██╔╝██║██║     ██╔══╝  ██║╚██╗██║██║   ██║██║███╗██║
+███████║███████╗██║  ██║ ╚████╔╝ ██║╚██████╗███████╗██║ ╚████║╚██████╔╝╚███╔███╔╝
+╚══════╝╚══════╝╚═╝  ╚═╝  ╚═══╝  ╚═╝ ╚═════╝╚══════╝╚═╝  ╚═══╝ ╚═════╝  ╚══╝╚══╝ 
+
+ █████╗  ██████╗ ███████╗███╗   ██╗████████╗
+██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝
+███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║   
+██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║   
+██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║   
+╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   
+```
+
+<div align="center">
+  <h3>🛠️ Enterprise ITSM Automation with AI Intelligence 🛠️</h3>
+  
+  [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+  [![LangGraph](https://img.shields.io/badge/LangGraph-0.2.69-green.svg)](https://github.com/langchain-ai/langgraph)
+  [![ServiceNow API](https://img.shields.io/badge/ServiceNow-REST%20API-red.svg)](https://developer.servicenow.com/dev.do)
+  [![A2A Protocol](https://img.shields.io/badge/A2A%20Protocol-JSON--RPC%202.0-purple.svg)](https://github.com/google-a2a/A2A)
+</div>
+
+---
+
 # ServiceNow Agent
 
-A specialized LangGraph agent for ServiceNow IT Service Management (ITSM) operations.
+Specialized AI agent for ServiceNow ITSM operations via A2A protocol.
 
-## Overview
+## Quick Start
 
-The ServiceNow Agent provides natural language interfaces to ServiceNow's core ITSM functionality, enabling users to manage incidents, changes, problems, tasks, and CMDB items through conversational interactions.
-
-## Features
-
-### 15 Specialized Tools
-
-#### Incident Management (3 tools)
-- **GetIncidentTool**: Search and retrieve incidents by number, description, caller, or assignment group
-- **CreateIncidentTool**: Create new incidents with automatic priority and urgency mapping
-- **UpdateIncidentTool**: Update incident state, assignment, priority, and other fields
-
-#### Change Request Management (3 tools)
-- **GetChangeRequestTool**: Search change requests by number, type, state, or assignment group
-- **CreateChangeRequestTool**: Create change requests with risk assessment and approval routing
-- **UpdateChangeRequestTool**: Update change state, implementation details, and approvals
-
-#### Problem Management (3 tools)
-- **GetProblemTool**: Search problems by number, description, or assignment group
-- **CreateProblemTool**: Create problem records for root cause analysis
-- **UpdateProblemTool**: Update problem state, workarounds, and resolution details
-
-#### Task Management (3 tools)
-- **GetTaskTool**: Search generic tasks by number, description, or assignment
-- **CreateTaskTool**: Create new tasks with proper categorization
-- **UpdateTaskTool**: Update task state, assignment, and completion details
-
-#### User & CMDB Tools (3 tools)
-- **GetUserTool**: Look up users by name, email, or employee ID
-- **GetCMDBItemTool**: Retrieve configuration items by name, class, or attributes
-- **SearchServiceNowTool**: Global search across multiple ServiceNow tables
-
-### Key Capabilities
-
-- **Natural Language Processing**: Understands queries like "show me critical incidents from last week"
-- **Glide Query Builder**: Secure, composable query construction preventing injection attacks
-- **Smart Field Mapping**: Automatically maps human-readable values to ServiceNow field values
-- **A2A Protocol Integration**: Seamless communication with the orchestrator
-- **Structured Logging**: Multi-file logging with component separation
-- **Memory Support**: Stores and recalls important ITSM records
-
-## Architecture
-
-```
-ServiceNow Agent
-├── Entry Point (servicenow_agent.py)
-├── LangGraph Agent (main.py)
-│   ├── State Management
-│   ├── Tool Execution
-│   └── A2A Integration
-├── ServiceNow Tools (servicenow_tools.py)
-│   ├── ServiceNowClient (API wrapper)
-│   └── 15 Specialized Tools
-└── GlideQueryBuilder (glide_query_builder.py)
-    ├── Query Templates
-    ├── Operator Support
-    └── Security Features
-```
-
-## Configuration
-
-Required environment variables:
 ```bash
-# ServiceNow Instance Configuration
-SNOW_INSTANCE=your-instance.service-now.com
-SNOW_USER=your-username
-SNOW_PASS=your-password
+# Set environment variables
+export SNOW_INSTANCE="company.service-now.com"
+export SNOW_USER="your-username"
+export SNOW_PASS="your-password"
+
+# Run agent
+python3 servicenow_agent.py [-d|--debug] [--port 8003]
 ```
 
-## Usage Examples
+## Tools (15 Specialized Tools)
 
-### Natural Language Queries
-```
+### Incident Management (3 tools)
+- **GetIncidentTool**: Search and retrieve incidents
+- **CreateIncidentTool**: Create new incidents  
+- **UpdateIncidentTool**: Update incident fields
+
+### Change Management (3 tools)
+- **GetChangeRequestTool**: Search change requests
+- **CreateChangeRequestTool**: Create change requests
+- **UpdateChangeRequestTool**: Update change details
+
+### Problem Management (3 tools)
+- **GetProblemTool**: Search problem records
+- **CreateProblemTool**: Create problem records
+- **UpdateProblemTool**: Update problem details
+
+### Task Management (3 tools)
+- **GetTaskTool**: Search generic tasks
+- **CreateTaskTool**: Create new tasks
+- **UpdateTaskTool**: Update task information
+
+### User & CMDB (3 tools)
+- **GetUserTool**: Look up users by name/email
+- **GetCMDBItemTool**: Retrieve configuration items
+- **SearchServiceNowTool**: Global search across tables
+
+## Examples
+
+```bash
+# Incident management
 "get incident INC0010023"
-"show me all critical incidents assigned to the network team"
-"create a high priority incident for database outage"
-"update change CHG0030045 to implement state"
-"find all problems related to email service"
+"create critical incident for database outage"
+"find incidents assigned to network team"
+
+# Change management
+"get change CHG0030045"
+"changes scheduled for this weekend"
+
+# Problem management
+"find problems related to email service"
+"create problem for recurring login failures"
+
+# Analytics
+"incident volume by priority this month"
+"average resolution time for P1 incidents"
 ```
 
-### Tool Selection Guide
-The agent automatically selects the appropriate tool based on:
-- Entity type mentioned (incident, change, problem, task, user, CI)
-- Action verb (get, create, update, search, find)
-- Field references (priority, state, assignment group)
+## A2A Endpoints
 
-## Security Features
+- **POST** `/a2a` - Task processing (JSON-RPC 2.0)
+- **GET** `/a2a/agent-card` - Agent capabilities
 
-- **Query Injection Prevention**: All queries built through GlideQueryBuilder
-- **Input Sanitization**: Automatic escaping of special characters
-- **API Authentication**: Secure HTTP Basic Auth with ServiceNow
-- **Field Validation**: Ensures only valid fields are queried/updated
+## Files
 
-## Integration with Orchestrator
+- `main.py` - LangGraph agent implementation
+- `../tools/servicenow_tools.py` - 15 specialized tools
+- `../utils/glide_query_builder.py` - Query builder with injection prevention
 
-The ServiceNow agent integrates with the orchestrator through:
-1. A2A protocol for task delegation
-2. Standardized response format
-3. Memory extraction for important records
-4. Natural language understanding shared with other agents
+## Query Features
 
-## Performance Considerations
+- **Natural Language**: "critical incidents from last week"
+- **Glide Queries**: `priority=1^state!=6^sys_created_on>=javascript:gs.beginningOfLastWeek()`
+- **Smart Mapping**: "high priority" → `priority=2`
+- **Security**: Automatic input sanitization and validation
 
-- **Field Selection**: Only retrieves necessary fields to minimize payload
-- **Query Optimization**: Uses indexed fields when possible
-- **Connection Pooling**: Reuses HTTP connections for efficiency
-- **Result Limiting**: Default limits prevent overwhelming responses
-
-## Common Patterns
-
-### Creating Incidents from Monitoring Alerts
-```python
-"create incident: CPU usage critical on PROD-WEB-01, affecting online store"
-```
-
-### Change Request Workflow
-```python
-"get change requests scheduled for this weekend"
-"update CHG0030045 to review state with notes about testing completion"
-```
-
-### Problem Investigation
-```python
-"find all problems related to recurring login failures"
-"create problem for investigating daily 3am performance degradation"
-```
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Authentication Failures**
-   - Verify SNOW_USER and SNOW_PASS are correct
-   - Check if user has necessary ServiceNow roles
-
-2. **Query Errors**
-   - Review generated Glide queries in logs
-   - Ensure field names match ServiceNow schema
-
-3. **Connection Issues**
-   - Verify SNOW_INSTANCE URL is accessible
-   - Check network connectivity and firewall rules
-
-## Future Enhancements
-
-- Workflow automation support
-- Service Catalog integration
-- Advanced analytics and reporting
-- Change Advisory Board (CAB) automation
-- Incident correlation and pattern detection
+See `/docs/components/servicenow-agent.md` for complete documentation.

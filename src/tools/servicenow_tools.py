@@ -117,7 +117,73 @@ class ServiceNowClient:
                 status_code=getattr(e.response, 'status_code', None),
                 response_text=getattr(e.response, 'text', '')[:500] if hasattr(e.response, 'text') else ''
             )
-            return {"error": f"ServiceNow API error: {str(e)}"}
+            
+            # Extract status code and provide structured error response
+            status_code = getattr(e.response, 'status_code', None) if hasattr(e, 'response') else None
+            error_str = str(e)
+            
+            if status_code == 401:
+                return {
+                    "error": "Authentication failed",
+                    "error_code": "UNAUTHORIZED",
+                    "details": error_str,
+                    "guidance": {
+                        "reflection": "The credentials are invalid or the session has expired.",
+                        "consider": "Are the SERVICENOW_USER and SERVICENOW_PASSWORD correct? Is the instance URL correct?",
+                        "approach": "Verify your ServiceNow credentials and instance configuration."
+                    }
+                }
+            elif status_code == 403:
+                return {
+                    "error": "Permission denied",
+                    "error_code": "FORBIDDEN",
+                    "details": error_str,
+                    "guidance": {
+                        "reflection": "You don't have permission to access this resource.",
+                        "consider": "Does your user have the required roles? Common roles: itil, admin, rest_api_explorer.",
+                        "approach": "Check with your ServiceNow administrator about required roles and permissions."
+                    }
+                }
+            elif status_code == 404:
+                # Try to extract table or record info
+                import re
+                table_match = re.search(r"/table/(\w+)|Table '(\w+)'", error_str)
+                table_name = table_match.group(1) or table_match.group(2) if table_match else "unknown"
+                
+                return {
+                    "error": "Resource not found",
+                    "error_code": "NOT_FOUND",
+                    "details": error_str,
+                    "guidance": {
+                        "reflection": f"The requested resource doesn't exist{f' (table: {table_name})' if table_name != 'unknown' else ''}.",
+                        "consider": "Is the table name correct? Common tables: incident, change_request, problem, sc_task, sys_user.",
+                        "approach": "Verify the table name and record ID. Check if you're using the correct API endpoint."
+                    }
+                }
+            elif status_code == 400:
+                # Try to extract field information from error
+                import re
+                field_match = re.search(r"field[s]? '([^']+)'|property '([^']+)'|Invalid field[s]?: ([^,\s]+)", error_str)
+                field_name = None
+                if field_match:
+                    field_name = field_match.group(1) or field_match.group(2) or field_match.group(3)
+                
+                return {
+                    "error": "Invalid request",
+                    "error_code": "BAD_REQUEST",
+                    "details": error_str,
+                    "guidance": {
+                        "reflection": f"The request is invalid{f' (field: {field_name})' if field_name else ''}.",
+                        "consider": "Are all required fields provided? Is the query syntax correct? ServiceNow has specific field naming.",
+                        "approach": "Check field names, data types, and query operators. Use sys_id for lookups, not names."
+                    }
+                }
+            else:
+                return {
+                    "error": "ServiceNow API error",
+                    "error_code": "API_ERROR",
+                    "details": error_str
+                }
     
     def query(self, table: str, params: Dict) -> List[Dict]:
         """Query ServiceNow table."""
@@ -169,6 +235,57 @@ def get_servicenow_connection() -> ServiceNowClient:
         username=username,
         password=password
     )
+
+
+def handle_tool_error(error: Exception, tool_name: str) -> Dict[str, Any]:
+    """Handle tool-level errors with structured guidance."""
+    logger.error("tool_error",
+        component="servicenow",
+        tool_name=tool_name,
+        error=str(error),
+        error_type=type(error).__name__
+    )
+    
+    error_str = str(error)
+    
+    # Check if it's already a structured error from the API client
+    if isinstance(error, dict) and "error_code" in error:
+        return error
+    
+    # Handle specific error types
+    if "Missing ServiceNow credentials" in error_str:
+        return {
+            "error": "Configuration error",
+            "error_code": "CONFIG_ERROR",
+            "details": error_str,
+            "guidance": {
+                "reflection": "ServiceNow credentials are not configured.",
+                "consider": "Have you set up the environment variables for ServiceNow?",
+                "approach": "Set SERVICENOW_INSTANCE, SERVICENOW_USER, and SERVICENOW_PASSWORD environment variables."
+            }
+        }
+    elif "Invalid field" in error_str or "Unknown field" in error_str:
+        # Try to extract field name
+        import re
+        field_match = re.search(r"field[s]? ['\"]?(\w+)['\"]?", error_str)
+        field_name = field_match.group(1) if field_match else "unknown"
+        
+        return {
+            "error": "Invalid field",
+            "error_code": "INVALID_FIELD",
+            "details": error_str,
+            "guidance": {
+                "reflection": f"The field '{field_name}' is not valid for this operation.",
+                "consider": "ServiceNow uses specific field names. Common fields: short_description, description, priority, state, assigned_to.",
+                "approach": "Check the ServiceNow documentation for valid field names for this table."
+            }
+        }
+    else:
+        return {
+            "error": "Operation failed",
+            "error_code": "UNKNOWN_ERROR",
+            "details": error_str
+        }
 
 
 
@@ -294,13 +411,7 @@ class GetIncidentTool(BaseTool):
             return incidents
             
         except Exception as e:
-            logger.error("tool_error",
-                component="servicenow",
-                tool_name=self.name,
-                error=str(e),
-                error_type=type(e).__name__
-            )
-            return {"error": str(e)}
+            return handle_tool_error(e, self.name)
 
 
 class CreateIncidentTool(BaseTool):
@@ -396,13 +507,7 @@ class CreateIncidentTool(BaseTool):
             return result
                 
         except Exception as e:
-            logger.error("tool_error",
-                component="servicenow",
-                tool_name=self.name,
-                error=str(e),
-                error_type=type(e).__name__
-            )
-            return {"error": str(e)}
+            return handle_tool_error(e, self.name)
 
 
 class UpdateIncidentTool(BaseTool):
@@ -477,13 +582,7 @@ class UpdateIncidentTool(BaseTool):
             return result
                 
         except Exception as e:
-            logger.error("tool_error",
-                component="servicenow",
-                tool_name=self.name,
-                error=str(e),
-                error_type=type(e).__name__
-            )
-            return {"error": str(e)}
+            return handle_tool_error(e, self.name)
 
 
 # ============================================================================
@@ -592,13 +691,7 @@ class GetChangeRequestTool(BaseTool):
             return changes
             
         except Exception as e:
-            logger.error("tool_error",
-                component="servicenow",
-                tool_name=self.name,
-                error=str(e),
-                error_type=type(e).__name__
-            )
-            return {"error": str(e)}
+            return handle_tool_error(e, self.name)
 
 
 class CreateChangeRequestTool(BaseTool):
@@ -670,13 +763,7 @@ class CreateChangeRequestTool(BaseTool):
             return result
                 
         except Exception as e:
-            logger.error("tool_error",
-                component="servicenow",
-                tool_name=self.name,
-                error=str(e),
-                error_type=type(e).__name__
-            )
-            return {"error": str(e)}
+            return handle_tool_error(e, self.name)
 
 
 class UpdateChangeRequestTool(BaseTool):
@@ -753,13 +840,7 @@ class UpdateChangeRequestTool(BaseTool):
             return result
                 
         except Exception as e:
-            logger.error("tool_error",
-                component="servicenow",
-                tool_name=self.name,
-                error=str(e),
-                error_type=type(e).__name__
-            )
-            return {"error": str(e)}
+            return handle_tool_error(e, self.name)
 
 
 # ============================================================================
@@ -855,13 +936,7 @@ class GetProblemTool(BaseTool):
             return problems
             
         except Exception as e:
-            logger.error("tool_error",
-                component="servicenow",
-                tool_name=self.name,
-                error=str(e),
-                error_type=type(e).__name__
-            )
-            return {"error": str(e)}
+            return handle_tool_error(e, self.name)
 
 
 class CreateProblemTool(BaseTool):
@@ -923,13 +998,7 @@ class CreateProblemTool(BaseTool):
             return result
                 
         except Exception as e:
-            logger.error("tool_error",
-                component="servicenow",
-                tool_name=self.name,
-                error=str(e),
-                error_type=type(e).__name__
-            )
-            return {"error": str(e)}
+            return handle_tool_error(e, self.name)
 
 
 class UpdateProblemTool(BaseTool):
@@ -1004,13 +1073,7 @@ class UpdateProblemTool(BaseTool):
             return result
                 
         except Exception as e:
-            logger.error("tool_error",
-                component="servicenow",
-                tool_name=self.name,
-                error=str(e),
-                error_type=type(e).__name__
-            )
-            return {"error": str(e)}
+            return handle_tool_error(e, self.name)
 
 
 # ============================================================================
@@ -1101,13 +1164,7 @@ class GetTaskTool(BaseTool):
             return tasks
             
         except Exception as e:
-            logger.error("tool_error",
-                component="servicenow",
-                tool_name=self.name,
-                error=str(e),
-                error_type=type(e).__name__
-            )
-            return {"error": str(e)}
+            return handle_tool_error(e, self.name)
 
 
 class CreateTaskTool(BaseTool):
@@ -1166,13 +1223,7 @@ class CreateTaskTool(BaseTool):
             return result
                 
         except Exception as e:
-            logger.error("tool_error",
-                component="servicenow",
-                tool_name=self.name,
-                error=str(e),
-                error_type=type(e).__name__
-            )
-            return {"error": str(e)}
+            return handle_tool_error(e, self.name)
 
 
 class UpdateTaskTool(BaseTool):
@@ -1232,13 +1283,7 @@ class UpdateTaskTool(BaseTool):
             return result
                 
         except Exception as e:
-            logger.error("tool_error",
-                component="servicenow",
-                tool_name=self.name,
-                error=str(e),
-                error_type=type(e).__name__
-            )
-            return {"error": str(e)}
+            return handle_tool_error(e, self.name)
 
 
 # ============================================================================
@@ -1315,13 +1360,7 @@ class GetUserTool(BaseTool):
             return users
             
         except Exception as e:
-            logger.error("tool_error",
-                component="servicenow",
-                tool_name=self.name,
-                error=str(e),
-                error_type=type(e).__name__
-            )
-            return {"error": str(e)}
+            return handle_tool_error(e, self.name)
 
 
 class GetCMDBItemTool(BaseTool):
@@ -1412,13 +1451,7 @@ class GetCMDBItemTool(BaseTool):
             return items
             
         except Exception as e:
-            logger.error("tool_error",
-                component="servicenow",
-                tool_name=self.name,
-                error=str(e),
-                error_type=type(e).__name__
-            )
-            return {"error": str(e)}
+            return handle_tool_error(e, self.name)
 
 
 class SearchServiceNowTool(BaseTool):
@@ -1513,13 +1546,7 @@ class SearchServiceNowTool(BaseTool):
             return results
             
         except Exception as e:
-            logger.error("tool_error",
-                component="servicenow",
-                tool_name=self.name,
-                error=str(e),
-                error_type=type(e).__name__
-            )
-            return {"error": str(e)}
+            return handle_tool_error(e, self.name)
 
 
 # Export all tools - EXACTLY 15 tools as requested

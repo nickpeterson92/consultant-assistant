@@ -1,11 +1,6 @@
-"""
-Message Serialization Utilities
+"""JSON serialization for LangChain messages."""
 
-Provides standardized JSON serialization for LangChain messages using modern Pydantic patterns.
-"""
-
-from typing import List, Dict, Any, Union
-import logging
+from typing import List, Dict, Any
 
 from .logging import get_logger
 
@@ -13,16 +8,15 @@ logger = get_logger()
 
 
 def serialize_message(message) -> Dict[str, Any]:
-    """
-    Serialize a single LangChain message to JSON-compatible dict.
+    """Serialize a LangChain message to JSON-compatible dict.
     
-    Uses modern .model_dump() method with fallbacks for compatibility.
+    Uses .model_dump() with fallbacks for older versions.
     
     Args:
         message: LangChain message object or dict
         
     Returns:
-        JSON-serializable dictionary with validated structure
+        JSON-serializable dictionary
     """
     try:
         if hasattr(message, 'model_dump'):

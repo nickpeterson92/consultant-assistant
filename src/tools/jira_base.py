@@ -88,8 +88,8 @@ class BaseJiraTool(BaseTool, ABC):
             result_preview=str(result)[:200] if result else "None"
         )
     
-    def _handle_error(self, error: Exception) -> Dict[str, str]:
-        """Handle errors with consistent format."""
+    def _handle_error(self, error: Exception) -> Dict[str, Any]:
+        """Handle errors with consistent format and structured guidance."""
         logger.error("tool_error",
             component="jira",
             tool_name=self.name,
@@ -99,15 +99,60 @@ class BaseJiraTool(BaseTool, ABC):
         
         error_str = str(error)
         if "401" in error_str or "Unauthorized" in error_str:
-            return {"error": "Authentication failed. Check Jira credentials."}
+            return {
+                "error": "Authentication failed",
+                "error_code": "UNAUTHORIZED",
+                "details": str(error),
+                "guidance": {
+                    "reflection": "The credentials are invalid or missing.",
+                    "consider": "Are the JIRA_USER and JIRA_API_TOKEN environment variables correctly set?",
+                    "approach": "Verify your Jira credentials and API token permissions."
+                }
+            }
         elif "403" in error_str or "Forbidden" in error_str:
-            return {"error": "Permission denied. Check Jira permissions."}
+            return {
+                "error": "Permission denied",
+                "error_code": "FORBIDDEN",
+                "details": str(error),
+                "guidance": {
+                    "reflection": "You don't have permission to perform this action.",
+                    "consider": "Does your user account have the necessary permissions for this operation?",
+                    "approach": "Check with your Jira administrator about required permissions."
+                }
+            }
         elif "404" in error_str or "Not Found" in error_str:
-            return {"error": "Resource not found. Check issue key or project."}
+            return {
+                "error": "Resource not found",
+                "error_code": "NOT_FOUND",
+                "details": str(error),
+                "guidance": {
+                    "reflection": "The requested resource doesn't exist.",
+                    "consider": "Is the issue key, project key, or resource ID correct?",
+                    "approach": "Verify the identifier and try searching for the resource first."
+                }
+            }
         elif "400" in error_str or "Bad Request" in error_str:
-            return {"error": "Invalid request. Check input parameters."}
+            # Try to extract more specific error details
+            import re
+            field_match = re.search(r"Field '(\w+)'|field '(\w+)'", error_str)
+            field_name = field_match.group(1) or field_match.group(2) if field_match else "unknown"
+            
+            return {
+                "error": "Invalid request",
+                "error_code": "BAD_REQUEST",
+                "details": str(error),
+                "guidance": {
+                    "reflection": f"The request format or parameters are invalid.",
+                    "consider": "Are all required fields provided? Is the field format correct?",
+                    "approach": "Review the field requirements and data types for this operation."
+                }
+            }
         else:
-            return {"error": f"Operation failed: {str(error)}"}
+            return {
+                "error": "Operation failed",
+                "error_code": "UNKNOWN_ERROR",
+                "details": str(error)
+            }
     
     def _run(self, **kwargs) -> Any:
         """Execute tool with automatic logging and error handling."""

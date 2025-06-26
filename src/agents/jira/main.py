@@ -1,36 +1,9 @@
-"""Jira Specialized Agent - Enterprise Issue Tracking and Agile Management.
-
-This module implements a LangGraph-based agent for comprehensive Jira operations,
-providing natural language interfaces to issue tracking, project management, and
-agile workflows through the A2A protocol.
-
-Architecture Philosophy:
-- **Natural Language Processing**: Understands context and intent for Jira operations
-- **Comprehensive Tool Suite**: 15+ tools covering all major Jira workflows
-- **State Management**: Maintains conversation context across interactions
-- **Error Resilience**: Graceful error handling with informative responses
-- **Enterprise Security**: Input validation and safe JQL query construction
-
-Integration Pattern:
-- Receives tasks via A2A protocol from orchestrator
-- Processes using LangGraph workflow with specialized tools
-- Returns structured responses with issue keys and operation results
-- Maintains thread-based conversation state for context
-
-Key Capabilities:
-- Issue CRUD operations (create, read, update, delete)
-- Advanced JQL searching with natural language translation
-- Epic and sprint management for agile workflows
-- Issue linking and relationship management
-- Bulk operations and workflow transitions
-- Project analytics and reporting
-"""
+"""Jira specialized agent for issue tracking and agile management via A2A protocol."""
 
 import os
 import logging
-from typing import Dict, Any, List, TypedDict, Literal, Annotated
+from typing import Dict, Any, List, TypedDict, Annotated
 import operator
-from datetime import datetime
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -482,6 +455,11 @@ async def main():
             operation="shutdown"
         )
         await server.stop(runner)
+        
+        # Clean up the global connection pool
+        from src.a2a.protocol import get_connection_pool
+        pool = get_connection_pool()
+        await pool.close_all()
 
 if __name__ == "__main__":
     import asyncio

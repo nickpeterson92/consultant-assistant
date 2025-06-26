@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""
-Main entry point for the ServiceNow Specialized Agent
-Handles all ServiceNow ITSM operations via A2A protocol
-"""
+"""Entry point for the ServiceNow specialized agent."""
 
 import sys
 import os

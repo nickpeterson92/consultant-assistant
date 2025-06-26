@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-Main entry point for the Salesforce Specialized Agent
-"""
+"""Entry point for the Salesforce specialized agent."""
 
 import sys
 import os
