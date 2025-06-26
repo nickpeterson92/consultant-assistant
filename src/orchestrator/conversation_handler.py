@@ -12,8 +12,7 @@ from src.utils.config import (
     MEMORY_NAMESPACE_PREFIX, SIMPLE_MEMORY_KEY,
     SUMMARY_KEY, NO_SUMMARY_TEXT,
     SUMMARY_USER_MESSAGE_THRESHOLD, SUMMARY_TIME_THRESHOLD_SECONDS,
-    MEMORY_TOOL_CALL_THRESHOLD, MEMORY_AGENT_CALL_THRESHOLD,
-    STATE_KEY_PREFIX
+    MEMORY_TOOL_CALL_THRESHOLD, MEMORY_AGENT_CALL_THRESHOLD
 )
 from src.utils.events import (
     EventAnalyzer,
@@ -22,7 +21,6 @@ from src.utils.events import (
     create_memory_update_triggered_event
 )
 from src.utils.logging import get_logger
-from src.utils.message_serialization import serialize_messages
 from src.utils.storage import get_async_store_adapter
 from src.utils.storage.memory_schemas import SimpleMemory
 from .state import OrchestratorState, load_events_with_limit

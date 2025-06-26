@@ -8,7 +8,6 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import tools_condition
 
-from src.utils.config import get_database_config
 from src.utils.logging import get_logger
 from src.utils.storage import get_async_store_adapter
 from src.utils.tool_execution import create_tool_node

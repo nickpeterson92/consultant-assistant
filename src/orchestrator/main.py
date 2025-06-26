@@ -514,6 +514,24 @@ async def main():
             )
             print(f"\nError: {str(e)}")
             print("Please try again or type 'quit' to exit.\n")
+    
+    # Clean up the global connection pool before exiting
+    try:
+        from src.a2a.protocol import get_connection_pool
+        pool = get_connection_pool()
+        await pool.close_all()
+        logger.info("connection_pool_cleanup",
+            component="orchestrator",
+            operation="shutdown",
+            message="Closed all A2A connections"
+        )
+    except Exception as e:
+        logger.warning("connection_pool_cleanup_error",
+            component="orchestrator",
+            operation="shutdown",
+            error=str(e),
+            error_type=type(e).__name__
+        )
 
 
 if __name__ == "__main__":

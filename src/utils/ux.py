@@ -2,7 +2,6 @@
 
 import sys
 import asyncio
-import time
 import random
 import os
 import re

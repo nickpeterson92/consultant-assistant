@@ -2,9 +2,8 @@
 
 import os
 import logging
-from typing import Dict, Any, List, TypedDict, Literal, Annotated
+from typing import Dict, Any, List, TypedDict, Annotated
 import operator
-from datetime import datetime
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -456,6 +455,11 @@ async def main():
             operation="shutdown"
         )
         await server.stop(runner)
+        
+        # Clean up the global connection pool
+        from src.a2a.protocol import get_connection_pool
+        pool = get_connection_pool()
+        await pool.close_all()
 
 if __name__ == "__main__":
     import asyncio

@@ -6,7 +6,6 @@ import json
 from typing import Dict, Any, Optional, Callable
 from enum import Enum
 from dataclasses import dataclass
-import logging
 from src.utils.logging import get_logger
 
 logger = get_logger('circuit_breaker')

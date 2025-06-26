@@ -1,11 +1,9 @@
 """ServiceNow specialized agent for ITSM operations via A2A protocol."""
 
 import os
-import logging
 import asyncio
-from typing import Dict, Any, List, TypedDict, Literal, Annotated
+from typing import Dict, Any, List, TypedDict, Annotated
 import operator
-from datetime import datetime
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -18,7 +16,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.memory import MemorySaver
 
 from src.tools.servicenow_tools import ALL_SERVICENOW_TOOLS
-from src.a2a import A2AServer, A2ATask, A2AResponse, A2AArtifact, AgentCard
+from src.a2a import A2AServer, AgentCard
 from src.utils.config import get_llm_config
 from src.utils.logging import get_logger
 from src.utils.sys_msg import servicenow_agent_sys_msg
@@ -294,6 +292,11 @@ async def main(port: int = 8003):
         pass
     finally:
         await server.stop(runner)
+        
+        # Clean up the global connection pool
+        from src.a2a.protocol import get_connection_pool
+        pool = get_connection_pool()
+        await pool.close_all()
 
 if __name__ == "__main__":
     import asyncio

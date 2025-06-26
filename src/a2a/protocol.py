@@ -9,7 +9,7 @@ import uuid
 import asyncio
 import time
 import traceback
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 import aiohttp

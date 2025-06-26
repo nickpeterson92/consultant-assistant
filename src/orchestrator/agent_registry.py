@@ -10,7 +10,6 @@ import asyncio
 import time
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
-import logging
 from datetime import datetime
 
 from ..a2a import AgentCard, A2AClient, A2AException

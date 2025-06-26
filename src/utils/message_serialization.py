@@ -1,7 +1,6 @@
 """JSON serialization for LangChain messages."""
 
-from typing import List, Dict, Any, Union
-import logging
+from typing import List, Dict, Any
 
 from .logging import get_logger
 

@@ -3,10 +3,9 @@
 import asyncio
 import time
 import traceback
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 from langchain_core.messages import SystemMessage, RemoveMessage
-from trustcall import create_extractor
 
 from src.utils.config import (
     get_conversation_config, get_database_config,
@@ -14,7 +13,7 @@ from src.utils.config import (
     STATE_KEY_PREFIX
 )
 from src.utils.sys_msg import TRUSTCALL_INSTRUCTION
-from src.utils.events import EventType, OrchestratorEvent, EventAnalyzer
+from src.utils.events import EventType, OrchestratorEvent
 from src.utils.helpers import smart_preserve_messages
 from src.utils.logging import get_logger
 from src.utils.message_serialization import serialize_messages
@@ -201,24 +200,15 @@ async def memorize_records(state: OrchestratorState, config: Dict[str, Any], mem
             try:
                 msg_extraction_start = time.time()
                 
-                existing_data = {
-                    "accounts": current_memory.accounts,
-                    "contacts": current_memory.contacts,
-                    "opportunities": current_memory.opportunities,
-                    "cases": current_memory.cases,
-                    "tasks": current_memory.tasks,
-                    "leads": current_memory.leads
-                }
-                
                 extraction_prompt = f"""{TRUSTCALL_INSTRUCTION}
 
 Tool Message {idx + 1} of {len(tool_messages)}:
 {str(tool_msg.content)[:2000]}"""
                 
-                result = trustcall_extractor.extract(
-                    extraction_prompt,
-                    existing=existing_data
-                )
+                result = trustcall_extractor.invoke({
+                    "messages": [("human", extraction_prompt)],
+                    "existing": {"SimpleMemory": current_memory.model_dump()}
+                })
                 
                 if result and hasattr(result, 'model_dump'):
                     result_data = result.model_dump()
@@ -288,7 +278,7 @@ Tool Message {idx + 1} of {len(tool_messages)}:
     
     # Create memory extraction event
     memory_event = OrchestratorEvent(
-        event_type=EventType.MEMORY_EXTRACTED,
+        event_type=EventType.MEMORY_UPDATE_COMPLETED,
         details={
             "entities_extracted": sum([
                 len(current_memory.accounts),
@@ -317,13 +307,13 @@ async def _run_background_summary_async(messages, summary, events, memory, user_
         )
         
         mock_state = {
-            "messages": serialize_messages(messages),
+            "messages": messages,  # Don't serialize here - summarize_conversation expects actual messages
             "summary": summary,
             "events": [e.to_dict() for e in events],
             "memory": memory
         }
         
-        result = await summarize_func(mock_state, invoke_llm)
+        result = await summarize_func(mock_state)
         
         if result and "summary" in result:
             new_summary = result["summary"]
@@ -339,8 +329,16 @@ async def _run_background_summary_async(messages, summary, events, memory, user_
             
             mock_state["summary"] = new_summary
             
+            # Serialize messages before saving
+            serialized_state = {
+                "messages": serialize_messages(mock_state["messages"]),
+                "summary": mock_state["summary"],
+                "events": mock_state["events"],
+                "memory": mock_state["memory"]
+            }
+            
             await memory_store.put(namespace, key, {
-                "state": mock_state,
+                "state": serialized_state,
                 "thread_id": thread_id,
                 "timestamp": time.time()
             })
@@ -358,7 +356,7 @@ async def _run_background_memory_async(messages, summary, events, memory, user_i
     """Execute memory extraction in background using async."""
     try:
         mock_state = {
-            "messages": serialize_messages(messages),
+            "messages": messages,  # Don't serialize here - memorize_records expects actual message objects
             "summary": summary,
             "events": [e.to_dict() for e in events],
             "memory": memory
@@ -392,7 +390,7 @@ def _run_background_summary(messages, summary, events, memory, user_id, thread_i
             "events": [e.to_dict() for e in events],
             "memory": memory
         }
-        result = asyncio.run(summarize_func(mock_state, invoke_llm))
+        result = asyncio.run(summarize_func(mock_state))
         
         if result and "summary" in result:
             new_summary = result["summary"]

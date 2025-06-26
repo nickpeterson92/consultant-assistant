@@ -1,10 +1,9 @@
 """LLM configuration and invocation handling for the orchestrator."""
 
 import os
-from typing import Any, List, Optional
+from typing import Any, List
 
 from langchain_openai import AzureChatOpenAI
-from langchain_core.messages import SystemMessage
 from trustcall import create_extractor
 
 from src.utils.config import get_llm_config, DETERMINISTIC_TEMPERATURE, DETERMINISTIC_TOP_P
