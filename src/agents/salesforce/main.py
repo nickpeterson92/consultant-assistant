@@ -25,7 +25,10 @@ from langchain_openai import AzureChatOpenAI
 from src.a2a import A2AServer, AgentCard
 
 # Import from the centralized tools directory
-from src.tools.salesforce_tools import ALL_SALESFORCE_TOOLS
+# Using new unified tools for better performance and maintainability
+from src.tools.salesforce_unified import UNIFIED_SALESFORCE_TOOLS
+# Fallback to old tools if needed
+# from src.tools.salesforce_tools import ALL_SALESFORCE_TOOLS
 
 import logging
 
@@ -77,8 +80,8 @@ def build_salesforce_graph():
         task_context: Dict[str, Any]
         external_context: Dict[str, Any]
     
-    # All Salesforce tools
-    tools = ALL_SALESFORCE_TOOLS
+    # Using new unified Salesforce tools (reduced from 23 to 6 tools)
+    tools = UNIFIED_SALESFORCE_TOOLS
     
     llm = create_azure_openai_chat()
     llm_with_tools = llm.bind_tools(tools)
@@ -201,7 +204,7 @@ class SalesforceA2AHandler:
                 "configurable": {
                     "thread_id": f"sf-{task_id}",
                 },
-                "recursion_limit": 20  # Lower limit with modern tools_condition
+                "recursion_limit": 15  # Prevent runaway tool calls
             }
             
             # Execute graph
@@ -244,6 +247,13 @@ class SalesforceA2AHandler:
             }
             
         except Exception as e:
+            error_msg = str(e)
+            # Check for specific error types
+            if "GraphRecursionError" in type(e).__name__ or "recursion limit" in error_msg.lower():
+                error_msg = "Query complexity exceeded maximum iterations. Please try a more specific search."
+            elif "GRAPH_RECURSION_LIMIT" in error_msg:
+                error_msg = "Too many tool calls required. Please simplify your request."
+                
             logger.error("salesforce_a2a_task_error",
                 component="salesforce",
                 operation="process_a2a_task",
@@ -255,11 +265,11 @@ class SalesforceA2AHandler:
                 "artifacts": [{
                     "id": f"sf-error-{task_data.get('id', 'unknown')}",
                     "task_id": task_data.get("id"),
-                    "content": f"Error processing Salesforce request: {str(e)}",
+                    "content": f"Error processing Salesforce request: {error_msg}",
                     "content_type": "text/plain"
                 }],
                 "status": "failed",
-                "error": str(e)
+                "error": error_msg
             }
     
     async def get_agent_card(self, params: Dict[str, Any]) -> Dict[str, Any]:

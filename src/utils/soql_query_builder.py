@@ -53,6 +53,10 @@ class SOQLCondition:
     
     def to_soql(self) -> str:
         """Convert condition to SOQL string"""
+        # Handle raw conditions
+        if self.field == '__raw__':
+            return str(self.value)
+        
         if self.operator == SOQLOperator.IN:
             # Handle IN operator with list of values
             if isinstance(self.value, list):
@@ -147,6 +151,13 @@ class SOQLQueryBuilder:
     def where_not_null(self, field: str) -> 'SOQLQueryBuilder':
         """Convenience method for NOT NULL checks"""
         return self.where(field, SOQLOperator.NOT_EQUALS, None)
+    
+    def where_raw(self, raw_condition: str) -> 'SOQLQueryBuilder':
+        """Add raw WHERE condition string (use with caution)"""
+        # Create a special condition that will be rendered as-is
+        condition = SOQLCondition('__raw__', SOQLOperator.EQUALS, raw_condition)
+        self.conditions.append((condition, LogicalOperator.AND))
+        return self
     
     def select_count(self, field: str = 'Id', alias: str = 'recordCount') -> 'SOQLQueryBuilder':
         """Add COUNT aggregate function"""

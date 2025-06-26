@@ -45,7 +45,8 @@ from langchain_openai import AzureChatOpenAI
 
 from .agent_registry import AgentRegistry
 from .agent_caller_tools import SalesforceAgentTool, JiraAgentTool, ServiceNowAgentTool, AgentRegistryTool
-from src.utils.helpers import type_out, smart_preserve_messages
+from src.utils.helpers import smart_preserve_messages
+from src.utils.ux import type_out, format_markdown_for_console
 from src.utils.message_serialization import serialize_messages
 from src.utils.storage import get_async_store_adapter
 from src.utils.storage.memory_schemas import SimpleMemory
@@ -75,6 +76,15 @@ os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
 # Initialize logger
 logger = get_logger()
+
+# ANSI color codes for styled prompts
+CYAN = '\033[36m'
+BLUE = '\033[34m'
+GREEN = '\033[32m'
+YELLOW = '\033[33m'
+BOLD = '\033[1m'
+DIM = '\033[2m'
+RESET = '\033[0m'
 
 from src.utils.events import (
     EventType, OrchestratorEvent, EventAnalyzer,
@@ -1344,7 +1354,7 @@ async def main():
     local_graph = orchestrator_graph
     
     # Banner display
-    from src.utils.helpers import animated_banner_display, display_capabilities_banner
+    from src.utils.ux import animated_banner_display, display_capabilities_banner
     conv_config = get_conversation_config()
     
     if conv_config.animated_banner_enabled:
@@ -1353,6 +1363,9 @@ async def main():
     else:
         # Simple static display
         print(ENTERPRISE_ASSISTANT_BANNER)
+    
+    # Add some breathing room between banner and capabilities
+    print("\n")
     
     # Get available capabilities
     stats = agent_registry.get_registry_stats()
@@ -1385,11 +1398,28 @@ async def main():
     except Exception as e:
         logger.info("thread_load_error", component="system", error=str(e))
     
-    print(f"\nStarting new conversation thread: {current_thread_id}\n")
+    print(f"\nStarting new conversation thread: {current_thread_id}")
     
     while True:
         try:
-            user_input = input("USER: ")
+            # Get terminal width for dynamic box sizing
+            try:
+                terminal_width = os.get_terminal_size().columns
+            except:
+                terminal_width = 80
+            
+            # Calculate box width (leave 2 chars for margins)
+            box_width = min(terminal_width - 2, 160)  # Increased cap to 160 for wider terminals
+            
+            # Styled USER prompt with dynamic width
+            user_label = " USER "
+            remaining_width = box_width - len(user_label) - 2
+            left_padding = remaining_width // 2
+            right_padding = remaining_width - left_padding
+            
+            print(f"{CYAN}┌─{CYAN}{'─' * left_padding}{user_label}{'─' * right_padding}─┐{RESET}")
+            user_input = input(f"{CYAN}│{RESET} ")
+            print(f"{CYAN}└{'─' * (box_width - 2)}┘{RESET}")
             
             logger.info("user_input_raw", component="orchestrator", input=user_input[:1000])
             
@@ -1673,12 +1703,27 @@ async def main():
                 
                 # Special handling for empty input - make it conversational
                 if "empty input" in error_message.lower():
-                    from src.utils.helpers import type_out_sync, get_empty_input_response
-                    print("\nASSISTANT: ", end="", flush=True)
+                    from src.utils.ux import type_out_sync, get_empty_input_response
+                    # Get terminal width for dynamic box sizing
+                    try:
+                        terminal_width = os.get_terminal_size().columns
+                    except:
+                        terminal_width = 80
+                    box_width = min(terminal_width - 2, 160)
+                    
+                    # Styled ASSISTANT prompt for empty input with dynamic width
+                    assistant_label = " ASSISTANT "
+                    remaining_width = box_width - len(assistant_label) - 2
+                    left_padding = remaining_width // 2
+                    right_padding = remaining_width - left_padding
+                    
+                    print(f"{GREEN}╭─{'─' * left_padding}{assistant_label}{'─' * right_padding}─╮{RESET}")
+                    print(f"{GREEN}│{RESET} ", end="", flush=True)
                     # Get a varied response and type it out naturally
                     response = get_empty_input_response()
-                    type_out_sync(response, delay=0.015)  # Slightly faster for snappier feel
-                    print()  # New line after message
+                    formatted_response = format_markdown_for_console(response)
+                    type_out_sync(formatted_response, delay=0.015)  # Slightly faster for snappier feel
+                    print(f"\n{GREEN}╰{'─' * (box_width - 2)}╯{RESET}")
                 elif "too long" in error_message.lower():
                     print(f"\n❌ Input Error: Your message is too long. Please keep it under 50,000 characters.")
                 elif "malicious content" in error_message.lower():
@@ -1701,23 +1746,68 @@ async def main():
                 )
                 continue
             
-            print("\nASSISTANT: ", end="", flush=True)
+            # Get terminal width for dynamic box sizing
+            try:
+                terminal_width = os.get_terminal_size().columns
+            except:
+                terminal_width = 80
+            box_width = min(terminal_width - 2, 160)
+            
+            # Styled ASSISTANT prompt with dynamic width
+            assistant_label = " ASSISTANT "
+            remaining_width = box_width - len(assistant_label) - 2
+            left_padding = remaining_width // 2
+            right_padding = remaining_width - left_padding
+            
+            print(f"{GREEN}╭─{'─' * left_padding}{assistant_label}{'─' * right_padding}─╮{RESET}")
+            print(f"{GREEN}│{RESET} ", end="", flush=True)
             
             # Show processing indicator
             import threading
             processing_done = threading.Event()
             
+            # Shared state for processing context
+            current_operation = {"message": "Processing...", "details": ""}
+            
             def show_processing_indicator():
-                """Show a blinking sparkle emoji while processing"""
-                frames = ["✨", " "]
+                """Show enhanced animated spinner with tool call context and synchronized animations"""
+                # Professional spinner frames - optimized for smooth animation
+                spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+                
+                # Subtle gradient colors for spinner - professional palette
+                spinner_colors = [
+                    '\033[38;5;39m',   # Light blue
+                    '\033[38;5;45m',   # Cyan  
+                    '\033[38;5;51m',   # Bright cyan
+                    '\033[38;5;87m',   # Light cyan
+                    '\033[38;5;123m',  # Very light cyan
+                ]
+                
                 i = 0
                 while not processing_done.is_set():
-                    # Position after "ASSISTANT: "
-                    print(f"\rASSISTANT: {frames[i % 2]} ", end="", flush=True)
-                    time.sleep(0.5)
+                    # Synchronized color and frame indices
+                    color_idx = i % len(spinner_colors)
+                    frame_idx = i % len(spinner_frames)
+                    
+                    # Get current operation context
+                    operation_msg = current_operation["message"]
+                    
+                    # Build the display - simple and clean
+                    spinner_part = f"{spinner_colors[color_idx]}{spinner_frames[frame_idx]}{RESET}"
+                    display_text = f"{operation_msg}..."
+                    
+                    # Display with consistent spacing
+                    print(f"\r{GREEN}│{RESET} {spinner_part} {display_text}", end="", flush=True)
+                    time.sleep(0.1)
                     i += 1
-                # Clear the indicator and reset cursor
-                print("\rASSISTANT: ", end="", flush=True)
+                
+                # Clear the spinner completely
+                print(f"\r{GREEN}│{RESET} {' ' * 50}", end="", flush=True)
+                print(f"\r{GREEN}│{RESET} ", end="", flush=True)
+            
+            def update_processing_context(message):
+                """Update the processing context for the spinner display"""
+                current_operation["message"] = message
             
             # Start indicator in background thread
             indicator_thread = threading.Thread(target=show_processing_indicator)
@@ -1737,29 +1827,67 @@ async def main():
                 config,
                 stream_mode="values"
             ):
+                # Check for tool calls and update processing context
+                if "messages" in event and event["messages"]:
+                    last_msg = event["messages"][-1]
+                    
+                    # Detect tool calls and update spinner context
+                    if hasattr(last_msg, 'tool_calls') and last_msg.tool_calls:
+                        for tool_call in last_msg.tool_calls:
+                            tool_name = tool_call.get('name', 'Unknown Tool')
+                            
+                            # Create contextual messages based on tool type
+                            if 'salesforce' in tool_name.lower():
+                                update_processing_context("Connecting to Salesforce")
+                            elif 'jira' in tool_name.lower():
+                                update_processing_context("Connecting to Jira")
+                            elif 'servicenow' in tool_name.lower():
+                                update_processing_context("Connecting to ServiceNow")
+                            elif 'agent' in tool_name.lower():
+                                # Extract agent type from tool name
+                                if 'salesforce' in tool_name.lower():
+                                    update_processing_context("Calling Salesforce Agent")
+                                elif 'jira' in tool_name.lower():
+                                    update_processing_context("Calling Jira Agent")
+                                elif 'servicenow' in tool_name.lower():
+                                    update_processing_context("Calling ServiceNow Agent")
+                                else:
+                                    update_processing_context("Calling Specialized Agent")
+                            else:
+                                update_processing_context("Executing Tools")
+                
                 # Display AI response as soon as available
                 if "messages" in event and event["messages"] and not response_shown:
                     last_msg = event["messages"][-1]
                     if hasattr(last_msg, 'content') and last_msg.content and hasattr(last_msg, 'type'):
                         from langchain_core.messages import AIMessage
                         if isinstance(last_msg, AIMessage) and not getattr(last_msg, 'tool_calls', None):
+                            # Update context for final processing
+                            update_processing_context("Generating Response")
+                            
+                            # Brief pause to show the final context
+                            await asyncio.sleep(0.2)
+                            
                             # Stop the processing indicator
                             processing_done.set()
                             indicator_thread.join(timeout=1.0)
                             
                             conversation_response = last_msg.content
+                            # Apply markdown formatting to ANSI
+                            formatted_response = format_markdown_for_console(conversation_response)
                             logger.info("user_message_displayed", component="orchestrator", response=conversation_response[:1000],
                                                     full_length=len(conversation_response))
-                            await type_out(conversation_response, delay=0.01)
+                            await type_out(formatted_response, delay=0.01)
                             response_shown = True
-                            print("\n")
+                            print(f"\n{GREEN}╰{'─' * (box_width - 2)}╯{RESET}")
                             # Continue processing for background tasks
             
             if not response_shown:
                 # Stop the indicator if still running
                 processing_done.set()
                 indicator_thread.join(timeout=1.0)
-                print("Processing your request...\n")
+                print("Processing your request...")
+                print(f"\n{GREEN}╰{'─' * (box_width - 2)}╯{RESET}")
             
             # Update message count for current thread and save to storage
             if current_thread_id in active_threads:

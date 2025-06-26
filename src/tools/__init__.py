@@ -1,25 +1,33 @@
-"""Tools Package.
+"""Tools Package - Unified Architecture (2024 Best Practices).
 
-This package contains all domain-specific tool implementations that provide the
-actual functionality for specialized agents in the multi-agent orchestrator system.
-Tools are the atomic units of work that agents compose to fulfill user requests.
+This package contains domain-specific tool implementations following the unified
+tool pattern that reduces complexity while increasing capability. Tools are the
+atomic units that agents compose to fulfill user requests.
 
-Current tool collections:
-- salesforce_tools: Comprehensive CRM operations including 15 CRUD tools for
-  managing leads, accounts, opportunities, contacts, cases, and tasks
+Current unified tool collections:
+- salesforce_unified: 6 powerful, composable tools (reduced from 23)
+  - SalesforceGet: Retrieve any record by ID
+  - SalesforceSearch: Natural language search on any object
+  - SalesforceCreate: Create any type of record
+  - SalesforceUpdate: Update any record
+  - SalesforceSOSL: Cross-object search
+  - SalesforceAnalytics: Metrics and aggregations
 
-Tool implementation patterns:
-- Input validation with Pydantic models
-- Comprehensive error handling and recovery
-- Security measures (SQL injection prevention, input sanitization)
-- Structured logging for observability
-- Consistent response formats
-- Batch operation support for efficiency
+- jira_unified: 6 unified tools (reduced from 15)
+  - Similar pattern to Salesforce
 
-Each tool follows enterprise patterns:
-- Single responsibility principle
-- Idempotent operations where possible
-- Comprehensive documentation
-- Type safety with annotations
-- Performance optimization
+Tool architecture principles:
+- Unified tools that work across all object types
+- LLM determines object types and parameters
+- Natural language understanding built-in
+- Simplified error handling with structured responses
+- Minimal validation (trust the LLM)
+- Composable operations
+
+Key improvements from legacy:
+- 74% reduction in tool count
+- More flexible and powerful operations
+- Better LLM understanding through focused tools
+- Cleaner error messages guide retry behavior
+- Removed unnecessary escaping/validation
 """
