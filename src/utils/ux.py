@@ -1,15 +1,4 @@
-"""User Experience (UX) utilities for the multi-agent orchestrator system.
-
-This module provides all UI/UX-related functionality including:
-- Animated banner displays with gradient effects
-- Dynamic console-width responsive layouts
-- Capabilities table with color-coded categories
-- Typing effects for natural conversation flow
-- Markdown to ANSI formatting for rich console output
-- Loading animations and progress indicators
-
-All functions dynamically adjust to terminal width for optimal display.
-"""
+"""Terminal UI utilities for the orchestrator."""
 
 import sys
 import asyncio
@@ -97,32 +86,25 @@ def center_multiline(text, width=None):
 
 
 async def animated_banner_display(banner_text):
-    """Display a professional data visualization-inspired animation.
-    
-    Creates an elegant enterprise-grade reveal sequence:
-    - Data particle convergence effect
-    - Neural network connection visualization
-    - Smooth crystallization reveal
-    - Professional gradient transitions
-    - Subtle tech-inspired accents
+    """Display animated banner with particle effects.
     
     Args:
         banner_text: The ASCII art banner to animate
     """
-    # Subtle professional color palette - muted blues
+    # Unified cyan color palette to match prompt boxes
     CORP_BLUES = [
-        '\033[38;5;17m',   # Navy blue
-        '\033[38;5;18m',   # Dark blue
-        '\033[38;5;19m',   # Deep blue
-        '\033[38;5;20m',   # Royal blue
-        '\033[38;5;21m',   # Blue
-        '\033[38;5;33m',   # Sky blue
-        '\033[38;5;39m',   # Light blue
+        '\033[38;5;30m',   # Dark teal/cyan
+        '\033[38;5;36m',   # Cyan (matches prompt)
+        '\033[38;5;37m',   # Light cyan
+        '\033[38;5;43m',   # Cyan-teal
+        '\033[38;5;44m',   # Bright cyan
+        '\033[38;5;45m',   # Light bright cyan
+        '\033[38;5;51m',   # Very bright cyan
     ]
     
     ACCENT_COLORS = [
-        '\033[38;5;60m',   # Muted purple-gray
-        '\033[38;5;67m',   # Subtle blue-gray
+        '\033[38;5;73m',   # Cyan-green accent
+        '\033[38;5;80m',   # Light cyan-green
     ]
     
     DATA_COLORS = [
@@ -331,19 +313,19 @@ async def display_capabilities_banner(capabilities_list, terminal_width=None, ag
     
     config = get_conversation_config()
     
-    # ANSI color codes for different sections - muted professional palette
-    HEADER_COLOR = '\033[38;5;33m'    # Sky blue for header
-    BORDER_COLOR = '\033[38;5;240m'   # Gray for borders
+    # ANSI color codes for different sections - unified cyan palette
+    HEADER_COLOR = '\033[38;5;51m'    # Bright cyan for header (matches banner)
+    BORDER_COLOR = '\033[38;5;36m'    # Cyan for borders (matches prompt)
     CATEGORY_COLORS = {
-        "▣ CRM & Sales": '\033[38;5;67m',            # Subtle blue-gray
-        "⚡ IT Service Management": '\033[38;5;60m',  # Muted purple-gray
-        "◆ Project Management": '\033[38;5;65m',     # Muted green-gray
-        "▲ Analytics & Reporting": '\033[38;5;94m',  # Muted brown
-        "● Operations & Workflows": '\033[38;5;66m'  # Muted teal
+        "▣ CRM & Sales": '\033[38;5;44m',            # Bright cyan
+        "⚡ IT Service Management": '\033[38;5;37m',  # Light cyan
+        "◆ Project Management": '\033[38;5;43m',     # Cyan-teal
+        "▲ Analytics & Reporting": '\033[38;5;73m',  # Cyan-green
+        "● Operations & Workflows": '\033[38;5;80m'  # Light cyan-green
     }
-    STATUS_COLOR = '\033[38;5;245m'   # Light gray for status
-    TIP_COLOR = '\033[38;5;240m'      # Medium gray for tips
-    BULLET_COLOR = '\033[38;5;242m'   # Gray for bullets
+    STATUS_COLOR = '\033[38;5;87m'    # Very light cyan for status
+    TIP_COLOR = '\033[38;5;73m'       # Cyan-green for tips
+    BULLET_COLOR = '\033[38;5;37m'    # Light cyan for bullets
     
     # Get terminal dimensions
     if terminal_width is None:

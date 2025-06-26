@@ -97,18 +97,7 @@ class BaseAgentTool(BaseTool):
 
 
 class AgentCallInput(BaseModel):
-    """Input Schema for Multi-Agent Task Delegation.
-    
-    Defines the interface contract for orchestrator-to-agent communication
-    following enterprise integration patterns and loose coupling principles.
-    Supports both explicit agent targeting and capability-based auto-selection.
-    
-    Architecture Benefits:
-    - Loose coupling: Agents selected by capability, not hard-coded names
-    - Context preservation: Maintains conversation state across agent boundaries
-    - Flexibility: Supports both specific targeting and intelligent routing
-    - Extensibility: New agents automatically discoverable via capabilities
-    """
+    """Input schema for delegating tasks to agents."""
     instruction: str = Field(
         description="The user's EXACT request in their own words. "
         "DO NOT translate or modify. Pass through exactly as the user stated it."

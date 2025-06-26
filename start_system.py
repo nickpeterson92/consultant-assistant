@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-Utility script to start the entire multi-agent system
-"""
+"""Utility script to start the entire multi-agent system."""
 
 import os
 import sys

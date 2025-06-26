@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-Main entry point for the Consultant Assistant Orchestrator
-"""
+"""Main entry point for the multi-agent orchestrator."""
 
 import sys
 import os

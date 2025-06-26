@@ -1,30 +1,4 @@
-"""ServiceNow Specialized Agent - Enterprise IT Service Management.
-
-This module implements a LangGraph-based agent for comprehensive ServiceNow operations,
-providing natural language interfaces to IT Service Management (ITSM) workflows
-through the A2A protocol.
-
-Architecture Philosophy:
-- **Natural Language Processing**: Understands context and intent for ITSM operations
-- **Comprehensive Tool Suite**: 15 tools covering all major ServiceNow workflows
-- **State Management**: Maintains conversation context across interactions
-- **Error Resilience**: Graceful error handling with informative responses
-- **Enterprise Security**: Input validation and safe query construction
-
-Integration Pattern:
-- Receives tasks via A2A protocol from orchestrator
-- Processes using LangGraph workflow with specialized tools
-- Returns structured responses with record numbers and operation results
-- Maintains thread-based conversation state for context
-
-Key Capabilities:
-- Incident Management: Create, read, update incidents
-- Change Management: Handle change requests through their lifecycle
-- Problem Management: Root cause analysis and known error tracking
-- Task Management: Generic task operations across tables
-- User & CMDB: User lookups and configuration item management
-- Global Search: Flexible queries across any ServiceNow table
-"""
+"""ServiceNow specialized agent for ITSM operations via A2A protocol."""
 
 import os
 import logging

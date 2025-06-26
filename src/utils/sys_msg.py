@@ -1,59 +1,4 @@
-"""sys_msg.py - System Message Architecture for Multi-Agent Orchestration
-
-This module implements the critical prompt engineering layer that enables effective
-multi-agent coordination. In LLM-based systems, the system message (prompt) is the
-primary control mechanism that shapes agent behavior, decision-making, and output quality.
-
-## Why Specialized Prompts Matter
-
-Multi-agent systems face unique challenges that require carefully crafted prompts:
-
-1. **Context Switching**: Agents must seamlessly transition between different specialized
-   agents (Salesforce, Travel, HR) while maintaining conversation coherence.
-
-2. **Memory Management**: The orchestrator must balance between using cached data
-   and making fresh API calls, requiring explicit prompt guidance to prevent
-   redundant operations.
-
-3. **Tool Selection Ambiguity**: LLMs can struggle with choosing between similar tools
-   or knowing when to decompose vs. delegate complex requests. Clear prompt rules
-   prevent infinite loops and inefficient operations.
-
-4. **Response Boundaries**: Without explicit stopping criteria, LLMs tend to over-help
-   with unnecessary follow-up offers. Prompts must define clear task completion points.
-
-## Evolution from Legacy to Enhanced Messages
-
-The system evolved from a simple chatbot to a sophisticated multi-agent orchestrator:
-
-Legacy Approach:
-- Basic conversation summarization
-- Simple memory storage
-- Direct tool calling without coordination
-
-Enhanced Approach:
-- Agent capability awareness and routing
-- Memory-first architecture to minimize API calls
-- Explicit request interpretation guidelines
-- Clear response completion criteria
-- Structured data extraction with validation
-
-## Prompt Engineering Principles Applied
-
-1. **Explicit Over Implicit**: Every behavior must be explicitly stated. LLMs won't
-   infer optimal patterns without clear guidance.
-
-2. **Priority Ordering**: Most important rules appear multiple times and in
-   CRITICAL sections to ensure adherence.
-
-3. **Concrete Examples**: Abstract rules are supplemented with specific examples
-   of correct and incorrect behaviors.
-
-4. **Structured Formatting**: Clear sections with headers help LLMs parse and
-   apply different rule categories.
-
-5. **Negative Instructions**: "DO NOT" rules are as important as positive ones,
-   preventing common LLM antipatterns."""
+"""System messages for multi-agent orchestration and specialized agents."""
 
 
 # SALESFORCE AGENT SYSTEM MESSAGE
@@ -144,6 +89,7 @@ TABLE DESIGN PRINCIPLES:
 - Avoid embedding IDs in name fields - they deserve their own column
 
 ADVANCED TABLE FORMATTING:
+- IDs: Show as plain text values only (e.g., 006bm000007LSofAAG) - NEVER as links
 - Number alignment: Right-align numbers, left-align text
 - Currency format: Always use $X,XXX,XXX format with commas
 - Percentages: Show as XX.X% with one decimal
@@ -176,7 +122,9 @@ IMPORTANT - Tool Result Interpretation:
 - NEVER say "no records found" when you actually received data in match/multiple_matches format
 - ALWAYS present the actual data you receive from tools, don't dismiss valid results
 - ALWAYS provide the Salesforce System Id of EVERY record you retrieve (along with record data) in YOUR RESPONSE. NO EXCEPTIONS!
-- Salesforce System Ids follow the REGEX PATTERN: /\\b(?:[A-Za-z0-9]{15}|[A-Za-z0-9]{18})\\b/"""
+- Salesforce System Ids follow the REGEX PATTERN: /\\b(?:[A-Za-z0-9]{15}|[A-Za-z0-9]{18})\\b/
+- CRITICAL: Show IDs as plain text only (e.g., 006bm000007LSofAAG). NEVER create markdown links or fake URLs like [ID](https://...). Just show the ID value.
+- When presenting data in tables, include ID as a separate column with plain text values"""
     
     # Add task context if available (excluding task_id to avoid confusion)
     if task_context:
@@ -882,21 +830,7 @@ REMEMBER: Better to extract nothing than to create fake data. Only use IDs that 
 
 
 def servicenow_agent_sys_msg(task_context: dict = None, external_context: dict = None) -> str:
-    """
-    Generate the system message for the ServiceNow agent that defines its behavior and capabilities.
-    
-    This system message shapes how the ServiceNow agent:
-    - Interprets natural language requests for ITSM operations
-    - Selects appropriate tools for incident, change, problem, and task management
-    - Formats responses for enterprise IT Service Management workflows
-    - Handles complex queries with encoded query language support
-    
-    The message emphasizes:
-    - Natural language understanding for IT operations
-    - Proper record number formatting (INC/CHG/PRB/TASK)
-    - Security-first query construction
-    - Comprehensive ITSM lifecycle support
-    """
+    """Generate system message for ServiceNow agent behavior and capabilities."""
     
     # Extract context if provided
     conversation_summary = ""

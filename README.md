@@ -22,7 +22,7 @@
   [![A2A Protocol](https://img.shields.io/badge/A2A%20Protocol-JSON--RPC%202.0-orange.svg)](https://github.com/google-a2a/A2A)
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
   
-  <p><em>A production-grade, multi-agent AI system implementing Google's Agent-to-Agent (A2A) protocol for enterprise automation, featuring resilient distributed architecture, intelligent orchestration, and seamless integration with Salesforce, Jira, and ServiceNow.</em></p>
+  <p><em>A production-grade, multi-agent AI system implementing Agent-to-Agent (A2A) protocol for enterprise automation, featuring resilient distributed architecture, intelligent orchestration, and seamless integration with Salesforce, Jira, and ServiceNow.</em></p>
 </div>
 
 ---
@@ -45,10 +45,10 @@
 
 The Enterprise Multi-Agent Assistant represents the cutting edge of AI agent orchestration, combining:
 
-- **Google A2A Protocol**: Industry-standard agent communication using JSON-RPC 2.0
+- **A2A Protocol**: Industry-standard agent communication using JSON-RPC 2.0
 - **LangGraph Integration**: State-of-the-art conversation orchestration with built-in persistence
 - **Enterprise Resilience**: Circuit breakers, connection pooling, and graceful degradation
-- **Intelligent Memory**: Context-aware data persistence with TrustCall extraction
+- **Intelligent Memory**: Context-aware data persistence with automated summarization
 - **Cost Optimization**: Aggressive summarization and memory-first retrieval strategies
 
 ### Why This Architecture?
@@ -74,25 +74,25 @@ Traditional single-agent systems hit scalability walls. This architecture solves
 │                             ORCHESTRATOR AGENT                             │
 │  ┌─────────────────┐  ┌───────────────────┐  ┌─────────────────────────┐   │
 │  │  LangGraph      │  │  Agent Registry   │  │  Memory & State Mgmt    │   │
-│  │  State Machine  │  │  Service Discovery|  │  TrustCall Extraction   │   │
+│  │  State Machine  │  │  Service Discovery│  │  Auto Summarization     │   │
 │  └─────────────────┘  └───────────────────┘  └─────────────────────────┘   │
 │                          Coordination & Intelligence                       │
-└────────────────────────────────────────┬───────────────────────────────────┘
-                                         │
-                            ┌────────────┴────────────┐
-                            │   A2A Protocol Layer    │
-                            │  JSON-RPC 2.0 + HTTP    │
-                            │  Circuit Breakers       │
-                            │  Connection Pooling     │
-                            └────────────┬────────────┘
-                                         │
-     ┌───────────────────────────┬────────────────────────────┬──────────────────────┐
-     │                           │                            │                      │
-     ▼                           ▼                            ▼                      ▼
+└────────────────────────────────────┬───────────────────────────────────────┘
+                                     │
+                        ┌────────────┴────────────┐
+                        │   A2A Protocol Layer    │
+                        │  JSON-RPC 2.0 + HTTP    │
+                        │  Circuit Breakers       │
+                        │  Connection Pooling     │
+                        └────────────┬────────────┘
+                                     │
+ ┌───────────────────────────┬────────────────────────────┬──────────────────────┐
+ │                           │                            │                      │
+ ▼                           ▼                            ▼                      ▼
 ┌────────────────────┐ ┌────────────────────┐ ┌────────────────────┐ ┌────────────────────┐
 │ SALESFORCE AGENT   │ │   JIRA AGENT       │ │ SERVICENOW AGENT   │ │ EXTENSIBLE AGENTS  │
-│ - 15 CRM Tools     │ │ - 15 Issue Tools   │ │ - 15 ITSM Tools    │ │ - Travel Mgmt      │
-│ - 5 Analytics      │ │ - JQL Search       │ │ - Incident Mgmt    │ │ - Expense Process  │
+│ - 6 Unified Tools  │ │ - 6 Unified Tools  │ │ - 15 ITSM Tools    │ │ - Travel Mgmt      │
+│ - SOQL Builder     │ │ - JQL Search       │ │ - Incident Mgmt    │ │ - Expense Process  │
 │ - Lead Management  │ │ - Sprint Mgmt      │ │ - Change Mgmt      │ │ - HR Operations    │
 │ - Opportunity Mgmt │ │ - Epic Tracking    │ │ - Problem Mgmt     │ │ - Document Process │
 │ - LangGraph State  │ │ - LangGraph State  │ │ - CMDB Operations  │ │ - Custom Domains   │
@@ -105,17 +105,17 @@ Traditional single-agent systems hit scalability walls. This architecture solves
 The central nervous system implementing:
 - LangGraph state machine for conversation flow
 - Intelligent agent selection based on capabilities
-- Fire-and-forget background tasks for non-blocking operations
+- Background tasks for non-blocking operations (3 tool calls, 2 agent calls, or 180 seconds)
 - Smart message preservation during summarization
 - Memory-first retrieval to minimize API calls
 
 #### 2. **A2A Protocol** (`src/a2a/protocol.py`)
-Enterprise-grade implementation of Google's Agent2Agent standard:
+Enterprise-grade implementation of Agent-to-Agent standard:
 - **Connection Pooling**: 50+ concurrent connections with per-host limits
 - **Circuit Breakers**: Netflix-style failure protection
 - **Retry Logic**: Exponential backoff with jitter
 - **Async Architecture**: Non-blocking I/O for maximum throughput
-- **Standards Compliance**: Full JSON-RPC 2.0 with SSE support
+- **Standards Compliance**: Full JSON-RPC 2.0 implementation
 
 #### 3. **Agent Registry** (`src/orchestrator/agent_registry.py`)
 Service discovery inspired by Consul/Kubernetes:
@@ -127,19 +127,19 @@ Service discovery inspired by Consul/Kubernetes:
 #### 4. **Specialized Agents**
 
 **Salesforce Agent** (`src/agents/salesforce/main.py`)
-- 20 comprehensive tools covering all major CRM operations
-- Advanced analytics tools for business insights
+- 6 unified tools covering all major CRM operations
+- Advanced analytics with SOQL aggregations
 - Security-first design with SOQL injection prevention
-- Flexible search patterns (ID, email, name, fuzzy matching)
+- Auto-detection of object types from ID prefixes
 
 **Jira Agent** (`src/agents/jira/main.py`)
-- 15 tools for complete issue lifecycle management
+- 6 unified tools for complete issue lifecycle management
 - JQL search with natural language support
 - Sprint and epic management capabilities
 - Agile workflow automation
 
 **ServiceNow Agent** (`src/agents/servicenow/main.py`)
-- 15 ITSM tools across 5 operational categories
+- 15 specialized ITSM tools across 5 operational categories
 - Incident, change, and problem management
 - CMDB integration for configuration items
 - GlideQuery builder for secure, complex queries
@@ -159,23 +159,23 @@ Service discovery inspired by Consul/Kubernetes:
 - **Timeout Management**: Multi-level timeouts prevent hanging
 
 ### 🧠 Intelligent Memory
-- **TrustCall Extraction**: Structured data extraction with Pydantic validation
-- **Deduplication**: Automatic merging of duplicate records
+- **AsyncStoreAdapter**: Simplified SQLite storage (167 lines - 69% reduction)
+- **Thread Persistence**: Full state snapshots with serialized messages
 - **Memory-First Retrieval**: Check memory before making API calls
 - **Namespace Isolation**: User-specific memory boundaries
 
 ### 📊 Observability
 - **Structured JSON Logging**: Machine-readable logs for all components
-- **Distributed Tracing**: Cross-component operation tracking
-- **Cost Analytics**: Token usage and cost estimation per operation
+- **Multi-File Logging**: Component-separated logs for focused debugging
 - **Performance Metrics**: Operation duration and throughput analysis
+- **Cost Analytics**: Token usage tracking per operation
 
 ## Quick Start
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-org/enterprise-assistant.git
-cd enterprise-assistant
+git clone https://github.com/your-org/consultant-assistant.git
+cd consultant-assistant
 
 # 2. Install dependencies
 pip install -r requirements.txt
@@ -191,7 +191,7 @@ python3 start_system.py
 # In the orchestrator terminal:
 > get all records for GenePoint account      # Salesforce
 > show me all critical incidents             # ServiceNow
-> find all open bugs in project PROJ-123     # Jira
+> find all open bugs in project PROJ-123    # Jira
 > create a change request for server upgrade # ServiceNow
 ```
 
@@ -209,7 +209,7 @@ Core framework stack:
 - `langchain==0.3.17` - Agent framework
 - `langgraph==0.2.69` - State machine orchestration
 - `langchain-openai==0.3.3` - LLM integration
-- `trustcall==0.0.34` - Structured extraction
+- `pydantic==2.6.4` - Data validation
 
 See `requirements.txt` for complete list.
 
@@ -230,12 +230,12 @@ SFDC_PASS=your-password
 SFDC_TOKEN=your-security-token
 
 # Jira Configuration
-JIRA_URL=https://your-domain.atlassian.net
-JIRA_USERNAME=your@email.com
+JIRA_BASE_URL=https://your-domain.atlassian.net
+JIRA_USER=your@email.com
 JIRA_API_TOKEN=your-api-token
 
 # ServiceNow Configuration
-SNOW_INSTANCE=https://your-instance.service-now.com
+SNOW_INSTANCE=your-instance.service-now.com
 SNOW_USER=your-username
 SNOW_PASS=your-password
 
@@ -251,13 +251,17 @@ The system uses a hierarchical configuration with intelligent defaults:
 ```json
 {
   "conversation": {
-    "summary_threshold": 5,           // Messages before summarization
-    "memory_update_turn_threshold": 3 // Turns before memory extraction
+    "typing_effect_enabled": true,          // Animated UI effects
+    "animated_capabilities_enabled": true   // Banner animations
   },
   "a2a": {
-    "connection_pool_size": 20,       // Per-host connection limit
-    "circuit_breaker_threshold": 5,   // Failures before circuit opens
-    "timeout": 30                     // Request timeout in seconds
+    "connection_pool_size": 50,             // Total connection limit
+    "circuit_breaker_threshold": 5,         // Failures before circuit opens
+    "timeout": 30                           // Request timeout in seconds
+  },
+  "llm": {
+    "temperature": 0.1,                     // Conservative temperature
+    "max_tokens": 4000                      // Response token limit
   }
 }
 ```
@@ -326,7 +330,7 @@ The issue has been assigned to the Infrastructure team with high priority.
 ## Advanced Capabilities
 
 ### Salesforce CRM Integration
-The system features a specialized Salesforce agent with 20 enterprise-grade tools covering:
+The system features a specialized Salesforce agent with 6 unified tools covering:
 
 - **CRUD Operations**: Complete management of Accounts, Contacts, Opportunities, Leads, Cases, and Tasks
 - **Advanced Analytics**: Pipeline analysis, performance metrics, and business intelligence
@@ -336,7 +340,7 @@ The system features a specialized Salesforce agent with 20 enterprise-grade tool
 For detailed Salesforce capabilities, examples, and API reference, see the [Salesforce Agent README](src/agents/salesforce/README.md).
 
 ### Jira Project Management Integration
-The system features a specialized Jira agent with 15 enterprise-grade tools covering:
+The system features a specialized Jira agent with 6 unified tools covering:
 
 - **Issue Management**: Create, read, update, and transition issues across all types (bug, story, task, epic)
 - **Advanced Search**: JQL-powered queries for complex filtering and reporting
@@ -347,7 +351,7 @@ The system features a specialized Jira agent with 15 enterprise-grade tools cove
 For detailed Jira capabilities, examples, and API reference, see the [Jira Agent README](src/agents/jira/README.md).
 
 ### ServiceNow ITSM Integration
-The system features a specialized ServiceNow agent with 15 enterprise-grade tools covering:
+The system features a specialized ServiceNow agent with 15 specialized tools covering:
 
 - **Incident Management**: Create, track, and resolve IT service disruptions
 - **Change Management**: Plan and execute infrastructure changes with approval workflows
@@ -369,29 +373,36 @@ The architecture supports adding new specialized agents for:
 ### Project Structure
 
 ```
-multi-agent-orchestrator/
+consultant-assistant/
 ├── src/
-│   ├── orchestrator/          # Central coordination
-│   │   ├── main.py           # LangGraph implementation
-│   │   ├── agent_registry.py # Service discovery
-│   │   └── enhanced_sys_msg.py # Prompt engineering
-│   ├── agents/               # Specialized agents
-│   │   ├── salesforce/       # CRM agent
-│   │   ├── jira/            # Issue tracking agent
-│   │   └── servicenow/      # ITSM agent
-│   ├── a2a/                  # Protocol layer
-│   │   └── protocol.py       # A2A implementation
-│   ├── tools/                # Agent capabilities
-│   │   ├── salesforce_tools.py # 20 CRM tools
-│   │   ├── jira_tools.py      # 15 issue tracking tools
-│   │   └── servicenow_tools.py # 15 ITSM tools
-│   └── utils/                # Shared utilities
-│       ├── config.py         # Configuration management
-│       ├── circuit_breaker.py # Resilience patterns
-│       └── logging/          # Structured logging
-├── logs/                     # Component-separated logs
-├── memory_store.db          # SQLite persistence
-└── system_config.json       # System configuration
+│   ├── orchestrator/             # Central coordination
+│   │   ├── main.py              # LangGraph implementation
+│   │   ├── graph_builder.py     # Workflow construction
+│   │   ├── state.py             # State schema
+│   │   ├── conversation_handler.py # Message processing
+│   │   ├── background_tasks.py  # Async operations
+│   │   ├── llm_handler.py       # Azure OpenAI integration
+│   │   ├── agent_registry.py    # Service discovery
+│   │   └── agent_caller_tools.py # A2A delegation
+│   ├── agents/                  # Specialized agents
+│   │   ├── salesforce/          # CRM agent
+│   │   ├── jira/               # Issue tracking agent
+│   │   └── servicenow/         # ITSM agent
+│   ├── a2a/                     # Protocol layer
+│   │   ├── protocol.py          # A2A implementation
+│   │   └── circuit_breaker.py   # Resilience patterns
+│   ├── tools/                   # Agent capabilities
+│   │   ├── salesforce_unified.py # 6 unified CRM tools
+│   │   ├── jira_unified.py      # 6 unified issue tools
+│   │   └── servicenow_tools.py  # 15 specialized ITSM tools
+│   └── utils/                   # Shared utilities
+│       ├── config/              # Configuration management
+│       ├── storage/             # SQLite adapter
+│       ├── logging/             # Multi-file logging
+│       └── message_serialization.py # LangChain serialization
+├── logs/                        # Component-separated logs
+├── memory_store.db             # SQLite persistence
+└── system_config.json          # System configuration
 ```
 
 ### Adding New Agents
@@ -402,13 +413,13 @@ multi-agent-orchestrator/
 4. Register in `agent_registry.json`
 5. Add orchestrator tool wrapper
 
-See [Agent Development Guide](docs/dev/new-agent.md) for details.
+See [Component Documentation](docs/components/) for details.
 
 ### Code Style
 
 - Follow PEP 8 with 100-character line limit
 - Use type hints for all public functions
-- Write docstrings for all modules, classes, and functions
+- Write concise docstrings focusing on purpose
 - Focus comments on "why" not "what"
 
 ## Production Deployment
@@ -442,7 +453,7 @@ spec:
     spec:
       containers:
       - name: orchestrator
-        image: enterprise-assistant:latest
+        image: consultant-assistant:latest
         env:
         - name: AZURE_OPENAI_ENDPOINT
           valueFrom:
@@ -466,12 +477,12 @@ All components generate structured JSON logs:
 
 ```json
 {
-  "timestamp": "2025-06-21T23:45:00.123Z",
+  "timestamp": "2025-06-26T23:45:00.123Z",
+  "component": "orchestrator",
   "operation_type": "A2A_TASK_COMPLETE",
   "task_id": "abc123",
   "duration_ms": 1234,
-  "token_usage": 456,
-  "estimated_cost": "$0.0012"
+  "agent": "salesforce"
 }
 ```
 
@@ -518,9 +529,9 @@ python -m venv venv
 source venv/bin/activate  # or `venv\Scripts\activate` on Windows
 
 # Install dev dependencies
-pip install -r requirements-dev.txt
+pip install -r requirements.txt
 
-# Run pre-commit hooks
+# Run pre-commit hooks (if available)
 pre-commit install
 ```
 
@@ -533,7 +544,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Acknowledgments
 
 This system implements enterprise patterns and standards from:
-- Google's A2A Protocol for agent interoperability
+- Agent-to-Agent (A2A) Protocol for agent interoperability
 - Netflix's circuit breaker pattern for resilience
 - LangChain/LangGraph for agent orchestration
 - OpenAI/Azure for LLM capabilities

@@ -1,7 +1,4 @@
-"""
-Salesforce Specialized Agent
-Handles all Salesforce CRM operations via A2A protocol
-"""
+"""Salesforce specialized agent for CRM operations via A2A protocol."""
 
 import os
 import json

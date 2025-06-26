@@ -1,22 +1,7 @@
-"""
-Agent2Agent (A2A) Protocol Implementation.
+"""Agent-to-Agent (A2A) protocol implementation using JSON-RPC 2.0.
 
-This module implements Google's A2A protocol specification for inter-agent communication
-using JSON-RPC 2.0 over HTTP. The implementation focuses on enterprise-grade reliability
-with connection pooling, circuit breakers, and retry logic.
-
-Key Design Decisions:
-    - JSON-RPC 2.0: Industry standard for RPC communication with well-defined error handling
-    - Connection Pooling: Reuses HTTP connections to reduce latency and resource usage
-    - Circuit Breaker Pattern: Prevents cascading failures by failing fast when agents are down
-    - Async Architecture: Non-blocking I/O for high-performance concurrent operations
-    - Structured Logging: Machine-readable logs for observability and debugging
-
-Architecture Components:
-    - A2AClient: Makes resilient calls to other agents with automatic retry and circuit breaking
-    - A2AServer: Handles incoming requests with input validation and error handling
-    - A2AConnectionPool: Manages connection lifecycle with idle timeout and cleanup
-    - Data Models: Type-safe message structures (Task, Artifact, Message, AgentCard)
+Provides resilient inter-agent communication with connection pooling,
+circuit breakers, and retry logic.
 """
 
 import json
@@ -57,23 +42,7 @@ class TimestampedBase:
 
 @dataclass
 class AgentCard:
-    """Agent capability description following A2A specification.
-    
-    The AgentCard serves as a self-describing manifest that allows agents
-    to advertise their capabilities for dynamic discovery and routing.
-    This enables loose coupling between agents - the orchestrator can
-    select appropriate agents based on capabilities without hardcoding
-    specific agent dependencies.
-    
-    Attributes:
-        name: Human-readable agent identifier
-        version: Semantic version for compatibility checking
-        description: Brief description of agent's purpose
-        capabilities: List of capabilities this agent provides (e.g., ['salesforce_operations'])
-        endpoints: Map of endpoint names to URLs for different operations
-        communication_modes: Supported modes (e.g., ['synchronous', 'streaming'])
-        metadata: Additional agent-specific configuration
-    """
+    """Agent capability manifest for discovery and routing."""
     name: str
     version: str
     description: str
@@ -88,21 +57,7 @@ class AgentCard:
 
 @dataclass
 class A2ATask:
-    """Stateful collaboration entity for agent task processing.
-    
-    Tasks are the primary unit of work in the A2A protocol. They carry
-    both the instruction and the necessary context for an agent to
-    complete the work. The state_snapshot allows resumability and
-    debugging by capturing the system state at task creation time.
-    
-    Attributes:
-        id: Unique identifier for tracking and correlation
-        instruction: Natural language instruction for the agent
-        context: Relevant context including user info and session data
-        state_snapshot: Captures system state for reproducibility
-        status: Task lifecycle state (pending -> in_progress -> completed/failed)
-        created_at: ISO timestamp for audit and performance tracking
-    """
+    """Task entity for agent processing with context and state."""
     id: str
     instruction: str
     context: Dict[str, Any]
@@ -522,24 +477,9 @@ def get_connection_pool() -> A2AConnectionPool:
     return _connection_pool
 
 class A2AClient:
-    """A2A Protocol Client for making resilient calls to other agents.
+    """Client for resilient agent-to-agent communication.
     
-    This client provides the primary interface for agent-to-agent communication
-    with enterprise-grade reliability features:
-    
-    1. Connection Pooling: Reuses HTTP connections for performance
-    2. Circuit Breaker: Fails fast when agents are down to prevent cascading failures
-    3. Retry Logic: Automatic retry with exponential backoff for transient failures
-    4. Timeout Management: Configurable timeouts at multiple levels
-    5. Structured Logging: Comprehensive observability for debugging and monitoring
-    
-    The client can operate in two modes:
-    - Pooled mode (default): Shares connections via global pool for efficiency
-    - Dedicated mode: Uses dedicated session for isolation (useful for testing)
-    
-    Usage:
-        async with A2AClient() as client:
-            result = await client.process_task(endpoint, task)
+    Features connection pooling, circuit breakers, and retry logic.
     """
     
     def __init__(self, timeout: Optional[int] = None, use_pool: bool = True):
@@ -771,22 +711,7 @@ class A2AClient:
             raise
     
     async def call_agent(self, endpoint: str, method: str, params: Dict[str, Any], request_id: Optional[str] = None) -> Dict[str, Any]:
-        """Make a resilient JSON-RPC call with circuit breaker and retry logic.
-        
-        This method wraps _make_raw_call with enterprise resilience patterns:
-        
-        1. Circuit Breaker Pattern:
-           - Opens circuit after N failures to prevent cascading failures
-           - Fails fast when circuit is open, avoiding unnecessary timeouts
-           - Periodically tests with half-open state to detect recovery
-           
-        2. Retry Pattern:
-           - Automatic retry with exponential backoff for transient failures
-           - Configurable max attempts and delays
-           - Adds jitter to prevent thundering herd
-           
-        The circuit breaker is keyed by agent+method to isolate failures
-        (e.g., one broken method doesn't affect other methods on same agent).
+        """Make a JSON-RPC call with circuit breaker and retry logic.
         
         Args:
             endpoint: Full URL of the agent endpoint

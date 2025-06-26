@@ -1,7 +1,4 @@
-"""
-Circuit Breaker Pattern Implementation for Multi-Agent System
-Provides resilience against cascading failures in agent-to-agent communication
-"""
+"""Circuit breaker pattern for resilient agent-to-agent communication."""
 
 import asyncio
 import time
