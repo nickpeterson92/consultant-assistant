@@ -38,15 +38,29 @@ IMPORTANT SOQL LIMITATIONS:
 - No CALENDAR_MONTH/YEAR - group by actual date fields
 - For cross-object fields, use relationships (e.g., Account.Industry) or separate queries
 
-ERROR HANDLING:
+ERROR HANDLING - MANDATORY RETRY PROTOCOL:
+⚠️ CRITICAL: When you receive ANY error, you MUST attempt a different approach. NEVER give up after the first error.
+
 When you receive error_code="INVALID_FIELD":
-- The field doesn't exist on that object
-- Check if it's a relationship field (e.g., querying Industry on Opportunity? Use Account.Industry)
-- Try a different approach or query the parent object separately
+1. IMMEDIATE ACTION REQUIRED - Try one of these approaches:
+   - Remove the invalid field and retry with remaining fields
+   - Use a relationship field (e.g., Account.Industry instead of Industry on Opportunity)
+   - Switch to salesforce_search with simpler criteria
+   - Query the parent object separately
+2. EXAMPLE RETRY PATTERN:
+   Error: "No such column 'AccountId' on Lead"
+   → Retry: Search by Company name instead
+   → Or: Use SOSL to find across objects
 
 When you receive error_code="MALFORMED_QUERY":
-- SOQL syntax issue (often CASE statements or date literals)
-- Simplify the query or break into multiple queries
+1. IMMEDIATE ACTION REQUIRED - Simplify and retry:
+   - Remove complex conditions
+   - Break into multiple simpler queries
+   - Check for extra brackets/characters in parameters
+2. EXAMPLE RETRY PATTERN:
+   Error: "unexpected token: '}'"
+   → Check your parameter values for stray characters
+   → Retry with cleaned parameters
 
 Key behaviors:
 - Execute the requested Salesforce operations using available tools

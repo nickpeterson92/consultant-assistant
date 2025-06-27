@@ -1,15 +1,13 @@
 """Unified Jira tools for issue management and JQL queries."""
 
-import json
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
-from src.tools.jira_base import (
+from .base import (
     JiraReadTool,
     JiraWriteTool,
     JiraCollaborationTool,
-    JiraAnalyticsTool,
-    logger
+    JiraAnalyticsTool
 )
 
 

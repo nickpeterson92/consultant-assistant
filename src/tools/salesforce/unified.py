@@ -3,7 +3,7 @@
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
-from src.tools.salesforce_base import (
+from .base import (
     SalesforceReadTool,
     SalesforceWriteTool,
     SalesforceAnalyticsTool,

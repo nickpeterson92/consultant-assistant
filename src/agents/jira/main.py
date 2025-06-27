@@ -9,14 +9,14 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import AzureChatOpenAI
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.memory import MemorySaver
 
-from src.tools.jira_unified import UNIFIED_JIRA_TOOLS
-from src.a2a import A2AServer, A2ATask, A2AResponse, A2AArtifact, AgentCard
+from src.tools.jira import UNIFIED_JIRA_TOOLS
+from src.a2a import A2AServer, A2AArtifact, AgentCard
 from src.utils.config import get_llm_config
 from src.utils.logging import get_logger
 from src.utils.sys_msg import jira_agent_sys_msg
@@ -55,12 +55,7 @@ def get_jira_system_message(task_context: dict = None, external_context: dict = 
 
 def build_jira_agent():
     """Build and compile the Jira agent LangGraph workflow.
-    
-    Creates a state-based graph that processes user requests through:
-    1. Agent node - LLM reasoning and tool selection
-    2. Tools node - Execution of selected Jira tools
-    3. Conditional routing based on tool needs
-    
+
     Returns:
         CompiledGraph: Compiled LangGraph with memory checkpointing enabled
         
@@ -191,11 +186,6 @@ async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
             - result: Success/error information
             - artifacts: Response data including issue keys
             - metadata: Agent name, tools used, timestamp
-            
-    Error Handling:
-        - Catches and logs all exceptions
-        - Returns structured error responses
-        - Preserves task ID for correlation
     """
     try:
         # Extract task data from params (following Salesforce pattern)

@@ -15,9 +15,7 @@ Following SOLID principles:
 
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, List, ClassVar
-from functools import lru_cache
 
-from pydantic import BaseModel
 from langchain.tools import BaseTool
 from simple_salesforce import Salesforce
 

@@ -9,10 +9,9 @@ This module provides the foundation for all Jira tools with:
 
 import os
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Dict, List
+from typing import Any, Dict
 import requests
 from requests.auth import HTTPBasicAuth
-from pydantic import BaseModel
 
 from langchain.tools import BaseTool
 from src.utils.logging import get_logger

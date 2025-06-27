@@ -22,7 +22,6 @@ from src.utils.logging import get_logger
 # Initialize structured logger
 logger = get_logger()
 from src.utils.config import (
-    CONVERSATION_SUMMARY_KEY, USER_CONTEXT_KEY, 
     MESSAGES_KEY, MEMORY_KEY, RECENT_MESSAGES_COUNT
 )
 from src.utils.message_serialization import serialize_recent_messages
@@ -126,12 +125,6 @@ class SalesforceAgentTool(BaseAgentTool):
     via A2A (Agent-to-Agent) protocol. Provides enterprise CRM capabilities through
     distributed agent architecture with state management and context preservation.
     
-    Architecture Pattern:
-    - Follows Service-Oriented Architecture (SOA) principles
-    - Implements Event-Driven Multi-Agent communication
-    - Maintains conversation context across agent boundaries
-    - Preserves memory state for session continuity
-    
     CRM Capabilities:
     - Lead Management: Lead generation, qualification, conversion tracking
     - Account Operations: Customer account lifecycle, relationship mapping
@@ -139,18 +132,6 @@ class SalesforceAgentTool(BaseAgentTool):
     - Contact Management: Customer relationship coordination, communication history
     - Case Management: Customer service tickets, issue resolution, SLA tracking
     - Task Management: Activity coordination, follow-up scheduling, productivity tracking
-    
-    Integration Patterns:
-    - Individual lookups: "get [specific record]" or "find [record] by [criteria]"
-    - Bulk operations: "get all [records] for [account]" (when explicitly requested)
-    - CRUD operations: create, read, update workflows
-    - Cross-object relationships: account→contacts→opportunities→cases→tasks
-    
-    Business Intelligence:
-    - Pipeline analysis and revenue forecasting
-    - Customer relationship mapping and account health
-    - Service level tracking and customer satisfaction
-    - Sales activity monitoring and team productivity
     """
     name: str = "salesforce_agent"
     description: str = """Delegates Salesforce CRM operations to specialized agent via A2A protocol.
@@ -501,12 +482,6 @@ class JiraAgentTool(BaseAgentTool):
     via A2A (Agent-to-Agent) protocol. Provides enterprise issue tracking capabilities through
     distributed agent architecture with state management and context preservation.
     
-    Architecture Pattern:
-    - Follows Service-Oriented Architecture (SOA) principles
-    - Implements Event-Driven Multi-Agent communication
-    - Maintains conversation context across agent boundaries
-    - Preserves memory state for session continuity
-    
     Jira Capabilities:
     - Issue Management: Create, read, update, transition issues across all types (bug, story, task, epic)
     - JQL Search: Advanced query language for complex searches and filtering
@@ -514,18 +489,6 @@ class JiraAgentTool(BaseAgentTool):
     - Sprint Management: Active sprint monitoring, velocity tracking, burndown analytics
     - Project Analytics: Dashboard metrics, team velocity, cycle time analysis
     - Agile Workflows: Kanban boards, scrum ceremonies, workflow automation
-    
-    Integration Patterns:
-    - Individual lookups: "get issue [PROJ-123]" or "find bugs in [project]"
-    - Bulk operations: "show all critical bugs" or "list issues in current sprint"
-    - CRUD operations: create, read, update, transition workflows
-    - Cross-project relationships: epics→stories→subtasks, linked issues
-    
-    Business Intelligence:
-    - Sprint velocity and burndown tracking
-    - Bug resolution metrics and SLA monitoring
-    - Project health dashboards and risk indicators
-    - Team productivity and workload distribution
     """
     name: str = "jira_agent"
     description: str = """Delegates Jira issue tracking operations to specialized agent via A2A protocol.
@@ -877,12 +840,6 @@ class ServiceNowAgentTool(BaseAgentTool):
     via A2A (Agent-to-Agent) protocol. Provides enterprise IT Service Management capabilities
     through distributed agent architecture with state management and context preservation.
     
-    Architecture Pattern:
-    - Follows Service-Oriented Architecture (SOA) principles
-    - Implements Event-Driven Multi-Agent communication
-    - Maintains conversation context across agent boundaries
-    - Preserves memory state for session continuity
-    
     ITSM Capabilities:
     - Incident Management: Create, read, update incidents with full lifecycle support
     - Change Management: Handle standard, normal, and emergency changes
@@ -890,18 +847,6 @@ class ServiceNowAgentTool(BaseAgentTool):
     - Task Management: Generic task operations across all tables
     - User & CMDB: User lookups and configuration item management
     - Global Search: Flexible queries with encoded query support
-    
-    Integration Patterns:
-    - Individual lookups: "get incident INC0010023" or "find critical incidents"
-    - Bulk operations: "show all changes pending approval"
-    - CRUD operations: create, read, update workflows
-    - Cross-table relationships: incidents→problems→changes→tasks
-    
-    Business Intelligence:
-    - Incident metrics and SLA tracking
-    - Change success rates and implementation windows
-    - Problem trending and known error database
-    - Task completion and assignment analytics
     """
     name: str = "servicenow_agent"
     description: str = """Delegates ServiceNow ITSM operations to specialized agent via A2A protocol.
@@ -1147,30 +1092,6 @@ class AgentRegistryTool(BaseTool):
     Provides comprehensive agent lifecycle management, health monitoring, and
     system observability for distributed agent architectures. Implements
     service discovery patterns and operational intelligence for agent ecosystems.
-    
-    Registry Management Capabilities:
-    - Agent discovery and registration management
-    - Real-time health monitoring and status tracking  
-    - Capability mapping and service advertisement
-    - Load balancing and failover coordination
-    
-    Operational Intelligence:
-    - Agent performance metrics and analytics
-    - System capacity planning and resource utilization
-    - Service level agreement monitoring
-    - Distributed system health dashboard
-    
-    Enterprise Operations:
-    - Multi-environment agent deployment tracking
-    - Version management and rolling updates
-    - Configuration management and policy enforcement
-    - Audit trails and compliance monitoring
-    
-    Monitoring Patterns:
-    - Heartbeat detection and liveness probes
-    - Circuit breaker status and failure tracking
-    - Response time analytics and performance tuning
-    - Resource consumption and scaling triggers
     """
     name: str = "manage_agents"
     description: str = """Manages multi-agent system registry with health monitoring and operational intelligence.
