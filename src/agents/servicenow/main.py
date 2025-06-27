@@ -15,7 +15,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.memory import MemorySaver
 
-from src.tools.servicenow_tools import ALL_SERVICENOW_TOOLS
+from src.tools.servicenow import UNIFIED_SERVICENOW_TOOLS
 from src.a2a import A2AServer, AgentCard
 from src.utils.config import get_llm_config
 from src.utils.logging import get_logger
@@ -67,7 +67,7 @@ def build_servicenow_graph():
     llm = create_azure_openai_chat()
     
     # Bind tools to LLM
-    llm_with_tools = llm.bind_tools(ALL_SERVICENOW_TOOLS)
+    llm_with_tools = llm.bind_tools(UNIFIED_SERVICENOW_TOOLS)
     
     # Define agent function
     def servicenow_agent(state: ServiceNowAgentState):
@@ -120,7 +120,7 @@ def build_servicenow_graph():
             return {"messages": [error_msg], "error": str(e)}
     
     # Create tool node
-    tool_node = ToolNode(ALL_SERVICENOW_TOOLS)
+    tool_node = ToolNode(UNIFIED_SERVICENOW_TOOLS)
     
     # Build the graph
     graph_builder = StateGraph(ServiceNowAgentState)
@@ -254,8 +254,8 @@ def create_servicenow_agent_card() -> AgentCard:
         communication_modes=["sync", "streaming"],
         metadata={
             "framework": "langgraph",
-            "tools_count": len(ALL_SERVICENOW_TOOLS),
-            "tool_names": [tool.name for tool in ALL_SERVICENOW_TOOLS]
+            "tools_count": len(UNIFIED_SERVICENOW_TOOLS),
+            "tool_names": [tool.name for tool in UNIFIED_SERVICENOW_TOOLS]
         }
     )
 
@@ -267,7 +267,7 @@ async def main(port: int = 8003):
         component="servicenow",
         operation="startup",
         port=port,
-        tools_count=len(ALL_SERVICENOW_TOOLS),
+        tools_count=len(UNIFIED_SERVICENOW_TOOLS),
         capabilities=agent_card.capabilities
     )
     

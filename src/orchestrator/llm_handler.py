@@ -96,8 +96,9 @@ def get_orchestrator_system_message(state: OrchestratorState, agent_registry) ->
 CURRENTLY ACTIVE AGENTS: {', '.join(active_agents) if active_agents else 'None'}
 
 ORCHESTRATOR TOOLS:
-1. salesforce_agent: For Salesforce CRM operations (leads, accounts, opportunities, contacts, cases, tasks)
-2. call_agent: For general agent calls (travel, expenses, HR, OCR, etc.)
-3. manage_agents: To check agent status and capabilities"""
+1. salesforce_agent: For Salesforce CRM operations (leads, accounts, opportunities, contacts, cases, tasks, etc.)
+2. jira_agent: For project management (projects, bugs, epics, stories, etc.)
+3. servicenow_agent: For incident management and IT (change requests, incidents, problems, etc.)
+4. manage_agents: To check agent status and capabilities"""
     
     return orchestrator_chatbot_sys_msg(summary, memory_val, agent_context)

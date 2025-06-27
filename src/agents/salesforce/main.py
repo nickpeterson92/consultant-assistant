@@ -22,7 +22,7 @@ from src.a2a import A2AServer, AgentCard
 
 # Import from the centralized tools directory
 # Using new unified tools for better performance and maintainability
-from src.tools.salesforce_unified import UNIFIED_SALESFORCE_TOOLS
+from src.tools.salesforce import UNIFIED_SALESFORCE_TOOLS
 # Fallback to old tools if needed
 # from src.tools.salesforce_tools import ALL_SALESFORCE_TOOLS
 

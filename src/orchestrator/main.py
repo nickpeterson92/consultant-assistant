@@ -5,7 +5,6 @@ import asyncio
 import time
 import uuid
 import logging
-from typing import Optional
 
 from src.utils.config import (
     get_conversation_config, LOCALHOST, SALESFORCE_AGENT_PORT,

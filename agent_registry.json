@@ -37,7 +37,7 @@
         }
       },
       "status": "online",
-      "last_health_check": 1382900.822258541
+      "last_health_check": 1426276.3740115
     },
     {
       "name": "jira-agent",
@@ -77,7 +77,7 @@
         }
       },
       "status": "online",
-      "last_health_check": 1382900.822545125
+      "last_health_check": 1426276.374132833
     },
     {
       "name": "servicenow-agent",
@@ -107,28 +107,19 @@
         ],
         "metadata": {
           "framework": "langgraph",
-          "tools_count": 15,
+          "tools_count": 6,
           "tool_names": [
-            "get_incident",
-            "create_incident",
-            "update_incident",
-            "get_change_request",
-            "create_change_request",
-            "update_change_request",
-            "get_problem",
-            "create_problem",
-            "update_problem",
-            "get_task",
-            "create_task",
-            "update_task",
-            "get_user",
-            "get_cmdb_item",
-            "search_servicenow"
+            "servicenow_get",
+            "servicenow_search",
+            "servicenow_create",
+            "servicenow_update",
+            "servicenow_workflow",
+            "servicenow_analytics"
           ]
         }
       },
       "status": "online",
-      "last_health_check": 1382900.822656041
+      "last_health_check": 1426276.374236666
     }
   ]
 }
