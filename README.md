@@ -91,7 +91,7 @@ Traditional single-agent systems hit scalability walls. This architecture solves
  ▼                           ▼                            ▼                      ▼
 ┌────────────────────┐ ┌────────────────────┐ ┌────────────────────┐ ┌────────────────────┐
 │ SALESFORCE AGENT   │ │   JIRA AGENT       │ │ SERVICENOW AGENT   │ │ EXTENSIBLE AGENTS  │
-│ - 6 Unified Tools  │ │ - 6 Unified Tools  │ │ - 15 ITSM Tools    │ │ - Travel Mgmt      │
+│ - 6 Unified Tools  │ │ - 6 Unified Tools  │ │ - 6 Unified Tools  │ │ - Travel Mgmt      │
 │ - SOQL Builder     │ │ - JQL Search       │ │ - Incident Mgmt    │ │ - Expense Process  │
 │ - Lead Management  │ │ - Sprint Mgmt      │ │ - Change Mgmt      │ │ - HR Operations    │
 │ - Opportunity Mgmt │ │ - Epic Tracking    │ │ - Problem Mgmt     │ │ - Document Process │

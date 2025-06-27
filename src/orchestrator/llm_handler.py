@@ -99,6 +99,7 @@ ORCHESTRATOR TOOLS:
 1. salesforce_agent: For Salesforce CRM operations (leads, accounts, opportunities, contacts, cases, tasks, etc.)
 2. jira_agent: For project management (projects, bugs, epics, stories, etc.)
 3. servicenow_agent: For incident management and IT (change requests, incidents, problems, etc.)
-4. manage_agents: To check agent status and capabilities"""
+4. manage_agents: To check agent status and capabilities
+5. web_search: Search the web for information about entities, companies, people, or topics"""
     
     return orchestrator_chatbot_sys_msg(summary, memory_val, agent_context)

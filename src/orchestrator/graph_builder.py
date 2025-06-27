@@ -1,6 +1,5 @@
 """Graph builder for the multi-agent orchestrator system."""
 
-import os
 from dotenv import load_dotenv
 from functools import partial
 
@@ -15,6 +14,7 @@ from src.utils.tool_execution import create_tool_node
 from .agent_registry import AgentRegistry
 from .agent_caller_tools import SalesforceAgentTool, JiraAgentTool, ServiceNowAgentTool, AgentRegistryTool
 from .state import OrchestratorState
+from src.tools.utility import WebSearchTool
 from .llm_handler import create_llm_instances
 from .conversation_handler import orchestrator as orchestrator_node
 from .background_tasks import summarize_conversation, memorize_records
@@ -50,7 +50,8 @@ def build_orchestrator_graph():
         SalesforceAgentTool(agent_registry),
         JiraAgentTool(agent_registry),
         ServiceNowAgentTool(agent_registry),
-        AgentRegistryTool(agent_registry)
+        AgentRegistryTool(agent_registry),
+        WebSearchTool()  # New utility tool for web search
     ]
     
     # Create LLM instances and invoke function

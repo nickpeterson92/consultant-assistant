@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Essential guidance for Claude Code when working with this multi-agent orchestrator system. No fluff, just what you need to know.
+UPDATE CLAUDE.md PERIODICALLY
 
 ## 📅 Current Year
 
@@ -221,8 +221,10 @@ namespace = ("memory", user_id)
 ### Log Files by Component
 ```bash
 logs/
-├── orchestrator.log      # Orchestrator operations, LLM calls, user interactions
+├── orchestrator.log      # Orchestrator operations, LLM calls, user interactions, utility tools (web search)
 ├── salesforce.log        # Both SF agent AND tool operations in one place
+├── jira.log              # Jira agent and tool operations
+├── servicenow.log        # ServiceNow agent and tool operations
 ├── a2a_protocol.log      # Network calls, circuit breakers, retries
 ├── storage.log           # SQLite operations, memory persistence
 ├── system.log            # Startup/shutdown, config loads, health checks
@@ -245,11 +247,20 @@ tail -f logs/a2a_protocol.log | grep -E "(CIRCUIT_BREAKER|retry|timeout)"
 
 # Check tool execution flow
 tail -f logs/salesforce.log | jq -r 'select(.tool_name) | [.timestamp,.tool_name,.message] | @csv'
+
+# Watch web search operations
+tail -f logs/orchestrator.log | grep -E "(web_search|tavily)"
+
+# Monitor web search errors specifically
+tail -f logs/errors.log | grep -E "(web_search|TAVILY)"
 ```
 
 ### Component Mappings
 - `component="orchestrator"` → orchestrator.log
+- `component="utility"` → orchestrator.log (web search and other utility tools)
 - `component="salesforce"` → salesforce.log (includes both agent & tools)
+- `component="jira"` → jira.log
+- `component="servicenow"` → servicenow.log
 - `component="a2a"` → a2a_protocol.log
 - `component="storage"` or `component="async_store_adapter_sync"` → storage.log
 - `component="system"` or `component="config"` → system.log
@@ -259,6 +270,7 @@ tail -f logs/salesforce.log | jq -r 'select(.tool_name) | [.timestamp,.tool_name
 - **Agent offline**: Check `health_check_failed` in orchestrator.log
 - **Memory errors**: Search `sqlite_error` in storage.log
 - **Network issues**: Find `a2a_network_error` in a2a_protocol.log
+- **Web search errors**: Look for `web_search_error` or `tavily_` in orchestrator.log
 - **All critical errors**: Always check errors.log first!
 
 ## 🎯 Quick Task Reference

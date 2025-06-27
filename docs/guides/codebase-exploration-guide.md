@@ -233,7 +233,7 @@ async def profile_request():
     start = time.time()
     
     state = {
-        "messages": [{"role": "user", "content": "get all accounts"}],
+        "messages": [{"role": "user", "content": "get all accounts"},{"role": "assistant", "content": "get all accounts"},{"role": "tool", "content": "get all accounts"}],
         "summary": "No summary available",
         "memory": {},
         "events": []

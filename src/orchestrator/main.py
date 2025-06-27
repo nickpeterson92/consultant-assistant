@@ -519,15 +519,14 @@ async def main():
         from src.a2a.protocol import get_connection_pool
         pool = get_connection_pool()
         await pool.close_all()
-        logger.info("connection_pool_cleanup",
+        logger.info("Closed all A2A connections",
             component="orchestrator",
-            operation="shutdown",
-            message="Closed all A2A connections"
+            operation="connection_pool_cleanup"
         )
     except Exception as e:
-        logger.warning("connection_pool_cleanup_error",
+        logger.warning(f"Error cleaning up connection pool: {str(e)}",
             component="orchestrator",
-            operation="shutdown",
+            operation="connection_pool_cleanup_error",
             error=str(e),
             error_type=type(e).__name__
         )

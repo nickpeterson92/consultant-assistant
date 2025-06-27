@@ -33,7 +33,10 @@ from .servicenow import (
     UNIFIED_SERVICENOW_TOOLS
 )
 
-# Combined exports
+# Utility tools (for orchestrator only)
+from .utility import WebSearchTool
+
+# Combined exports (agent tools only, not utility tools)
 ALL_UNIFIED_TOOLS = (
     UNIFIED_SALESFORCE_TOOLS +
     UNIFIED_JIRA_TOOLS +
@@ -65,6 +68,9 @@ __all__ = [
     'ServiceNowWorkflow',
     'ServiceNowAnalytics',
     'UNIFIED_SERVICENOW_TOOLS',
+    # Utility
+    'WebSearchTool',
+    'UTILITY_TOOLS',
     # Combined
     'ALL_UNIFIED_TOOLS'
 ]

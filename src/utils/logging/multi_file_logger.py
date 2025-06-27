@@ -28,6 +28,7 @@ class MultiFileLogger(StructuredLogger):
         'system': 'system.log',
         'config': 'system.log',  # Config goes to system log
         'async_store_adapter_sync': 'storage.log',  # Storage alias
+        'utility': 'orchestrator.log',  # Utility tools go to orchestrator log
     }
     
     def __init__(self, log_dir: str = None, level: int = None):
