@@ -34,7 +34,7 @@ os.environ["LANGCHAIN_TRACING_V2"] = "false"
 # Import unified logger
 from src.utils.logging import get_logger
 from src.utils.config import get_llm_config
-from src.utils.sys_msg import salesforce_agent_sys_msg
+from src.utils.agents.prompts import salesforce_agent_sys_msg
 
 # Initialize structured logger
 logger = get_logger("salesforce")
@@ -172,8 +172,9 @@ class SalesforceA2AHandler:
     async def process_task(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Process A2A task using modern LangGraph pattern"""
         try:
-            task_data = params.get("task", {})
-            task_id = task_data.get("id", "unknown")
+            # A2A protocol wraps task in "task" key
+            task_data = params.get("task", params)  # Support both wrapped and unwrapped
+            task_id = task_data.get("id", task_data.get("task_id", "unknown"))
             instruction = task_data.get("instruction", "")
             context = task_data.get("context", {})
             
@@ -196,11 +197,13 @@ class SalesforceA2AHandler:
             }
             
             # Modern config - no need for complex setup
+            # Get recursion limit from config
+            llm_config = get_llm_config()
             config = {
                 "configurable": {
                     "thread_id": f"sf-{task_id}",
                 },
-                "recursion_limit": 15  # Prevent runaway tool calls
+                "recursion_limit": llm_config.recursion_limit  # Prevent runaway tool calls
             }
             
             # Execute graph
@@ -259,8 +262,8 @@ class SalesforceA2AHandler:
             )
             return {
                 "artifacts": [{
-                    "id": f"sf-error-{task_data.get('id', 'unknown')}",
-                    "task_id": task_data.get("id"),
+                    "id": f"sf-error-{task_id}",
+                    "task_id": task_id,
                     "content": f"Error processing Salesforce request: {error_msg}",
                     "content_type": "text/plain"
                 }],

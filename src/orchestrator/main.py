@@ -7,12 +7,13 @@ import uuid
 import logging
 
 from src.utils.config import (
-    get_conversation_config, LOCALHOST, SALESFORCE_AGENT_PORT,
+    get_conversation_config, get_llm_config, LOCALHOST, SALESFORCE_AGENT_PORT,
     ENTERPRISE_ASSISTANT_BANNER
 )
 from src.utils.logging import get_logger, init_session_tracking
-from src.utils.ux import (
+from src.utils.ui import (
     animated_banner_display, display_capabilities_banner,
+    display_categorized_capabilities_banner,
     type_out, format_markdown_for_console, get_empty_input_response
 )
 
@@ -281,7 +282,7 @@ async def main():
     stats = agent_registry.get_registry_stats()
     
     if stats['available_capabilities']:
-        await display_capabilities_banner(stats['available_capabilities'], agent_stats=stats)
+        await display_categorized_capabilities_banner(stats['available_capabilities'], agent_stats=stats)
     else:
         print("\n╔════════════════════════════════════════╗")
         print("║      No agents currently available     ║")
@@ -290,7 +291,11 @@ async def main():
     
     # Initialize conversation
     current_thread_id = f"orchestrator-{str(uuid.uuid4())[:8]}"
-    config = {"configurable": {"thread_id": current_thread_id, "user_id": conv_config.default_user_id}}
+    llm_config = get_llm_config()
+    config = {
+        "configurable": {"thread_id": current_thread_id, "user_id": conv_config.default_user_id},
+        "recursion_limit": llm_config.recursion_limit
+    }
     
     active_threads = {current_thread_id: {"created": time.time(), "messages": 0}}
     namespace = (conv_config.memory_namespace_prefix, conv_config.default_user_id)

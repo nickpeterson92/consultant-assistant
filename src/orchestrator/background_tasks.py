@@ -12,14 +12,14 @@ from src.utils.config import (
     DETERMINISTIC_TEMPERATURE, DETERMINISTIC_TOP_P,
     STATE_KEY_PREFIX
 )
-from src.utils.sys_msg import TRUSTCALL_INSTRUCTION
-from src.utils.events import EventType, OrchestratorEvent
-from src.utils.helpers import smart_preserve_messages
+from src.utils.agents.prompts import TRUSTCALL_INSTRUCTION
+from src.utils.shared import EventType, OrchestratorEvent
+from src.utils.agents.message_processing import smart_preserve_messages
 from src.utils.logging import get_logger
-from src.utils.message_serialization import serialize_messages
+from src.utils.agents.message_processing import serialize_messages
 from src.utils.storage import get_async_store_adapter
 from src.utils.storage.memory_schemas import SimpleMemory
-from src.utils.sys_msg import orchestrator_summary_sys_msg, get_fallback_summary
+from src.utils.agents.prompts import orchestrator_summary_sys_msg, get_fallback_summary
 from .state import OrchestratorState, load_events_with_limit
 
 logger = get_logger()
@@ -329,9 +329,12 @@ async def _run_background_summary_async(messages, summary, events, memory, user_
             
             mock_state["summary"] = new_summary
             
-            # Serialize messages before saving
+            # Serialize messages before saving (put expects bytes or JSON-serializable)
+            # Since we're storing in a dict, we need JSON-serializable format
+            from src.utils.agents.message_processing import serialize_messages_to_dict
+            
             serialized_state = {
-                "messages": serialize_messages(mock_state["messages"]),
+                "messages": serialize_messages_to_dict(mock_state["messages"]),
                 "summary": mock_state["summary"],
                 "events": mock_state["events"],
                 "memory": mock_state["memory"]
@@ -385,7 +388,7 @@ def _run_background_summary(messages, summary, events, memory, user_id, thread_i
     """Execute summarization in background thread (deprecated)."""
     try:
         mock_state = {
-            "messages": serialize_messages(messages),
+            "messages": messages,  # Don't serialize here - summarize_conversation expects actual messages
             "summary": summary,
             "events": [e.to_dict() for e in events],
             "memory": memory
@@ -403,8 +406,18 @@ def _run_background_summary(messages, summary, events, memory, user_id, thread_i
             
             mock_state["summary"] = new_summary
             
+            # Serialize messages before saving
+            from src.utils.agents.message_processing import serialize_messages_to_dict
+            
+            serialized_state = {
+                "messages": serialize_messages_to_dict(mock_state["messages"]),
+                "summary": mock_state["summary"],
+                "events": mock_state["events"],
+                "memory": mock_state["memory"]
+            }
+            
             memory_store.sync_put(namespace, key, {
-                "state": mock_state,
+                "state": serialized_state,
                 "thread_id": thread_id,
                 "timestamp": time.time()
             })
@@ -418,7 +431,7 @@ def _run_background_memory(messages, summary, events, memory, memorize_func, con
     """Execute memory extraction in background thread (deprecated)."""
     try:
         mock_state = {
-            "messages": serialize_messages(messages),
+            "messages": messages,  # Don't serialize here - memorize_records expects actual message objects
             "summary": summary,
             "events": [e.to_dict() for e in events],
             "memory": memory

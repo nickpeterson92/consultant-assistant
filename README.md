@@ -242,6 +242,7 @@ SNOW_PASS=your-password
 # Optional Configuration
 DEBUG_MODE=true
 ENVIRONMENT=development
+LLM_RECURSION_LIMIT=15  # Max iterations for agent loops
 ```
 
 ### System Configuration (system_config.json)
@@ -261,7 +262,8 @@ The system uses a hierarchical configuration with intelligent defaults:
   },
   "llm": {
     "temperature": 0.1,                     // Conservative temperature
-    "max_tokens": 4000                      // Response token limit
+    "max_tokens": 4000,                     // Response token limit
+    "recursion_limit": 15                   // Max iterations for agent loops
   }
 }
 ```
@@ -376,8 +378,8 @@ The architecture supports adding new specialized agents for:
 consultant-assistant/
 ├── src/
 │   ├── orchestrator/             # Central coordination
-│   │   ├── main.py              # LangGraph implementation
-│   │   ├── graph_builder.py     # Workflow construction
+│   │   ├── main.py              # CLI interface & main loop
+│   │   ├── graph_builder.py     # LangGraph workflow construction
 │   │   ├── state.py             # State schema
 │   │   ├── conversation_handler.py # Message processing
 │   │   ├── background_tasks.py  # Async operations
@@ -392,13 +394,29 @@ consultant-assistant/
 │   │   ├── protocol.py          # A2A implementation
 │   │   └── circuit_breaker.py   # Resilience patterns
 │   ├── tools/                   # Agent capabilities
-│   │   ├── salesforce_unified.py # 6 unified CRM tools
-│   │   ├── jira_unified.py      # 6 unified issue tools
-│   │   └── servicenow_tools.py  # 15 specialized ITSM tools
+│   │   ├── salesforce_unified.py # 15 unified CRM tools
+│   │   ├── jira_unified.py      # 15 unified issue tools
+│   │   └── servicenow_unified.py # Unified ITSM tools
 │   └── utils/                   # Shared utilities
 │       ├── config/              # Configuration management
+│       │   ├── config.py        # Main config system
+│       │   └── constants.py     # Centralized constants
 │       ├── storage/             # SQLite adapter
 │       ├── logging/             # Multi-file logging
+│       │   └── multi_file_logger.py
+│       ├── agents/              # Agent-specific utilities
+│       │   └── prompts.py       # System prompts
+│       ├── ui/                  # UI utilities
+│       │   ├── banners.py       # Banner display
+│       │   ├── typing_effect.py # Animated typing
+│       │   └── formatting.py    # Console formatting
+│       ├── platform/            # Platform-specific utilities
+│       │   ├── query/           # Query builders
+│       │   │   └── base_builder.py # Base query builder
+│       │   ├── salesforce/
+│       │   │   └── soql_builder.py # SOQL query builder
+│       │   └── servicenow/
+│       │       └── glide_builder.py # Glide query builder
 │       └── message_serialization.py # LangChain serialization
 ├── logs/                        # Component-separated logs
 ├── memory_store.db             # SQLite persistence

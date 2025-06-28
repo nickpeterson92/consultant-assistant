@@ -19,7 +19,7 @@ from src.tools.servicenow import UNIFIED_SERVICENOW_TOOLS
 from src.a2a import A2AServer, AgentCard
 from src.utils.config import get_llm_config
 from src.utils.logging import get_logger
-from src.utils.sys_msg import servicenow_agent_sys_msg
+from src.utils.agents.prompts import servicenow_agent_sys_msg
 
 logger = get_logger("servicenow")
 
@@ -177,10 +177,12 @@ async def handle_a2a_request(params: dict) -> dict:
         }
         
         # Configure thread
+        llm_config = get_llm_config()
         config = {
             "configurable": {
                 "thread_id": f"servicenow_{task_id}"
-            }
+            },
+            "recursion_limit": llm_config.recursion_limit
         }
         
         # Run the graph

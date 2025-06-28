@@ -51,6 +51,7 @@ SFDC_TOKEN=<token>
 DEBUG_MODE=true
 LLM_TEMPERATURE=0.1
 LLM_MAX_TOKENS=4000
+LLM_RECURSION_LIMIT=15
 ```
 
 ## 📁 Key File Structure
@@ -58,27 +59,53 @@ LLM_MAX_TOKENS=4000
 ```
 ├── orchestrator.py              # Main entry
 ├── salesforce_agent.py          # SF agent entry
+├── jira_agent.py               # Jira agent entry
+├── servicenow_agent.py         # ServiceNow agent entry
 ├── start_system.py              # System starter
 ├── src/
 │   ├── orchestrator/
-│   │   ├── main.py             # LangGraph orchestrator (1,086 lines)
-│   │   ├── agent_caller_tools.py
-│   │   └── agent_registry.py
-│   ├── agents/salesforce/
-│   │   └── main.py             # SF LangGraph agent
+│   │   ├── main.py             # CLI interface & main loop
+│   │   ├── graph_builder.py    # LangGraph orchestration
+│   │   ├── conversation_handler.py # Message processing
+│   │   ├── agent_caller_tools.py   # Agent communication
+│   │   └── agent_registry.py   # Agent discovery
+│   ├── agents/
+│   │   ├── salesforce/
+│   │   │   └── main.py         # SF LangGraph agent
+│   │   ├── jira/
+│   │   │   └── main.py         # Jira LangGraph agent
+│   │   └── servicenow/
+│   │       └── main.py         # ServiceNow LangGraph agent
 │   ├── a2a/
 │   │   ├── protocol.py         # A2A protocol (for network calls)
 │   │   └── circuit_breaker.py  # Resilience for A2A
 │   ├── tools/
-│   │   └── salesforce_tools.py # 15 CRUD tools (1,343 lines)
+│   │   ├── salesforce_unified.py  # 15 unified Salesforce tools
+│   │   ├── jira_unified.py        # 15 unified Jira tools
+│   │   └── servicenow_unified.py  # Unified ServiceNow tools
 │   └── utils/
-│       ├── config/             # Simplified config
+│       ├── config/             # Configuration management
+│       │   ├── config.py       # Main config system
+│       │   └── constants.py    # Centralized constants
 │       ├── storage/            # Simple async SQLite adapter
-│       ├── logging/            # Targeted logging system
-│       ├── sys_msg.py          # System prompts
-│       └── helpers.py
+│       ├── logging/            # Multi-file logging system
+│       │   └── multi_file_logger.py
+│       ├── agents/             # Agent-specific utilities
+│       │   └── prompts.py      # System prompts (split from sys_msg.py)
+│       ├── ui/                 # UI utilities (split from ux.py)
+│       │   ├── banners.py      # Banner display
+│       │   ├── typing_effect.py # Animated typing
+│       │   └── formatting.py   # Console formatting
+│       ├── platform/           # Platform-specific utilities
+│       │   ├── query/          # Query builders
+│       │   │   └── base_builder.py  # Base query builder
+│       │   ├── salesforce/
+│       │   │   └── soql_builder.py  # SOQL query builder
+│       │   └── servicenow/
+│       │       └── glide_builder.py # Glide query builder
+│       └── helpers.py          # General utilities
 ├── memory_store.db             # SQLite storage
-└── logs/                       # JSON logs
+└── logs/                       # JSON logs by component
 ```
 
 ## 🛠️ Core Tools
@@ -215,6 +242,9 @@ namespace = ("memory", user_id)
 7. **BaseAgentTool**: DRY pattern for agents
 8. **Constants**: Centralized in `constants.py`
 9. **YAGNI Applied**: Removed speculative features
+10. **Global Recursion Limit**: 15 iterations max for all agents (configurable)
+11. **Modular Code Organization**: Split large files (sys_msg.py, ux.py) into focused modules
+12. **Query Builder Pattern**: Base query builder with platform-specific implementations
 
 ## 📊 Multi-File Logging System
 

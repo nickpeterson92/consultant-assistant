@@ -12,7 +12,7 @@ from src.utils.config import (
     SUMMARY_USER_MESSAGE_THRESHOLD, SUMMARY_TIME_THRESHOLD_SECONDS,
     MEMORY_TOOL_CALL_THRESHOLD, MEMORY_AGENT_CALL_THRESHOLD
 )
-from src.utils.events import (
+from src.utils.shared import (
     EventAnalyzer,
     create_user_message_event, create_ai_response_event,
     create_tool_call_event, create_summary_triggered_event,

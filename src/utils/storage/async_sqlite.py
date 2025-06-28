@@ -145,7 +145,8 @@ class AsyncSQLiteStore:
             CREATE TABLE IF NOT EXISTS key_value_store (
                 namespace TEXT NOT NULL,
                 key TEXT NOT NULL,
-                value TEXT NOT NULL,
+                value BLOB NOT NULL,
+                value_type TEXT DEFAULT 'json',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (namespace, key)
@@ -184,30 +185,43 @@ class AsyncSQLiteStore:
         async with self.pool.get_connection() as conn:
             await self._initialize_schema(conn)
             async with conn.execute(
-                "SELECT value FROM key_value_store WHERE namespace = ? AND key = ?",
+                "SELECT value, value_type FROM key_value_store WHERE namespace = ? AND key = ?",
                 (namespace_str, key)
             ) as cursor:
                 row = await cursor.fetchone()
                 if row:
-                    try:
-                        return json.loads(row[0])
-                    except json.JSONDecodeError as e:
-                        logger.error(f"Failed to decode JSON for {namespace}:{key}: {e}")
-                        return None
+                    value, value_type = row[0], row[1] if len(row) > 1 else 'json'
+                    if value_type == 'bytes':
+                        return value  # Return raw bytes
+                    else:
+                        try:
+                            # Decode bytes to string first if needed
+                            if isinstance(value, bytes):
+                                value = value.decode('utf-8')
+                            return json.loads(value)
+                        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                            logger.error(f"Failed to decode for {namespace}:{key}: {e}")
+                            return None
                 return None
     
     async def put(self, namespace: Tuple[str, ...], key: str, value: Any) -> None:
         """Put a value into the store"""
-# Schema initialization now happens per connection
-        
         namespace_str = json.dumps(namespace)
-        value_str = json.dumps(value)
+        
+        # Determine value type and serialize accordingly
+        if isinstance(value, bytes):
+            value_data = value
+            value_type = 'bytes'
+        else:
+            value_data = json.dumps(value).encode('utf-8')  # SQLite BLOB needs bytes
+            value_type = 'json'
         
         async with self.pool.get_connection() as conn:
+            await self._initialize_schema(conn)
             await conn.execute(
-                """INSERT OR REPLACE INTO key_value_store (namespace, key, value) 
-                   VALUES (?, ?, ?)""",
-                (namespace_str, key, value_str)
+                """INSERT OR REPLACE INTO key_value_store (namespace, key, value, value_type) 
+                   VALUES (?, ?, ?, ?)""",
+                (namespace_str, key, value_data, value_type)
             )
             await conn.commit()
     

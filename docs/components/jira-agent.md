@@ -264,9 +264,9 @@ Sprint Velocity Tracking:
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                            SPRINT METRICS                                   │
 │                                                                             │
-│  Sprint 19  Sprint 20  Sprint 21  Sprint 22  Sprint 23                     │
-│     67        72        78        71        76  (Story Points)             │
-│     ██        ███       ████      ███       ███▌                           │
+│  Sprint 19  Sprint 20  Sprint 21  Sprint 22  Sprint 23                      │
+│     67        72        78        71        76  (Story Points)              │
+│     ██        ███       ████      ███       ███▌                            │
 │                                                                             │
 │  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────────────┐  │
 │  │   Completed     │    │   In Progress   │    │    Planned              │  │

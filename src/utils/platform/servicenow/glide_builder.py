@@ -1,0 +1,268 @@
+"""ServiceNow GlideRecord Query Builder extending base query builder pattern.
+
+Provides ServiceNow-specific query building with encoded query support.
+"""
+
+from typing import List, Dict, Any, Optional, Union
+from dataclasses import dataclass
+from enum import Enum
+
+from ..query import BaseQueryBuilder, BaseOperator, BaseCondition
+
+
+class GlideOperator(Enum):
+    """ServiceNow query operators following GlideRecord patterns."""
+    # Basic operators
+    EQUALS = "="
+    NOT_EQUALS = "!="
+    GREATER_THAN = ">"
+    LESS_THAN = "<"
+    GREATER_OR_EQUAL = ">="
+    LESS_OR_EQUAL = "<="
+    
+    # String operators
+    CONTAINS = "LIKE"
+    NOT_CONTAINS = "NOTLIKE"
+    STARTS_WITH = "STARTSWITH"
+    ENDS_WITH = "ENDSWITH"
+    
+    # List operators
+    IN = "IN"
+    NOT_IN = "NOT IN"
+    
+    # Null operators
+    IS_EMPTY = "ISEMPTY"
+    IS_NOT_EMPTY = "ISNOTEMPTY"
+    
+    # Date operators
+    ON = "ON"
+    NOT_ON = "NOTON"
+    BEFORE = "BEFORE"
+    AT_OR_BEFORE = "ATORBEFORE"
+    AFTER = "AFTER"
+    AT_OR_AFTER = "ATORAFTER"
+    
+    # Special operators
+    ANYTHING = "ANYTHING"
+    SAME_AS = "SAMEAS"
+    DIFFERENT_FROM = "NSAMEAS"
+
+
+@dataclass
+class GlideCondition(BaseCondition):
+    """ServiceNow-specific condition implementation."""
+    field: str
+    operator: Union[BaseOperator, GlideOperator]
+    value: Any
+    
+    def to_query_string(self) -> str:
+        """Convert condition to encoded query string format."""
+        from .glide_helpers import escape_glide_value
+        
+        # Map base operators to Glide operators
+        if isinstance(self.operator, BaseOperator):
+            op_map = {
+                BaseOperator.EQUALS: GlideOperator.EQUALS,
+                BaseOperator.NOT_EQUALS: GlideOperator.NOT_EQUALS,
+                BaseOperator.GREATER_THAN: GlideOperator.GREATER_THAN,
+                BaseOperator.LESS_THAN: GlideOperator.LESS_THAN,
+                BaseOperator.GREATER_OR_EQUAL: GlideOperator.GREATER_OR_EQUAL,
+                BaseOperator.LESS_OR_EQUAL: GlideOperator.LESS_OR_EQUAL,
+                BaseOperator.IN: GlideOperator.IN,
+                BaseOperator.NOT_IN: GlideOperator.NOT_IN
+            }
+            operator = op_map.get(self.operator, self.operator)
+        else:
+            operator = self.operator
+        
+        # Handle special operators
+        if operator in (GlideOperator.IS_EMPTY, GlideOperator.IS_NOT_EMPTY, GlideOperator.ANYTHING):
+            return f"{self.field}{operator.value}"
+        
+        # Handle IN operators
+        if operator in (GlideOperator.IN, GlideOperator.NOT_IN):
+            if isinstance(self.value, (list, tuple)):
+                values = ','.join(escape_glide_value(str(v)) for v in self.value)
+            else:
+                values = escape_glide_value(str(self.value))
+            return f"{self.field}{operator.value}{values}"
+        
+        # Standard operators
+        escaped_value = escape_glide_value(str(self.value))
+        return f"{self.field}{operator.value}{escaped_value}"
+
+
+class GlideQueryBuilder(BaseQueryBuilder['GlideQueryBuilder']):
+    """ServiceNow GlideRecord query builder with fluent interface."""
+    
+    def __init__(self):
+        super().__init__()
+        self._active_only = True  # ServiceNow convention: filter active records by default
+        self._text_search: Optional[str] = None
+        self._reference_fields: Dict[str, List[str]] = {}  # For dot-walking
+    
+    def escape_value(self, value: Any) -> str:
+        """Escape values for ServiceNow encoded queries."""
+        from .glide_helpers import escape_glide_value
+        return escape_glide_value(str(value))
+    
+    def create_condition(self, field: str, operator: Union[BaseOperator, GlideOperator], value: Any) -> GlideCondition:
+        """Create a ServiceNow-specific condition."""
+        return GlideCondition(field, operator, value)
+    
+    def format_field_name(self, field: str) -> str:
+        """Format field names for ServiceNow (supports dot-walking)."""
+        # ServiceNow supports dot-walking for reference fields
+        # e.g., "caller_id.name", "assignment_group.manager.email"
+        return field
+    
+    def active(self, active: bool = True) -> 'GlideQueryBuilder':
+        """Filter by active status (ServiceNow convention)."""
+        self._active_only = active
+        if active:
+            self.where('active', GlideOperator.EQUALS, 'true')
+        return self
+    
+    def contains(self, field: str, value: str) -> 'GlideQueryBuilder':
+        """Add CONTAINS condition."""
+        return self.where(field, GlideOperator.CONTAINS, value)
+    
+    def starts_with(self, field: str, value: str) -> 'GlideQueryBuilder':
+        """Add STARTS WITH condition."""
+        return self.where(field, GlideOperator.STARTS_WITH, value)
+    
+    def ends_with(self, field: str, value: str) -> 'GlideQueryBuilder':
+        """Add ENDS WITH condition."""
+        return self.where(field, GlideOperator.ENDS_WITH, value)
+    
+    def is_empty(self, field: str) -> 'GlideQueryBuilder':
+        """Add IS EMPTY condition."""
+        return self.where(field, GlideOperator.IS_EMPTY, None)
+    
+    def is_not_empty(self, field: str) -> 'GlideQueryBuilder':
+        """Add IS NOT EMPTY condition."""
+        return self.where(field, GlideOperator.IS_NOT_EMPTY, None)
+    
+    def text_search(self, query: str) -> 'GlideQueryBuilder':
+        """Add text search across searchable fields."""
+        self._text_search = query
+        return self
+    
+    def add_dot_walk(self, field: str, reference_fields: List[str]) -> 'GlideQueryBuilder':
+        """Configure dot-walking for a reference field."""
+        self._reference_fields[field] = reference_fields
+        return self
+    
+    def build(self) -> str:
+        """Build the ServiceNow encoded query string."""
+        parts = []
+        
+        # Add conditions
+        for i, condition in enumerate(self._conditions):
+            if i > 0:
+                # ServiceNow uses ^ for AND, ^OR for OR
+                if hasattr(condition, 'operator') and condition.operator == LogicalOperator.OR:
+                    parts.append('^OR')
+                else:
+                    parts.append('^')
+            
+            if hasattr(condition, 'to_query_string'):
+                if hasattr(condition, 'conditions'):  # ConditionGroup
+                    # Handle OR groups with ^OR
+                    group_parts = []
+                    for j, cond in enumerate(condition.conditions):
+                        if j > 0:
+                            group_parts.append('^OR' if condition.operator.value == 'OR' else '^')
+                        group_parts.append(cond.to_query_string())
+                    parts.append(''.join(group_parts))
+                else:
+                    parts.append(condition.to_query_string())
+        
+        # Add text search if specified
+        if self._text_search:
+            if parts:
+                parts.append('^')
+            parts.append(f"123TEXTQUERY321={self.escape_value(self._text_search)}")
+        
+        return ''.join(parts)
+    
+    def build_api_params(self) -> Dict[str, Any]:
+        """Build parameters for ServiceNow REST API."""
+        params = {}
+        
+        # Add encoded query
+        query = self.build()
+        if query:
+            params['sysparm_query'] = query
+        
+        # Add field selection
+        if self._select_fields:
+            params['sysparm_fields'] = ','.join(self._select_fields)
+        
+        # Add ordering
+        if self._order_by:
+            order_parts = []
+            for field, direction in self._order_by:
+                if direction == 'DESC':
+                    order_parts.append(f"^ORDERBYDESC{field}")
+                else:
+                    order_parts.append(f"^ORDERBY{field}")
+            if params.get('sysparm_query'):
+                params['sysparm_query'] += ''.join(order_parts)
+            else:
+                params['sysparm_query'] = ''.join(order_parts)[1:]  # Remove leading ^
+        
+        # Add limit and offset
+        if self._limit:
+            params['sysparm_limit'] = self._limit
+        if self._offset:
+            params['sysparm_offset'] = self._offset
+        
+        return params
+    
+    @classmethod
+    def from_natural_language(cls, query: str, table: str) -> 'GlideQueryBuilder':
+        """Create a query from natural language.
+        
+        Args:
+            query: Natural language query
+            table: ServiceNow table name
+            
+        Returns:
+            Configured query builder
+        """
+        builder = cls()
+        builder.from_object(table)
+        
+        # Basic NLP patterns for ServiceNow
+        query_lower = query.lower()
+        
+        # Priority detection
+        if any(word in query_lower for word in ['urgent', 'critical', 'high priority']):
+            builder.where('priority', GlideOperator.IN, ['1', '2'])
+        
+        # State detection
+        if 'open' in query_lower:
+            builder.where('state', GlideOperator.IN, ['1', '2', '3'])  # New, In Progress, On Hold
+        elif 'closed' in query_lower:
+            builder.where('state', GlideOperator.EQUALS, '7')  # Closed
+        
+        # Assignment detection
+        if 'assigned to me' in query_lower:
+            builder.where('assigned_to', GlideOperator.EQUALS, 'javascript:gs.getUserID()')
+        elif 'unassigned' in query_lower:
+            builder.is_empty('assigned_to')
+        
+        # Time-based queries
+        if 'today' in query_lower:
+            builder.where('sys_created_on', GlideOperator.ON, 'Today@javascript:gs.beginningOfToday()@javascript:gs.endOfToday()')
+        elif 'this week' in query_lower:
+            builder.where('sys_created_on', GlideOperator.AT_OR_AFTER, 'javascript:gs.beginningOfThisWeek()')
+        
+        # Text search
+        import re
+        quoted = re.findall(r'"([^"]*)"', query)
+        if quoted:
+            builder.text_search(quoted[0])
+        
+        return builder

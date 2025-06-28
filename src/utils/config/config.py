@@ -63,6 +63,7 @@ class LLMConfig:
     cache_ttl: int = 3600  # 1-hour cache balances freshness and efficiency
     azure_deployment: str = "gpt-4o-mini"
     api_version: str = "2024-06-01"  # Default overridden by constants if needed
+    recursion_limit: int = 15  # LangGraph recursion limit for agent loops
     
     pricing: Dict[str, ModelPricing] = field(default_factory=dict)
     
@@ -329,6 +330,16 @@ class ConfigManager:
                     operation="validation",
                     invalid_value=max_tokens,
                     using_default=defaults.max_tokens
+                )
+        if recursion_limit := os.environ.get('LLM_RECURSION_LIMIT'):
+            try:
+                llm_overrides['recursion_limit'] = int(recursion_limit)
+            except ValueError:
+                logger.warning("invalid_llm_recursion_limit",
+                    component="config",
+                    operation="validation",
+                    invalid_value=recursion_limit,
+                    using_default=15
                 )
         
         if llm_overrides:

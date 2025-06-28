@@ -6,7 +6,7 @@ from typing_extensions import TypedDict
 
 from langgraph.graph.message import add_messages
 
-from src.utils.events import OrchestratorEvent
+from src.utils.shared import OrchestratorEvent
 from src.utils.config import get_conversation_config
 from src.utils.logging import get_logger
 

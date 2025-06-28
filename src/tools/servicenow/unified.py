@@ -9,7 +9,7 @@ from .base import (
     ServiceNowWorkflowTool,
     ServiceNowAnalyticsTool
     )
-from src.utils.glide_query_builder import GlideQueryBuilder
+from src.utils.platform.servicenow import GlideQueryBuilder
 
 
 class ServiceNowGet(ServiceNowReadTool):

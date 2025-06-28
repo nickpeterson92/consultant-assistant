@@ -20,7 +20,7 @@ from langchain.tools import BaseTool
 from simple_salesforce import Salesforce
 
 from src.utils.logging import get_logger
-from src.utils.soql_query_builder import SOQLQueryBuilder, SOQLOperator
+from src.utils.platform.salesforce import SOQLQueryBuilder, SOQLOperator
 from src.utils.table_formatter import format_salesforce_response
 
 # Initialize logger
@@ -223,7 +223,7 @@ class SalesforceReadTool(BaseSalesforceTool):
     
     def _parse_natural_language_query(self, query: str, object_type: str) -> SOQLQueryBuilder:
         """Parse natural language into SOQL query builder."""
-        builder = SOQLQueryBuilder(object_type)
+        builder = SOQLQueryBuilder().from_object(object_type)
         query_lower = query.lower()
         
         # Time-based filters
@@ -308,7 +308,7 @@ class SalesforceAnalyticsTool(BaseSalesforceTool):
                              group_by: Optional[str] = None,
                              metrics: List[str] = None) -> str:
         """Build aggregate SOQL query."""
-        builder = SOQLQueryBuilder(object_type)
+        builder = SOQLQueryBuilder().from_object(object_type)
         
         # Default metrics if not specified
         if not metrics:
@@ -327,7 +327,7 @@ class SalesforceAnalyticsTool(BaseSalesforceTool):
         
         # Add GROUP BY if specified
         if group_by:
-            builder.select([group_by])
-            builder.group_by([group_by])
+            builder.select(group_by)
+            builder.group_by(group_by)
         
         return builder.build()

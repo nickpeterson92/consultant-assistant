@@ -19,7 +19,7 @@ from src.tools.jira import UNIFIED_JIRA_TOOLS
 from src.a2a import A2AServer, A2AArtifact, AgentCard
 from src.utils.config import get_llm_config
 from src.utils.logging import get_logger
-from src.utils.sys_msg import jira_agent_sys_msg
+from src.utils.agents.prompts import jira_agent_sys_msg
 
 logger = get_logger("jira")
 
@@ -226,7 +226,11 @@ async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
         )
         
         # Run the agent
-        config = {"configurable": {"thread_id": task_id}}
+        llm_config = get_llm_config()
+        config = {
+            "configurable": {"thread_id": task_id},
+            "recursion_limit": llm_config.recursion_limit
+        }
         result = await jira_agent.ainvoke(initial_state, config)
         
         # Log agent invocation complete

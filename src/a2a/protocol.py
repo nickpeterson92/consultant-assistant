@@ -18,11 +18,10 @@ from src.utils.config import (
     A2A_STATUS_PENDING,
     DEFAULT_A2A_PORT, DEFAULT_HOST
 )
-import logging
 
 from src.utils.logging import get_logger
 # No input validation needed - trust agent-generated content
-from src.utils.message_serialization import serialize_message
+from src.utils.agents.message_processing import serialize_messages, serialize_message
 from .circuit_breaker import CircuitBreakerConfig, RetryConfig, resilient_call
 from src.utils.config import get_a2a_config, get_system_config
 

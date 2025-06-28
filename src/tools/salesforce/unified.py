@@ -9,7 +9,7 @@ from .base import (
     SalesforceAnalyticsTool,
     logger
 )
-from src.utils.soql_query_builder import (
+from src.utils.platform.salesforce import (
     SOQLQueryBuilder,
     SOQLOperator
     )
@@ -91,7 +91,7 @@ class SalesforceSearch(SalesforceReadTool):
         fields_to_query = self._build_field_list(object_type, fields)
         
         # Start with base query
-        builder = SOQLQueryBuilder(object_type).select(fields_to_query)
+        builder = SOQLQueryBuilder().from_object(object_type).select(*fields_to_query)
         
         # Check if filter looks like a structured condition (contains =, >, <, etc.)
         if any(op in filter for op in ['=', '>', '<', '!=', ' LIKE ', ' IN ']):
@@ -100,7 +100,7 @@ class SalesforceSearch(SalesforceReadTool):
         else:
             # Natural language - parse it
             builder = self._parse_natural_language_query(filter, object_type)
-            builder.select(fields_to_query)
+            builder.select(*fields_to_query)
             
             # Also add text search on name fields
             if filter and not any(keyword in filter.lower() for keyword in ['today', 'yesterday', 'week', 'month']):
@@ -210,7 +210,7 @@ class SalesforceUpdate(SalesforceWriteTool):
                 return {"error": f"Failed to update {object_type} {record_id}"}
         else:
             # Find records to update using query builder
-            query = SOQLQueryBuilder(object_type).select(['Id']).where_raw(where).build()
+            query = SOQLQueryBuilder().from_object(object_type).select('Id').where_raw(where).build()
             records = self.sf.query(query)['records']
             
             if not records:
@@ -328,7 +328,7 @@ class SalesforceAnalytics(SalesforceAnalyticsTool):
                  group_by: Optional[str] = None, where: Optional[str] = None,
                  time_period: Optional[str] = None) -> Any:
         """Execute analytics query."""
-        builder = SOQLQueryBuilder(object_type)
+        builder = SOQLQueryBuilder().from_object(object_type)
         
         # Add metrics
         for metric in metrics:
@@ -355,8 +355,8 @@ class SalesforceAnalytics(SalesforceAnalyticsTool):
         
         # Add grouping
         if group_by:
-            builder.select([group_by])
-            builder.group_by([group_by])
+            builder.select(group_by)
+            builder.group_by(group_by)
         
         # Build WHERE clause combining user filter and time period
         where_clauses = []

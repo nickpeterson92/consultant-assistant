@@ -7,7 +7,7 @@ from langchain_openai import AzureChatOpenAI
 from trustcall import create_extractor
 
 from src.utils.config import get_llm_config, DETERMINISTIC_TEMPERATURE, DETERMINISTIC_TOP_P
-from src.utils.sys_msg import orchestrator_chatbot_sys_msg
+from src.utils.agents.prompts import orchestrator_chatbot_sys_msg
 from src.utils.storage.memory_schemas import SimpleMemory
 from .state import OrchestratorState
 

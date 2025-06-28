@@ -9,7 +9,7 @@ from langgraph.prebuilt import tools_condition
 
 from src.utils.logging import get_logger
 from src.utils.storage import get_async_store_adapter
-from src.utils.tool_execution import create_tool_node
+from src.utils.shared import create_tool_node
 
 from .agent_registry import AgentRegistry
 from .agent_caller_tools import SalesforceAgentTool, JiraAgentTool, ServiceNowAgentTool, AgentRegistryTool

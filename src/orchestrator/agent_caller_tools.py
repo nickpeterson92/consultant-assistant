@@ -24,7 +24,7 @@ logger = get_logger()
 from src.utils.config import (
     MESSAGES_KEY, MEMORY_KEY, RECENT_MESSAGES_COUNT
 )
-from src.utils.message_serialization import serialize_recent_messages
+from src.utils.agents.message_processing import serialize_recent_messages
 
 
 class BaseAgentTool(BaseTool):
@@ -1124,8 +1124,9 @@ class AgentRegistryTool(BaseTool):
     def __init__(self, registry: AgentRegistry):
         super().__init__(metadata={"registry": registry})
     
-    async def _arun(self, action: str, agent_name: Optional[str] = None) -> str:
+    async def _arun(self, action: str, agent_name: Optional[str] = None, state: Optional[Dict[str, Any]] = None) -> str:
         """Execute registry management action"""
+        # Note: state is passed by the tool execution framework but not needed for registry operations
         registry = self.metadata["registry"]
         if action == "list":
             agents = registry.list_agents()
@@ -1163,6 +1164,6 @@ class AgentRegistryTool(BaseTool):
         else:
             return f"Unknown action: {action}. Available actions: list, health_check, stats"
     
-    def _run(self, action: str, agent_name: Optional[str] = None) -> str:
+    def _run(self, action: str, agent_name: Optional[str] = None, state: Optional[Dict[str, Any]] = None) -> str:
         """Synchronous wrapper for async execution"""
-        return asyncio.run(self._arun(action, agent_name))
+        return asyncio.run(self._arun(action, agent_name, state))
