@@ -180,6 +180,33 @@ class BaseJiraTool(BaseTool, ABC):
             headers=self.jira['headers'],
             **kwargs
         )
+        
+        # Check status before raising to capture response body
+        if not response.ok:
+            try:
+                error_data = response.json()
+                # Jira returns errors in different formats
+                if 'errorMessages' in error_data:
+                    error_message = '; '.join(error_data['errorMessages'])
+                elif 'errors' in error_data:
+                    error_message = '; '.join(f"{k}: {v}" for k, v in error_data['errors'].items())
+                else:
+                    error_message = str(error_data)
+            except:
+                error_message = response.text[:500] if response.text else f"{response.status_code} {response.reason}"
+            
+            # Log the full error details
+            logger.error("jira_api_error",
+                component="jira",
+                tool_name=self.name if hasattr(self, 'name') else 'unknown',
+                status_code=response.status_code,
+                url=url,
+                error_message=error_message
+            )
+            
+            # Include response body in the exception message
+            response.reason = f"{response.reason} - {error_message}"
+        
         response.raise_for_status()
         return response
     

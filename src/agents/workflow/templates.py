@@ -421,6 +421,43 @@ class WorkflowTemplates:
             trigger={"type": "event", "event": "opportunity_closed_won"},
             variables={"opportunity_name": "", "account_name": ""},
             steps={
+                "find_opportunity": WorkflowStep(
+                    id="find_opportunity",
+                    type=StepType.ACTION,
+                    name="Find opportunity by name",
+                    agent="salesforce-agent",
+                    instruction="Search for opportunities with name containing '{opportunity_name}'. Use LIKE query with wildcards. Return ALL matches with their ID, full name, stage, and amount.",
+                    next_step="check_opportunity_matches",
+                    critical=True
+                ),
+                "check_opportunity_matches": WorkflowStep(
+                    id="check_opportunity_matches",
+                    type=StepType.CONDITION,
+                    name="Check if multiple opportunities found",
+                    condition={
+                        "operator": "contains",
+                        "left": "$find_opportunity_result",
+                        "right": "multiple"  # Agent should mention if multiple found
+                    },
+                    true_next="select_opportunity",
+                    false_next="check_opportunity_stage"
+                ),
+                "select_opportunity": WorkflowStep(
+                    id="select_opportunity",
+                    type=StepType.HUMAN,
+                    name="Select correct opportunity",
+                    description="Multiple opportunities found. Please select the correct one.",
+                    next_step="check_opportunity_stage"
+                ),
+                "check_opportunity_stage": WorkflowStep(
+                    id="check_opportunity_stage",
+                    type=StepType.ACTION,
+                    name="Check and update opportunity stage",
+                    agent="salesforce-agent",
+                    instruction="For the selected opportunity, check if it's 'Closed Won'. If not, update it to 'Closed Won' with Probability=100. Return the opportunity details including ID and final stage.",
+                    next_step="get_account_name",
+                    critical=True  # Must ensure opportunity is closed won
+                ),
                 "get_account_name": WorkflowStep(
                     id="get_account_name",
                     type=StepType.ACTION,

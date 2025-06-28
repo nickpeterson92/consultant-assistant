@@ -130,16 +130,35 @@ class BaseServiceNowTool(BaseTool, ABC):
                 }
             }
         elif "403" in error_str or "Forbidden" in error_str:
-            return {
-                "error": "Permission denied",
-                "error_code": "FORBIDDEN",
-                "details": str(error),
-                "guidance": {
-                    "reflection": "You don't have permission to perform this action.",
-                    "consider": "Does your user account have the necessary roles and permissions?",
-                    "approach": "Check with your ServiceNow administrator about required roles."
+            # Extract table name from error
+            import re
+            table_match = re.search(r"table/(\w+)|Table '(\w+)'", error_str)
+            table_name = table_match.group(1) or table_match.group(2) if table_match else None
+            
+            # Special guidance for company tables
+            if table_name and ('company' in table_name.lower() or 'vendor' in table_name.lower()):
+                return {
+                    "error": "Permission denied for company table",
+                    "error_code": "FORBIDDEN_COMPANY_TABLE",
+                    "details": str(error),
+                    "table": table_name,
+                    "guidance": {
+                        "reflection": f"Access denied to table '{table_name}'. This might be due to table not existing or lacking permissions.",
+                        "consider": "Common ServiceNow company tables: 'core_company', 'customer_account', 'ast_vendor'. Some instances use 'cmn_company'.",
+                        "approach": "Try using 'customer_account' table for customer records, or check with admin for the correct company table name and permissions."
+                    }
                 }
-            }
+            else:
+                return {
+                    "error": "Permission denied",
+                    "error_code": "FORBIDDEN",
+                    "details": str(error),
+                    "guidance": {
+                        "reflection": "You don't have permission to perform this action.",
+                        "consider": "Does your user account have the necessary roles and permissions?",
+                        "approach": "Check with your ServiceNow administrator about required roles."
+                    }
+                }
         elif "404" in error_str or "Not Found" in error_str:
             # Try to extract table or record info
             import re
@@ -208,6 +227,32 @@ class BaseServiceNowTool(BaseTool, ABC):
             headers=self.servicenow['headers'],
             **kwargs
         )
+        
+        # Check status before raising to capture response body
+        if not response.ok:
+            try:
+                error_data = response.json()
+                error_message = error_data.get('error', {}).get('message', str(response.text))
+                error_detail = error_data.get('error', {}).get('detail', '')
+            except:
+                error_message = response.text[:500] if response.text else f"{response.status_code} {response.reason}"
+                error_detail = ""
+            
+            # Log the full error details
+            logger.error("servicenow_api_error",
+                component="servicenow",
+                tool_name=self.name if hasattr(self, 'name') else 'unknown',
+                status_code=response.status_code,
+                url=url,
+                error_message=error_message,
+                error_detail=error_detail
+            )
+            
+            # Include response body in the exception message
+            if error_detail:
+                response.reason = f"{response.reason} - {error_message}: {error_detail}"
+            else:
+                response.reason = f"{response.reason} - {error_message}"
         
         response.raise_for_status()
         

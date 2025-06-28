@@ -379,6 +379,24 @@ tail -f logs/errors.log | grep -E "(web_search|TAVILY)"
 
 ## 🚨 Common Gotchas & Troubleshooting
 
+### Salesforce Name Searches
+**Problem**: Exact match queries fail when names don't match perfectly
+- Example: Searching for "Express Logistics" misses "Express Logistics SLA"
+- Agent often uses `Name = 'value'` and `limit=1`, missing partial matches
+
+**Solution** (Implemented):
+- Salesforce agent now uses LIKE queries with wildcards by default
+- Default limit increased from 1 to 10 for better match handling
+- When multiple matches found, agent lists all options for clarification
+- Workflow includes human-in-the-loop step for disambiguation
+
+**Pattern**:
+```
+User: "Find Express Logistics opportunity"
+Agent: Name LIKE '%Express Logistics%' with limit=10
+Result: Shows all matches (Express Logistics SLA, Express Logistics Inc, etc.)
+```
+
 ### ServiceNow API Issues
 **Problem**: `'str' object has no attribute 'get'` in analytics tools
 - **Root Cause**: ServiceNow Aggregate API returns `{"result": [...]}` where result is an array
