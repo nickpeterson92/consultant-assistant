@@ -318,8 +318,8 @@ class SalesforceAnalytics(SalesforceAnalyticsTool):
         group_by: Optional[str] = Field(None, description="Field to group results by")
         where: Optional[str] = Field(None, description="Filter conditions")
         time_period: Optional[str] = Field(
-            None,
-            description="Time period filter (THIS_MONTH, LAST_MONTH, THIS_YEAR, etc.)"
+            default=None,
+            description="Time period filter (THIS_MONTH, LAST_MONTH, THIS_YEAR, etc.) - leave empty if not filtering by time"
         )
     
     args_schema: type = Input
@@ -328,6 +328,10 @@ class SalesforceAnalytics(SalesforceAnalyticsTool):
                  group_by: Optional[str] = None, where: Optional[str] = None,
                  time_period: Optional[str] = None) -> Any:
         """Execute analytics query."""
+        # Ensure time_period is None or string (not boolean)
+        if time_period is not None and not isinstance(time_period, str):
+            time_period = None
+            
         builder = SOQLQueryBuilder().from_object(object_type)
         
         # Add metrics

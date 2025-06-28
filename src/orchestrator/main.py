@@ -452,7 +452,23 @@ async def main():
                             logger.info("user_message_displayed", component="orchestrator", 
                                        response=conversation_response[:1000],
                                        full_length=len(conversation_response))
-                            await type_out(formatted_response, delay=0.01)
+                            
+                            # Format response for box display with proper borders
+                            lines = formatted_response.split('\n')
+                            for i, line in enumerate(lines):
+                                if i > 0:  # Add left border for continuation lines
+                                    print(f"{GREEN}│{RESET} ", end="", flush=True)
+                                
+                                # Type out without the automatic newline
+                                import sys
+                                for char in line:
+                                    sys.stdout.write(char)
+                                    sys.stdout.flush()
+                                    await asyncio.sleep(0.005)
+                                
+                                if i < len(lines) - 1:  # Add newline except for last line
+                                    print()
+                            
                             response_shown = True
                             print(f"\n{GREEN}╰{'─' * (box_width - 2)}╯{RESET}")
             
