@@ -2,6 +2,7 @@
 
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
+import requests
 
 from .base import (
     ServiceNowReadTool,
@@ -10,6 +11,9 @@ from .base import (
     ServiceNowAnalyticsTool
     )
 from src.utils.platform.servicenow import GlideQueryBuilder
+from src.utils.logging import get_logger
+
+logger = get_logger("servicenow")
 
 
 class ServiceNowGet(ServiceNowReadTool):
@@ -481,30 +485,120 @@ class ServiceNowAnalytics(ServiceNowAnalyticsTool):
             }
             
         elif metric_type == "breakdown" and group_by:
-            # Group by analysis
-            # Build aggregate query
-            query_parts = []
-            if base_query:
-                query_parts.append(base_query)
-            query_parts.append(f"GROUPBY{group_by}")
-            query_parts.append("COUNT")
-            aggregate_query = '^'.join(query_parts)
-            
+            # Group by analysis using correct API parameters
             params = {
-                'sysparm_query': aggregate_query,
-                'sysparm_count': 'true'
+                'sysparm_count': 'true',
+                'sysparm_group_by': group_by
             }
             
-            response = self._make_request("GET", f"/stats/{table_name}", params=params)
-            data = response.json()
+            # Add base query if provided
+            if base_query:
+                params['sysparm_query'] = base_query
             
-            # Format results
+            # Log the request for debugging
+            logger.info("servicenow_analytics_request",
+                component="servicenow",
+                tool_name=self.name,
+                endpoint=f"/stats/{table_name}",
+                params=params
+            )
+            
+            response = self._make_request("GET", f"/stats/{table_name}", params=params)
+            
+            # Handle response - check if it's JSON first
+            try:
+                data = response.json()
+            except requests.exceptions.JSONDecodeError:
+                logger.error("servicenow_analytics_non_json_response",
+                    component="servicenow",
+                    tool_name=self.name,
+                    response_text=response.text[:500],
+                    content_type=response.headers.get('Content-Type', 'unknown')
+                )
+                return {
+                    "error": "ServiceNow returned non-JSON response",
+                    "error_code": "INVALID_RESPONSE",
+                    "details": f"Response: {response.text[:200]}...",
+                    "guidance": {
+                        "reflection": "The stats API returned an unexpected response format.",
+                        "consider": "Is the stats API available on this instance? Is the table name correct?",
+                        "approach": "Try using the search tool instead for counting records by group."
+                    }
+                }
+            
+            # Log the response structure for debugging
+            logger.info("servicenow_analytics_response",
+                component="servicenow",
+                tool_name=self.name,
+                response_type=type(data).__name__,
+                response_keys=list(data.keys()) if isinstance(data, dict) else "not_dict",
+                result_type=type(data.get('result')).__name__ if isinstance(data, dict) else "n/a",
+                result_length=len(data.get('result', [])) if isinstance(data.get('result'), list) else "not_list",
+                sample_item=data.get('result', [])[0] if isinstance(data.get('result'), list) and data.get('result') else None
+            )
+            
+            # Format results - handle both possible response formats
             breakdown = {}
-            for item in data.get('result', []):
-                group_value = item.get('groupby_fields', {}).get(group_by, 'Unknown')
-                count = item.get('stats', {}).get('count', 0)
-                breakdown[group_value] = count
-                
+            
+            # Check if result is a list (multiple groups) or dict (single result)
+            result = data.get('result', {})
+            
+            if isinstance(result, list):
+                # Multiple groups returned
+                for item in result:
+                    # Extract group value from groupby_fields list
+                    group_value = 'Unknown'
+                    groupby_fields = item.get('groupby_fields', [])
+                    if isinstance(groupby_fields, list):
+                        # Find the field matching our group_by parameter
+                        for field in groupby_fields:
+                            if isinstance(field, dict) and field.get('field') == group_by:
+                                group_value = field.get('value', 'Unknown')
+                                break
+                    
+                    # Extract count from stats
+                    stats = item.get('stats', {})
+                    count = stats.get('count', 0) if isinstance(stats, dict) else 0
+                    
+                    # Convert count to int (it might be a string)
+                    try:
+                        count = int(count) if count else 0
+                    except (ValueError, TypeError):
+                        count = 0
+                    
+                    breakdown[str(group_value)] = count
+            elif isinstance(result, dict):
+                # Single result or different format
+                if 'stats' in result:
+                    # Simple count result
+                    breakdown['Total'] = int(result.get('stats', {}).get('count', 0))
+                else:
+                    # Try to extract grouped data from other possible structures
+                    logger.warning("servicenow_analytics_unexpected_format",
+                        component="servicenow",
+                        tool_name=self.name,
+                        result_structure=str(result)[:200]
+                    )
+                    breakdown['Unknown'] = 0
+            
+            # Log the final breakdown for debugging
+            logger.info("servicenow_analytics_breakdown",
+                component="servicenow",
+                tool_name=self.name,
+                breakdown_items=len(breakdown),
+                breakdown_keys=list(breakdown.keys()),
+                breakdown_total=sum(breakdown.values())
+            )
+            
+            # If breakdown is empty, try fallback method using table API
+            if not breakdown or (len(breakdown) == 1 and 'Unknown' in breakdown):
+                logger.info("servicenow_analytics_fallback",
+                    component="servicenow",
+                    tool_name=self.name,
+                    reason="Stats API returned empty or unknown results, using table API fallback"
+                )
+                return self._breakdown_using_table_api(table_name, group_by, base_query)
+            
             return {
                 'metric_type': 'breakdown',
                 'table': table_name,
@@ -535,6 +629,71 @@ class ServiceNowAnalytics(ServiceNowAnalyticsTool):
                     "approach": "Use one of: 'count' for totals, 'breakdown' for grouping, or 'trend' for time-based analysis."
                 }
             }
+    
+    def _breakdown_using_table_api(self, table_name: str, group_by: str, conditions: str = None) -> Dict[str, Any]:
+        """Fallback method to calculate breakdown using table API when stats API fails."""
+        try:
+            # Build query to get all distinct values for the group_by field
+            query_builder = GlideQueryBuilder(table_name)
+            
+            if conditions:
+                # Parse and apply the conditions
+                # For simplicity, we'll just pass it as encoded query
+                query_builder._query_parts.append(conditions)
+            
+            # We need to get all records and group them manually
+            # Limit to 1000 records for performance
+            params = {
+                'sysparm_query': query_builder.build() if query_builder._query_parts else '',
+                'sysparm_fields': f'{group_by},sys_id',
+                'sysparm_limit': '1000',
+                'sysparm_display_value': 'all'
+            }
+            
+            response = self._make_request("GET", f"/table/{table_name}", params=params)
+            data = response.json()
+            records = data.get('result', [])
+            
+            # Count occurrences of each group value
+            breakdown = {}
+            for record in records:
+                # Handle both display value and raw value
+                if isinstance(record.get(group_by), dict):
+                    # Reference field with display_value
+                    group_value = record[group_by].get('display_value', record[group_by].get('value', 'Unknown'))
+                else:
+                    # Regular field
+                    group_value = str(record.get(group_by, 'Unknown'))
+                
+                # Convert empty values to meaningful labels
+                if not group_value or group_value == 'None':
+                    group_value = 'Not Set'
+                
+                breakdown[group_value] = breakdown.get(group_value, 0) + 1
+            
+            logger.info("servicenow_analytics_table_api_success",
+                component="servicenow",
+                tool_name=self.name,
+                groups_found=len(breakdown),
+                total_records=len(records)
+            )
+            
+            return {
+                'metric_type': 'breakdown',
+                'table': table_name,
+                'group_by': group_by,
+                'breakdown': breakdown,
+                'total': sum(breakdown.values()),
+                'note': 'Results limited to 1000 records using table API fallback'
+            }
+            
+        except Exception as e:
+            logger.error("servicenow_analytics_table_api_failed",
+                component="servicenow",
+                tool_name=self.name,
+                error=str(e)
+            )
+            return self._handle_error(e)
 
 
 # Export unified tools

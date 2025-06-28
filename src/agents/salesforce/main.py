@@ -14,7 +14,6 @@ from langgraph.prebuilt import ToolNode, tools_condition
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import AzureChatOpenAI
 
 # Imports no longer need path manipulation
 
@@ -34,6 +33,7 @@ os.environ["LANGCHAIN_TRACING_V2"] = "false"
 # Import unified logger
 from src.utils.logging import get_logger
 from src.utils.config import get_llm_config
+from src.utils.llm import create_azure_openai_chat
 from src.utils.agents.prompts import salesforce_agent_sys_msg
 
 # Initialize structured logger
@@ -48,22 +48,6 @@ logging.getLogger('httpcore.connection').setLevel(logging.WARNING)
 # Remove structured perf tracker in favor of direct file logging
 
 # Salesforce agent is now "dumb" - no state management or memory
-
-def create_azure_openai_chat():
-    """Create Azure OpenAI chat instance using global config"""
-    llm_config = get_llm_config()
-    llm_kwargs = {
-        "azure_endpoint": os.environ["AZURE_OPENAI_ENDPOINT"],  # Keep sensitive info in env
-        "azure_deployment": llm_config.azure_deployment,
-        "openai_api_version": llm_config.api_version,
-        "openai_api_key": os.environ["AZURE_OPENAI_API_KEY"],  # Keep sensitive info in env
-        "temperature": llm_config.temperature,
-        "max_tokens": llm_config.max_tokens,
-        "timeout": llm_config.timeout,
-    }
-    if llm_config.top_p is not None:
-        llm_kwargs["top_p"] = llm_config.top_p
-    return AzureChatOpenAI(**llm_kwargs)
 
 def build_salesforce_graph():
     """Build modern LangGraph using 2024 best practices"""

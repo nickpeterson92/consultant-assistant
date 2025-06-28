@@ -12,7 +12,7 @@ from src.utils.storage import get_async_store_adapter
 from src.utils.shared import create_tool_node
 
 from .agent_registry import AgentRegistry
-from .agent_caller_tools import SalesforceAgentTool, JiraAgentTool, ServiceNowAgentTool, AgentRegistryTool
+from .agent_caller_tools import SalesforceAgentTool, JiraAgentTool, ServiceNowAgentTool, WorkflowAgentTool, AgentRegistryTool
 from .state import OrchestratorState
 from src.tools.utility import WebSearchTool
 from .llm_handler import create_llm_instances
@@ -50,9 +50,13 @@ def build_orchestrator_graph():
         SalesforceAgentTool(agent_registry),
         JiraAgentTool(agent_registry),
         ServiceNowAgentTool(agent_registry),
+        WorkflowAgentTool(agent_registry),  # Add workflow agent tool
         AgentRegistryTool(agent_registry),
         WebSearchTool()  # New utility tool for web search
     ]
+    
+    # Add workflow tools (direct workflow execution tools)
+    # tools.extend(WORKFLOW_TOOLS)  # Commenting out for now to avoid confusion
     
     # Create LLM instances and invoke function
     llm_with_tools, deterministic_llm, trustcall_extractor, invoke_llm = create_llm_instances(tools)
@@ -93,8 +97,15 @@ def build_orchestrator_graph():
     return graph_builder.compile(checkpointer=memory, store=memory_store)
 
 
-# Create default orchestrator graph for module export
-orchestrator_graph = build_orchestrator_graph()
+# Create default orchestrator graph for module export - lazy initialization to avoid circular imports
+orchestrator_graph = None
+
+def get_orchestrator_graph():
+    """Get or build the orchestrator graph with lazy initialization."""
+    global orchestrator_graph
+    if orchestrator_graph is None:
+        orchestrator_graph = build_orchestrator_graph()
+    return orchestrator_graph
 
 
 def get_global_memory_store():

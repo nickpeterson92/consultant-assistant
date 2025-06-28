@@ -16,7 +16,6 @@ from src.utils.agents.prompts import TRUSTCALL_INSTRUCTION
 from src.utils.shared import EventType, OrchestratorEvent
 from src.utils.agents.message_processing import smart_preserve_messages
 from src.utils.logging import get_logger
-from src.utils.agents.message_processing import serialize_messages
 from src.utils.storage import get_async_store_adapter
 from src.utils.storage.memory_schemas import SimpleMemory
 from src.utils.agents.prompts import orchestrator_summary_sys_msg, get_fallback_summary

@@ -2,7 +2,7 @@
 
 from .sqlite_store import SQLiteStore
 from .async_sqlite import AsyncSQLiteStore
-from .async_store_adapter import get_async_store_adapter
+from .async_store_adapter import get_async_store_adapter, AsyncStoreAdapter
 from .memory_schemas import (
     SimpleMemory,
     SimpleAccount,
@@ -16,6 +16,7 @@ from .memory_schemas import (
 __all__ = [
     "SQLiteStore",
     "AsyncSQLiteStore", 
+    "AsyncStoreAdapter",
     "get_async_store_adapter",
     "SimpleMemory",
     "SimpleAccount",

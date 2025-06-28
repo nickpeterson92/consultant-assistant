@@ -1,10 +1,14 @@
 # CLAUDE.md
 
-UPDATE CLAUDE.md PERIODICALLY
+You (Claude) should check this CLAUDE.md file periodically and update it with new, helpful information you learn while building features, debugging and troubleshooting.
 
 ## 📅 Current Year
 
 The current year is 2025. Use this year along with 2024 for web searching.
+
+## ASSUMPTIONS
+
+Are often wrong! If you have an assumption - challenge and try to confirm it before hacking in changes!
 
 ## 🏗️ System Architecture
 
@@ -17,7 +21,7 @@ ORCHESTRATOR AGENT (LangGraph + State Management)
         │
 A2A Protocol Layer (JSON-RPC 2.0)
         │
-SALESFORCE AGENT + JIRA AGENT + SERVICE NOW AGENT (+ Future Agents)
+SALESFORCE AGENT + JIRA AGENT + SERVICE NOW AGENT + WORKFLOW AGENT
 ```
 
 ## 🚀 Quick Start
@@ -31,6 +35,9 @@ python3 start_system.py
 
 # Individual components (dev only)
 python3 salesforce_agent.py --port 8001
+python3 jira_agent.py --port 8002
+python3 servicenow_agent.py --port 8003
+python3 workflow_agent.py --port 8004
 python3 orchestrator.py
 ```
 
@@ -61,6 +68,7 @@ LLM_RECURSION_LIMIT=15
 ├── salesforce_agent.py          # SF agent entry
 ├── jira_agent.py               # Jira agent entry
 ├── servicenow_agent.py         # ServiceNow agent entry
+├── workflow_agent.py           # Workflow agent entry
 ├── start_system.py              # System starter
 ├── src/
 │   ├── orchestrator/
@@ -74,15 +82,24 @@ LLM_RECURSION_LIMIT=15
 │   │   │   └── main.py         # SF LangGraph agent
 │   │   ├── jira/
 │   │   │   └── main.py         # Jira LangGraph agent
-│   │   └── servicenow/
-│   │       └── main.py         # ServiceNow LangGraph agent
+│   │   ├── servicenow/
+│   │   │   └── main.py         # ServiceNow LangGraph agent
+│   │   └── workflow/
+│   │       ├── main.py         # Workflow LangGraph agent
+│   │       ├── engine.py       # Workflow execution engine
+│   │       ├── models.py       # Workflow data models
+│   │       └── templates.py    # Pre-built workflow templates
 │   ├── a2a/
 │   │   ├── protocol.py         # A2A protocol (for network calls)
 │   │   └── circuit_breaker.py  # Resilience for A2A
 │   ├── tools/
-│   │   ├── salesforce_unified.py  # 15 unified Salesforce tools
-│   │   ├── jira_unified.py        # 15 unified Jira tools
-│   │   └── servicenow_unified.py  # Unified ServiceNow tools
+│   │   ├── salesforce/
+│   │   │   └── unified.py      # 6 unified Salesforce tools
+│   │   ├── jira/
+│   │   │   └── unified.py      # 6 unified Jira tools
+│   │   ├── servicenow/
+│   │   │   └── unified.py      # 6 unified ServiceNow tools
+│   │   └── workflow_tools.py    # 3 workflow orchestration tools
 │   └── utils/
 │       ├── config/             # Configuration management
 │       │   ├── config.py       # Main config system
@@ -110,17 +127,40 @@ LLM_RECURSION_LIMIT=15
 
 ## 🛠️ Core Tools
 
-### Salesforce Tools (15 total)
-- **Lead**: GetLeadTool, CreateLeadTool, UpdateLeadTool
-- **Account**: GetAccountTool, CreateAccountTool, UpdateAccountTool
-- **Opportunity**: GetOpportunityTool, CreateOpportunityTool, UpdateOpportunityTool
-- **Contact**: GetContactTool, CreateContactTool, UpdateContactTool
-- **Case**: GetCaseTool, CreateCaseTool, UpdateCaseTool
-- **Task**: GetTaskTool, CreateTaskTool, UpdateTaskTool
+### Salesforce Tools (6 unified)
+- **GetSalesforceTool**: Get records by ID or search criteria
+- **CreateSalesforceTool**: Create new records (Lead, Account, Opportunity, etc.)
+- **UpdateSalesforceTool**: Update existing records
+- **SalesforceSearchTool**: SOQL/SOSL search across all objects
+- **SalesforceAnalyticsTool**: Pipeline analytics and aggregations
+- **SalesforceCollaborationTool**: Activity and note management
+
+### Jira Tools (6 unified)
+- **GetJiraTool**: Get issues by key or ID
+- **CreateJiraTool**: Create new issues (bug, story, task, epic)
+- **UpdateJiraTool**: Update issue fields and transitions
+- **JiraSearchTool**: JQL search with natural language support
+- **JiraAnalyticsTool**: Sprint metrics and team analytics
+- **JiraCollaborationTool**: Comments and collaboration features
+
+### ServiceNow Tools (6 unified)
+- **GetServiceNowTool**: Get records by sys_id or number
+- **CreateServiceNowTool**: Create incidents, changes, problems
+- **UpdateServiceNowTool**: Update ITSM records
+- **ServiceNowSearchTool**: GlideQuery search across tables
+- **ServiceNowAnalyticsTool**: ITSM metrics and reporting
+- **ServiceNowWorkflowTool**: Process automation and approvals
+
+### Workflow Tools (3 orchestration)
+- **WorkflowExecutionTool**: Smart workflow routing and execution
+- **WorkflowStatusTool**: Monitor running workflow status
+- **WorkflowListTool**: Discover available workflow templates
 
 ### Orchestrator Tools
 - **SalesforceAgentTool**: Routes CRM operations to SF agent
-- **GenericAgentTool**: Future agent routing
+- **JiraAgentTool**: Routes issue management to Jira agent
+- **ServiceNowAgentTool**: Routes ITSM operations to ServiceNow agent
+- **WorkflowAgentTool**: Routes complex workflows to workflow agent
 - **AgentRegistryTool**: System health monitoring
 
 ## 💾 Memory Architecture
@@ -158,6 +198,30 @@ CREATE TABLE store (
 - **Circuit Breaker**: 5 failures threshold, 60s timeout
 - **Retry**: 3 attempts with exponential backoff
 
+## 🔄 Workflow Agent
+
+### Available Workflows (5 templates)
+- **deal_risk_assessment**: Find at-risk opportunities + blockers across systems
+- **incident_to_resolution**: End-to-end incident management with system linking  
+- **customer_360_report**: Comprehensive customer data aggregation
+- **weekly_account_health_check**: Proactive account monitoring
+- **new_customer_onboarding**: Automated customer setup process
+
+### Key Features
+- **Multi-step execution**: ACTION, CONDITION, PARALLEL, WAIT, FOR_EACH steps
+- **Cross-system coordination**: Salesforce + Jira + ServiceNow integration
+- **State persistence**: Resume workflows after interruption
+- **LLM-powered reporting**: Business intelligence and executive summaries
+
+### Quick Start
+```bash
+# Run workflows via natural language
+"check for at-risk deals"
+"start customer onboarding for ACME Corp"
+"generate customer report for GenePoint"
+"run weekly account health check"
+```
+
 ## 🎯 Usage Examples
 
 ```bash
@@ -168,6 +232,10 @@ CREATE TABLE store (
 # CRUD operations
 "create new lead for John Smith at TechCorp"
 "update opportunity ABC123 to Closed Won"
+
+# Workflow operations
+"check for at-risk deals"
+"start customer onboarding"
 
 # System admin
 "check agent status"
@@ -255,6 +323,7 @@ logs/
 ├── salesforce.log        # Both SF agent AND tool operations in one place
 ├── jira.log              # Jira agent and tool operations
 ├── servicenow.log        # ServiceNow agent and tool operations
+├── workflow.log          # Workflow agent execution, step tracking, business reports
 ├── a2a_protocol.log      # Network calls, circuit breakers, retries
 ├── storage.log           # SQLite operations, memory persistence
 ├── system.log            # Startup/shutdown, config loads, health checks
@@ -281,6 +350,9 @@ tail -f logs/salesforce.log | jq -r 'select(.tool_name) | [.timestamp,.tool_name
 # Watch web search operations
 tail -f logs/orchestrator.log | grep -E "(web_search|tavily)"
 
+# Monitor workflow execution
+tail -f logs/workflow.log | grep -E "(workflow_started|workflow_completed|workflow_step)"
+
 # Monitor web search errors specifically
 tail -f logs/errors.log | grep -E "(web_search|TAVILY)"
 ```
@@ -291,6 +363,7 @@ tail -f logs/errors.log | grep -E "(web_search|TAVILY)"
 - `component="salesforce"` → salesforce.log (includes both agent & tools)
 - `component="jira"` → jira.log
 - `component="servicenow"` → servicenow.log
+- `component="workflow"` → workflow.log
 - `component="a2a"` → a2a_protocol.log
 - `component="storage"` or `component="async_store_adapter_sync"` → storage.log
 - `component="system"` or `component="config"` → system.log
@@ -299,9 +372,42 @@ tail -f logs/errors.log | grep -E "(web_search|TAVILY)"
 - **Tool issues**: Look for `tool_error` in salesforce.log
 - **Agent offline**: Check `health_check_failed` in orchestrator.log
 - **Memory errors**: Search `sqlite_error` in storage.log
+- **Workflow issues**: Check `workflow_error` or `workflow_step_failed` in workflow.log
 - **Network issues**: Find `a2a_network_error` in a2a_protocol.log
 - **Web search errors**: Look for `web_search_error` or `tavily_` in orchestrator.log
 - **All critical errors**: Always check errors.log first!
+
+## 🚨 Common Gotchas & Troubleshooting
+
+### ServiceNow API Issues
+**Problem**: `'str' object has no attribute 'get'` in analytics tools
+- **Root Cause**: ServiceNow Aggregate API returns `{"result": [...]}` where result is an array
+- **Fix**: Use `data.get('result', [])` then iterate through list items with `groupby_fields` array
+- **Location**: `src/tools/servicenow/unified.py:542`
+
+### A2A Parameter Handling
+**Problem**: ServiceNow agent expecting `"task"` wrapper but A2A sends parameters directly
+- **Root Cause**: Inconsistent parameter handling between agents
+- **Fix**: Add fallback: `task_data = params.get("task", params)`
+- **Location**: `src/agents/servicenow/main.py:137`
+
+### Environment Variable Escaping
+**Problem**: Passwords with special characters (`!$@#`) causing authentication failures
+- **Root Cause**: Python environment variable handling needs proper escaping
+- **Fix**: Use `os.environ.get()` directly, avoid shell interpretation
+- **Test**: Verify with curl command line vs Python requests
+
+### Workflow State Persistence
+**Problem**: LangChain messages break when saved directly to storage
+- **Root Cause**: Message objects not JSON serializable
+- **Fix**: Always use `serialize_messages()` before storage
+- **Pattern**: `state_to_save = {"messages": serialize_messages(messages)}`
+
+### Memory Namespace Format
+**Problem**: Memory operations failing with string namespace
+- **Root Cause**: Memory expects tuple namespace format
+- **Fix**: Use `("memory", user_id)` not `"memory"`
+- **Pattern**: Always use tuple format for namespaces
 
 ## 🎯 Quick Task Reference
 

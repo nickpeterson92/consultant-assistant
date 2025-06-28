@@ -11,6 +11,7 @@ from .salesforce_prompts import (
 )
 from .jira_prompts import jira_agent_sys_msg
 from .servicenow_prompts import servicenow_agent_sys_msg
+from .workflow_prompts import workflow_agent_sys_msg
 
 __all__ = [
     # Orchestrator prompts
@@ -22,6 +23,7 @@ __all__ = [
     'salesforce_agent_sys_msg',
     'jira_agent_sys_msg',
     'servicenow_agent_sys_msg',
+    'workflow_agent_sys_msg',
     
     # Constants
     'TRUSTCALL_INSTRUCTION'

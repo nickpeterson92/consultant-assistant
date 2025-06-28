@@ -82,6 +82,11 @@ class SalesforceSearch(SalesforceReadTool):
     def _execute(self, object_type: str, filter: str, fields: Optional[List[str]] = None,
                  limit: int = 50, order_by: Optional[str] = None) -> Any:
         """Execute the search operation."""
+        # Ensure filter is a string - Pydantic validates the type but LangChain
+        # may still pass non-string values in some edge cases
+        if not isinstance(filter, str):
+            filter = str(filter) if filter else ""
+            
         # Validate filter doesn't contain non-filterable fields
         validation_error = self._validate_filter_fields(object_type, filter)
         if validation_error:
@@ -119,7 +124,7 @@ class SalesforceSearch(SalesforceReadTool):
             }
             if object_type in default_order:
                 field, direction = default_order[object_type].split()
-                builder.order_by(field, direction == 'DESC')
+                builder.order_by(field, direction)
         
         # Add limit
         builder.limit(limit)
@@ -318,8 +323,8 @@ class SalesforceAnalytics(SalesforceAnalyticsTool):
         group_by: Optional[str] = Field(None, description="Field to group results by")
         where: Optional[str] = Field(None, description="Filter conditions")
         time_period: Optional[str] = Field(
-            None,
-            description="Time period filter (THIS_MONTH, LAST_MONTH, THIS_YEAR, etc.)"
+            default=None,
+            description="Time period filter (THIS_MONTH, LAST_MONTH, THIS_YEAR, etc.) - leave empty if not filtering by time"
         )
     
     args_schema: type = Input
@@ -328,6 +333,10 @@ class SalesforceAnalytics(SalesforceAnalyticsTool):
                  group_by: Optional[str] = None, where: Optional[str] = None,
                  time_period: Optional[str] = None) -> Any:
         """Execute analytics query."""
+        # Ensure time_period is None or string - LangChain may pass boolean values
+        if time_period is not None and not isinstance(time_period, str):
+            time_period = None
+            
         builder = SOQLQueryBuilder().from_object(object_type)
         
         # Add metrics

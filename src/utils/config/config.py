@@ -63,7 +63,7 @@ class LLMConfig:
     cache_ttl: int = 3600  # 1-hour cache balances freshness and efficiency
     azure_deployment: str = "gpt-4o-mini"
     api_version: str = "2024-06-01"  # Default overridden by constants if needed
-    recursion_limit: int = 15  # LangGraph recursion limit for agent loops
+    recursion_limit: int = 10  # LangGraph recursion limit for agent loops - balanced for legitimate retries
     
     pricing: Dict[str, ModelPricing] = field(default_factory=dict)
     

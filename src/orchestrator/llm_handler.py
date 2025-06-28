@@ -1,12 +1,15 @@
 """LLM configuration and invocation handling for the orchestrator."""
 
-import os
 from typing import Any, List
 
-from langchain_openai import AzureChatOpenAI
 from trustcall import create_extractor
 
-from src.utils.config import get_llm_config, DETERMINISTIC_TEMPERATURE, DETERMINISTIC_TOP_P
+from src.utils.llm import (
+    create_azure_openai_chat,
+    create_deterministic_llm,
+    create_llm_with_tools,
+    create_flexible_llm
+)
 from src.utils.agents.prompts import orchestrator_chatbot_sys_msg
 from src.utils.storage.memory_schemas import SimpleMemory
 from .state import OrchestratorState
@@ -18,35 +21,11 @@ def create_llm_instances(tools: List[Any]):
     Returns:
         tuple: (llm_with_tools, deterministic_llm, trustcall_extractor, invoke_llm_func)
     """
-    llm_config = get_llm_config()
-    
-    # Create main LLM instance
-    llm_kwargs = {
-        "azure_endpoint": os.environ["AZURE_OPENAI_ENDPOINT"],
-        "azure_deployment": llm_config.azure_deployment,
-        "openai_api_version": llm_config.api_version,
-        "openai_api_key": os.environ["AZURE_OPENAI_API_KEY"],
-        "temperature": llm_config.temperature,
-        "max_tokens": llm_config.max_tokens,
-        "timeout": llm_config.timeout,
-    }
-    if llm_config.top_p is not None:
-        llm_kwargs["top_p"] = llm_config.top_p
-    
-    llm = AzureChatOpenAI(**llm_kwargs)
-    llm_with_tools = llm.bind_tools(tools)
+    # Create main LLM with tools
+    llm_with_tools = create_llm_with_tools(tools)
     
     # Create deterministic LLM for memory extraction
-    deterministic_llm = AzureChatOpenAI(
-        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-        azure_deployment=llm_config.azure_deployment,
-        openai_api_version=llm_config.api_version,
-        openai_api_key=os.environ["AZURE_OPENAI_API_KEY"],
-        temperature=DETERMINISTIC_TEMPERATURE,
-        top_p=DETERMINISTIC_TOP_P,
-        max_tokens=llm_config.max_tokens,
-        timeout=llm_config.timeout,
-    )
+    deterministic_llm = create_deterministic_llm()
     
     # Configure TrustCall for structured data extraction
     trustcall_extractor = create_extractor(
@@ -56,28 +35,8 @@ def create_llm_instances(tools: List[Any]):
         enable_inserts=True
     )
     
-    def invoke_llm(messages, use_tools=False, temperature=None, top_p=None):
-        """Invoke LLM with optional tool binding and generation parameters."""
-        if temperature is not None or top_p is not None:
-            # Create a new LLM with custom parameters
-            temp_llm = AzureChatOpenAI(
-                azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-                azure_deployment=llm_config.azure_deployment,
-                openai_api_version=llm_config.api_version,
-                openai_api_key=os.environ["AZURE_OPENAI_API_KEY"],
-                temperature=temperature if temperature is not None else llm_config.temperature,
-                max_tokens=llm_config.max_tokens,
-                timeout=llm_config.timeout,
-                top_p=top_p
-            )
-            if use_tools:
-                temp_llm = temp_llm.bind_tools(tools)
-            return temp_llm.invoke(messages)
-        
-        if use_tools:
-            return llm_with_tools.invoke(messages)
-        else:
-            return llm.invoke(messages)
+    # Create flexible invocation function
+    invoke_llm = create_flexible_llm(tools)
     
     return llm_with_tools, deterministic_llm, trustcall_extractor, invoke_llm
 
@@ -99,7 +58,15 @@ ORCHESTRATOR TOOLS:
 1. salesforce_agent: For Salesforce CRM operations (leads, accounts, opportunities, contacts, cases, tasks, etc.)
 2. jira_agent: For project management (projects, bugs, epics, stories, etc.)
 3. servicenow_agent: For incident management and IT (change requests, incidents, problems, etc.)
-4. manage_agents: To check agent status and capabilities
-5. web_search: Search the web for information about entities, companies, people, or topics"""
+4. workflow_agent: For complex multi-step workflows (at-risk deals, customer 360, incident resolution, etc.)
+5. manage_agents: To check agent status and capabilities
+6. web_search: Search the web for information about entities, companies, people, or topics
+
+WORKFLOW CAPABILITIES:
+- Deal Risk Assessment: Use workflow_agent for "check at-risk deals" or "analyze deal risks"
+- Customer 360 Report: Use workflow_agent for comprehensive customer information across all systems
+- Incident to Resolution: Use workflow_agent for end-to-end incident management workflows
+- Account Health Check: Use workflow_agent for analyzing key account health metrics
+- New Customer Onboarding: Use workflow_agent for automated customer setup across systems"""
     
     return orchestrator_chatbot_sys_msg(summary, memory_val, agent_context)
