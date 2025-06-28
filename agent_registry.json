@@ -37,7 +37,7 @@
         }
       },
       "status": "online",
-      "last_health_check": 1457315.439635083
+      "last_health_check": 1492585.341933166
     },
     {
       "name": "jira-agent",
@@ -77,7 +77,7 @@
         }
       },
       "status": "online",
-      "last_health_check": 1457315.439563375
+      "last_health_check": 1492585.341637416
     },
     {
       "name": "servicenow-agent",
@@ -119,7 +119,76 @@
         }
       },
       "status": "online",
-      "last_health_check": 1457315.43943225
+      "last_health_check": 1492585.341840041
+    },
+    {
+      "name": "workflow-agent",
+      "endpoint": "http://localhost:8004",
+      "agent_card": {
+        "name": "workflow-agent",
+        "version": "1.0.0",
+        "description": "Executes complex multi-step workflows across systems",
+        "capabilities": [
+          "Execute predefined workflow templates",
+          "Handle asynchronous workflow execution",
+          "Manage workflow state and resumption",
+          "Coordinate multi-system operations",
+          "Support human-in-the-loop workflows"
+        ],
+        "endpoints": {
+          "process_task": "/a2a",
+          "agent_card": "/a2a/agent-card"
+        },
+        "communication_modes": [
+          "sync",
+          "async"
+        ],
+        "metadata": {
+          "available_workflows": [
+            {
+              "name": "deal_risk_assessment",
+              "description": "Identify opportunities at risk of not closing and create action plans",
+              "trigger": {
+                "type": "scheduled",
+                "cron": "0 9 * * *"
+              }
+            },
+            {
+              "name": "incident_to_resolution",
+              "description": "Manage incident from customer report through resolution and follow-up",
+              "trigger": {
+                "type": "event",
+                "event": "new_critical_case"
+              }
+            },
+            {
+              "name": "customer_360_report",
+              "description": "Gather all information about a customer across systems",
+              "trigger": {
+                "type": "manual"
+              }
+            },
+            {
+              "name": "weekly_account_health_check",
+              "description": "Analyze health metrics for key accounts and alert on issues",
+              "trigger": {
+                "type": "scheduled",
+                "cron": "0 8 * * MON"
+              }
+            },
+            {
+              "name": "new_customer_onboarding",
+              "description": "Automated workflow for onboarding new customers",
+              "trigger": {
+                "type": "event",
+                "event": "opportunity_closed_won"
+              }
+            }
+          ]
+        }
+      },
+      "status": "online",
+      "last_health_check": 1492585.341342875
     }
   ]
 }

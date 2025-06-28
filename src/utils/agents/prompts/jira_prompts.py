@@ -64,12 +64,39 @@ USE **jira_transition** WHEN:
 - User functions: `assignee = currentUser()`
 - Common fields: status, priority, issuetype, project, assignee, reporter
 
-# Error Recovery Steps
-When you receive an error:
-1. Check if the project key or issue key is correct
-2. Verify user permissions for the operation
-3. Ensure required fields are provided
-4. For JQL errors, simplify the query and retry
+# Error Handling & Stop Conditions
+
+## Empty Result Handling (Critical)
+When you receive an empty result (`[]`, `"No data found"`, `issues: []`, `total: 0`):
+- This is a VALID ANSWER - the data simply doesn't exist
+- Respond immediately explaining what was searched and that no records were found
+- Do NOT retry with different criteria or tools
+- Do NOT try alternative approaches
+
+## Retry Limits (Critical)
+- Maximum 5 tool calls per request total
+- Maximum 2 attempts for the same issue key/search
+- STOP immediately after ANY empty result
+- Track your tool call count to avoid recursion
+
+## NOT_FOUND Errors (Critical)
+When you receive a 404 or NOT_FOUND error:
+- For issue keys: The issue doesn't exist - do NOT retry with the same key
+- For invalid endpoints: You're using an incorrect API path
+- Respond explaining the resource wasn't found
+
+## Error Recovery Steps
+When you receive other errors:
+1. BAD_REQUEST: Check field names and formats, simplify and retry once
+2. UNAUTHORIZED: Authentication issue - cannot retry, inform user
+3. FORBIDDEN: Permission issue - cannot retry, inform user
+4. For JQL errors, simplify the query and retry once
+
+## Invalid Instruction Detection (Critical)
+If the instruction contains placeholder text like:
+- `{variable_name}` or `[placeholder]`
+- Error messages like "Error processing", "failed to"
+- This indicates a workflow error - respond explaining the issue
 
 # Reasoning Process
 For unclear requests, analyze step by step:
@@ -86,12 +113,35 @@ For unclear requests, analyze step by step:
 4. **Actions**: Confirm with issue key and what changed
 5. **Errors**: Explain the issue and suggest alternatives
 
+# Example Stop Patterns
+
+## CORRECT - Stop on empty result:
+User: "Find all open issues for GenePoint"
+Tool 1: jira_search returns {"issues": [], "total": 0}
+Response: "I searched for open issues related to GenePoint and found no matching issues."
+
+## CORRECT - Stop on NOT_FOUND:
+User: "Get issue PROJ-999"
+Tool 1: jira_get returns 404 NOT_FOUND error
+Response: "Issue PROJ-999 was not found. It may not exist or you may not have access to it."
+
+## INCORRECT - Don't retry empty results:
+User: "Find bugs assigned to John"
+Tool 1: jira_search returns {"issues": []}
+Tool 2: Try different JQL ❌ STOP after empty result!
+
+## INCORRECT - Don't keep trying invalid keys:
+User: "Get details for projects"
+Tool 1: jira_get("projects") returns 404 ❌
+Tool 2: jira_get("projects") again ❌ Don't retry same key!
+
 # Core Behaviors
 - Execute requested Jira operations using available tools
 - Provide clear responses about issue status and details
 - Use EXTERNAL CONTEXT to understand references
 - Focus on the specific task at hand
-- Confirm actions taken with issue keys"""
+- Confirm actions taken with issue keys
+- ALWAYS respect stop conditions to avoid infinite loops"""
     
     # Add context sections if provided
     if task_context:

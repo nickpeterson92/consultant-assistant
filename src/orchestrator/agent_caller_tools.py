@@ -1086,6 +1086,200 @@ class ServiceNowAgentTool(BaseAgentTool):
             return response_content
 
 
+class WorkflowAgentTool(BaseAgentTool):
+    """Tool for executing complex multi-step workflows across systems."""
+    
+    name: str = "workflow_agent"
+    description: str = """Delegates workflow orchestration to the specialized Workflow Agent via A2A protocol.
+    
+    PRIMARY USE CASES:
+    - Multi-step processes spanning multiple systems (Salesforce + Jira + ServiceNow)
+    - Complex workflows with conditional logic and dependencies
+    - Automated recurring analysis and reporting
+    - Operations requiring coordinated actions across agents
+    
+    AVAILABLE WORKFLOWS:
+    - Deal Risk Assessment: Check for at-risk deals/opportunities and create action plans
+    - Incident to Resolution: Full incident lifecycle from creation to resolution
+    - Customer 360 Report: Comprehensive customer data from all systems
+    - Weekly Account Health Check: Analyze key account health metrics
+    - New Customer Onboarding: Automated setup across all systems
+    
+    KEY PHRASES THAT TRIGGER WORKFLOWS:
+    - "check for at-risk deals" → Deal Risk Assessment
+    - "analyze deal risks" → Deal Risk Assessment
+    - "handle incident resolution" → Incident to Resolution
+    - "customer 360" or "everything about [customer]" → Customer 360 Report
+    - "account health check" → Weekly Account Health Check
+    - "onboard new customer" → New Customer Onboarding
+    
+    EXAMPLES:
+    - "Check for at-risk deals and create action plans"
+    - "Run the incident to resolution workflow for case 12345"
+    - "Generate a customer 360 report for Acme Corp"
+    - "Perform health check on our key accounts"
+    - "Start onboarding workflow for new customer TechCorp"
+    """
+    
+    args_schema: type = AgentCallInput
+    return_direct: bool = False
+    
+    def __init__(self, agent_registry: AgentRegistry):
+        super().__init__(metadata={"registry": agent_registry})
+    
+    async def _arun(self, instruction: str, context: Optional[Dict[str, Any]] = None, 
+                   state: Annotated[Dict[str, Any], InjectedState] = None, **kwargs) -> Union[str, Command]:
+        """Execute the workflow agent call asynchronously."""
+        # Extract tool_call_id if provided
+        tool_call_id = kwargs.get("tool_call_id")
+        
+        # Find workflow agent
+        registry = self.metadata.get("registry")
+        if not registry:
+            return self._create_error_command(
+                "Error: Agent registry not available",
+                tool_call_id
+            )
+        
+        agent = registry.get_agent("workflow-agent")
+        if not agent:
+            # Try finding by capability
+            agents = registry.find_agents_by_capability("workflow_orchestration")
+            if agents and isinstance(agents, list):
+                agent = agents[0]
+        
+        if not agent:
+            return self._create_error_command(
+                "Error: Workflow agent is not available",
+                tool_call_id
+            )
+        
+        # Extract context from state
+        extracted_context = {}
+        if state:
+            # Include recent messages
+            if "messages" in state and state["messages"]:
+                recent_messages = serialize_recent_messages(state["messages"], count=5)
+                if recent_messages:
+                    extracted_context["recent_messages"] = recent_messages
+            
+            # Include memory
+            if "memory" in state:
+                extracted_context["memory"] = state["memory"]
+            
+            # Include summary
+            if "summary" in state:
+                extracted_context["conversation_summary"] = state["summary"]
+        
+        # Merge provided context
+        if context:
+            extracted_context.update(context)
+        
+        # Create A2A task
+        task_id = f"workflow-{uuid.uuid4().hex[:8]}"
+        # Create state snapshot for A2A transmission
+        state_snapshot = self._create_state_snapshot(state) if state else {}
+        
+        task = A2ATask(
+            id=task_id,
+            instruction=instruction,
+            context=extracted_context,
+            state_snapshot=state_snapshot
+        )
+        
+        logger.info("workflow_agent_call",
+            component="orchestrator",
+            agent="workflow-agent",
+            task_id=task_id,
+            instruction_preview=instruction[:100],
+            context_keys=list(extracted_context.keys())
+        )
+        
+        try:
+            async with A2AClient() as client:
+                endpoint = agent.endpoint + "/a2a"
+                result = await client.process_task(endpoint=endpoint, task=task)
+                
+                # Extract response - workflow agent now returns content directly
+                response_content = ""
+                if "artifacts" in result:
+                    artifacts = result["artifacts"]
+                    if isinstance(artifacts, list) and artifacts:
+                        artifact = artifacts[0]
+                        if isinstance(artifact, dict) and "content" in artifact:
+                            # Workflow agent returns the report directly as content
+                            response_content = artifact["content"]
+                        else:
+                            response_content = str(artifact)
+                    else:
+                        response_content = str(artifacts)
+                elif "response" in result:
+                    response_content = result["response"]
+                else:
+                    response_content = str(result)
+                
+                logger.info("workflow_agent_response",
+                    component="orchestrator",
+                    agent="workflow-agent",
+                    task_id=task_id,
+                    response_length=len(response_content)
+                )
+                
+                # Return response
+                if tool_call_id:
+                    return Command(
+                        update={
+                            "messages": [ToolMessage(
+                                content=response_content,
+                                tool_call_id=tool_call_id,
+                                name="workflow_agent"
+                            )]
+                        }
+                    )
+                else:
+                    return response_content
+                    
+        except Exception as e:
+            logger.error("workflow_agent_error",
+                component="orchestrator",
+                agent="workflow-agent",
+                task_id=task_id,
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            return self._create_error_command(
+                f"Error communicating with workflow agent: {str(e)}",
+                tool_call_id
+            )
+    
+    def _run(self, instruction: str, context: Optional[Dict[str, Any]] = None, 
+            state: Annotated[Dict[str, Any], InjectedState] = None, **kwargs) -> Union[str, Command]:
+        """Synchronous wrapper for async execution."""
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(
+                self._arun(instruction, context, state, **kwargs)
+            )
+        finally:
+            loop.close()
+    
+    def _create_error_command(self, error_message: str, tool_call_id: Optional[str] = None):
+        """Create a standardized error Command response."""
+        if tool_call_id:
+            return Command(
+                update={
+                    "messages": [ToolMessage(
+                        content=error_message,
+                        tool_call_id=tool_call_id
+                    )]
+                }
+            )
+        else:
+            return error_message
+
+
 class AgentRegistryTool(BaseTool):
     """Orchestrator Tool for Multi-Agent System Management and Monitoring.
     

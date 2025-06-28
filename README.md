@@ -90,12 +90,12 @@ Traditional single-agent systems hit scalability walls. This architecture solves
  │                           │                            │                      │
  ▼                           ▼                            ▼                      ▼
 ┌────────────────────┐ ┌────────────────────┐ ┌────────────────────┐ ┌────────────────────┐
-│ SALESFORCE AGENT   │ │   JIRA AGENT       │ │ SERVICENOW AGENT   │ │ EXTENSIBLE AGENTS  │
-│ - 6 Unified Tools  │ │ - 6 Unified Tools  │ │ - 6 Unified Tools  │ │ - Travel Mgmt      │
-│ - SOQL Builder     │ │ - JQL Search       │ │ - Incident Mgmt    │ │ - Expense Process  │
-│ - Lead Management  │ │ - Sprint Mgmt      │ │ - Change Mgmt      │ │ - HR Operations    │
-│ - Opportunity Mgmt │ │ - Epic Tracking    │ │ - Problem Mgmt     │ │ - Document Process │
-│ - LangGraph State  │ │ - LangGraph State  │ │ - CMDB Operations  │ │ - Custom Domains   │
+│ SALESFORCE AGENT   │ │   JIRA AGENT       │ │ SERVICENOW AGENT   │ │  WORKFLOW AGENT    │
+│ - 6 Unified Tools  │ │ - 6 Unified Tools  │ │ - 6 Unified Tools  │ │ - 5 Workflow Types │
+│ - SOQL Builder     │ │ - JQL Search       │ │ - Incident Mgmt    │ │ - Multi-step Exec  │
+│ - Lead Management  │ │ - Sprint Mgmt      │ │ - Change Mgmt      │ │ - Parallel Process │
+│ - Opportunity Mgmt │ │ - Epic Tracking    │ │ - Problem Mgmt     │ │ - Cross-system     │
+│ - LangGraph State  │ │ - LangGraph State  │ │ - CMDB Operations  │ │ - Business Reports │
 └────────────────────┘ └────────────────────┘ └────────────────────┘ └────────────────────┘
 ```
 
@@ -139,10 +139,16 @@ Service discovery inspired by Consul/Kubernetes:
 - Agile workflow automation
 
 **ServiceNow Agent** (`src/agents/servicenow/main.py`)
-- 15 specialized ITSM tools across 5 operational categories
+- 6 unified ITSM tools across key operational categories
 - Incident, change, and problem management
 - CMDB integration for configuration items
 - GlideQuery builder for secure, complex queries
+
+**Workflow Agent** (`src/agents/workflow/main.py`)
+- 5 pre-built business workflow templates
+- Advanced multi-step execution engine with parallel processing
+- Cross-system orchestration (Salesforce + Jira + ServiceNow)
+- LLM-powered business intelligence and reporting
 
 ## Key Features
 
@@ -329,6 +335,50 @@ ASSISTANT: Created Jira issue INFRA-456 linked to ServiceNow incident INC0010023
 The issue has been assigned to the Infrastructure team with high priority.
 ```
 
+### Business Process Automation
+```
+USER: check for at-risk deals
+ASSISTANT: 🔄 Executing At-Risk Deal Assessment workflow...
+
+# Workflow Execution Report: Deal Risk Assessment
+
+## 1. Executive Summary
+The execution of the "deal_risk_assessment" workflow yielded no opportunities closing this month with no recent activity. However, the system discovered 54 open incidents that could potentially impact customer relationships.
+
+## 2. Key Findings
+- **Opportunities Analyzed**: 0 opportunities closing this month
+- **ServiceNow Incidents**: 54 open incidents (mostly email server issues)
+- **Jira Issues**: No critical issues found
+- **Salesforce Cases**: No account-related cases found
+
+## 3. Risk Assessment
+- **Overall Risk Level**: LOW
+- **Immediate Action Required**: None for sales pipeline
+- **Service Risk**: MEDIUM (due to open incidents)
+
+## 4. Recommended Actions
+1. Monitor email server incidents for customer impact
+2. Continue regular pipeline health checks
+3. Review incident resolution processes
+
+Workflow completed in 14.7 seconds across all systems.
+```
+
+### Customer Onboarding Automation
+```
+USER: start customer onboarding for ACME Corp
+ASSISTANT: 🚀 Initiating New Customer Onboarding workflow...
+
+✅ Customer onboarding setup completed for ACME Corp:
+- Salesforce onboarding case created: CS-001234
+- Jira project provisioned: ACME-ONBOARD
+- ServiceNow service account configured
+- Kickoff meeting scheduled for next Tuesday
+- All stakeholders notified
+
+Total setup time: 4 minutes 32 seconds
+```
+
 ## Advanced Capabilities
 
 ### Salesforce CRM Integration
@@ -363,6 +413,25 @@ The system features a specialized ServiceNow agent with 15 specialized tools cov
 
 For detailed ServiceNow capabilities, examples, and API reference, see the [ServiceNow Agent README](src/agents/servicenow/README.md).
 
+### Workflow-Based Business Process Automation
+The system features a sophisticated workflow agent with 5 pre-built business processes:
+
+- **Deal Risk Assessment**: Identify at-risk opportunities and blockers across all systems
+- **Incident to Resolution**: End-to-end incident management with automatic system linking
+- **Customer 360 Report**: Comprehensive customer data aggregation and business intelligence
+- **Weekly Account Health Check**: Proactive monitoring of key account health metrics
+- **New Customer Onboarding**: Automated customer setup and stakeholder coordination
+
+**Advanced Workflow Features**:
+- Multi-step execution with conditional branching
+- Parallel processing for independent operations
+- Cross-system state management and context propagation
+- LLM-powered business intelligence and executive reporting
+- Human-in-the-loop approval workflows
+- Error handling with retry logic and graceful degradation
+
+For detailed workflow capabilities, template creation, and API reference, see the [Workflow Agent README](src/agents/workflow/README.md).
+
 ### Multi-Agent Extensibility
 The architecture supports adding new specialized agents for:
 - Travel management and expense processing
@@ -389,14 +458,16 @@ consultant-assistant/
 │   ├── agents/                  # Specialized agents
 │   │   ├── salesforce/          # CRM agent
 │   │   ├── jira/               # Issue tracking agent
-│   │   └── servicenow/         # ITSM agent
+│   │   ├── servicenow/         # ITSM agent
+│   │   └── workflow/           # Business process orchestration agent
 │   ├── a2a/                     # Protocol layer
 │   │   ├── protocol.py          # A2A implementation
 │   │   └── circuit_breaker.py   # Resilience patterns
 │   ├── tools/                   # Agent capabilities
-│   │   ├── salesforce_unified.py # 15 unified CRM tools
-│   │   ├── jira_unified.py      # 15 unified issue tools
-│   │   └── servicenow_unified.py # Unified ITSM tools
+│   │   ├── salesforce/          # Unified CRM tools
+│   │   ├── jira/               # Unified issue tracking tools
+│   │   ├── servicenow/         # Unified ITSM tools
+│   │   └── workflow_tools.py    # Workflow orchestration tools
 │   └── utils/                   # Shared utilities
 │       ├── config/              # Configuration management
 │       │   ├── config.py        # Main config system

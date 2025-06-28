@@ -10,7 +10,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from langchain_openai import AzureChatOpenAI
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.memory import MemorySaver
@@ -19,6 +18,7 @@ from src.tools.servicenow import UNIFIED_SERVICENOW_TOOLS
 from src.a2a import A2AServer, AgentCard
 from src.utils.config import get_llm_config
 from src.utils.logging import get_logger
+from src.utils.llm import create_azure_openai_chat
 from src.utils.agents.prompts import servicenow_agent_sys_msg
 
 logger = get_logger("servicenow")
@@ -43,22 +43,6 @@ def get_servicenow_system_message(task_context: dict = None, external_context: d
     - Sets expectations for response formatting
     """
     return servicenow_agent_sys_msg(task_context, external_context)
-
-def create_azure_openai_chat():
-    """Create Azure OpenAI chat instance using global config"""
-    llm_config = get_llm_config()
-    llm_kwargs = {
-        "azure_endpoint": os.environ["AZURE_OPENAI_ENDPOINT"],
-        "azure_deployment": llm_config.azure_deployment,
-        "openai_api_version": llm_config.api_version,
-        "openai_api_key": os.environ["AZURE_OPENAI_API_KEY"],
-        "temperature": llm_config.temperature,
-        "max_tokens": llm_config.max_tokens,
-        "timeout": llm_config.timeout,
-    }
-    if llm_config.top_p is not None:
-        llm_kwargs["top_p"] = llm_config.top_p
-    return AzureChatOpenAI(**llm_kwargs)
 
 def build_servicenow_graph():
     """Build the ServiceNow agent graph using LangGraph."""
@@ -149,9 +133,9 @@ def build_servicenow_graph():
 async def handle_a2a_request(params: dict) -> dict:
     """Process a ServiceNow task via A2A protocol."""
     try:
-        # Extract task data from params
-        task_data = params.get("task", {})
-        task_id = task_data.get("id", "unknown")
+        # Extract task data from params (support both wrapped and unwrapped formats)
+        task_data = params.get("task", params)  # Support both wrapped and unwrapped
+        task_id = task_data.get("id", task_data.get("task_id", "unknown"))
         instruction = task_data.get("instruction", "")
         context = task_data.get("context", {})
         

@@ -17,7 +17,7 @@ from src.utils.ui import (
     type_out, format_markdown_for_console, get_empty_input_response
 )
 
-from .graph_builder import orchestrator_graph, get_agent_registry, get_global_memory_store
+from .graph_builder import get_orchestrator_graph, get_agent_registry, get_global_memory_store
 
 # Initialize logger
 logger = get_logger()
@@ -264,7 +264,7 @@ async def main():
     # Initialize orchestrator
     await initialize_orchestrator()
     
-    local_graph = orchestrator_graph
+    local_graph = get_orchestrator_graph()
     agent_registry = get_agent_registry()
     global_memory_store = get_global_memory_store()
     

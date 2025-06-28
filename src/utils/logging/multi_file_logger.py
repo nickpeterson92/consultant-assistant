@@ -23,6 +23,7 @@ class MultiFileLogger(StructuredLogger):
         'salesforce': 'salesforce.log',
         'jira': 'jira.log',
         'servicenow': 'servicenow.log',
+        'workflow': 'workflow.log',
         'a2a': 'a2a_protocol.log',
         'storage': 'storage.log',
         'system': 'system.log',

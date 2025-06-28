@@ -208,7 +208,39 @@ class BaseServiceNowTool(BaseTool, ABC):
             headers=self.servicenow['headers'],
             **kwargs
         )
+        
         response.raise_for_status()
+        
+        # Check for common non-JSON responses
+        content_type = response.headers.get('Content-Type', '')
+        if not content_type.startswith('application/json'):
+            # Check for hibernated instance (common with dev instances)
+            if 'text/html' in content_type and ('Instance Hibernating' in response.text or 'hibernat' in response.text.lower()):
+                logger.error("servicenow_instance_hibernated",
+                    component="servicenow",
+                    tool_name=self.name if hasattr(self, 'name') else 'unknown',
+                    instance=self.servicenow['base_url'].split('/')[2],
+                    response_preview=response.text[:300]
+                )
+                raise ValueError(
+                    "ServiceNow instance is hibernated. Developer instances hibernate after periods of inactivity. "
+                    "Please wake up the instance by logging into the ServiceNow Developer Portal."
+                )
+            else:
+                # Other non-JSON response
+                logger.error("servicenow_unexpected_content_type",
+                    component="servicenow",
+                    tool_name=self.name if hasattr(self, 'name') else 'unknown',
+                    content_type=content_type,
+                    status_code=response.status_code,
+                    response_preview=response.text[:200] if response.text else 'empty'
+                )
+                raise ValueError(
+                    f"ServiceNow returned {content_type} instead of JSON. "
+                    f"Status: {response.status_code}. This may indicate authentication issues, "
+                    f"incorrect API endpoint, or instance configuration problems."
+                )
+        
         return response
     
     def _detect_table_from_number(self, number: str) -> Optional[str]:
@@ -319,7 +351,18 @@ class ServiceNowReadTool(BaseServiceNowTool):
             }
             
             response = self._make_request("POST", nlq_endpoint, json=nlq_payload)
-            result = response.json()
+            
+            # Check if response is JSON
+            try:
+                result = response.json()
+            except requests.exceptions.JSONDecodeError:
+                logger.warning("nlq_api_non_json_response",
+                    component="servicenow",
+                    tool_name=self.name,
+                    response_text=response.text[:200],
+                    status_code=response.status_code
+                )
+                return {"success": False}
             
             if result.get("result", {}).get("query"):
                 encoded_query = result["result"]["query"]

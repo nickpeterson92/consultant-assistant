@@ -32,7 +32,7 @@ def main():
     # Log system startup
     
     print("=== Multi-Agent Orchestrator System ===")
-    log_orchestrator_activity("SYSTEM_START", components=["orchestrator", "salesforce-agent", "jira-agent", "servicenow-agent"])
+    log_orchestrator_activity("SYSTEM_START", components=["orchestrator", "salesforce-agent", "jira-agent", "servicenow-agent", "workflow-agent"])
     print("Starting specialized agents and orchestrator...")
     print("Press Ctrl+C to stop all components\n")
     
@@ -41,8 +41,8 @@ def main():
         ("python3 salesforce_agent.py --port 8001", "Salesforce-Agent"),
         ("python3 jira_agent.py --port 8002", "Jira-Agent"),
         ("python3 servicenow_agent.py --port 8003", "ServiceNow-Agent"),
+        ("python3 workflow_agent.py --port 8004", "Workflow-Agent"),
         # Add more agents here as they're implemented:
-        # ("python3 travel_agent.py --port 8004", "Travel-Agent"),
         # ("python3 expense_agent.py --port 8005", "Expense-Agent"),
     ]
     
