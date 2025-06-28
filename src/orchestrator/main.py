@@ -430,7 +430,7 @@ async def main():
                                 elif 'servicenow' in tool_name.lower():
                                     update_processing_context("Calling ServiceNow Agent")
                                 else:
-                                    update_processing_context("Calling Specialized Agent")
+                                    update_processing_context("Synthesizing")
                             else:
                                 update_processing_context("Executing Tools")
                 

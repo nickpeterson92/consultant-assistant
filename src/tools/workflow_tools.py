@@ -23,11 +23,30 @@ async def call_agent(agent_name: str, instruction: str, context: Dict[str, Any] 
         context: Additional context for the agent
         state_snapshot: State snapshot from orchestrator to propagate
     """
+    logger.info("workflow_tools_calling_agent",
+               component="workflow_tools",
+               operation="call_agent",
+               agent_name=agent_name,
+               instruction_preview=instruction[:100] if instruction else "",
+               has_context=bool(context),
+               has_state_snapshot=bool(state_snapshot))
+    
     registry = AgentRegistry()
     agent = registry.get_agent(agent_name)
     
     if not agent:
+        logger.error("workflow_tools_agent_not_found",
+                    component="workflow_tools",
+                    operation="call_agent",
+                    agent_name=agent_name,
+                    available_agents=[a.name for a in registry.get_all_agents()])
         raise ValueError(f"Agent '{agent_name}' not found in registry")
+    
+    logger.info("workflow_tools_agent_found",
+               component="workflow_tools",
+               operation="call_agent",
+               agent_name=agent_name,
+               agent_endpoint=agent.endpoint)
     
     # Create A2A task with state snapshot
     task = A2ATask(
@@ -37,17 +56,56 @@ async def call_agent(agent_name: str, instruction: str, context: Dict[str, Any] 
         state_snapshot=state_snapshot or {}  # Use provided state or empty dict
     )
     
+    logger.info("workflow_tools_a2a_task_created",
+               component="workflow_tools",
+               operation="call_agent",
+               task_id=task.id,
+               agent_name=agent_name,
+               endpoint=agent.endpoint + "/a2a")
+    
     # Execute A2A call
-    async with A2AClient() as client:
-        endpoint = agent.endpoint + "/a2a"
-        result = await client.process_task(endpoint=endpoint, task=task)
-        
-        # Extract response from artifacts
-        if result.get("artifacts"):
-            artifact = result["artifacts"][0]
-            return artifact.get("content", artifact)
-        
-        return result
+    try:
+        async with A2AClient() as client:
+            endpoint = agent.endpoint + "/a2a"
+            logger.info("workflow_tools_a2a_call_start",
+                       component="workflow_tools",
+                       operation="call_agent",
+                       task_id=task.id,
+                       endpoint=endpoint)
+            
+            result = await client.process_task(endpoint=endpoint, task=task)
+            
+            logger.info("workflow_tools_a2a_call_complete",
+                       component="workflow_tools",
+                       operation="call_agent",
+                       task_id=task.id,
+                       agent_name=agent_name,
+                       result_type=type(result).__name__,
+                       has_artifacts=bool(result.get("artifacts")),
+                       result_preview=str(result)[:200] if result else "")
+            
+            # Extract response from artifacts
+            if result.get("artifacts"):
+                artifact = result["artifacts"][0]
+                extracted = artifact.get("content", artifact)
+                logger.info("workflow_tools_a2a_artifact_extracted",
+                           component="workflow_tools",
+                           operation="call_agent",
+                           task_id=task.id,
+                           artifact_content_preview=str(extracted)[:200] if extracted else "")
+                return extracted
+            
+            return result
+    except Exception as e:
+        logger.error("workflow_tools_a2a_call_failed",
+                    component="workflow_tools",
+                    operation="call_agent",
+                    task_id=task.id,
+                    agent_name=agent_name,
+                    endpoint=agent.endpoint + "/a2a",
+                    error=str(e),
+                    error_type=type(e).__name__)
+        raise
 
 
 class WorkflowExecutionTool(BaseTool):

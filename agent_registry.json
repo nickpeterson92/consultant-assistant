@@ -37,7 +37,7 @@
         }
       },
       "status": "online",
-      "last_health_check": 1492585.341933166
+      "last_health_check": 1506401.922075583
     },
     {
       "name": "jira-agent",
@@ -65,19 +65,20 @@
         ],
         "metadata": {
           "framework": "langgraph",
-          "tools_count": 6,
+          "tools_count": 7,
           "tool_names": [
             "jira_get",
             "jira_search",
             "jira_create",
             "jira_update",
             "jira_collaboration",
-            "jira_analytics"
+            "jira_analytics",
+            "jira_project_create"
           ]
         }
       },
       "status": "online",
-      "last_health_check": 1492585.341637416
+      "last_health_check": 1506401.922447041
     },
     {
       "name": "servicenow-agent",
@@ -119,7 +120,7 @@
         }
       },
       "status": "online",
-      "last_health_check": 1492585.341840041
+      "last_health_check": 1506401.922225958
     },
     {
       "name": "workflow-agent",
@@ -188,7 +189,7 @@
         }
       },
       "status": "online",
-      "last_health_check": 1492585.341342875
+      "last_health_check": 1506401.922316
     }
   ]
 }

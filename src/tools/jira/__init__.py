@@ -7,6 +7,7 @@ from .unified import (
     JiraUpdate,
     JiraCollaboration,
     JiraAnalytics,
+    JiraProjectCreate,
     UNIFIED_JIRA_TOOLS
 )
 
@@ -17,5 +18,6 @@ __all__ = [
     'JiraUpdate',
     'JiraCollaboration',
     'JiraAnalytics',
+    'JiraProjectCreate',
     'UNIFIED_JIRA_TOOLS'
 ]

@@ -27,11 +27,30 @@ async def call_agent(agent_name: str, instruction: str, context: Dict[str, Any] 
         context: Additional context for the agent
         state_snapshot: State snapshot from orchestrator to propagate
     """
+    logger.info("workflow_calling_agent",
+               component="workflow",
+               operation="call_agent",
+               agent_name=agent_name,
+               instruction_preview=instruction[:100] if instruction else "",
+               has_context=bool(context),
+               has_state_snapshot=bool(state_snapshot))
+    
     registry = AgentRegistry()
     agent = registry.get_agent(agent_name)
     
     if not agent:
+        logger.error("workflow_agent_not_found",
+                    component="workflow",
+                    operation="call_agent",
+                    agent_name=agent_name,
+                    available_agents=[a.name for a in registry.get_all_agents()])
         raise ValueError(f"Agent '{agent_name}' not found in registry")
+    
+    logger.info("workflow_agent_found",
+               component="workflow",
+               operation="call_agent",
+               agent_name=agent_name,
+               agent_endpoint=agent.endpoint)
     
     # Create A2A task with state snapshot
     task = A2ATask(
@@ -41,17 +60,56 @@ async def call_agent(agent_name: str, instruction: str, context: Dict[str, Any] 
         state_snapshot=state_snapshot or {}  # Use provided state or empty dict
     )
     
+    logger.info("workflow_a2a_task_created",
+               component="workflow",
+               operation="call_agent",
+               task_id=task.id,
+               agent_name=agent_name,
+               endpoint=agent.endpoint + "/a2a")
+    
     # Execute A2A call
-    async with A2AClient() as client:
-        endpoint = agent.endpoint + "/a2a"
-        result = await client.process_task(endpoint=endpoint, task=task)
-        
-        # Extract response from artifacts
-        if result.get("artifacts"):
-            artifact = result["artifacts"][0]
-            return artifact.get("content", artifact)
-        
-        return result
+    try:
+        async with A2AClient() as client:
+            endpoint = agent.endpoint + "/a2a"
+            logger.info("workflow_a2a_call_start",
+                       component="workflow",
+                       operation="call_agent",
+                       task_id=task.id,
+                       endpoint=endpoint)
+            
+            result = await client.process_task(endpoint=endpoint, task=task)
+            
+            logger.info("workflow_a2a_call_complete",
+                       component="workflow",
+                       operation="call_agent",
+                       task_id=task.id,
+                       agent_name=agent_name,
+                       result_type=type(result).__name__,
+                       has_artifacts=bool(result.get("artifacts")),
+                       result_preview=str(result)[:200] if result else "")
+            
+            # Extract response from artifacts
+            if result.get("artifacts"):
+                artifact = result["artifacts"][0]
+                extracted = artifact.get("content", artifact)
+                logger.info("workflow_a2a_artifact_extracted",
+                           component="workflow",
+                           operation="call_agent",
+                           task_id=task.id,
+                           artifact_content_preview=str(extracted)[:200] if extracted else "")
+                return extracted
+            
+            return result
+    except Exception as e:
+        logger.error("workflow_a2a_call_failed",
+                    component="workflow",
+                    operation="call_agent",
+                    task_id=task.id,
+                    agent_name=agent_name,
+                    endpoint=agent.endpoint + "/a2a",
+                    error=str(e),
+                    error_type=type(e).__name__)
+        raise
 
 
 class WorkflowEngine:
@@ -260,9 +318,28 @@ class WorkflowEngine:
                            response_length=len(str(result)) if result else 0,
                            response_full=result)
                 
-                # Store result in variables
-                instance.variables[f"{step.id}_result"] = result
-                instance.variables["last_action_result"] = result
+                # Check if result indicates an error
+                result_str = str(result).lower() if result else ""
+                is_error = any(err in result_str for err in [
+                    "error processing", "error:", "failed", "not found",
+                    "missing required", "invalid", "exception"
+                ])
+                
+                if is_error and step.critical:
+                    # Critical step failed - raise exception to stop workflow
+                    raise Exception(f"Critical step '{step.name}' failed: {result}")
+                elif is_error:
+                    # Non-critical step failed - store error and continue
+                    instance.variables[f"{step.id}_error"] = result
+                    logger.warning("workflow_step_error",
+                                 component="workflow",
+                                 workflow_id=instance.id,
+                                 step_id=step.id,
+                                 error=result)
+                else:
+                    # Success - store result
+                    instance.variables[f"{step.id}_result"] = result
+                    instance.variables["last_action_result"] = result
                 
                 # Handle conditional next step
                 if step.on_complete:

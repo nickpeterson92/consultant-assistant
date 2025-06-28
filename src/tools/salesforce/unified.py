@@ -114,7 +114,12 @@ class SalesforceSearch(SalesforceReadTool):
         
         # Add ordering
         if order_by:
-            builder.order_by(order_by)
+            # Parse order_by string to separate field and direction
+            parts = order_by.split()
+            if len(parts) == 2 and parts[1].upper() in ['ASC', 'DESC']:
+                builder.order_by(parts[0], parts[1].upper())
+            else:
+                builder.order_by(order_by)  # Just field name, use default ASC
         else:
             # Default ordering by most relevant field
             default_order = {

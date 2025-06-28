@@ -2,6 +2,7 @@
 
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
+import requests
 
 from .base import (
     JiraReadTool,
@@ -398,6 +399,130 @@ class JiraAnalytics(JiraAnalyticsTool):
         }
 
 
+class JiraProjectCreate(JiraWriteTool):
+    """Create a new Jira project.
+    
+    Creates a project in Jira Cloud. Requires Administer Jira global permission.
+    """
+    name: str = "jira_project_create"
+    description: str = "Create a new Jira project (requires admin permissions)"
+    
+    class Input(BaseModel):
+        key: str = Field(description="Project key (2-10 uppercase letters, must be unique)")
+        name: str = Field(description="Project name")
+        project_type_key: str = Field("business", description="Project type: 'business' (Core), 'software' (Software), or 'service_desk' (Service Management)")
+        description: Optional[str] = Field(None, description="Project description")
+        lead_account_id: Optional[str] = Field(None, description="Account ID of project lead (if not provided, will use current user)")
+        assignee_type: str = Field("PROJECT_LEAD", description="Default assignee: 'PROJECT_LEAD' or 'UNASSIGNED'")
+    
+    args_schema: type = Input
+    
+    def _execute(self, key: str, name: str, project_type_key: str = "business",
+                 description: Optional[str] = None, lead_account_id: Optional[str] = None,
+                 assignee_type: str = "PROJECT_LEAD") -> Any:
+        """Execute the project creation."""
+        # Validate project key format
+        if not key or not key.isupper() or not key.isalpha() or len(key) < 2 or len(key) > 10:
+            return {
+                "error": "Invalid project key",
+                "error_code": "INVALID_KEY",
+                "details": "Project key must be 2-10 uppercase letters",
+                "guidance": {
+                    "reflection": "The project key format is invalid.",
+                    "consider": "Project keys must be 2-10 uppercase letters (e.g., 'PROJ', 'ABC').",
+                    "approach": "Use the first 3-5 letters of the project name in uppercase."
+                }
+            }
+        
+        # Build project data
+        project_data = {
+            "key": key,
+            "name": name,
+            "projectTypeKey": project_type_key,
+            "assigneeType": assignee_type
+        }
+        
+        if description:
+            project_data["description"] = description
+            
+        if lead_account_id:
+            project_data["leadAccountId"] = lead_account_id
+        else:
+            # Try to get current user as lead
+            try:
+                myself_response = self._make_request("GET", "/myself")
+                current_user = myself_response.json()
+                project_data["leadAccountId"] = current_user.get("accountId")
+            except:
+                # If we can't get current user, let Jira use defaults
+                pass
+        
+        # Use v3 API for project creation
+        url = f"{self.jira['base_url']}/rest/api/3/project"
+        
+        response = requests.post(
+            url,
+            auth=self.jira['auth'],
+            headers=self.jira['headers'],
+            json=project_data
+        )
+        
+        if response.status_code == 201:
+            # Successfully created
+            return response.json()
+        else:
+            # Extract detailed error information
+            error_details = response.text
+            try:
+                error_json = response.json()
+                error_details = error_json
+            except:
+                pass
+                
+            if response.status_code == 400:
+                # Extract specific field errors if available
+                field_errors = {}
+                if isinstance(error_details, dict) and "errors" in error_details:
+                    field_errors = error_details["errors"]
+                
+                return {
+                    "error": "Invalid project data",
+                    "error_code": "BAD_REQUEST",
+                    "details": error_details,
+                    "field_errors": field_errors,
+                    "guidance": {
+                        "reflection": "The project data is invalid or incomplete.",
+                        "consider": "Check if the project key already exists, or if the project type is available in your Jira instance.",
+                        "approach": "Verify project key uniqueness and ensure you have the required Jira products installed for the project type."
+                    }
+                }
+            elif response.status_code == 401:
+                return {
+                    "error": "Authentication failed",
+                    "error_code": "UNAUTHORIZED",
+                    "details": error_details,
+                    "guidance": {
+                        "reflection": "The credentials are invalid or missing.",
+                        "consider": "Are the JIRA_USER and JIRA_API_TOKEN environment variables correctly set?",
+                        "approach": "Verify your Jira credentials and API token permissions."
+                    }
+                }
+            elif response.status_code == 403:
+                return {
+                    "error": "Permission denied",
+                    "error_code": "FORBIDDEN", 
+                    "details": error_details,
+                    "guidance": {
+                        "reflection": "You don't have permission to create projects.",
+                        "consider": "Project creation requires 'Administer Jira' global permission.",
+                        "approach": "Contact your Jira administrator to grant the necessary permissions."
+                    }
+                }
+            else:
+                # Let the base error handler deal with other cases
+                response.raise_for_status()
+
+
 # Export the new unified tools
 UNIFIED_JIRA_TOOLS = [
     JiraGet(),
@@ -405,5 +530,6 @@ UNIFIED_JIRA_TOOLS = [
     JiraCreate(),
     JiraUpdate(),
     JiraCollaboration(),
-    JiraAnalytics()
+    JiraAnalytics(),
+    JiraProjectCreate()
 ]

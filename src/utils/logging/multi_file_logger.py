@@ -24,6 +24,7 @@ class MultiFileLogger(StructuredLogger):
         'jira': 'jira.log',
         'servicenow': 'servicenow.log',
         'workflow': 'workflow.log',
+        'workflow_tools': 'workflow.log',  # Workflow tools go to workflow log
         'a2a': 'a2a_protocol.log',
         'storage': 'storage.log',
         'system': 'system.log',

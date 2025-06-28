@@ -101,13 +101,17 @@ def build_salesforce_graph():
             # Invoke LLM with tools
             response = llm_with_tools.invoke(messages)
             
-            # Log LLM response
+            # Log LLM response with full content for debugging
+            has_tool_calls = bool(hasattr(response, 'tool_calls') and response.tool_calls)
+            response_content = str(response.content) if hasattr(response, 'content') else ""
+            
             logger.info("salesforce_llm_invocation_complete",
                 component="salesforce",
                 operation="invoke_llm",
                 task_id=task_id,
-                has_tool_calls=bool(hasattr(response, 'tool_calls') and response.tool_calls),
-                response_length=len(str(response.content)) if hasattr(response, 'content') else 0
+                has_tool_calls=has_tool_calls,
+                response_length=len(response_content),
+                response_content_full=response_content if not has_tool_calls else "TOOL_CALLS_PRESENT"
             )
             
             # Cost tracking removed - activity logger no longer exists
@@ -205,10 +209,18 @@ class SalesforceA2AHandler:
             for msg in messages:
                 if hasattr(msg, 'tool_calls') and msg.tool_calls:
                     for tool_call in msg.tool_calls:
+                        # Handle both dict and object access patterns
+                        if isinstance(tool_call, dict):
+                            tool_name = tool_call.get("name", "unknown")
+                            tool_args = tool_call.get("args", {})
+                        else:
+                            tool_name = getattr(tool_call, "name", "unknown")
+                            tool_args = getattr(tool_call, "args", {})
+                        
                         logger.info("tool_call", component="salesforce",
                                                task_id=task_id,
-                                               tool_name=tool_call.get("name", "unknown"),
-                                               tool_args=tool_call.get("args", {}))
+                                               tool_name=tool_name,
+                                               tool_args=tool_args)
             
             # Log task completion
             logger.info("salesforce_a2a_task_complete",
