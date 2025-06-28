@@ -128,8 +128,9 @@ def create_workflow_graph():
                 "incident_to_resolution": """Extract the case ID or incident ID from this instruction.
                                            Return ONLY the ID, nothing else.
                                            If no ID is found, return 'NONE'.""",
-                "new_customer_onboarding": """Extract the opportunity ID or customer name from this instruction.
-                                            Return ONLY the ID or name, nothing else.
+                "new_customer_onboarding": """Extract the opportunity name or account name from this instruction.
+                                            Look for phrases like 'opportunity X', 'oppty X', 'deal X', or account/customer names.
+                                            Return ONLY the opportunity or account name, nothing else.
                                             If not found, return 'NONE'."""
             }
             
@@ -158,7 +159,7 @@ def create_workflow_graph():
                     elif workflow_name == "incident_to_resolution":
                         initial_vars["case_id"] = extracted_value
                     elif workflow_name == "new_customer_onboarding":
-                        initial_vars["opportunity_id"] = extracted_value
+                        initial_vars["opportunity_name"] = extracted_value
             
             instance = await workflow_engine.execute_workflow(
                 definition=workflow_def,

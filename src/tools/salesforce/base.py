@@ -21,7 +21,7 @@ from simple_salesforce import Salesforce
 
 from src.utils.logging import get_logger
 from src.utils.platform.salesforce import SOQLQueryBuilder, SOQLOperator
-from src.utils.table_formatter import format_salesforce_response
+# Removed table formatter - no longer truncating responses
 
 # Initialize logger
 logger = get_logger("salesforce")
@@ -160,16 +160,31 @@ class BaseSalesforceTool(BaseTool, ABC):
                 }
             }
         elif error_code == 'MALFORMED_QUERY':
-            return {
-                "error": "Malformed SOQL query", 
-                "error_code": "MALFORMED_QUERY",
-                "details": str(error),
-                "guidance": {
-                    "reflection": "The query syntax is incorrect.",
-                    "consider": "Check for extra characters, unmatched brackets, or invalid SOQL syntax.",
-                    "approach": "Simplify the query or ensure parameters contain only the intended values."
+            error_str = str(error)
+            # Check for the specific DESC ASC issue
+            if 'DESC ASC' in error_str or 'ASC DESC' in error_str:
+                return {
+                    "error": "Invalid ORDER BY clause with conflicting sort directions",
+                    "error_code": "MALFORMED_QUERY",
+                    "details": error_str,
+                    "guidance": {
+                        "reflection": "The ORDER BY clause contains both DESC and ASC which is invalid SOQL syntax.",
+                        "consider": "Use either 'ORDER BY field DESC' OR 'ORDER BY field ASC', not both.",
+                        "approach": "Specify only one sort direction. For most recent records use DESC, for oldest use ASC.",
+                        "example": "Instead of 'CloseDate DESC ASC', use just 'CloseDate DESC'"
+                    }
                 }
-            }
+            else:
+                return {
+                    "error": "Malformed SOQL query", 
+                    "error_code": "MALFORMED_QUERY",
+                    "details": error_str,
+                    "guidance": {
+                        "reflection": "The query syntax is incorrect.",
+                        "consider": "Check for extra characters, unmatched brackets, or invalid SOQL syntax.",
+                        "approach": "Simplify the query or ensure parameters contain only the intended values."
+                    }
+                }
         elif error_code == 'INVALID_TYPE':
             return {"error": "Invalid object type", "details": str(error)}
         elif error_code == 'INSUFFICIENT_ACCESS':
@@ -195,10 +210,9 @@ class BaseSalesforceTool(BaseTool, ABC):
         pass
     
     def _format_result(self, result: Any) -> Any:
-        """Format result using standard formatter."""
-        if isinstance(result, dict) and "error" in result:
-            return result
-        return format_salesforce_response(result)
+        """Return result without any formatting or truncation."""
+        # No longer truncating - return raw results
+        return result
 
 
 class SalesforceReadTool(BaseSalesforceTool):

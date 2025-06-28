@@ -41,7 +41,7 @@ from . import ui
 
 # Other utilities
 from .input_validation import validate_orchestrator_input
-from .table_formatter import format_salesforce_response
+# Table formatter removed - no longer truncating responses
 
 __all__ = [
     # Core
@@ -66,7 +66,6 @@ __all__ = [
     
     # Other
     'validate_orchestrator_input',
-    'format_salesforce_response',
     
     # Submodules
     'platform',

@@ -72,6 +72,7 @@ class WorkflowStep(BaseModel):
     retry_policy: Optional[Dict[str, Any]] = None
     timeout: Optional[int] = None
     metadata: Optional[Dict[str, Any]] = None
+    critical: bool = False  # If True, workflow fails if this step fails
 
 
 class WorkflowDefinition(BaseModel):
