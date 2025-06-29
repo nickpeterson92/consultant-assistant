@@ -15,6 +15,13 @@ from .models import (
     WorkflowStatus, StepType
 )
 
+
+class HumanInputRequiredException(Exception):
+    """Exception raised when human input is required"""
+    def __init__(self, interaction_data: Dict[str, Any]):
+        self.interaction_data = interaction_data
+        super().__init__("Human input required")
+
 logger = get_logger("workflow")
 
 
@@ -165,6 +172,14 @@ class WorkflowEngine:
                        component="workflow",
                        workflow_id=instance.id,
                        duration=(instance.completed_at - instance.created_at).total_seconds())
+        except HumanInputRequiredException as e:
+            # This is expected - workflow is waiting for human input
+            logger.info("workflow_paused_for_human",
+                       component="workflow",
+                       workflow_id=instance.id,
+                       step_id=e.interaction_data.get("step_id"))
+            # Re-raise to propagate to caller
+            raise
         except Exception as e:
             logger.error("workflow_failed", 
                         component="workflow",
@@ -176,7 +191,8 @@ class WorkflowEngine:
         finally:
             instance.updated_at = datetime.now()
             await self._save_instance(instance)
-            self.running_workflows.pop(instance.id, None)
+            if instance.status in [WorkflowStatus.COMPLETED, WorkflowStatus.FAILED]:
+                self.running_workflows.pop(instance.id, None)
             
         return instance
     
@@ -488,8 +504,36 @@ class WorkflowEngine:
                                instance: WorkflowInstance,
                                definition: WorkflowDefinition) -> Optional[str]:
         """Handle human approval steps"""
-        instance.status = WorkflowStatus.WAITING
+        instance.status = WorkflowStatus.WAITING_FOR_HUMAN
+        instance.current_step = step.id
         await self._save_instance(instance)
+        
+        # Prepare human interaction data
+        human_data = {
+            "step_id": step.id,
+            "step_name": step.name,
+            "description": step.description,
+            "metadata": step.metadata or {},
+            "workflow_id": instance.id,
+            "workflow_name": instance.workflow_name
+        }
+        
+        # Add context based on the step
+        if step.id == "select_opportunity":
+            # Get the results from the find_opportunity step
+            find_result = instance.variables.get("find_opportunity_result", "")
+            # Just pass the raw result - let the orchestrator/user figure it out
+            human_data["context"] = {
+                "find_result": find_result,
+                "instruction": "User needs to select from the opportunities found"
+            }
+        elif step.id == "confirm_close_opportunity":
+            # Add opportunity details for confirmation
+            check_result = instance.variables.get("check_opportunity_stage_result", "")
+            human_data["context"] = {
+                "opportunity_details": check_result,
+                "instruction": "User needs to confirm if opportunity should be closed"
+            }
         
         logger.info("workflow_awaiting_human_input",
                    component="workflow",
@@ -497,20 +541,12 @@ class WorkflowEngine:
                    step_id=step.id,
                    step_name=step.name)
         
-        # In production, this would create a task in a task queue
-        # For now, we'll simulate approval after a short wait
-        await asyncio.sleep(5)
+        # Store human interaction data in instance
+        instance.variables["_human_interaction_required"] = human_data
+        await self._save_instance(instance)
         
-        # Simulate approval
-        instance.variables[f"{step.id}_approval"] = {
-            "approved": True,
-            "approved_by": "system",
-            "approved_at": datetime.now().isoformat(),
-            "notes": "Auto-approved for demo"
-        }
-        
-        instance.status = WorkflowStatus.RUNNING
-        return step.next_step
+        # Raise special exception to signal human input needed
+        raise HumanInputRequiredException(human_data)
     
     async def _handle_switch_step(self, step: WorkflowStep,
                                 instance: WorkflowInstance,
@@ -842,3 +878,91 @@ class WorkflowEngine:
                         workflow_id=workflow_id,
                         error=str(e))
         return None
+    
+    async def resume_workflow(self, instance_id: str, human_response: Dict[str, Any]) -> WorkflowInstance:
+        """Resume a workflow that was waiting for human input"""
+        # Load instance
+        instance = await self.load_instance(instance_id)
+        if not instance:
+            raise ValueError(f"Workflow instance {instance_id} not found")
+        
+        # Load definition
+        definition = await self.load_definition(instance.workflow_id)
+        if not definition:
+            raise ValueError(f"Workflow definition {instance.workflow_id} not found")
+        
+        # Verify workflow is waiting for human input
+        if instance.status != WorkflowStatus.WAITING_FOR_HUMAN:
+            raise ValueError(f"Workflow is not waiting for human input. Current status: {instance.status}")
+        
+        # Get the current step
+        current_step_id = instance.current_step
+        if current_step_id not in definition.steps:
+            raise ValueError(f"Current step {current_step_id} not found in workflow definition")
+        
+        current_step = definition.steps[current_step_id]
+        
+        # Get the raw user input and context
+        user_input = human_response.get("user_input", "")
+        interaction_data = human_response.get("interaction_data", {})
+        
+        # Store the human response for the step
+        instance.variables[f"{current_step_id}_human_response"] = {
+            "user_input": user_input,
+            "responded_at": datetime.now().isoformat(),
+            "interaction_context": interaction_data
+        }
+        
+        # For specific steps, update workflow variables that subsequent steps will use
+        if current_step_id == "select_opportunity":
+            # The next step will need to know which opportunity was selected
+            # Let the next ACTION step use LLM to parse the user's selection
+            instance.variables["user_opportunity_selection"] = user_input
+            instance.variables["available_opportunities"] = interaction_data.get("options", [])
+            
+        elif current_step_id == "confirm_close_opportunity":
+            # Store the user's response for the next step to interpret
+            instance.variables["user_close_confirmation"] = user_input
+        
+        # Clear human interaction flag
+        instance.variables.pop("_human_interaction_required", None)
+        
+        # Resume workflow
+        instance.status = WorkflowStatus.RUNNING
+        await self._save_instance(instance)
+        self.running_workflows[instance.id] = instance
+        
+        try:
+            # Continue from next step
+            next_step_id = current_step.next_step
+            if next_step_id:
+                await self._execute_steps(definition, instance, start_from=next_step_id)
+            
+            instance.status = WorkflowStatus.COMPLETED
+            instance.completed_at = datetime.now()
+            
+            logger.info("workflow_resumed_and_completed",
+                       component="workflow",
+                       workflow_id=instance.id)
+        except HumanInputRequiredException as e:
+            # Another human step encountered
+            logger.info("workflow_paused_again_for_human",
+                       component="workflow",
+                       workflow_id=instance.id,
+                       step_id=e.interaction_data.get("step_id"))
+            raise
+        except Exception as e:
+            logger.error("workflow_resume_failed",
+                        component="workflow",
+                        workflow_id=instance.id,
+                        error=str(e),
+                        error_type=type(e).__name__)
+            instance.status = WorkflowStatus.FAILED
+            instance.error = str(e)
+        finally:
+            instance.updated_at = datetime.now()
+            await self._save_instance(instance)
+            if instance.status in [WorkflowStatus.COMPLETED, WorkflowStatus.FAILED]:
+                self.running_workflows.pop(instance.id, None)
+            
+        return instance

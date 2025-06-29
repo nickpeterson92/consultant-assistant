@@ -11,6 +11,7 @@ class WorkflowStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
     WAITING = "waiting"  # Waiting for external input/time
+    WAITING_FOR_HUMAN = "waiting_for_human"  # Waiting for human decision
     PAUSED = "paused"
     COMPLETED = "completed"
     FAILED = "failed"

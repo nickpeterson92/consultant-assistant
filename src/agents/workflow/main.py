@@ -22,7 +22,7 @@ from src.utils.config import get_llm_config
 from src.utils.llm import create_azure_openai_chat
 from src.utils.agents.prompts.workflow_prompts import workflow_agent_sys_msg
 
-from .engine import WorkflowEngine
+from .engine import WorkflowEngine, HumanInputRequiredException
 from .templates import WorkflowTemplates
 from .models import WorkflowStatus
 
@@ -41,6 +41,8 @@ class WorkflowState(TypedDict):
     original_instruction: str
     execution_status: Optional[str]
     orchestrator_state_snapshot: Optional[Dict[str, Any]]  # State from orchestrator for sub-agent calls
+    is_resume: Optional[bool]  # Whether this is a workflow resume
+    human_interaction_data: Optional[Dict[str, Any]]  # Data about required human interaction
     
     
 def create_workflow_graph():
@@ -54,6 +56,11 @@ def create_workflow_graph():
     async def workflow_router(state: WorkflowState, config: RunnableConfig):
         """Determine which workflow to execute based on instruction"""
         instruction = state.get("original_instruction", "")
+        
+        # Check if this is a workflow resume with human response
+        if instruction.startswith("WORKFLOW_RESUME:"):
+            state["is_resume"] = True
+            return state
         
         # For now, simple keyword matching - can be enhanced with LLM
         workflow_name = None
@@ -94,6 +101,7 @@ def create_workflow_graph():
                 workflow_name = None
         
         state["workflow_name"] = workflow_name
+        state["is_resume"] = False
         return state
     
     async def execute_workflow(state: WorkflowState, config: RunnableConfig):
@@ -161,11 +169,23 @@ def create_workflow_graph():
                     elif workflow_name == "new_customer_onboarding":
                         initial_vars["opportunity_name"] = extracted_value
             
-            instance = await workflow_engine.execute_workflow(
-                definition=workflow_def,
-                initial_variables=initial_vars,
-                triggered_by="workflow_agent"
-            )
+            try:
+                instance = await workflow_engine.execute_workflow(
+                    definition=workflow_def,
+                    initial_variables=initial_vars,
+                    triggered_by="workflow_agent"
+                )
+            except HumanInputRequiredException as e:
+                # Workflow needs human input - pass raw data to orchestrator
+                state["workflow_instance_id"] = e.interaction_data.get("workflow_id")
+                state["execution_status"] = WorkflowStatus.WAITING_FOR_HUMAN.value
+                state["human_interaction_data"] = e.interaction_data
+                
+                # Return the raw interaction data for the orchestrator to handle
+                state["messages"].append(SystemMessage(
+                    content=f"WORKFLOW_HUMAN_INPUT_REQUIRED:{json.dumps(e.interaction_data)}"
+                ))
+                return state
             
             state["workflow_instance_id"] = instance.id
             state["execution_status"] = instance.status.value
@@ -258,18 +278,107 @@ Format the report in a clear, professional manner using markdown. Focus on actio
         
         return state
     
+    async def resume_workflow(state: WorkflowState, config: RunnableConfig):
+        """Resume a workflow with human input"""
+        instruction = state.get("original_instruction", "")
+        
+        try:
+            # Parse resume instruction: WORKFLOW_RESUME:{"workflow_id": "...", "response": {...}}
+            resume_data = json.loads(instruction.replace("WORKFLOW_RESUME:", "", 1))
+            workflow_id = resume_data.get("workflow_id")
+            human_response = resume_data.get("response", {})
+            
+            logger.info("workflow_resuming",
+                       component="workflow",
+                       workflow_id=workflow_id,
+                       response_keys=list(human_response.keys()))
+            
+            # Resume the workflow
+            instance = await workflow_engine.resume_workflow(workflow_id, human_response)
+            
+            state["workflow_instance_id"] = instance.id
+            state["execution_status"] = instance.status.value
+            
+            # Handle completion or further human input needed
+            if instance.status == WorkflowStatus.COMPLETED:
+                # Generate report as normal
+                if instance.variables.get("compiled_results"):
+                    llm = create_azure_openai_chat()
+                    
+                    report_prompt = f"""You are a business analyst creating a detailed report from workflow execution results.
+                    
+Workflow: {instance.workflow_name}
+Results: {json.dumps(instance.variables.get("compiled_results", {}), indent=2)}
+
+Generate a comprehensive report that includes:
+1. Executive Summary
+2. Key Findings
+3. Detailed Analysis of each result
+4. Risk Assessment (if applicable)
+5. Recommended Actions
+6. Next Steps
+
+Format the report in a clear, professional manner using markdown. Focus on actionable insights."""
+                    
+                    report_response = await llm.ainvoke([HumanMessage(content=report_prompt)])
+                    report = report_response.content
+                    
+                    state["messages"].append(SystemMessage(content=report))
+                else:
+                    state["messages"].append(SystemMessage(
+                        content=f"Workflow {instance.workflow_name} resumed and completed successfully."
+                    ))
+            elif instance.status == WorkflowStatus.WAITING_FOR_HUMAN:
+                # Another human input needed
+                human_data = instance.variables.get("_human_interaction_required", {})
+                state["messages"].append(SystemMessage(
+                    content=f"WORKFLOW_HUMAN_INPUT_REQUIRED:{json.dumps(human_data)}"
+                ))
+            else:
+                state["messages"].append(SystemMessage(
+                    content=f"Workflow resumed. Status: {instance.status.value}"
+                ))
+                
+        except HumanInputRequiredException as e:
+            # Another human step encountered during resume
+            state["workflow_instance_id"] = e.interaction_data.get("workflow_id")
+            state["execution_status"] = WorkflowStatus.WAITING_FOR_HUMAN.value
+            state["messages"].append(SystemMessage(
+                content=f"WORKFLOW_HUMAN_INPUT_REQUIRED:{json.dumps(e.interaction_data)}"
+            ))
+        except Exception as e:
+            logger.error("workflow_resume_error",
+                        component="workflow",
+                        error=str(e),
+                        error_type=type(e).__name__)
+            state["messages"].append(SystemMessage(
+                content=f"Error resuming workflow: {str(e)}"
+            ))
+            state["execution_status"] = "error"
+        
+        return state
+    
     # Build graph
     graph_builder = StateGraph(WorkflowState)
     
     # Add nodes
     graph_builder.add_node("router", workflow_router)
     graph_builder.add_node("executor", execute_workflow)
+    graph_builder.add_node("resume", resume_workflow)
     graph_builder.add_node("status_checker", check_workflow_status)
+    
+    # Add conditional edge from router
+    def route_decision(state):
+        if state.get("is_resume"):
+            return "resume"
+        else:
+            return "executor"
     
     # Add edges
     graph_builder.set_entry_point("router")
-    graph_builder.add_edge("router", "executor")
+    graph_builder.add_conditional_edges("router", route_decision)
     graph_builder.add_edge("executor", "status_checker")
+    graph_builder.add_edge("resume", "status_checker")
     graph_builder.add_edge("status_checker", END)
     
     return graph_builder.compile()
@@ -359,6 +468,34 @@ class WorkflowA2AHandler:
                     response_content = f"Workflow {workflow_name} completed. Instance ID: {instance_id}"
             elif status == "failed":
                 response_content = f"Workflow {workflow_name} failed: {result.get('execution_status', 'Unknown error')}"
+            elif status == "waiting_for_human":
+                # Check for the special WORKFLOW_HUMAN_INPUT_REQUIRED message
+                if result.get("messages"):
+                    logger.info("workflow_checking_messages_for_human_input",
+                               component="workflow",
+                               message_count=len(result.get("messages", [])))
+                    
+                    for msg in reversed(result.get("messages", [])):
+                        # Log what we're looking at
+                        logger.info("workflow_checking_message",
+                                   component="workflow",
+                                   msg_type=type(msg).__name__,
+                                   has_content=hasattr(msg, 'content'),
+                                   content_preview=str(getattr(msg, 'content', ''))[:100] if hasattr(msg, 'content') else "NO_CONTENT")
+                        
+                        if hasattr(msg, 'content') and msg.content.startswith("WORKFLOW_HUMAN_INPUT_REQUIRED:"):
+                            response_content = msg.content
+                            logger.info("workflow_found_human_input_message",
+                                       component="workflow",
+                                       content_length=len(response_content))
+                            break
+                
+                if not response_content:
+                    # Fallback
+                    logger.warning("workflow_human_input_message_not_found",
+                                  component="workflow",
+                                  status=status)
+                    response_content = f"Workflow {workflow_name} status: {status}"
             else:
                 response_content = f"Workflow {workflow_name} status: {status}"
             

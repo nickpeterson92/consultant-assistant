@@ -23,6 +23,7 @@ class OrchestratorState(TypedDict):
     last_agent_interaction: Dict[str, Any]
     background_operations: Annotated[List[str], operator.add]
     background_results: Annotated[Dict[str, Any], lambda x, y: {**x, **y}]
+    workflow_waiting: Optional[Dict[str, Any]]  # Add workflow waiting state
 
 
 def load_events_with_limit(state: dict, limit: Optional[int] = None) -> List[OrchestratorEvent]:

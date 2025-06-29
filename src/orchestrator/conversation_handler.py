@@ -1,6 +1,7 @@
 """Conversation handling logic for the orchestrator."""
 
 import asyncio
+import json
 
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_core.runnables import RunnableConfig
@@ -134,6 +135,35 @@ async def orchestrator(
                                 has_summary=bool(summary and summary != "No summary available"),
                                 summary_length=len(summary) if summary else 0,
                                 summary_preview=summary[:200] if summary else "NO_SUMMARY")
+        
+        # Check if we're waiting for workflow human input
+        workflow_waiting = state.get("workflow_waiting")
+        if workflow_waiting and hasattr(last_msg, 'content') and isinstance(last_msg, HumanMessage):
+            # User is responding to workflow human input request
+            user_response = str(last_msg.content)
+            workflow_id = workflow_waiting.get("workflow_id")
+            
+            logger.info("workflow_human_response_detected",
+                component="orchestrator",
+                workflow_id=workflow_id,
+                user_response=user_response[:100]
+            )
+            
+            # Prepare workflow resume instruction - just pass the user's raw response
+            resume_data = {
+                "workflow_id": workflow_id,
+                "response": {
+                    "user_input": user_response,
+                    "interaction_data": workflow_waiting.get("interaction_data", {})
+                }
+            }
+            
+            # Update the message to call workflow agent with resume
+            resume_instruction = f"WORKFLOW_RESUME:{json.dumps(resume_data)}"
+            state["messages"][-1] = HumanMessage(content=resume_instruction)
+            
+            # Clear workflow_waiting state
+            state["workflow_waiting"] = None
         
         system_message = get_orchestrator_system_message(state, agent_registry)
         messages = [SystemMessage(content=system_message)] + state["messages"]

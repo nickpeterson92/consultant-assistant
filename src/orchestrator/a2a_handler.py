@@ -43,14 +43,23 @@ class OrchestratorA2AHandler:
             conv_config = get_conversation_config()
             llm_config = get_llm_config()
             
-            # Create thread ID for this task
-            thread_id = f"a2a-{task_id}-{str(uuid.uuid4())[:8]}"
+            # Create thread ID for this task - use from context if provided
+            thread_id = context.get("thread_id", f"a2a-{task_id}-{str(uuid.uuid4())[:8]}")
+            
+            # Debug logging
+            logger.info("thread_id_debug",
+                component="orchestrator",
+                operation="process_a2a_task",
+                context_thread_id=context.get("thread_id"),
+                final_thread_id=thread_id,
+                task_id=task_id
+            )
             
             # Configuration for the graph
             config = {
                 "configurable": {
                     "thread_id": thread_id,
-                    "user_id": conv_config.default_user_id
+                    "user_id": context.get("user_id", conv_config.default_user_id)
                 },
                 "recursion_limit": llm_config.recursion_limit
             }
@@ -95,15 +104,45 @@ class OrchestratorA2AHandler:
                     mode="single_task"
                 )
             
-            # Initial state for the graph
-            initial_state = {
-                "messages": [
-                    SystemMessage(content=system_message_content),
-                    HumanMessage(content=instruction)
-                ],
-                "background_operations": [],
-                "background_results": {}
-            }
+            # Check if we have existing state for this thread
+            existing_state = None
+            try:
+                # Get the current state snapshot
+                existing_state = await self.graph.aget_state(config)
+                if existing_state and existing_state.values:
+                    logger.info("existing_state_found",
+                        component="orchestrator",
+                        operation="process_a2a_task",
+                        thread_id=thread_id,
+                        message_count=len(existing_state.values.get("messages", [])),
+                        has_workflow_waiting=bool(existing_state.values.get("workflow_waiting"))
+                    )
+            except Exception as e:
+                logger.info("get_state_error",
+                    component="orchestrator",
+                    operation="process_a2a_task",
+                    thread_id=thread_id,
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
+            
+            if existing_state and existing_state.values and existing_state.values.get("messages"):
+                # Continue existing conversation
+                initial_state = {
+                    "messages": [HumanMessage(content=instruction)],
+                    "background_operations": [],
+                    "background_results": {}
+                }
+            else:
+                # Start new conversation
+                initial_state = {
+                    "messages": [
+                        SystemMessage(content=system_message_content),
+                        HumanMessage(content=instruction)
+                    ],
+                    "background_operations": [],
+                    "background_results": {}
+                }
             
             # Execute graph
             result = await self.graph.ainvoke(initial_state, config)
@@ -111,6 +150,16 @@ class OrchestratorA2AHandler:
             # Extract response content
             messages = result.get("messages", [])
             response_content = "Task completed successfully"
+            
+            # Check if workflow is waiting for human input
+            workflow_waiting = result.get("workflow_waiting")
+            if workflow_waiting:
+                logger.info("workflow_waiting_state_detected",
+                    component="orchestrator",
+                    operation="process_a2a_task",
+                    task_id=task_id,
+                    workflow_id=workflow_waiting.get("workflow_id")
+                )
             
             if messages:
                 # Find the last AI message (not tool message)
@@ -148,7 +197,7 @@ class OrchestratorA2AHandler:
             )
             
             # Return response in standard format
-            return {
+            response = {
                 "artifacts": [{
                     "id": f"orchestrator-response-{task_id}",
                     "task_id": task_id,
@@ -157,6 +206,18 @@ class OrchestratorA2AHandler:
                 }],
                 "status": "completed"
             }
+            
+            # Include workflow waiting state if present
+            if workflow_waiting:
+                response["workflow_waiting"] = workflow_waiting
+                logger.info("workflow_waiting_included_in_response",
+                    component="orchestrator",
+                    operation="process_a2a_task",
+                    task_id=task_id,
+                    workflow_id=workflow_waiting.get("workflow_id")
+                )
+            
+            return response
             
         except Exception as e:
             error_msg = str(e)

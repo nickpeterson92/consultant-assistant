@@ -1200,6 +1200,15 @@ class WorkflowAgentTool(BaseAgentTool):
                 endpoint = agent.endpoint + "/a2a"
                 result = await client.process_task(endpoint=endpoint, task=task)
                 
+                # Log raw result for debugging
+                logger.info("workflow_agent_raw_result",
+                    component="orchestrator",
+                    tool_name="workflow_agent",
+                    task_id=task_id,
+                    result_keys=list(result.keys()) if isinstance(result, dict) else "not_dict",
+                    has_artifacts="artifacts" in result if isinstance(result, dict) else False
+                )
+                
                 # Extract response - workflow agent now returns content directly
                 response_content = ""
                 if "artifacts" in result:
@@ -1209,6 +1218,12 @@ class WorkflowAgentTool(BaseAgentTool):
                         if isinstance(artifact, dict) and "content" in artifact:
                             # Workflow agent returns the report directly as content
                             response_content = artifact["content"]
+                            logger.info("workflow_content_extracted",
+                                component="orchestrator",
+                                tool_name="workflow_agent",
+                                content_preview=response_content[:100],
+                                starts_with_human_input=response_content.startswith("WORKFLOW_HUMAN_INPUT_REQUIRED:")
+                            )
                         else:
                             response_content = str(artifact)
                     else:
@@ -1217,6 +1232,65 @@ class WorkflowAgentTool(BaseAgentTool):
                     response_content = result["response"]
                 else:
                     response_content = str(result)
+                
+                # Check if workflow needs human input
+                if response_content.startswith("WORKFLOW_HUMAN_INPUT_REQUIRED:"):
+                    logger.info("workflow_human_input_detected",
+                        component="orchestrator",
+                        tool_name="workflow_agent",
+                        response_preview=response_content[:100]
+                    )
+                    # Parse the human interaction data
+                    try:
+                        interaction_json = response_content.replace("WORKFLOW_HUMAN_INPUT_REQUIRED:", "", 1)
+                        interaction_data = json.loads(interaction_json)
+                        
+                        # Extract the context for better formatting
+                        step_desc = interaction_data.get("description", "Human input required")
+                        context = interaction_data.get("context", {})
+                        workflow_id = interaction_data.get("workflow_id")
+                        
+                        # Build a user-friendly message based on context
+                        if "find_result" in context:
+                            # Opportunity selection case
+                            message = f"{step_desc}\n\n{context['find_result']}\n\nPlease select the opportunity you want to use for onboarding."
+                        elif "opportunity_details" in context:
+                            # Confirmation case
+                            message = f"{step_desc}\n\n{context['opportunity_details']}"
+                        else:
+                            # Generic case
+                            message = step_desc
+                        
+                        # Store workflow state for resume
+                        if tool_call_id:
+                            logger.info("workflow_command_created",
+                                component="orchestrator",
+                                tool_name="workflow_agent",
+                                workflow_id=workflow_id,
+                                has_tool_call_id=True
+                            )
+                            return Command(
+                                update={
+                                    "messages": [ToolMessage(
+                                        content=message,
+                                        tool_call_id=tool_call_id,
+                                        name="workflow_agent"
+                                    )],
+                                    "workflow_waiting": {
+                                        "workflow_id": workflow_id,
+                                        "interaction_data": interaction_data
+                                    }
+                                }
+                            )
+                        else:
+                            return message
+                    except Exception as e:
+                        logger.error("workflow_human_input_parse_error",
+                            component="orchestrator",
+                            error=str(e),
+                            response_preview=response_content[:200]
+                        )
+                        # Fall through to normal response handling
                 
                 logger.info("workflow_agent_response",
                     component="orchestrator",

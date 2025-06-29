@@ -465,7 +465,7 @@ class WorkflowTemplates:
                     type=StepType.ACTION,
                     name="Check opportunity stage",
                     agent="salesforce-agent",
-                    instruction="Get the current stage of the selected opportunity. Return the opportunity ID, name, current stage, and amount. DO NOT update the stage yet.",
+                    instruction="The user was asked to select an opportunity and responded with: '{user_opportunity_selection}'. The available opportunities were: {available_opportunities}. Based on the user's response, determine which opportunity they selected and get its current stage. The user might have said 'the first one', 'option 2', used the opportunity name, or provided an ID. Return the opportunity ID, name, current stage, and amount. DO NOT update the stage yet.",
                     next_step="check_if_closed_won",
                     critical=True
                 ),
@@ -494,9 +494,9 @@ class WorkflowTemplates:
                 "close_opportunity": WorkflowStep(
                     id="close_opportunity",
                     type=StepType.ACTION,
-                    name="Update opportunity to Closed Won",
+                    name="Update opportunity to Closed Won if approved",
                     agent="salesforce-agent",
-                    instruction="Update the opportunity to 'Closed Won' stage with Probability=100.",
+                    instruction="The user was asked if they want to close the opportunity and responded: '{user_close_confirmation}'. If they approved (look for yes, ok, sure, approve, close it, go ahead), update the opportunity from {check_opportunity_stage_result} to 'Closed Won' stage with Probability=100. If they declined (no, skip, don't, cancel), respond that you're skipping the closure.",
                     next_step="get_account_name",
                     critical=True
                 ),
@@ -505,7 +505,7 @@ class WorkflowTemplates:
                     type=StepType.ACTION,
                     name="Get account details from opportunity",
                     agent="salesforce-agent",
-                    instruction="Get the opportunity details for '{opportunity_name}' including the Account ID, Account Name, and Opportunity ID. Return ONLY these three values in a structured format: account_id: [ID], account_name: [NAME], opportunity_id: [ID].",
+                    instruction="Get the opportunity details from the opportunity in {check_opportunity_stage_result}. Extract the Account ID, Account Name, and Opportunity ID. Return ONLY these three values in a structured format: account_id: [ID], account_name: [NAME], opportunity_id: [ID].",
                     next_step="create_onboarding_case",
                     critical=True  # Must find account to proceed
                 ),
