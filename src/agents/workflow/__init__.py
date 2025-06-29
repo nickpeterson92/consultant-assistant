@@ -1,18 +1,19 @@
 """Workflow Orchestration Agent - Coordinates complex multi-step, multi-system workflows"""
 
-from .main import get_workflow_graph, WorkflowA2AHandler
-from .engine import WorkflowEngine, WorkflowInstance, WorkflowStatus
-from .models import WorkflowDefinition, WorkflowStep, StepType
+from .main import WorkflowA2AHandler
+from .workflow_manager import WorkflowManager
+from .compiler import WorkflowCompiler, WorkflowState
+from .models import WorkflowDefinition, WorkflowStep, StepType, WorkflowStatus
 from .templates import WorkflowTemplates
 
 __all__ = [
-    'get_workflow_graph',
     'WorkflowA2AHandler',
-    'WorkflowEngine',
-    'WorkflowInstance',
-    'WorkflowStatus',
+    'WorkflowManager',
+    'WorkflowCompiler',
+    'WorkflowState',
     'WorkflowDefinition',
     'WorkflowStep',
     'StepType',
+    'WorkflowStatus',
     'WorkflowTemplates'
 ]

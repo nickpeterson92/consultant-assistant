@@ -1,30 +1,20 @@
-"""Workflow Agent - Executes complex multi-step workflows asynchronously"""
+"""Workflow Agent - Uses compiled LangGraph workflows"""
 
 import os
 import asyncio
 import argparse
 import json
-from typing import Annotated, Dict, Any, Optional
-from typing_extensions import TypedDict
+from typing import Dict, Any
 
 from dotenv import load_dotenv
 
-from langgraph.graph import StateGraph, END
-from langgraph.graph.message import add_messages
-
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.runnables import RunnableConfig
-
 from src.a2a import A2AServer, AgentCard
 from src.utils.logging import get_logger
-from src.utils.storage import get_async_store_adapter
 from src.utils.config import get_llm_config
 from src.utils.llm import create_azure_openai_chat
-from src.utils.agents.prompts.workflow_prompts import workflow_agent_sys_msg
+from langchain_core.messages import HumanMessage, SystemMessage
 
-from .engine import WorkflowEngine
-from .templates import WorkflowTemplates
-from .models import WorkflowStatus
+from .workflow_manager import WorkflowManager
 
 # Initialize logger
 logger = get_logger("workflow")
@@ -33,291 +23,13 @@ logger = get_logger("workflow")
 load_dotenv()
 
 
-class WorkflowState(TypedDict):
-    """State for workflow agent"""
-    messages: Annotated[list, add_messages]
-    workflow_name: Optional[str]
-    workflow_instance_id: Optional[str]
-    original_instruction: str
-    execution_status: Optional[str]
-    orchestrator_state_snapshot: Optional[Dict[str, Any]]  # State from orchestrator for sub-agent calls
-    human_interaction_data: Optional[Dict[str, Any]]  # Data about required human interaction
-    
-    
-def create_workflow_graph():
-    """Build the workflow agent graph"""
-    
-    # Initialize storage and engine
-    storage = get_async_store_adapter()
-    workflow_engine = WorkflowEngine(storage)
-    templates = WorkflowTemplates()
-    
-    async def workflow_router(state: WorkflowState, config: RunnableConfig):
-        """Determine which workflow to execute based on instruction"""
-        instruction = state.get("original_instruction", "")
-        
-        # With interrupt, we don't need special resume handling in the router
-        # LangGraph handles resume automatically
-        
-        # For now, simple keyword matching - can be enhanced with LLM
-        workflow_name = None
-        
-        # Check for workflow keywords
-        instruction_lower = instruction.lower()
-        
-        if "risk" in instruction_lower and ("deal" in instruction_lower or "opportunity" in instruction_lower):
-            workflow_name = "deal_risk_assessment"
-        elif "incident" in instruction_lower and "resolution" in instruction_lower:
-            workflow_name = "incident_to_resolution"
-        elif "360" in instruction_lower or "everything about" in instruction_lower:
-            workflow_name = "customer_360_report"
-        elif "health check" in instruction_lower:
-            workflow_name = "weekly_account_health_check"
-        elif "onboarding" in instruction_lower:
-            workflow_name = "new_customer_onboarding"
-        else:
-            # Use LLM to determine workflow
-            llm = create_azure_openai_chat()
-            system_msg = """You are a workflow routing expert. Based on the user instruction, 
-            determine which workflow template to use. Available workflows:
-            - deal_risk_assessment: For checking at-risk opportunities
-            - incident_to_resolution: For managing support incidents
-            - customer_360_report: For comprehensive customer information
-            - weekly_account_health_check: For account health analysis
-            - new_customer_onboarding: For new customer setup
-            
-            Respond with ONLY the workflow name or 'none' if no workflow matches."""
-            
-            response = await llm.ainvoke([
-                SystemMessage(content=system_msg),
-                HumanMessage(content=f"Instruction: {instruction}")
-            ])
-            
-            workflow_name = response.content.strip()
-            if workflow_name == "none":
-                workflow_name = None
-        
-        state["workflow_name"] = workflow_name
-        return state
-    
-    async def execute_workflow(state: WorkflowState, config: RunnableConfig):
-        """Execute the identified workflow"""
-        workflow_name = state.get("workflow_name")
-        instruction = state.get("original_instruction", "")
-        
-        if not workflow_name:
-            state["messages"].append(
-                SystemMessage(content="No matching workflow found for this instruction")
-            )
-            state["execution_status"] = "no_workflow_found"
-            return state
-        
-        try:
-            # Get workflow template
-            workflow_def = getattr(templates, workflow_name)()
-            
-            # Set the original instruction as a workflow variable
-            workflow_def.variables["original_instruction"] = instruction
-            
-            logger.info("workflow_agent_executing",
-                       component="workflow",
-                       workflow_name=workflow_name,
-                       instruction_preview=instruction[:100])
-            
-            # Use LLM to extract parameters based on workflow requirements
-            param_extraction_prompts = {
-                "customer_360_report": """Extract the account/company name from this instruction. 
-                                       Return ONLY the account name, nothing else.
-                                       If no account name is found, return 'NONE'.""",
-                "incident_to_resolution": """Extract the case ID or incident ID from this instruction.
-                                           Return ONLY the ID, nothing else.
-                                           If no ID is found, return 'NONE'.""",
-                "new_customer_onboarding": """Extract the opportunity name or account name from this instruction.
-                                            Look for phrases like 'opportunity X', 'oppty X', 'deal X', or account/customer names.
-                                            Return ONLY the opportunity or account name, nothing else.
-                                            If not found, return 'NONE'."""
-            }
-            
-            initial_vars = {
-                "original_instruction": instruction,
-                "orchestrator_state_snapshot": state.get("orchestrator_state_snapshot", {})
-            }
-            
-            # Add any context variables passed from the caller
-            context = state.get("context", {})
-            initial_vars.update(context)
-            
-            # Extract parameters using LLM if needed
-            if workflow_name in param_extraction_prompts:
-                llm = create_azure_openai_chat()
-                prompt = param_extraction_prompts[workflow_name]
-                extraction_response = await llm.ainvoke([
-                    SystemMessage(content=prompt),
-                    HumanMessage(content=instruction)
-                ])
-                extracted_value = extraction_response.content.strip()
-                
-                if extracted_value != "NONE":
-                    if workflow_name == "customer_360_report":
-                        initial_vars["account_name"] = extracted_value
-                    elif workflow_name == "incident_to_resolution":
-                        initial_vars["case_id"] = extracted_value
-                    elif workflow_name == "new_customer_onboarding":
-                        initial_vars["opportunity_name"] = extracted_value
-            
-            # Execute workflow - if human input is needed, interrupt will pause execution
-            instance = await workflow_engine.execute_workflow(
-                definition=workflow_def,
-                initial_variables=initial_vars,
-                triggered_by="workflow_agent"
-            )
-            
-            # If we reach here, the workflow completed without needing human input
-            # (If interrupt was called, execution would have paused and this wouldn't run)
-            
-            state["workflow_instance_id"] = instance.id
-            state["execution_status"] = instance.status.value
-            
-            # Create response message
-            if instance.status == WorkflowStatus.COMPLETED:
-                # Store compiled results in state
-                if instance.variables.get("compiled_results"):
-                    state["compiled_results"] = instance.variables["compiled_results"]
-                    
-                    # Use LLM to generate a detailed report from the compiled results
-                    llm = create_azure_openai_chat()
-                    
-                    report_prompt = f"""You are a business analyst creating a detailed report from workflow execution results.
-                    
-Workflow: {workflow_name}
-Results: {json.dumps(instance.variables.get("compiled_results", {}), indent=2)}
-
-Generate a comprehensive report that includes:
-1. Executive Summary
-2. Key Findings
-3. Detailed Analysis of each result
-4. Risk Assessment (if applicable)
-5. Recommended Actions
-6. Next Steps
-
-Format the report in a clear, professional manner using markdown. Focus on actionable insights."""
-                    
-                    report_response = await llm.ainvoke([HumanMessage(content=report_prompt)])
-                    report = report_response.content
-                    
-                    state["messages"].append(SystemMessage(content=report))
-                    state["workflow_report"] = report
-                else:
-                    # Fallback if no compiled results
-                    msg = f"Successfully executed {workflow_name} workflow.\nCompleted {len(instance.history)} steps."
-                    state["messages"].append(SystemMessage(content=msg))
-                    
-            elif instance.status == WorkflowStatus.FAILED:
-                msg = f"Workflow {workflow_name} failed: {instance.error}"
-                state["messages"].append(SystemMessage(content=msg))
-                
-            elif instance.status == WorkflowStatus.WAITING:
-                msg = f"Workflow {workflow_name} is waiting for external input/approval. Instance ID: {instance.id}"
-                state["messages"].append(SystemMessage(content=msg))
-                
-            else:
-                msg = f"Workflow {workflow_name} status: {instance.status.value}"
-                state["messages"].append(SystemMessage(content=msg))
-            
-        except Exception as e:
-            # Check if this is a GraphInterrupt - this is expected for human-in-the-loop
-            if type(e).__name__ == "GraphInterrupt":
-                # This is expected - the workflow needs human input
-                logger.info("workflow_interrupted_for_human_input",
-                           component="workflow",
-                           workflow_name=workflow_name,
-                           interrupt_type=type(e).__name__)
-                # Let the interrupt bubble up to be handled by LangGraph
-                raise
-            else:
-                # This is an actual error
-                logger.error("workflow_execution_error",
-                            component="workflow",
-                            workflow_name=workflow_name,
-                            error=str(e),
-                            error_type=type(e).__name__)
-                
-                state["messages"].append(
-                    SystemMessage(content=f"Error executing workflow: {str(e)}")
-                )
-                state["execution_status"] = "error"
-        
-        return state
-    
-    async def check_workflow_status(state: WorkflowState, config: RunnableConfig):
-        """Check status of a running workflow"""
-        instance_id = state.get("workflow_instance_id")
-        
-        if not instance_id:
-            return state
-        
-        try:
-            instance = await workflow_engine.load_instance(instance_id)
-            if instance:
-                state["execution_status"] = instance.status.value
-                
-                msg = f"Workflow {instance.workflow_name} (ID: {instance.id}) status: {instance.status.value}"
-                if instance.status == WorkflowStatus.COMPLETED:
-                    msg += f"\nCompleted at: {instance.completed_at}"
-                elif instance.current_step:
-                    msg += f"\nCurrent step: {instance.current_step}"
-                    
-                state["messages"].append(SystemMessage(content=msg))
-                
-        except Exception as e:
-            logger.error("workflow_status_check_error",
-                        component="workflow",
-                        instance_id=instance_id,
-                        error=str(e))
-        
-        return state
-    
-    # Build graph
-    graph_builder = StateGraph(WorkflowState)
-    
-    # Add nodes
-    graph_builder.add_node("router", workflow_router)
-    graph_builder.add_node("executor", execute_workflow)
-    graph_builder.add_node("status_checker", check_workflow_status)
-    
-    # Add edges - simplified flow without resume node
-    graph_builder.set_entry_point("router")
-    graph_builder.add_edge("router", "executor")
-    graph_builder.add_edge("executor", "status_checker")
-    graph_builder.add_edge("status_checker", END)
-    
-    # Add checkpointer to enable interrupt functionality
-    from langgraph.checkpoint.memory import MemorySaver
-    memory = MemorySaver()
-    
-    return graph_builder.compile(checkpointer=memory)
-
-
-# Lazy initialization of workflow graph
-_workflow_graph = None
-
-def get_workflow_graph():
-    """Get or create the workflow graph (lazy initialization)"""
-    global _workflow_graph
-    if _workflow_graph is None:
-        _workflow_graph = create_workflow_graph()
-    return _workflow_graph
-
-
 class WorkflowA2AHandler:
-    """Handles A2A protocol requests for the Workflow agent"""
+    """Simplified A2A handler using compiled workflows"""
     
-    def __init__(self, graph):
-        self.graph = graph
-        self.templates = WorkflowTemplates()
-        # Track interrupted workflows: workflow_id -> thread_id
-        self._interrupted_workflows = {}
-        
+    def __init__(self):
+        self.workflow_manager = WorkflowManager()
+        self.llm = create_azure_openai_chat()
+    
     async def process_task(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Process A2A task for workflow execution"""
         try:
@@ -333,175 +45,109 @@ class WorkflowA2AHandler:
                        task_id=task_id,
                        instruction_preview=instruction[:100])
             
-            # Check if this might be a resume for an interrupted workflow
-            # Look for workflow mentions in the instruction
-            thread_id = f"workflow-{task_id}"
-            for workflow_id, saved_thread_id in self._interrupted_workflows.items():
-                if workflow_id in instruction or "Express Logistics" in instruction:
-                    # This might be a resume - use the saved thread_id
-                    logger.info("workflow_possible_resume_detected",
-                               component="workflow",
-                               task_id=task_id,
-                               workflow_id=workflow_id,
-                               saved_thread_id=saved_thread_id,
-                               instruction_preview=instruction[:100])
-                    thread_id = saved_thread_id
-                    break
+            # Check if this is a resume attempt for an interrupted workflow
+            is_resume = False
+            workflow_name = self.workflow_manager.get_interrupted_workflow(task_id)
             
-            # Configure graph execution
-            llm_config = get_llm_config()
-            config = {
-                "configurable": {
-                    "thread_id": thread_id,
-                },
-                "recursion_limit": llm_config.recursion_limit
+            if workflow_name:
+                # This is a resume attempt
+                is_resume = True
+                logger.info("resuming_interrupted_workflow",
+                           component="workflow",
+                           workflow_name=workflow_name,
+                           thread_id=task_id)
+            
+            if not is_resume:
+                # Select workflow based on instruction
+                workflow_name = self.workflow_manager.select_workflow(instruction)
+                
+                if not workflow_name:
+                    # Use LLM to determine workflow
+                    workflow_name = await self._select_workflow_with_llm(instruction)
+                
+                if not workflow_name:
+                    return {
+                        "artifacts": [{
+                            "id": f"workflow-response-{task_id}",
+                            "task_id": task_id,
+                            "content": "No matching workflow found for this instruction",
+                            "content_type": "text/plain"
+                        }],
+                        "status": "completed"
+                    }
+            
+            # Prepare context
+            workflow_context = {
+                **context,
+                "orchestrator_state_snapshot": state_snapshot,
+                "original_instruction": instruction
             }
             
-            # Check if the graph is already interrupted (resuming)
-            state = await self.graph.aget_state(config)
-            is_interrupted = state and state.tasks and any(task.interrupts for task in state.tasks)
+            # Check if instruction contains specific values to extract
+            if workflow_name == "new_customer_onboarding":
+                # Extract opportunity name
+                opportunity_name = await self._extract_parameter(
+                    instruction,
+                    "Extract the opportunity name or account name from this instruction. Return ONLY the name."
+                )
+                if opportunity_name and opportunity_name != "NONE":
+                    workflow_context["opportunity_name"] = opportunity_name
             
-            if is_interrupted:
-                # This is a resume - use Command with the user's input
-                logger.info("workflow_resuming_interrupted_state",
-                           component="workflow",
-                           task_id=task_id,
-                           instruction_preview=instruction[:100])
-                
-                from langgraph.types import Command
-                result = await self.graph.ainvoke(
-                    Command(resume=instruction),  # Pass user's response directly
-                    config
+            # Execute workflow
+            if is_resume:
+                # For resume, pass the human input as the instruction
+                result = await self.workflow_manager.resume_workflow(
+                    workflow_name=workflow_name,
+                    human_input=instruction,
+                    thread_id=task_id
                 )
             else:
-                # Normal execution - start new workflow
-                initial_state = {
-                    "messages": [HumanMessage(content=instruction)],
-                    "original_instruction": instruction,
-                    "workflow_name": None,
-                    "workflow_instance_id": None,
-                    "execution_status": None,
-                    "orchestrator_state_snapshot": state_snapshot,  # Pass through for sub-agent calls
-                    "context": context  # Pass context for parameter extraction
+                result = await self.workflow_manager.execute_workflow(
+                    workflow_name=workflow_name,
+                    instruction=instruction,
+                    context=workflow_context,
+                    thread_id=task_id
+                )
+            
+            # Check if workflow was interrupted for human input
+            state = result.get("__interrupt__")
+            if state:
+                # Workflow needs human input
+                interrupt_data = state if isinstance(state, dict) else {}
+                logger.info("workflow_interrupted_for_human",
+                           component="workflow",
+                           task_id=task_id,
+                           interrupt_data=interrupt_data)
+                
+                return {
+                    "artifacts": [{
+                        "id": f"workflow-interrupt-{task_id}",
+                        "task_id": task_id,
+                        "content": f"WORKFLOW_HUMAN_INPUT_REQUIRED:{json.dumps(interrupt_data)}",
+                        "content_type": "text/plain"
+                    }],
+                    "status": "interrupted",
+                    "metadata": {
+                        "workflow_name": workflow_name,
+                        "thread_id": task_id,
+                        "interrupt_data": interrupt_data
+                    }
                 }
-                
-                result = await self.graph.ainvoke(initial_state, config)
             
-            # Re-check state after execution to see if workflow was interrupted
-            state = await self.graph.aget_state(config)
-            if state and state.tasks:
-                # Check if any task has interrupts
-                for task in state.tasks:
-                    if task.interrupts:
-                        # Workflow was interrupted for human input
-                        interrupt_data = task.interrupts[0].value if task.interrupts else {}
-                        workflow_id = interrupt_data.get("workflow_id")
-                        thread_id = f"workflow-{task_id}"
-                        
-                        # Store the mapping so we can resume later
-                        if workflow_id:
-                            self._interrupted_workflows[workflow_id] = thread_id
-                        
-                        # Add the thread_id so we can resume the correct thread
-                        interrupt_data["thread_id"] = thread_id
-                        
-                        logger.info("workflow_interrupted",
-                                   component="workflow",
-                                   task_id=task_id,
-                                   thread_id=thread_id,
-                                   workflow_id=workflow_id,
-                                   interrupt_data=interrupt_data)
-                        
-                        # Return interrupt data to orchestrator
-                        return {
-                            "artifacts": [{
-                                "id": f"workflow-interrupt-{task_id}",
-                                "task_id": task_id,
-                                "content": f"WORKFLOW_HUMAN_INPUT_REQUIRED:{json.dumps(interrupt_data)}",
-                                "content_type": "text/plain"
-                            }],
-                            "status": "interrupted"
-                        }
-            
-            # Extract results if not interrupted
-            workflow_name = result.get("workflow_name", "none")
-            instance_id = result.get("workflow_instance_id", "none")
-            status = result.get("execution_status", "unknown")
-            
-            # Debug logging
-            logger.info("workflow_graph_result",
-                       component="workflow",
-                       task_id=task_id,
-                       has_workflow_report="workflow_report" in result,
-                       has_messages="messages" in result,
-                       message_count=len(result.get("messages", [])),
-                       status=status)
-            
-            # Extract the report content directly
-            response_content = ""
-            if status == "completed":
-                # Check if we have a workflow report
-                if result.get("workflow_report"):
-                    # Get the report that was generated by the LLM
-                    response_content = result["workflow_report"]
-                elif result.get("messages"):
-                    # Look for the report in the messages (it's added as a SystemMessage)
-                    for msg in reversed(result.get("messages", [])):
-                        if hasattr(msg, 'content') and len(getattr(msg, 'content', '')) > 200:
-                            # Found a substantial message, likely the report
-                            response_content = msg.content
-                            break
-                    
-                    if not response_content:
-                        # Fallback to simple completion message
-                        response_content = f"Workflow {workflow_name} completed successfully. Instance ID: {instance_id}"
-                else:
-                    response_content = f"Workflow {workflow_name} completed. Instance ID: {instance_id}"
-            elif status == "failed":
-                response_content = f"Workflow {workflow_name} failed: {result.get('execution_status', 'Unknown error')}"
-            elif status == "waiting_for_human":
-                # Check for the special WORKFLOW_HUMAN_INPUT_REQUIRED message
-                if result.get("messages"):
-                    logger.info("workflow_checking_messages_for_human_input",
-                               component="workflow",
-                               message_count=len(result.get("messages", [])))
-                    
-                    for msg in reversed(result.get("messages", [])):
-                        # Log what we're looking at
-                        logger.info("workflow_checking_message",
-                                   component="workflow",
-                                   msg_type=type(msg).__name__,
-                                   has_content=hasattr(msg, 'content'),
-                                   content_preview=str(getattr(msg, 'content', ''))[:100] if hasattr(msg, 'content') else "NO_CONTENT")
-                        
-                        if hasattr(msg, 'content') and msg.content.startswith("WORKFLOW_HUMAN_INPUT_REQUIRED:"):
-                            response_content = msg.content
-                            logger.info("workflow_found_human_input_message",
-                                       component="workflow",
-                                       content_length=len(response_content))
-                            break
-                
-                if not response_content:
-                    # Fallback
-                    logger.warning("workflow_human_input_message_not_found",
-                                  component="workflow",
-                                  status=status)
-                    response_content = f"Workflow {workflow_name} status: {status}"
-            else:
-                response_content = f"Workflow {workflow_name} status: {status}"
+            # Generate report from results
+            report = await self._generate_report(workflow_name, result)
             
             logger.info("workflow_a2a_task_complete",
                        component="workflow",
                        task_id=task_id,
                        workflow_name=workflow_name,
-                       status=status)
+                       status=result.get("status"))
             
-            # Return the report directly as content, just like other agents do
             return {
                 "artifacts": [{
                     "id": f"workflow-response-{task_id}",
                     "task_id": task_id,
-                    "content": response_content,
+                    "content": report,
                     "content_type": "text/plain"
                 }],
                 "status": "completed"
@@ -524,27 +170,75 @@ class WorkflowA2AHandler:
                 "status": "failed"
             }
     
+    async def _select_workflow_with_llm(self, instruction: str) -> str:
+        """Use LLM to select appropriate workflow"""
+        workflows = self.workflow_manager.list_workflows()
+        
+        system_msg = f"""You are a workflow routing expert. Based on the user instruction, 
+        determine which workflow template to use. Available workflows:
+        {json.dumps(workflows, indent=2)}
+        
+        Respond with ONLY the workflow key or 'none' if no workflow matches."""
+        
+        response = await self.llm.ainvoke([
+            SystemMessage(content=system_msg),
+            HumanMessage(content=f"Instruction: {instruction}")
+        ])
+        
+        workflow_name = response.content.strip()
+        return workflow_name if workflow_name != "none" else None
+    
+    async def _extract_parameter(self, instruction: str, prompt: str) -> str:
+        """Extract a parameter from instruction using LLM"""
+        response = await self.llm.ainvoke([
+            SystemMessage(content=prompt),
+            HumanMessage(content=instruction)
+        ])
+        return response.content.strip()
+    
+    async def _generate_report(self, workflow_name: str, result: Dict[str, Any]) -> str:
+        """Generate a report from workflow results"""
+        if result.get("status") == "completed":
+            # Check for compiled results
+            step_results = result.get("step_results", {})
+            if step_results:
+                report_prompt = f"""You are a business analyst creating a detailed report from workflow execution results.
+                
+Workflow: {workflow_name}
+Results: {json.dumps(step_results, indent=2)}
+
+Generate a comprehensive report that includes:
+1. Executive Summary
+2. Key Findings
+3. Detailed Analysis of each result
+4. Recommended Actions
+5. Next Steps
+
+Format the report in a clear, professional manner using markdown. Focus on actionable insights."""
+                
+                response = await self.llm.ainvoke([HumanMessage(content=report_prompt)])
+                return response.content
+            else:
+                return f"Workflow {workflow_name} completed successfully."
+        elif result.get("status") == "failed":
+            return f"Workflow {workflow_name} failed: {result.get('error', 'Unknown error')}"
+        else:
+            return f"Workflow {workflow_name} status: {result.get('status')}"
+    
     async def get_agent_card(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Return agent capabilities card"""
-        # List available workflows
-        template_list = []
-        for name, workflow in WorkflowTemplates.get_all_templates().items():
-            template_list.append({
-                "name": name,
-                "description": workflow.description,
-                "trigger": workflow.trigger
-            })
+        workflows = self.workflow_manager.list_workflows()
         
         return {
             "name": "workflow-agent",
-            "version": "1.0.0",
-            "description": "Executes complex multi-step workflows across systems",
+            "version": "2.0.0",
+            "description": "Executes complex multi-step workflows using compiled LangGraph graphs",
             "capabilities": [
                 "Execute predefined workflow templates",
-                "Handle asynchronous workflow execution",
-                "Manage workflow state and resumption",
-                "Coordinate multi-system operations",
-                "Support human-in-the-loop workflows"
+                "Native LangGraph human-in-the-loop support",
+                "Automatic state persistence and recovery",
+                "Parallel and conditional execution",
+                "Cross-system orchestration"
             ],
             "endpoints": {
                 "process_task": "/a2a",
@@ -552,18 +246,15 @@ class WorkflowA2AHandler:
             },
             "communication_modes": ["sync", "async"],
             "metadata": {
-                "available_workflows": template_list
+                "available_workflows": list(workflows.values())
             }
         }
 
 
 async def run_workflow_server(port: int = 8004):
     """Run the workflow agent A2A server"""
-    # Get or create workflow graph
-    workflow_graph = get_workflow_graph()
-    
     # Create handler
-    handler = WorkflowA2AHandler(workflow_graph)
+    handler = WorkflowA2AHandler()
     
     # Create agent card
     agent_card_dict = await handler.get_agent_card({})

@@ -1175,8 +1175,23 @@ class WorkflowAgentTool(BaseAgentTool):
         if context:
             extracted_context.update(context)
         
-        # Create A2A task
-        task_id = f"workflow-{uuid.uuid4().hex[:8]}"
+        # Check if we're resuming an interrupted workflow
+        interrupted_workflow = state.get("interrupted_workflow") if state else None
+        if interrupted_workflow:
+            # Use the existing thread_id to resume
+            task_id = interrupted_workflow.get("thread_id", interrupted_workflow.get("task_id"))
+            logger.info("resuming_interrupted_workflow_from_orchestrator",
+                component="orchestrator",
+                tool_name="workflow_agent",
+                workflow_name=interrupted_workflow.get("workflow_name"),
+                original_task_id=interrupted_workflow.get("task_id"),
+                thread_id=task_id,
+                instruction_preview=instruction[:100]
+            )
+        else:
+            # Create new task ID for new workflow
+            task_id = f"workflow-{uuid.uuid4().hex[:8]}"
+        
         # Create state snapshot for A2A transmission
         state_snapshot = self._create_state_snapshot(state) if state else {}
         
@@ -1243,31 +1258,60 @@ class WorkflowAgentTool(BaseAgentTool):
                     # Parse the human interaction data
                     try:
                         interaction_json = response_content.replace("WORKFLOW_HUMAN_INPUT_REQUIRED:", "", 1)
-                        interaction_data = json.loads(interaction_json)
+                        interaction_data = json.loads(interaction_json) if interaction_json else {}
+                        
+                        # Get metadata from result if available
+                        metadata = result.get("metadata", {})
+                        workflow_name = metadata.get("workflow_name", "")
+                        thread_id = metadata.get("thread_id", task_id)
                         
                         # Extract the context for better formatting
                         step_desc = interaction_data.get("description", "Human input required")
                         context = interaction_data.get("context", {})
-                        workflow_id = interaction_data.get("workflow_id")
+                        workflow_id = interaction_data.get("workflow_id", workflow_name)
                         
                         # Build a user-friendly message based on context
-                        if "find_result" in context:
-                            # Opportunity selection case
-                            message = f"{step_desc}\n\n{context['find_result']}\n\nPlease select the opportunity you want to use for onboarding."
-                        elif "opportunity_details" in context:
-                            # Confirmation case
-                            message = f"{step_desc}\n\n{context['opportunity_details']}"
-                        else:
-                            # Generic case
-                            message = step_desc
+                        message = step_desc
+                        
+                        # If we have step results, include the most recent one
+                        if context.get("step_results"):
+                            # Get the last step result for context
+                            step_results = context["step_results"]
+                            if step_results:
+                                # Find the most recent result
+                                for key in reversed(list(step_results.keys())):
+                                    if step_results[key]:
+                                        message += f"\n\n{step_results[key]}"
+                                        break
+                        
+                        # Add any additional instruction from context
+                        if context.get("instruction"):
+                            message += f"\n\n{context['instruction']}"
                         
                         # Store workflow state for resume
+                        interrupt_state = {
+                            "workflow_name": workflow_name,
+                            "thread_id": thread_id,
+                            "task_id": task_id,
+                            "interrupt_data": interaction_data
+                        }
+                        
+                        logger.info("workflow_interrupt_command_check",
+                            component="orchestrator",
+                            tool_name="workflow_agent",
+                            has_tool_call_id=bool(tool_call_id),
+                            tool_call_id=tool_call_id,
+                            interrupt_state=interrupt_state
+                        )
+                        
                         if tool_call_id:
+                            # When called through tool node with tool_call_id
                             logger.info("workflow_command_created",
                                 component="orchestrator",
                                 tool_name="workflow_agent",
                                 workflow_id=workflow_id,
-                                has_tool_call_id=True
+                                has_tool_call_id=True,
+                                interrupted_workflow=interrupt_state
                             )
                             return Command(
                                 update={
@@ -1275,11 +1319,25 @@ class WorkflowAgentTool(BaseAgentTool):
                                         content=message,
                                         tool_call_id=tool_call_id,
                                         name="workflow_agent"
-                                    )]
+                                    )],
+                                    "interrupted_workflow": interrupt_state
                                 }
                             )
                         else:
-                            return message
+                            # When called directly without tool_call_id, still return Command
+                            # but without ToolMessage (just the content)
+                            logger.info("workflow_command_created_no_tool_id",
+                                component="orchestrator",
+                                tool_name="workflow_agent",
+                                workflow_id=workflow_id,
+                                interrupted_workflow=interrupt_state
+                            )
+                            return Command(
+                                update={
+                                    "messages": [message],
+                                    "interrupted_workflow": interrupt_state
+                                }
+                            )
                     except Exception as e:
                         logger.error("workflow_human_input_parse_error",
                             component="orchestrator",
@@ -1295,6 +1353,18 @@ class WorkflowAgentTool(BaseAgentTool):
                     response_length=len(response_content)
                 )
                 
+                # Check if workflow completed (not interrupted)
+                workflow_update = {}
+                if interrupted_workflow and not response_content.startswith("WORKFLOW_HUMAN_INPUT_REQUIRED:"):
+                    # Workflow completed, clear the interrupted state
+                    workflow_update["interrupted_workflow"] = None
+                    logger.info("clearing_completed_workflow",
+                        component="orchestrator",
+                        tool_name="workflow_agent",
+                        workflow_name=interrupted_workflow.get("workflow_name"),
+                        task_id=task_id
+                    )
+                
                 # Return response
                 if tool_call_id:
                     return Command(
@@ -1303,7 +1373,8 @@ class WorkflowAgentTool(BaseAgentTool):
                                 content=response_content,
                                 tool_call_id=tool_call_id,
                                 name="workflow_agent"
-                            )]
+                            )],
+                            **workflow_update
                         }
                     )
                 else:

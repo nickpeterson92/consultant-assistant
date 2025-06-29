@@ -198,11 +198,13 @@ async def orchestrator(
                                     kept_events=max_events,
                                     trimmed_events=len(events) - max_events)
         
-        updated_state = {
+        # Preserve all existing state fields and only update specific ones
+        updated_state = state.copy()
+        updated_state.update({
             "messages": response,
             "memory": existing_memory,
             "events": event_dicts
-        }
+        })
         
         if "summary" not in state or not state.get("summary"):
             updated_state["summary"] = "No summary available"

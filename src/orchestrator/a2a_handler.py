@@ -133,6 +133,17 @@ class OrchestratorA2AHandler:
                     "background_operations": [],
                     "background_results": {}
                 }
+                
+                # Check if there's an interrupted workflow in the existing state
+                if existing_state.values.get("interrupted_workflow"):
+                    initial_state["interrupted_workflow"] = existing_state.values["interrupted_workflow"]
+                    logger.info("found_interrupted_workflow_in_state",
+                        component="orchestrator",
+                        operation="process_a2a_task",
+                        thread_id=thread_id,
+                        workflow_name=existing_state.values["interrupted_workflow"].get("workflow_name"),
+                        workflow_thread_id=existing_state.values["interrupted_workflow"].get("thread_id")
+                    )
             else:
                 # Start new conversation
                 initial_state = {
@@ -209,6 +220,9 @@ class OrchestratorA2AHandler:
                 response_preview=response_content[:200]
             )
             
+            # Check if we have an interrupted workflow in the result
+            interrupted_workflow = result.get("interrupted_workflow")
+            
             # Return response in standard format
             response = {
                 "artifacts": [{
@@ -220,7 +234,18 @@ class OrchestratorA2AHandler:
                 "status": "completed"
             }
             
-            # Workflow state is handled by LangGraph checkpointer
+            # If workflow was interrupted, include metadata for the client
+            if interrupted_workflow:
+                response["metadata"] = {
+                    "interrupted_workflow": interrupted_workflow
+                }
+                logger.info("a2a_response_includes_interrupted_workflow",
+                    component="orchestrator",
+                    operation="process_a2a_task",
+                    task_id=task_id,
+                    workflow_name=interrupted_workflow.get("workflow_name"),
+                    workflow_thread_id=interrupted_workflow.get("thread_id")
+                )
             
             return response
             

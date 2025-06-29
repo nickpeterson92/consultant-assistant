@@ -66,11 +66,11 @@ async def execute_command_tools(state: Dict[str, Any], tools: List[Any], compone
                     tool_call_id=tool_call_id
                 )
                 
-                # Call tool with state injection
+                # Call tool with state injection and tool_call_id
                 if hasattr(tool, '_arun'):
-                    result = await tool._arun(**clean_args, state=state)
+                    result = await tool._arun(**clean_args, state=state, tool_call_id=tool_call_id)
                 else:
-                    result = tool._run(**clean_args, state=state)
+                    result = tool._run(**clean_args, state=state, tool_call_id=tool_call_id)
                 
                 # Debug log for workflow agent
                 if tool_name == "workflow_agent":
@@ -98,13 +98,20 @@ async def execute_command_tools(state: Dict[str, Any], tools: List[Any], compone
                         component=component,
                         tool_name=tool_name,
                         update_keys=list(result.update.keys()),
-                        has_messages="messages" in result.update
+                        has_messages="messages" in result.update,
+                        has_interrupted_workflow="interrupted_workflow" in result.update
                     )
                     for key, value in result.update.items():
                         if key == "messages":
                             message_updates.extend(value)
                         else:
                             state_updates[key] = value
+                            if key == "interrupted_workflow":
+                                logger.info("interrupted_workflow_state_update",
+                                    component=component,
+                                    tool_name=tool_name,
+                                    workflow_data=value
+                                )
                 else:
                     # Legacy string result - convert to ToolMessage
                     message_updates.append(ToolMessage(

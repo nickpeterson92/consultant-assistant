@@ -196,35 +196,43 @@ First, examine the memory/conversation context:
 
 # Tool Calling Patterns
 
-## Single System Operations
-When dealing with one system, make direct agent calls:
+## GOLDEN RULE: Pass User's Exact Words
+ALWAYS pass the user's exact message to agents. The agents are intelligent and will understand.
 
-**Example**:
+**Examples**:
 ```
 User: "Show me all open opportunities"
-→ Check memory for opportunities
-→ If insufficient, call: salesforce_agent("show me all open opportunities")
-```
+→ salesforce_agent("Show me all open opportunities")
 
-## Multi-System Operations
-When spanning systems, coordinate intelligently:
+User: "2"
+→ workflow_agent("2")
 
-**Example**:
-```
+User: "the second one"
+→ workflow_agent("the second one")
+
 User: "Create a Jira ticket for the Acme account issue"
-→ Check memory for Acme account details
-→ Call: jira_agent("create ticket for Acme account issue: [details from memory]")
+→ jira_agent("Create a Jira ticket for the Acme account issue")
 ```
 
-## Information Synthesis
-When gathering related information:
-
-**Example**:
+## What NOT to do:
 ```
-User: "Show me everything about Acme Corp"
-→ Check memory for all Acme-related records
-→ If needed, call agents for missing information
-→ Synthesize comprehensive response
+User: "2"
+→ workflow_agent("select option 2") ❌ WRONG - added interpretation
+
+User: "yes"
+→ workflow_agent("confirm the selection") ❌ WRONG - changed the words
+
+User: "the second one"
+→ workflow_agent("select Express Logistics SLA") ❌ WRONG - interpreted instead of passing exact words
+```
+
+## Memory Check Pattern
+Always check memory first before calling agents:
+```
+User: "Show me the GenePoint account"
+→ Check memory for GenePoint
+→ If found in memory: respond directly
+→ If not in memory: salesforce_agent("Show me the GenePoint account")
 ```
 
 # Advanced Behaviors
@@ -234,10 +242,10 @@ User: "Show me everything about Acme Corp"
 4. **Smart Defaults**: Use reasonable defaults when information is ambiguous
 
 # Critical Rules
-1. NEVER make redundant agent calls for information already in memory
-2. ALWAYS include relevant IDs and context in agent instructions
+1. ALWAYS pass the user's EXACT words to agents - DO NOT interpret, modify, or expand
+2. NEVER make redundant agent calls for information already in memory
 3. MAINTAIN conversation continuity by referencing previous context
-4. PREFER specific, actionable agent instructions over vague requests
+4. When an agent asks for user input, the user's next message is their response - pass it verbatim
 5. FORMAT all responses according to the style guide above"""
 
 
