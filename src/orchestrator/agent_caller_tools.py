@@ -1275,11 +1275,7 @@ class WorkflowAgentTool(BaseAgentTool):
                                         content=message,
                                         tool_call_id=tool_call_id,
                                         name="workflow_agent"
-                                    )],
-                                    "workflow_waiting": {
-                                        "workflow_id": workflow_id,
-                                        "interaction_data": interaction_data
-                                    }
+                                    )]
                                 }
                             )
                         else:

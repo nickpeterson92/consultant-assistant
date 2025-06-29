@@ -115,7 +115,7 @@ class OrchestratorA2AHandler:
                         operation="process_a2a_task",
                         thread_id=thread_id,
                         message_count=len(existing_state.values.get("messages", [])),
-                        has_workflow_waiting=bool(existing_state.values.get("workflow_waiting"))
+                        has_memory=bool(existing_state.values.get("memory"))
                     )
             except Exception as e:
                 logger.info("get_state_error",
@@ -147,26 +147,39 @@ class OrchestratorA2AHandler:
             # Execute graph
             result = await self.graph.ainvoke(initial_state, config)
             
+            # Debug the result structure
+            logger.info("graph_invoke_result",
+                component="orchestrator",
+                operation="process_a2a_task",
+                task_id=task_id,
+                result_keys=list(result.keys()) if isinstance(result, dict) else "not_dict",
+                message_count=len(result.get("messages", [])) if isinstance(result, dict) else 0,
+                has_memory="memory" in result if isinstance(result, dict) else False
+            )
+            
             # Extract response content
             messages = result.get("messages", [])
             response_content = "Task completed successfully"
             
-            # Check if workflow is waiting for human input
-            workflow_waiting = result.get("workflow_waiting")
-            if workflow_waiting:
-                logger.info("workflow_waiting_state_detected",
-                    component="orchestrator",
-                    operation="process_a2a_task",
-                    task_id=task_id,
-                    workflow_id=workflow_waiting.get("workflow_id")
-                )
+            # Workflow interrupts are now handled by LangGraph's native interrupt functionality
             
             if messages:
-                # Find the last AI message (not tool message)
+                # Check for workflow tool messages first
                 for msg in reversed(messages):
-                    if hasattr(msg, 'content') and msg.content and not hasattr(msg, 'tool_calls'):
+                    if hasattr(msg, 'name') and msg.name == 'workflow_agent' and hasattr(msg, 'content'):
+                        logger.info("found_workflow_tool_message",
+                            component="orchestrator",
+                            operation="process_a2a_task",
+                            content_preview=msg.content[:100]
+                        )
                         response_content = msg.content
                         break
+                else:
+                    # If no workflow tool message, find the last AI message
+                    for msg in reversed(messages):
+                        if hasattr(msg, 'content') and msg.content and not hasattr(msg, 'tool_calls'):
+                            response_content = msg.content
+                            break
             
             # Log tool calls found in messages
             for msg in messages:
@@ -207,15 +220,7 @@ class OrchestratorA2AHandler:
                 "status": "completed"
             }
             
-            # Include workflow waiting state if present
-            if workflow_waiting:
-                response["workflow_waiting"] = workflow_waiting
-                logger.info("workflow_waiting_included_in_response",
-                    component="orchestrator",
-                    operation="process_a2a_task",
-                    task_id=task_id,
-                    workflow_id=workflow_waiting.get("workflow_id")
-                )
+            # Workflow state is handled by LangGraph checkpointer
             
             return response
             

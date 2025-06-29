@@ -15,12 +15,17 @@ from .models import (
     WorkflowStatus, StepType
 )
 
-
-class HumanInputRequiredException(Exception):
-    """Exception raised when human input is required"""
-    def __init__(self, interaction_data: Dict[str, Any]):
-        self.interaction_data = interaction_data
-        super().__init__("Human input required")
+# Import interrupt from langgraph - this is the proper way to handle human-in-the-loop
+try:
+    from langgraph.types import interrupt
+    INTERRUPT_AVAILABLE = True
+except ImportError:
+    logger = get_logger("workflow")
+    logger.warning("langgraph.types.interrupt not available - human-in-the-loop disabled")
+    INTERRUPT_AVAILABLE = False
+    # Define a dummy interrupt function that raises an error
+    def interrupt(data):
+        raise NotImplementedError("LangGraph interrupt not available - please update LangGraph")
 
 logger = get_logger("workflow")
 
@@ -172,22 +177,25 @@ class WorkflowEngine:
                        component="workflow",
                        workflow_id=instance.id,
                        duration=(instance.completed_at - instance.created_at).total_seconds())
-        except HumanInputRequiredException as e:
-            # This is expected - workflow is waiting for human input
-            logger.info("workflow_paused_for_human",
-                       component="workflow",
-                       workflow_id=instance.id,
-                       step_id=e.interaction_data.get("step_id"))
-            # Re-raise to propagate to caller
-            raise
         except Exception as e:
-            logger.error("workflow_failed", 
-                        component="workflow",
-                        workflow_id=instance.id,
-                        error=str(e),
-                        error_type=type(e).__name__)
-            instance.status = WorkflowStatus.FAILED
-            instance.error = str(e)
+            # Check if this is a GraphInterrupt
+            if type(e).__name__ == "GraphInterrupt":
+                # This is expected - workflow is pausing for human input
+                logger.info("workflow_paused_for_interrupt", 
+                           component="workflow",
+                           workflow_id=instance.id,
+                           interrupt_type=type(e).__name__)
+                # Let it bubble up - don't mark as failed
+                raise
+            else:
+                # This is an actual failure
+                logger.error("workflow_failed", 
+                            component="workflow",
+                            workflow_id=instance.id,
+                            error=str(e),
+                            error_type=type(e).__name__)
+                instance.status = WorkflowStatus.FAILED
+                instance.error = str(e)
         finally:
             instance.updated_at = datetime.now()
             await self._save_instance(instance)
@@ -541,12 +549,30 @@ class WorkflowEngine:
                    step_id=step.id,
                    step_name=step.name)
         
-        # Store human interaction data in instance
+        if not INTERRUPT_AVAILABLE:
+            # Fallback if interrupt is not available
+            logger.error("workflow_interrupt_not_available",
+                       component="workflow",
+                       workflow_id=instance.id,
+                       step_id=step.id)
+            raise RuntimeError("Human-in-the-loop workflows require LangGraph interrupt feature")
+        
+        logger.info("workflow_interrupting_for_human_input",
+                   component="workflow",
+                   workflow_id=instance.id,
+                   step_id=step.id)
+        
+        # Store human interaction data in instance variables
         instance.variables["_human_interaction_required"] = human_data
         await self._save_instance(instance)
         
-        # Raise special exception to signal human input needed
-        raise HumanInputRequiredException(human_data)
+        # Call interrupt - this will pause the graph execution
+        # When resumed, execution continues from here
+        interrupt(human_data)
+        
+        # Code after interrupt only runs when workflow is resumed
+        # The resumed value would be available if we captured it
+        return step.next_step
     
     async def _handle_switch_step(self, step: WorkflowStep,
                                 instance: WorkflowInstance,
@@ -944,13 +970,6 @@ class WorkflowEngine:
             logger.info("workflow_resumed_and_completed",
                        component="workflow",
                        workflow_id=instance.id)
-        except HumanInputRequiredException as e:
-            # Another human step encountered
-            logger.info("workflow_paused_again_for_human",
-                       component="workflow",
-                       workflow_id=instance.id,
-                       step_id=e.interaction_data.get("step_id"))
-            raise
         except Exception as e:
             logger.error("workflow_resume_failed",
                         component="workflow",
