@@ -1,21 +1,31 @@
 """System messages and prompts for the Orchestrator agent."""
 
 
-def orchestrator_chatbot_sys_msg(summary: str = None, memory: dict = None, agent_context: str = None) -> str:
-    """Main orchestrator system message with memory-first approach and multi-agent coordination.
+def orchestrator_chatbot_sys_msg(summary: str = None, memory: dict = None, agent_context: str = None,
+                                task_context: dict = None, external_context: dict = None,
+                                agent_stats: dict = None) -> str:
+    """Hybrid orchestrator system message supporting both interactive and A2A modes.
     
     Args:
-        summary: Conversation summary if available
-        memory: Memory context containing CRM records
+        summary: Conversation summary if available (interactive mode)
+        memory: Memory context containing CRM records (interactive mode)
         agent_context: Agent system context information
+        task_context: Task information from A2A request (A2A mode)
+        external_context: External context provided by caller (A2A mode)
+        agent_stats: Current agent registry statistics (A2A mode)
         
     Returns:
         Complete system message for orchestrator
     """
+    # Determine operational mode
+    is_a2a_mode = task_context is not None
+    
     # Initialize base components
     summary_section = ""
     memory_section = ""
     agent_section = ""
+    task_section = ""
+    external_section = ""
     
     # Build summary section if available
     if summary:
@@ -312,3 +322,85 @@ def get_fallback_summary(message_count: int = 0, has_tool_calls: bool = False,
 **Recommendations**: 
 - Review conversation history for specific details
 - Check agent logs for operation details"""
+
+
+def orchestrator_a2a_sys_msg(task_context: dict = None, external_context: dict = None, agent_stats: dict = None) -> str:
+    """System message for orchestrator in A2A mode.
+    
+    Args:
+        task_context: Task information from A2A request
+        external_context: External context provided by caller
+        agent_stats: Current agent registry statistics
+        
+    Returns:
+        Complete system message for A2A orchestrator
+    """
+    # Build task section
+    task_section = ""
+    if task_context:
+        task_id = task_context.get('task_id', 'unknown')
+        instruction = task_context.get('instruction', '')
+        task_section = f"""<task_context>
+Task ID: {task_id}
+Instruction: {instruction}
+</task_context>"""
+
+    # Build external context section
+    context_section = ""
+    if external_context:
+        context_section = f"""<external_context>
+{external_context}
+</external_context>"""
+
+    # Build agent availability section
+    agent_section = ""
+    if agent_stats:
+        agent_section = f"""<available_agents>
+Online Agents: {agent_stats.get('online_agents', 0)}
+Offline Agents: {agent_stats.get('offline_agents', 0)}
+Total Capabilities: {len(agent_stats.get('available_capabilities', []))}
+
+Key Capabilities:
+- Salesforce CRM operations
+- Jira issue tracking
+- ServiceNow ITSM
+- Workflow orchestration
+- Web search
+</available_agents>"""
+
+    return f"""# A2A Orchestrator Mode
+
+You are operating in Agent-to-Agent (A2A) mode, processing a task from another system or agent.
+
+{task_section}{context_section}{agent_section}
+
+# Instructions
+
+1. **Focus on the specific task**: Complete exactly what was requested, nothing more
+2. **Use available agents**: Route to appropriate specialized agents based on the task
+3. **Handle failures gracefully**: If an agent is offline, explain the limitation
+4. **Return concise results**: Provide clear, actionable responses
+
+# Agent Routing
+
+- **salesforce_agent**: CRM operations (leads, accounts, opportunities, contacts, cases, tasks)
+- **jira_agent**: Issue tracking and project management  
+- **servicenow_agent**: IT service management (incidents, problems, changes, requests)
+- **workflow_agent**: Complex multi-step workflows
+- **web_search**: External information when needed
+
+# Response Guidelines
+
+- Be direct and factual
+- Include relevant IDs and references
+- Format data clearly (lists, tables, etc.)
+- Report any errors or limitations encountered
+- Do not add unnecessary explanation or elaboration
+
+# Critical Rules
+
+1. Complete the requested task efficiently
+2. Use the most appropriate agent(s) for the task
+3. Return structured, parseable results when possible
+4. Handle edge cases and errors appropriately
+5. Maintain the context provided throughout execution"""

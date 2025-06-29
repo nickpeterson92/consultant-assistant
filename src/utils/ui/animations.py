@@ -211,6 +211,34 @@ async def animated_banner_display(banner_text: str) -> None:
         print(center_text(display_line, terminal_width))
 
 
+async def display_static_banner(banner_text: str) -> None:
+    """Display the banner with colors and centering but without animation.
+    
+    Args:
+        banner_text: The ASCII art banner to display
+    """
+    lines = banner_text.strip().split('\n')
+    if not lines:
+        return
+    
+    terminal_width = get_terminal_width()
+    
+    # Display the banner with professional gradient coloring
+    for y, line in enumerate(lines):
+        display_line = ''
+        for x, char in enumerate(line):
+            if char != ' ':
+                # Apply the same gradient as the final frame of animation
+                gradient_factor = (y / len(lines) + x / len(line)) / 2
+                color_idx = min(4 + int(gradient_factor * 2), len(CORP_BLUES) - 1)
+                color = CORP_BLUES[color_idx] + BOLD
+                display_line += color + char + RESET
+            else:
+                display_line += char
+        
+        print(center_text(display_line, terminal_width))
+
+
 def safe_string_width(s: str) -> int:
     """Calculate display width of a string, handling ANSI codes and unicode."""
     return visible_length(s)
