@@ -403,6 +403,13 @@ Result: Shows all matches (Express Logistics SLA, Express Logistics Inc, etc.)
 - **Fix**: Use `data.get('result', [])` then iterate through list items with `groupby_fields` array
 - **Location**: `src/tools/servicenow/unified.py:542`
 
+### ServiceNow Company Table Names
+**Problem**: Different ServiceNow instances use different table names for company records
+- **Errors**: 403 Forbidden for `core_company`, 400 Bad Request for `cmn_company` and `customer_account`
+- **Root Cause**: Table names vary by instance configuration and installed plugins
+- **Solution**: Use `core_company` as the standard table name in workflows
+- **Updated**: `src/agents/workflow/templates.py` - new_customer_onboarding workflow now explicitly uses `core_company`
+
 ### A2A Parameter Handling
 **Problem**: ServiceNow agent expecting `"task"` wrapper but A2A sends parameters directly
 - **Root Cause**: Inconsistent parameter handling between agents
