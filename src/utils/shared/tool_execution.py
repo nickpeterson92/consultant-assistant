@@ -72,6 +72,16 @@ async def execute_command_tools(state: Dict[str, Any], tools: List[Any], compone
                 else:
                     result = tool._run(**clean_args, state=state)
                 
+                # Debug log for workflow agent
+                if tool_name == "workflow_agent":
+                    logger.info("workflow_tool_execution_result",
+                        component=component,
+                        tool_name=tool_name,
+                        result_type=type(result).__name__,
+                        is_command=hasattr(result, 'update'),
+                        has_messages="messages" in getattr(result, 'update', {})
+                    )
+                
                 # Log tool success - IDENTICAL format to orchestrator pattern
                 logger.info("tool_result",
                     component=component,
@@ -84,6 +94,12 @@ async def execute_command_tools(state: Dict[str, Any], tools: List[Any], compone
                 # Handle Command result
                 if hasattr(result, 'update') and isinstance(result.update, dict):
                     # This is a Command object
+                    logger.info("tool_command_received",
+                        component=component,
+                        tool_name=tool_name,
+                        update_keys=list(result.update.keys()),
+                        has_messages="messages" in result.update
+                    )
                     for key, value in result.update.items():
                         if key == "messages":
                             message_updates.extend(value)
@@ -116,6 +132,15 @@ async def execute_command_tools(state: Dict[str, Any], tools: List[Any], compone
     # Return state updates
     result = {"messages": message_updates}
     result.update(state_updates)
+    
+    # Log final state updates
+    if state_updates:
+        logger.info("tool_node_state_updates",
+            component=component,
+            update_keys=list(state_updates.keys()),
+            has_memory="memory" in state_updates
+        )
+    
     return result
 
 
