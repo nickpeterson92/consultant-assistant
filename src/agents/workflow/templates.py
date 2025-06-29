@@ -426,7 +426,7 @@ class WorkflowTemplates:
                     type=StepType.ACTION,
                     name="Find opportunity by name",
                     agent="salesforce-agent",
-                    instruction="Search for opportunities with name containing '{opportunity_name}'. Use LIKE query with wildcards. Return ALL matches with their ID, full name, stage, and amount.",
+                    instruction="Search for opportunities with name containing '{opportunity_name}'. Use LIKE query with wildcards. Return ALL matches with their ID, full name, stage, and amount. IMPORTANT: Clearly state how many opportunities were found (e.g., 'I found 1 opportunity' or 'I found 3 opportunities').",
                     next_step="check_opportunity_matches",
                     critical=True
                 ),
@@ -435,9 +435,20 @@ class WorkflowTemplates:
                     type=StepType.CONDITION,
                     name="Check if multiple opportunities found",
                     condition={
-                        "operator": "contains",
+                        "type": "response_contains",
+                        "value": "found"  # Look for pattern like "found 2" or "found 3"
+                    },
+                    true_next="check_if_multiple",
+                    false_next="check_opportunity_stage"
+                ),
+                "check_if_multiple": WorkflowStep(
+                    id="check_if_multiple",
+                    type=StepType.CONDITION,
+                    name="Confirm multiple matches",
+                    condition={
+                        "operator": "not_contains",
                         "left": "$find_opportunity_result",
-                        "right": "multiple"  # Agent should mention if multiple found
+                        "right": "found 1"  # If it says "found 1", it's single
                     },
                     true_next="select_opportunity",
                     false_next="check_opportunity_stage"
@@ -452,18 +463,49 @@ class WorkflowTemplates:
                 "check_opportunity_stage": WorkflowStep(
                     id="check_opportunity_stage",
                     type=StepType.ACTION,
-                    name="Check and update opportunity stage",
+                    name="Check opportunity stage",
                     agent="salesforce-agent",
-                    instruction="For the selected opportunity, check if it's 'Closed Won'. If not, update it to 'Closed Won' with Probability=100. Return the opportunity details including ID and final stage.",
+                    instruction="Get the current stage of the selected opportunity. Return the opportunity ID, name, current stage, and amount. DO NOT update the stage yet.",
+                    next_step="check_if_closed_won",
+                    critical=True
+                ),
+                "check_if_closed_won": WorkflowStep(
+                    id="check_if_closed_won",
+                    type=StepType.CONDITION,
+                    name="Check if already Closed Won",
+                    condition={
+                        "operator": "contains",
+                        "left": "$check_opportunity_stage_result",
+                        "right": "Closed Won"
+                    },
+                    true_next="get_account_name",  # Already closed, proceed
+                    false_next="confirm_close_opportunity"  # Need to close it
+                ),
+                "confirm_close_opportunity": WorkflowStep(
+                    id="confirm_close_opportunity",
+                    type=StepType.HUMAN,
+                    name="Confirm opportunity closure",
+                    description="The opportunity is not yet 'Closed Won'. Do you want to update it to 'Closed Won' status?",
+                    metadata={
+                        "opportunity_details": "{check_opportunity_stage_result}"
+                    },
+                    next_step="close_opportunity"
+                ),
+                "close_opportunity": WorkflowStep(
+                    id="close_opportunity",
+                    type=StepType.ACTION,
+                    name="Update opportunity to Closed Won",
+                    agent="salesforce-agent",
+                    instruction="Update the opportunity to 'Closed Won' stage with Probability=100.",
                     next_step="get_account_name",
-                    critical=True  # Must ensure opportunity is closed won
+                    critical=True
                 ),
                 "get_account_name": WorkflowStep(
                     id="get_account_name",
                     type=StepType.ACTION,
-                    name="Get account name from opportunity",
+                    name="Get account details from opportunity",
                     agent="salesforce-agent",
-                    instruction="Find the account name for opportunity '{opportunity_name}'. Return ONLY the account name, nothing else.",
+                    instruction="Get the opportunity details for '{opportunity_name}' including the Account ID, Account Name, and Opportunity ID. Return ONLY these three values in a structured format: account_id: [ID], account_name: [NAME], opportunity_id: [ID].",
                     next_step="create_onboarding_case",
                     critical=True  # Must find account to proceed
                 ),
@@ -472,7 +514,7 @@ class WorkflowTemplates:
                     type=StepType.ACTION,
                     name="Create onboarding case",
                     agent="salesforce-agent",
-                    instruction="Create a new Salesforce Case record with these exact field values: Subject='Customer Onboarding - {get_account_name_result}', Type='Other', Priority='High', Description='New customer onboarding initiated from closed won opportunity {opportunity_name}'. Use the salesforce_create tool.",
+                    instruction="Extract the account_name from the previous step result and create a new Salesforce Case record with these exact field values: Subject='Customer Onboarding - [ACCOUNT_NAME]', Type='Other', Priority='High', Description='New customer onboarding initiated from closed won opportunity {opportunity_name}', AccountId='[ACCOUNT_ID from previous result]'. IMPORTANT: Make sure to set the AccountId field to properly link this Case to the Account. Use the salesforce_create tool.",
                     next_step="setup_systems",
                     critical=True  # Must create case to track onboarding
                 ),
@@ -492,28 +534,28 @@ class WorkflowTemplates:
                     type=StepType.ACTION,
                     name="Create Jira project",
                     agent="jira-agent",
-                    instruction="Create a new Jira project with name '{get_account_name_result} Onboarding', project key should be first 3-5 letters of account name in uppercase, project type 'business', and description 'Customer onboarding project for {get_account_name_result}'"
+                    instruction="Extract ONLY the account name from the get_account_name step result (not the full response). Create a new Jira project with name '[ACCOUNT_NAME] Onboarding', project key should be first 3-5 letters of account name in uppercase, project type 'business', and description 'Customer onboarding project for [ACCOUNT_NAME]'"
                 ),
                 "setup_servicenow_account": WorkflowStep(
                     id="setup_servicenow_account",
                     type=StepType.ACTION,
                     name="Setup ServiceNow account",
                     agent="servicenow-agent",
-                    instruction="Create a new company record in ServiceNow company table with name '{get_account_name_result}', set as customer=true, vendor=false"
+                    instruction="Extract ONLY the account name from the get_account_name step result. Create a new company record in ServiceNow core_company table with name '[ACCOUNT_NAME]', set as customer=true, vendor=false"
                 ),
                 "create_onboarding_tasks": WorkflowStep(
                     id="create_onboarding_tasks",
                     type=StepType.ACTION,
                     name="Create onboarding tasks",
                     agent="salesforce-agent",
-                    instruction="Create the following tasks for account {get_account_name_result}: 1) 'Schedule kickoff call' due in 2 days, 2) 'Send welcome packet' due in 1 day, 3) 'Technical setup' due in 5 days, 4) 'Training session' due in 7 days"
+                    instruction="Extract the opportunity_id from the get_account_name step result. Create the following Salesforce Tasks: 1) Subject='Schedule kickoff call' with ActivityDate=2 days from today, 2) Subject='Send welcome packet' with ActivityDate=1 day from today, 3) Subject='Technical setup' with ActivityDate=5 days from today, 4) Subject='Training session' with ActivityDate=7 days from today. For ALL tasks set: WhatId='[OPPORTUNITY_ID]' (links to Opportunity which auto-populates Account), Status='Not Started', Priority='Normal'. Use ActivityDate field NOT DueDate. Use the salesforce_create tool for each task."
                 ),
                 "schedule_kickoff": WorkflowStep(
                     id="schedule_kickoff",
                     type=StepType.ACTION,
                     name="Create kickoff meeting task",
                     agent="salesforce-agent",
-                    instruction="Create a task with subject 'Schedule kickoff meeting - {get_account_name_result}', due tomorrow, priority 'High', assigned to current user",
+                    instruction="Extract the account_name and opportunity_id from the get_account_name step result. Create a Salesforce Task with Subject='Schedule kickoff meeting - [ACCOUNT_NAME]', ActivityDate=tomorrow, Priority='High', WhatId='[OPPORTUNITY_ID]' (links to Opportunity which auto-populates Account), Status='Not Started'. Use the salesforce_create tool.",
                     next_step="send_welcome_package"
                 ),
                 "send_welcome_package": WorkflowStep(
@@ -529,7 +571,7 @@ class WorkflowTemplates:
                             "create_onboarding_tasks_result",
                             "schedule_kickoff_result"
                         ],
-                        "summary_template": "Onboarding setup complete for {get_account_name_result}"
+                        "summary_template": "Onboarding setup complete for new customer"
                     }
                 )
             }
