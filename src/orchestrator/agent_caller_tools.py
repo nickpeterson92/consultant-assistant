@@ -1177,9 +1177,23 @@ class WorkflowAgentTool(BaseAgentTool):
         
         # Check if we're resuming an interrupted workflow
         interrupted_workflow = state.get("interrupted_workflow") if state else None
+        workflow_human_response = state.get("_workflow_human_response") if state else None
+        
         if interrupted_workflow:
             # Use the existing thread_id to resume
             task_id = interrupted_workflow.get("thread_id", interrupted_workflow.get("task_id"))
+            
+            # If there's a human response field, use that as the instruction for resume
+            if workflow_human_response:
+                logger.info("using_workflow_human_response",
+                    component="orchestrator",
+                    tool_name="workflow_agent",
+                    workflow_name=interrupted_workflow.get("workflow_name"),
+                    thread_id=task_id,
+                    human_response_preview=workflow_human_response[:100]
+                )
+                instruction = workflow_human_response
+            
             logger.info("resuming_interrupted_workflow_from_orchestrator",
                 component="orchestrator",
                 tool_name="workflow_agent",
@@ -1358,11 +1372,31 @@ class WorkflowAgentTool(BaseAgentTool):
                 if interrupted_workflow and not response_content.startswith("WORKFLOW_HUMAN_INPUT_REQUIRED:"):
                     # Workflow completed, clear the interrupted state
                     workflow_update["interrupted_workflow"] = None
+                    workflow_update["_workflow_human_response"] = None
                     logger.info("clearing_completed_workflow",
                         component="orchestrator",
                         tool_name="workflow_agent",
                         workflow_name=interrupted_workflow.get("workflow_name"),
                         task_id=task_id
+                    )
+                
+                # Also check for explicit workflow completion indicators
+                completion_indicators = [
+                    "workflow completed successfully",
+                    "workflow execution complete",
+                    "all steps completed",
+                    "workflow finished",
+                    "workflow has been completed"
+                ]
+                
+                if any(indicator in response_content.lower() for indicator in completion_indicators):
+                    workflow_update["interrupted_workflow"] = None
+                    workflow_update["_workflow_human_response"] = None
+                    logger.info("workflow_completion_detected",
+                        component="orchestrator",
+                        tool_name="workflow_agent",
+                        task_id=task_id,
+                        response_preview=response_content[:100]
                     )
                 
                 # Return response
@@ -1378,7 +1412,16 @@ class WorkflowAgentTool(BaseAgentTool):
                         }
                     )
                 else:
-                    return response_content
+                    # Even without tool_call_id, we need to clear workflow state if completed
+                    if workflow_update:
+                        return Command(
+                            update={
+                                "messages": [response_content],
+                                **workflow_update
+                            }
+                        )
+                    else:
+                        return response_content
                     
         except Exception as e:
             logger.error("workflow_agent_error",

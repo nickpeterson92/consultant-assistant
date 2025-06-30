@@ -96,7 +96,8 @@ class WorkflowCompiler:
             StepType.WAIT: self._create_wait_node,
             StepType.PARALLEL: self._create_parallel_node,
             StepType.SWITCH: self._create_switch_node,
-            StepType.FOR_EACH: self._create_for_each_node
+            StepType.FOR_EACH: self._create_for_each_node,
+            StepType.EXTRACT: self._create_extract_node
         }
         
     def compile(self, definition: WorkflowDefinition) -> StateGraph:
@@ -116,6 +117,9 @@ class WorkflowCompiler:
         
         # Add edges based on workflow flow
         workflow.add_edge("workflow_init", "start" if "start" in definition.steps else list(definition.steps.keys())[0])
+        
+        # Add workflow completion node
+        workflow.add_node("workflow_complete", self._create_completion_node(definition))
         
         for step_id, step in definition.steps.items():
             if step.type == StepType.CONDITION:
@@ -151,11 +155,31 @@ class WorkflowCompiler:
                 if step.next_step:
                     workflow.add_edge(step_id, step.next_step)
                 else:
-                    workflow.add_edge(step_id, END)
+                    # Route to completion node instead of END
+                    workflow.add_edge(step_id, "workflow_complete")
+        
+        # Add edge from completion node to END
+        workflow.add_edge("workflow_complete", END)
         
         # Compile with checkpointer for persistence
         checkpointer = MemorySaver()
         return workflow.compile(checkpointer=checkpointer)
+    
+    def _create_completion_node(self, definition: WorkflowDefinition) -> Callable:
+        """Create the workflow completion node"""
+        def completion_node(state: WorkflowState) -> Dict[str, Any]:
+            logger.info("workflow_completed",
+                component="workflow",
+                workflow_id=state.get("workflow_id"),
+                workflow_name=state.get("workflow_name"),
+                steps_executed=len(state.get("history", []))
+            )
+            
+            return {
+                "status": WorkflowStatus.COMPLETED.value,
+                "current_step": "completed"
+            }
+        return completion_node
     
     def _create_start_node(self, definition: WorkflowDefinition) -> Callable:
         """Create the initialization node"""
@@ -365,13 +389,199 @@ class WorkflowCompiler:
             return "default"
         return switch_func
     
+    def _create_extract_node(self, step: WorkflowStep) -> Callable:
+        """Create an extraction node that uses direct LLM call for parsing"""
+        async def extract_node(state: WorkflowState) -> Dict[str, Any]:
+            logger.info("workflow_extract_node_executing",
+                       component="workflow",
+                       workflow_id=state["workflow_id"],
+                       step_id=step.id,
+                       extract_from=step.extract_from)
+            
+            try:
+                # Get the source data to extract from
+                source_data = self._resolve_variable(f"${step.extract_from}", state) if step.extract_from else ""
+                
+                # If source data is empty, return empty result
+                if not source_data:
+                    logger.warning("workflow_extract_node_empty_source",
+                               component="workflow",
+                               workflow_id=state["workflow_id"],
+                               step_id=step.id)
+                    return {
+                        "current_step": step.id,
+                        "step_results": {
+                            step.id: "",
+                            f"{step.id}_result": ""
+                        },
+                        "variables": {
+                            f"{step.id}_result": "",
+                            "last_extract_result": ""
+                        },
+                        "history": [{
+                            "step": step.id,
+                            "action": "completed",
+                            "result": "Empty source data"
+                        }]
+                    }
+                
+                # Build extraction instruction using extract_prompt
+                extraction_prompt = step.extract_prompt or f"Extract the value from: {source_data}"
+                
+                # Substitute variables in the prompt
+                extraction_prompt = self._substitute_variables(extraction_prompt, state)
+                
+                # Check if structured extraction is requested
+                from src.utils.llm import create_deterministic_llm
+                from .extraction_prompts import get_extraction_prompt
+                
+                llm = create_deterministic_llm()
+                
+                if step.extract_model:
+                    # Use TrustCall with specified model
+                    from trustcall import create_extractor
+                    from . import extraction_models
+                    
+                    # Dynamically get the model class
+                    model_class = getattr(extraction_models, step.extract_model, None)
+                    
+                    if model_class:
+                        extractor = create_extractor(
+                            llm,
+                            tools=[model_class],
+                            tool_choice=step.extract_model
+                        )
+                        
+                        # Use the provided prompt or a generic one
+                        prompt = f"{extraction_prompt}\n\nSource data:\n{str(source_data)[:2000]}"
+                        
+                        try:
+                            extracted = await extractor.extract_async(prompt)
+                            
+                            # Flatten extracted data into simple variables
+                            if step.extract_model == "OnboardingDetails":
+                                # Flatten all fields into top-level variables
+                                state["variables"]["account_id"] = extracted.account_id
+                                state["variables"]["account_name"] = extracted.account_name
+                                state["variables"]["opportunity_id"] = extracted.opportunity_id
+                                state["variables"]["opportunity_name"] = extracted.opportunity_name
+                                
+                                # Store a summary for logging/debugging
+                                result = f"Extracted: {extracted.account_name} ({extracted.account_id})"
+                            else:
+                                # Generic: flatten all fields from the model
+                                for field_name, field_value in extracted.dict().items():
+                                    if isinstance(field_value, (str, int, float, bool)):
+                                        state["variables"][field_name] = field_value
+                                
+                                result = f"Extracted {step.extract_model} successfully"
+                            
+                            logger.info("workflow_structured_extraction_success",
+                                       component="workflow",
+                                       workflow_id=state["workflow_id"],
+                                       step_id=step.id,
+                                       model=step.extract_model)
+                        except Exception as e:
+                            logger.warning("workflow_structured_extraction_failed",
+                                         component="workflow",
+                                         workflow_id=state["workflow_id"],
+                                         step_id=step.id,
+                                         model=step.extract_model,
+                                         error=str(e))
+                            # Fallback to direct extraction
+                            messages = [
+                                {"role": "system", "content": get_extraction_prompt()},
+                                {"role": "user", "content": f"{extraction_prompt}\n\nSource data:\n{str(source_data)[:2000]}"}
+                            ]
+                            response = await llm.ainvoke(messages)
+                            result = response.content.strip()
+                    else:
+                        logger.error("workflow_extraction_model_not_found",
+                                   component="workflow",
+                                   workflow_id=state["workflow_id"],
+                                   step_id=step.id,
+                                   model=step.extract_model)
+                        # Fallback to direct extraction
+                        messages = [
+                            {"role": "system", "content": get_extraction_prompt()},
+                            {"role": "user", "content": f"{extraction_prompt}\n\nSource data:\n{str(source_data)[:2000]}"}
+                        ]
+                        response = await llm.ainvoke(messages)
+                        result = response.content.strip()
+                else:
+                    # Use direct LLM extraction
+                    messages = [
+                        {"role": "system", "content": get_extraction_prompt()},
+                        {"role": "user", "content": f"{extraction_prompt}\n\nSource data:\n{str(source_data)[:2000]}"}
+                    ]
+                    response = await llm.ainvoke(messages)
+                    result = response.content.strip()
+                
+                logger.info("workflow_extract_node_completed",
+                           component="workflow",
+                           workflow_id=state["workflow_id"],
+                           step_id=step.id,
+                           extracted_value=result[:100])
+                
+                # Store the extracted result
+                return {
+                    "current_step": step.id,
+                    "step_results": {
+                        step.id: result,
+                        f"{step.id}_result": result
+                    },
+                    "variables": {
+                        f"{step.id}_result": result,
+                        "last_extract_result": result
+                    },
+                    "history": [{
+                        "step": step.id,
+                        "action": "completed",
+                        "result": f"Extracted: {result[:100]}"
+                    }]
+                }
+            except Exception as e:
+                logger.error("workflow_extract_node_error",
+                           component="workflow",
+                           workflow_id=state["workflow_id"],
+                           step_id=step.id,
+                           error=str(e))
+                
+                if step.critical:
+                    raise
+                
+                return {
+                    "current_step": step.id,
+                    "step_results": {
+                        f"{step.id}_error": str(e)
+                    },
+                    "history": [{
+                        "step": step.id,
+                        "action": "failed",
+                        "error": str(e)
+                    }]
+                }
+        
+        return extract_node
+    
     def _create_wait_node(self, step: WorkflowStep) -> Callable:
         """Create a wait node"""
         async def wait_node(state: WorkflowState) -> Dict[str, Any]:
-            # For now, just record the wait
+            # For now, just record the wait and mark as completed
             # In production, this would handle actual waiting
+            logger.info("workflow_wait_node_executing",
+                component="workflow",
+                workflow_id=state.get("workflow_id"),
+                step_id=step.id,
+                wait_event=step.wait_for_event
+            )
+            
+            # If this is the last step (no next_step), mark workflow as completed
+            is_final_step = not step.next_step
+            
             return {
                 "current_step": step.id,
+                "status": WorkflowStatus.COMPLETED.value if is_final_step else state.get("status"),
                 "history": [{
                     "step": step.id,
                     "action": "wait_completed"
@@ -382,21 +592,81 @@ class WorkflowCompiler:
     def _create_parallel_node(self, step: WorkflowStep, definition: WorkflowDefinition) -> Callable:
         """Create a parallel execution node"""
         async def parallel_node(state: WorkflowState) -> Dict[str, Any]:
-            # For now, execute sequentially
-            # In production, this would use asyncio.gather
+            # Execute parallel steps
+            import asyncio
+            from langgraph.types import interrupt
+            
+            logger.info("workflow_parallel_node_executing",
+                component="workflow",
+                workflow_id=state.get("workflow_id"),
+                step_id=step.id,
+                parallel_steps=step.parallel_steps
+            )
+            
             results = {}
+            tasks = []
+            
+            # Create tasks for each parallel step
             for substep_id in step.parallel_steps or []:
                 if substep_id in definition.steps:
                     substep = definition.steps[substep_id]
-                    # Execute the substep
-                    # This is simplified - in reality we'd need to handle this better
-                    results[substep_id] = f"Executed {substep_id}"
+                    
+                    # For ACTION steps, execute them
+                    if substep.type == StepType.ACTION:
+                        # Create the action node and execute it
+                        action_node = self._create_action_node(substep)
+                        # Execute the substep with current state
+                        task = asyncio.create_task(action_node(state))
+                        tasks.append((substep_id, task))
+                    else:
+                        # For non-action steps, just mark as needing execution
+                        results[substep_id] = f"Substep {substep_id} requires sequential execution"
+            
+            # Wait for all tasks to complete
+            if tasks:
+                task_results = await asyncio.gather(*[task for _, task in tasks], return_exceptions=True)
+                
+                # Process results
+                for i, (substep_id, _) in enumerate(tasks):
+                    result = task_results[i]
+                    if isinstance(result, Exception):
+                        logger.error("workflow_parallel_step_failed",
+                            component="workflow",
+                            workflow_id=state.get("workflow_id"),
+                            step_id=substep_id,
+                            error=str(result)
+                        )
+                        results[substep_id] = f"Error: {str(result)}"
+                    else:
+                        # Extract the result from the state update
+                        if isinstance(result, dict) and "step_results" in result:
+                            # Get the specific result for this step
+                            step_result_key = f"{substep_id}_result"
+                            results[substep_id] = result["step_results"].get(step_result_key, "Completed")
+                        else:
+                            results[substep_id] = "Completed"
+            
+            # Check if any substep requested an interrupt
+            for substep_id, result in results.items():
+                if isinstance(result, str) and "INTERRUPT" in result:
+                    # Propagate the interrupt
+                    return interrupt({"step_id": step.id, "interrupted_at": substep_id})
+            
+            logger.info("workflow_parallel_node_completed",
+                component="workflow",
+                workflow_id=state.get("workflow_id"),
+                step_id=step.id,
+                substeps_completed=list(results.keys())
+            )
+            
+            # Update state with all results
+            updated_step_results = {**state.get("step_results", {})}
+            updated_step_results.update(results)
+            updated_step_results[f"{step.id}_parallel_results"] = results
             
             return {
                 "current_step": step.id,
-                "step_results": {
-                    f"{step.id}_parallel_results": results
-                },
+                "step_results": updated_step_results,
                 "history": [{
                     "step": step.id,
                     "action": "parallel_completed",

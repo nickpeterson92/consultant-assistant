@@ -126,34 +126,86 @@ class OrchestratorA2AHandler:
                     error_type=type(e).__name__
                 )
             
+            # Check if there's an interrupted workflow in the context (from CLI)
+            context_interrupted_workflow = context.get("interrupted_workflow")
+            
             if existing_state and existing_state.values and existing_state.values.get("messages"):
-                # Continue existing conversation
-                initial_state = {
-                    "messages": [HumanMessage(content=instruction)],
-                    "background_operations": [],
-                    "background_results": {}
-                }
-                
                 # Check if there's an interrupted workflow in the existing state
-                if existing_state.values.get("interrupted_workflow"):
-                    initial_state["interrupted_workflow"] = existing_state.values["interrupted_workflow"]
+                has_interrupted_workflow = existing_state.values.get("interrupted_workflow") is not None
+                
+                # Also check if it's passed in the context (for CLI mode)
+                if not has_interrupted_workflow and context_interrupted_workflow:
+                    has_interrupted_workflow = True
+                    # We need to restore the interrupted workflow state
+                    initial_state = {
+                        "messages": [],  # Empty - the workflow will handle the instruction
+                        "background_operations": [],
+                        "background_results": {},
+                        "interrupted_workflow": context_interrupted_workflow,
+                        "_workflow_human_response": instruction  # Pass instruction for workflow consumption
+                    }
+                    logger.info("found_interrupted_workflow_in_context",
+                        component="orchestrator",
+                        operation="process_a2a_task",
+                        thread_id=thread_id,
+                        workflow_name=context_interrupted_workflow.get("workflow_name"),
+                        workflow_thread_id=context_interrupted_workflow.get("thread_id"),
+                        instruction_for_workflow=instruction[:50],
+                        source="context"
+                    )
+                elif has_interrupted_workflow:
+                    # This instruction is a response to the interrupted workflow
+                    # Don't add it as a new HumanMessage - it will be consumed by the workflow
+                    initial_state = {
+                        "messages": [],  # Empty - the workflow will handle the instruction
+                        "background_operations": [],
+                        "background_results": {},
+                        "interrupted_workflow": existing_state.values["interrupted_workflow"],
+                        "_workflow_human_response": instruction  # Pass instruction for workflow consumption
+                    }
                     logger.info("found_interrupted_workflow_in_state",
                         component="orchestrator",
                         operation="process_a2a_task",
                         thread_id=thread_id,
                         workflow_name=existing_state.values["interrupted_workflow"].get("workflow_name"),
-                        workflow_thread_id=existing_state.values["interrupted_workflow"].get("thread_id")
+                        workflow_thread_id=existing_state.values["interrupted_workflow"].get("thread_id"),
+                        instruction_for_workflow=instruction[:50]
                     )
+                else:
+                    # Continue existing conversation normally
+                    initial_state = {
+                        "messages": [HumanMessage(content=instruction)],
+                        "background_operations": [],
+                        "background_results": {}
+                    }
             else:
-                # Start new conversation
-                initial_state = {
-                    "messages": [
-                        SystemMessage(content=system_message_content),
-                        HumanMessage(content=instruction)
-                    ],
-                    "background_operations": [],
-                    "background_results": {}
-                }
+                # Check if we have interrupted workflow from context even without existing state
+                if context_interrupted_workflow:
+                    # We have an interrupted workflow but no state - this is a resumed session
+                    initial_state = {
+                        "messages": [SystemMessage(content=system_message_content)],
+                        "background_operations": [],
+                        "background_results": {},
+                        "interrupted_workflow": context_interrupted_workflow,
+                        "_workflow_human_response": instruction
+                    }
+                    logger.info("interrupted_workflow_from_context_no_state",
+                        component="orchestrator",
+                        operation="process_a2a_task",
+                        thread_id=thread_id,
+                        workflow_name=context_interrupted_workflow.get("workflow_name"),
+                        instruction_for_workflow=instruction[:50]
+                    )
+                else:
+                    # Start new conversation
+                    initial_state = {
+                        "messages": [
+                            SystemMessage(content=system_message_content),
+                            HumanMessage(content=instruction)
+                        ],
+                        "background_operations": [],
+                        "background_results": {}
+                    }
             
             # Execute graph
             result = await self.graph.ainvoke(initial_state, config)
@@ -175,18 +227,20 @@ class OrchestratorA2AHandler:
             # Workflow interrupts are now handled by LangGraph's native interrupt functionality
             
             if messages:
-                # Check for workflow tool messages first
+                # Check for any tool response messages first (most recent)
                 for msg in reversed(messages):
-                    if hasattr(msg, 'name') and msg.name == 'workflow_agent' and hasattr(msg, 'content'):
-                        logger.info("found_workflow_tool_message",
+                    if hasattr(msg, 'name') and hasattr(msg, 'content') and msg.content:
+                        # This is a tool response message
+                        logger.info("found_tool_response_message",
                             component="orchestrator",
                             operation="process_a2a_task",
+                            tool_name=msg.name,
                             content_preview=msg.content[:100]
                         )
                         response_content = msg.content
                         break
                 else:
-                    # If no workflow tool message, find the last AI message
+                    # If no tool response message, find the last AI message
                     for msg in reversed(messages):
                         if hasattr(msg, 'content') and msg.content and not hasattr(msg, 'tool_calls'):
                             response_content = msg.content

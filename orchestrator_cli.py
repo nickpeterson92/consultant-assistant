@@ -140,6 +140,9 @@ async def main():
         current_thread_id = f"cli-{str(uuid.uuid4())[:8]}"
         print(f"Starting new conversation thread: {current_thread_id}")
         
+        # Track interrupted workflow state
+        interrupted_workflow = None
+        
         # Main conversation loop (identical to main.py)
         while True:
             try:
@@ -206,6 +209,16 @@ async def main():
                 try:
                     start_time = time.time()
                     
+                    # Build context with interrupted workflow if present
+                    context = {
+                        "thread_id": current_thread_id,
+                        "source": "cli_client"
+                    }
+                    
+                    # Important: Pass interrupted_workflow in the context
+                    if interrupted_workflow:
+                        context["interrupted_workflow"] = interrupted_workflow
+                    
                     result = await client.call_agent(
                         f"{orchestrator_url}/a2a",
                         "process_task",
@@ -213,10 +226,7 @@ async def main():
                             "task": {
                                 "id": f"{current_thread_id}-{int(time.time())}",
                                 "instruction": user_input,
-                                "context": {
-                                    "thread_id": current_thread_id,
-                                    "source": "cli_client"
-                                }
+                                "context": context
                             }
                         }
                     )
@@ -229,6 +239,15 @@ async def main():
                     
                     # Extract and display response
                     if result.get('status') == 'completed':
+                        # Check for interrupted workflow in metadata
+                        metadata = result.get('metadata', {})
+                        if 'interrupted_workflow' in metadata:
+                            interrupted_workflow = metadata['interrupted_workflow']
+                            logger.debug(f"Workflow interrupted: {interrupted_workflow}")
+                        else:
+                            # Clear interrupted workflow if completed
+                            interrupted_workflow = None
+                        
                         artifacts = result.get('artifacts', [])
                         if artifacts:
                             response_content = artifacts[0].get('content', 'No response content')

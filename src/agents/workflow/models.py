@@ -27,6 +27,7 @@ class StepType(str, Enum):
     HUMAN = "human"         # Human approval needed
     SWITCH = "switch"       # Multiple conditional branches
     FOR_EACH = "for_each"   # Iterate over a collection
+    EXTRACT = "extract"     # Extract/parse data from previous steps
 
 
 class WorkflowStep(BaseModel):
@@ -61,6 +62,11 @@ class WorkflowStep(BaseModel):
     iterator_variable: Optional[str] = None  # Variable name for current item
     loop_steps: Optional[List[str]] = None  # Steps to execute for each item
     max_iterations: Optional[int] = None  # Safety limit
+    
+    # For EXTRACT steps
+    extract_from: Optional[str] = None  # Variable/step result to extract from
+    extract_prompt: Optional[str] = None  # Prompt for LLM-based extraction
+    extract_model: Optional[str] = None  # Pydantic model name for structured extraction
     
     # For ACTION steps with conditional completion
     on_complete: Optional[Dict[str, Any]] = None  # Conditional next step

@@ -104,7 +104,13 @@ async def summarize_conversation(state: OrchestratorState, invoke_llm):
             error_count=error_count
         )
     
-    messages_to_preserve = smart_preserve_messages(state["messages"], keep_count=2)
+    # Preserve more messages after summarization
+    # Keep enough to maintain context but not overwhelm the system
+    conv_config = get_conversation_config()
+    preserve_count = min(20, len(state["messages"]) // 3)  # Keep 1/3 of messages or 20, whichever is less
+    preserve_count = max(preserve_count, 5)  # But always keep at least 5 messages
+    
+    messages_to_preserve = smart_preserve_messages(state["messages"], keep_count=preserve_count)
     messages_to_delete = []
     
     preserved_ids = {getattr(msg, 'id', None) for msg in messages_to_preserve if hasattr(msg, 'id')}
