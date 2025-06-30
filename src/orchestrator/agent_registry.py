@@ -205,7 +205,7 @@ class AgentRegistry:
         
         return matching_agents
     
-    def find_best_agent_for_task(self, task_description: str, required_capabilities: List[str] = None) -> Optional[RegisteredAgent]:
+    def find_best_agent_for_task(self, task_description: str, required_capabilities: Optional[List[str]] = None) -> Optional[RegisteredAgent]:
         """Intelligent service selection using capability matching.
         
         Implements smart routing by selecting the most appropriate
@@ -257,6 +257,10 @@ class AgentRegistry:
         start_time = asyncio.get_event_loop().time()
         previous_status = agent.status
         
+        # Get config before try block so it's available in except blocks
+        from src.utils.config import get_a2a_config
+        a2a_config = get_a2a_config()
+        
         try:
             logger.info("health_check_start",
                 component="orchestrator",
@@ -265,9 +269,6 @@ class AgentRegistry:
                 endpoint=agent.endpoint,
                 current_status=previous_status
             )
-            
-            from src.utils.config import get_a2a_config
-            a2a_config = get_a2a_config()
             
             async with A2AClient(timeout=a2a_config.health_check_timeout) as client:
                 agent_card = await client.get_agent_card(agent.endpoint + "/a2a")

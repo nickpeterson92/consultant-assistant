@@ -121,7 +121,7 @@ class BaseUtilityTool(BaseTool, ABC):
         Looks for company names, person names, and other entities
         from recent Salesforce/Jira/ServiceNow results.
         """
-        entities = []
+        entities: list[str] = []
         
         if not state:
             return entities
@@ -133,8 +133,8 @@ class BaseUtilityTool(BaseTool, ABC):
                 # Extract entities from structured data
                 content = str(msg.content)
                 # Simple extraction - can be enhanced with NER
+                import re  # Import at the beginning of the block
                 if "Name" in content:
-                    import re
                     name_matches = re.findall(r'"Name":\s*"([^"]+)"', content)
                     entities.extend(name_matches)
                 if "Company" in content:

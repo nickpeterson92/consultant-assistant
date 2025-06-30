@@ -27,9 +27,11 @@ class SalesforceGet(SalesforceReadTool):
     
     args_schema: type = Input
     
-    def _execute(self, record_id: str, object_type: Optional[str] = None, 
-                 fields: Optional[List[str]] = None) -> Any:
+    def _execute(self, **kwargs) -> Any:
         """Execute the get operation."""
+        record_id = kwargs['record_id']
+        object_type = kwargs.get('object_type', None)
+        fields = kwargs.get('fields', None)
         # Auto-detect object type from ID prefix if not provided
         if not object_type:
             id_prefixes = {
@@ -79,9 +81,13 @@ class SalesforceSearch(SalesforceReadTool):
     
     args_schema: type = Input
     
-    def _execute(self, object_type: str, filter: str, fields: Optional[List[str]] = None,
-                 limit: int = 50, order_by: Optional[str] = None) -> Any:
+    def _execute(self, **kwargs) -> Any:
         """Execute the search operation."""
+        object_type = kwargs['object_type']
+        filter = kwargs['filter']
+        fields = kwargs.get('fields', None)
+        limit = kwargs.get('limit', 50)
+        order_by = kwargs.get('order_by', None)
         # Ensure filter is a string - Pydantic validates the type but LangChain
         # may still pass non-string values in some edge cases
         if not isinstance(filter, str):
@@ -110,7 +116,7 @@ class SalesforceSearch(SalesforceReadTool):
             # Also add text search on name fields
             if filter and not any(keyword in filter.lower() for keyword in ['today', 'yesterday', 'week', 'month']):
                 name_field = 'Name' if object_type != 'Case' else 'Subject'
-                builder.where(name_field, SOQLOperator.LIKE, f'%{filter}%')
+                builder.where(name_field, SOQLOperator.LIKE, f'%{filter}%')  # type: ignore[arg-type]
         
         # Add ordering
         if order_by:
@@ -159,8 +165,10 @@ class SalesforceCreate(SalesforceWriteTool):
     
     args_schema: type = Input
     
-    def _execute(self, object_type: str, data: Dict[str, Any]) -> Any:
+    def _execute(self, **kwargs) -> Any:
         """Execute the create operation."""
+        object_type = kwargs['object_type']
+        data = kwargs['data']
         # Validate required fields
         validation_error = self._validate_required_fields(object_type, data)
         if validation_error:
@@ -197,9 +205,12 @@ class SalesforceUpdate(SalesforceWriteTool):
     
     args_schema: type = Input
     
-    def _execute(self, object_type: str, data: Dict[str, Any], 
-                 record_id: Optional[str] = None, where: Optional[str] = None) -> Any:
+    def _execute(self, **kwargs) -> Any:
         """Execute the update operation."""
+        object_type = kwargs['object_type']
+        data = kwargs['data']
+        record_id = kwargs.get('record_id', None)
+        where = kwargs.get('where', None)
         if not record_id and not where:
             return {"error": "Must provide either record_id or where condition"}
         
@@ -220,8 +231,11 @@ class SalesforceUpdate(SalesforceWriteTool):
                 return {"error": f"Failed to update {object_type} {record_id}"}
         else:
             # Find records to update using query builder
-            query = SOQLQueryBuilder().from_object(object_type).select('Id').where_raw(where).build()
-            records = self.sf.query(query)['records']
+            if where:
+                query = SOQLQueryBuilder().from_object(object_type).select('Id').where_raw(where).build()
+                records = self.sf.query(query)['records']
+            else:
+                return {"error": "where condition cannot be None when record_id is not provided"}
             
             if not records:
                 return {"error": f"No {object_type} records found matching: {where}"}
@@ -260,10 +274,12 @@ class SalesforceSOSL(SalesforceReadTool):
     
     args_schema: type = Input
     
-    def _execute(self, search_term: str, object_types: Optional[List[str]] = None,
-                 fields_per_object: Optional[Dict[str, List[str]]] = None,
-                 limit_per_object: int = 20) -> Any:
+    def _execute(self, **kwargs) -> Any:
         """Execute cross-object search."""
+        search_term = kwargs['search_term']
+        object_types = kwargs.get('object_types', None)
+        fields_per_object = kwargs.get('fields_per_object', None)
+        limit_per_object = kwargs.get('limit_per_object', 20)
         # Default object types if not specified
         if not object_types:
             object_types = ['Account', 'Contact', 'Lead', 'Opportunity', 'Case']
@@ -334,10 +350,13 @@ class SalesforceAnalytics(SalesforceAnalyticsTool):
     
     args_schema: type = Input
     
-    def _execute(self, object_type: str, metrics: List[str], 
-                 group_by: Optional[str] = None, where: Optional[str] = None,
-                 time_period: Optional[str] = None) -> Any:
+    def _execute(self, **kwargs) -> Any:
         """Execute analytics query."""
+        object_type = kwargs['object_type']
+        metrics = kwargs['metrics']
+        group_by = kwargs.get('group_by', None)
+        where = kwargs.get('where', None)
+        time_period = kwargs.get('time_period', None)
         # Ensure time_period is None or string - LangChain may pass boolean values
         if time_period is not None and not isinstance(time_period, str):
             time_period = None

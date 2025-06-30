@@ -251,7 +251,7 @@ async def retry_with_exponential_backoff(func: Callable, config: RetryConfig,
     """Execute a function with retry and exponential backoff"""
     import random
     
-    last_exception = None
+    last_exception: Optional[Exception] = None
     
     for attempt in range(config.max_attempts):
         try:
@@ -297,7 +297,10 @@ async def retry_with_exponential_backoff(func: Callable, config: RetryConfig,
         operation="retry",
         max_attempts=config.max_attempts
     )
-    raise last_exception
+    if last_exception:
+        raise last_exception
+    else:
+        raise RuntimeError(f"All {config.max_attempts} retry attempts failed")
 
 async def resilient_call(func: Callable, circuit_breaker_name: str,
                         retry_config: Optional[RetryConfig] = None,

@@ -118,7 +118,7 @@ async def handle_command(command: str, command_parts: list, current_thread_id: s
             current_state = local_graph.get_state(config)
             
             print(f"Thread ID: {current_thread_id}")
-            print(f"User ID: {config['configurable']['user_id']}")
+            print(f"User ID: {config.get('configurable', {})['user_id']}")
             
             state_values = None
             if current_state and current_state.values:
@@ -405,7 +405,7 @@ async def main():
                     "background_operations": [],
                     "background_results": {}
                 },
-                config,
+                config,  # type: ignore[arg-type]  # LangGraph accepts dict configs
                 stream_mode="values"
             ):
                 # Check for tool calls
@@ -447,7 +447,7 @@ async def main():
                             processing_done.set()
                             indicator_thread.join(timeout=1.0)
                             
-                            conversation_response = last_msg.content
+                            conversation_response = str(last_msg.content) if last_msg.content else ""
                             formatted_response = format_markdown_for_console(conversation_response)
                             logger.info("user_message_displayed", component="orchestrator", 
                                        response=conversation_response[:1000],

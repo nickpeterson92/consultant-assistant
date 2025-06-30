@@ -50,7 +50,7 @@ async def animated_banner_display(banner_text: str) -> None:
     banner_start_x = (terminal_width - banner_width) // 2
     
     # Create data particles that will converge to form the banner
-    particles = []
+    particles: List[Dict[str, Any]] = []
     for y, line in enumerate(lines):
         for x, char in enumerate(line):
             if char != ' ':

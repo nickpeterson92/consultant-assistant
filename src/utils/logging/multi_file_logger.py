@@ -33,7 +33,7 @@ class MultiFileLogger(StructuredLogger):
         'utility': 'orchestrator.log',  # Utility tools go to orchestrator log
     }
     
-    def __init__(self, log_dir: str = None, level: int = None):
+    def __init__(self, log_dir: Optional[str] = None, level: Optional[int] = None):
         """Initialize multi-file logger using global config.
         
         Args:
@@ -58,6 +58,8 @@ class MultiFileLogger(StructuredLogger):
                 level = logging.INFO
                 
         self.log_dir.mkdir(parents=True, exist_ok=True)
+        # At this point, level is guaranteed to be non-None
+        assert level is not None  # Type assertion for type checker
         self.level = level
         self.handlers: Dict[str, logging.Handler] = {}
         self.lock = Lock()

@@ -1,9 +1,9 @@
 """Capability categorization and display for the orchestrator."""
 
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Any
 
 # Define capability categories with their icons and display names
-CAPABILITY_CATEGORIES = {
+CAPABILITY_CATEGORIES: Dict[str, Dict[str, Any]] = {
     "CRM & Sales": {
         "icon": "▣",
         "capabilities": [
@@ -87,7 +87,7 @@ def categorize_capabilities(capabilities_list: List[str]) -> Dict[str, List[str]
             categorized[category] = category_caps
     
     # Find any uncategorized capabilities
-    all_categorized = set()
+    all_categorized: set[str] = set()
     for caps in categorized.values():
         all_categorized.update(cap.lower() for cap in caps)
     

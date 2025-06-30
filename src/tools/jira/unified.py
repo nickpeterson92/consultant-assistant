@@ -28,9 +28,11 @@ class JiraGet(JiraReadTool):
     
     args_schema: type = Input
     
-    def _execute(self, issue_key: str, include_comments: bool = True, 
-                 include_attachments: bool = True) -> Any:
+    def _execute(self, **kwargs) -> Any:
         """Execute the get operation."""
+        issue_key = kwargs['issue_key']
+        include_comments = kwargs.get('include_comments', True)
+        include_attachments = kwargs.get('include_attachments', True)
         # Build expand parameter for additional data
         expand_parts = ["renderedFields"]
         if include_comments:
@@ -61,9 +63,12 @@ class JiraSearch(JiraReadTool):
     
     args_schema: type = Input
     
-    def _execute(self, query: str, max_results: int = 50, start_at: int = 0,
-                 fields: Optional[List[str]] = None) -> Any:
+    def _execute(self, **kwargs) -> Any:
         """Execute the search operation."""
+        query = kwargs['query']
+        max_results = kwargs.get('max_results', 50)
+        start_at = kwargs.get('start_at', 0)
+        fields = kwargs.get('fields', None)
         # Build JQL query
         jql_query = self._build_jql_query(query)
         self._log_jql(jql_query)
@@ -122,14 +127,20 @@ class JiraCreate(JiraWriteTool):
     
     args_schema: type = Input
     
-    def _execute(self, project_key: str, issue_type: str, summary: str,
-                 description: Optional[str] = None, parent_key: Optional[str] = None,
-                 assignee: Optional[str] = None, priority: Optional[str] = None,
-                 labels: Optional[List[str]] = None, components: Optional[List[str]] = None,
-                 custom_fields: Optional[Dict[str, Any]] = None) -> Any:
+    def _execute(self, **kwargs) -> Any:
         """Execute the create operation."""
+        project_key = kwargs['project_key']
+        issue_type = kwargs['issue_type']
+        summary = kwargs['summary']
+        description = kwargs.get('description', None)
+        parent_key = kwargs.get('parent_key', None)
+        assignee = kwargs.get('assignee', None)
+        priority = kwargs.get('priority', None)
+        labels = kwargs.get('labels', None)
+        components = kwargs.get('components', None)
+        custom_fields = kwargs.get('custom_fields', None)
         # Build issue data
-        issue_data = {
+        issue_data: Dict[str, Any] = {
             "fields": {
                 "project": {"key": project_key},
                 "issuetype": {"name": issue_type},
@@ -191,15 +202,18 @@ class JiraUpdate(JiraWriteTool):
     
     args_schema: type = Input
     
-    def _execute(self, issue_key: str, fields: Optional[Dict[str, Any]] = None,
-                 transition_to: Optional[str] = None, assignee: Optional[str] = None,
-                 comment: Optional[str] = None) -> Any:
+    def _execute(self, **kwargs) -> Any:
         """Execute the update operation."""
+        issue_key = kwargs['issue_key']
+        fields = kwargs.get('fields', None)
+        transition_to = kwargs.get('transition_to', None)
+        assignee = kwargs.get('assignee', None)
+        comment = kwargs.get('comment', None)
         results = []
         
         # Handle field updates
         if fields or assignee:
-            update_data = {"fields": {}}
+            update_data: Dict[str, Any] = {"fields": {}}
             
             if fields:
                 update_data["fields"].update(fields)
@@ -289,13 +303,21 @@ class JiraCollaboration(JiraCollaborationTool):
     
     args_schema: type = Input
     
-    def _execute(self, issue_key: str, action: str, content: Optional[str] = None,
-                 link_to: Optional[str] = None, link_type: str = "relates to",
-                 visibility: Optional[str] = None) -> Any:
+    def _execute(self, **kwargs) -> Any:
         """Execute the collaboration operation."""
+        issue_key = kwargs['issue_key']
+        action = kwargs['action']
+        content = kwargs.get('content', None)
+        link_to = kwargs.get('link_to', None)
+        link_type = kwargs.get('link_type', "relates to")
+        visibility = kwargs.get('visibility', None)
         if action == "comment":
+            if content is None:
+                return {"error": "Content is required for comment action"}
             return self._add_comment(issue_key, content, visibility)
         elif action == "link":
+            if link_to is None:
+                return {"error": "link_to is required for link action"}
             return self._link_issues(issue_key, link_to, link_type)
         elif action == "attach":
             return {"error": "File attachments require multipart upload - use direct API"}
@@ -304,7 +326,7 @@ class JiraCollaboration(JiraCollaborationTool):
     
     def _add_comment(self, issue_key: str, comment_text: str, visibility: Optional[str] = None) -> Dict[str, Any]:
         """Add comment to issue."""
-        comment_data = {"body": comment_text}
+        comment_data: Dict[str, Any] = {"body": comment_text}
         
         if visibility:
             comment_data["visibility"] = {
@@ -343,9 +365,12 @@ class JiraAnalytics(JiraAnalyticsTool):
     
     args_schema: type = Input
     
-    def _execute(self, issue_key: Optional[str] = None, project_key: Optional[str] = None,
-                 metric_type: str = "history", time_period: Optional[str] = None) -> Any:
+    def _execute(self, **kwargs) -> Any:
         """Execute the analytics operation."""
+        issue_key = kwargs.get('issue_key', None)
+        project_key = kwargs.get('project_key', None)
+        metric_type = kwargs.get('metric_type', "history")
+        time_period = kwargs.get('time_period', None)
         if metric_type == "history" and issue_key:
             return self._get_issue_history(issue_key)
         elif metric_type == "worklog" and issue_key:
@@ -417,10 +442,14 @@ class JiraProjectCreate(JiraWriteTool):
     
     args_schema: type = Input
     
-    def _execute(self, key: str, name: str, project_type_key: str = "business",
-                 description: Optional[str] = None, lead_account_id: Optional[str] = None,
-                 assignee_type: str = "PROJECT_LEAD") -> Any:
+    def _execute(self, **kwargs) -> Any:
         """Execute the project creation."""
+        key = kwargs['key']
+        name = kwargs['name']
+        project_type_key = kwargs.get('project_type_key', "business")
+        description = kwargs.get('description', None)
+        lead_account_id = kwargs.get('lead_account_id', None)
+        assignee_type = kwargs.get('assignee_type', "PROJECT_LEAD")
         # Validate project key format
         if not key or not key.isupper() or not key.isalpha() or len(key) < 2 or len(key) > 10:
             return {
@@ -481,7 +510,7 @@ class JiraProjectCreate(JiraWriteTool):
                 
             if response.status_code == 400:
                 # Extract specific field errors if available
-                field_errors = {}
+                field_errors: Dict[str, Any] = {}
                 if isinstance(error_details, dict) and "errors" in error_details:
                     field_errors = error_details["errors"]
                 

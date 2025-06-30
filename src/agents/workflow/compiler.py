@@ -101,7 +101,7 @@ class WorkflowCompiler:
             StepType.EXTRACT: self._create_extract_node
         }
         
-    def compile(self, definition: WorkflowDefinition) -> StateGraph:
+    def compile(self, definition: WorkflowDefinition) -> Any:  # Returns compiled graph, not StateGraph
         """Compile a workflow definition into a LangGraph graph"""
         
         # Create the state graph
@@ -149,7 +149,7 @@ class WorkflowCompiler:
                 workflow.add_conditional_edges(
                     step_id,
                     self._create_switch_function(step),
-                    routes
+                    routes  # type: ignore[arg-type]
                 )
             else:
                 # Normal edge
@@ -204,6 +204,9 @@ class WorkflowCompiler:
     def _create_node_for_step(self, step: WorkflowStep, definition: WorkflowDefinition) -> Callable:
         """Create a LangGraph node function for a workflow step"""
         
+        # Validate step has required fields for its type
+        self._validate_step(step)
+        
         handler = self._step_handlers.get(step.type)
         if not handler:
             raise ValueError(f"Unknown step type: {step.type}")
@@ -213,10 +216,38 @@ class WorkflowCompiler:
             return handler(step, definition)
         return handler(step)
     
+    def _validate_step(self, step: WorkflowStep) -> None:
+        """Validate that a step has all required fields for its type"""
+        validation_rules = {
+            StepType.ACTION: {
+                'agent': 'ACTION step requires an agent',
+                'instruction': 'ACTION step requires an instruction'
+            },
+            StepType.CONDITION: {
+                'condition': 'CONDITION step requires a condition'
+            },
+            StepType.PARALLEL: {
+                'parallel_steps': 'PARALLEL step requires parallel_steps list'
+            },
+            StepType.FOR_EACH: {
+                'iterate_over': 'FOR_EACH step requires iterate_over field',
+                'loop_steps': 'FOR_EACH step requires loop_steps list'
+            },
+            StepType.EXTRACT: {
+                'extract_from': 'EXTRACT step requires extract_from field'
+            }
+        }
+        
+        rules = validation_rules.get(step.type, {})
+        for field, error_msg in rules.items():
+            if not getattr(step, field, None):
+                raise ValueError(f"{error_msg} (step: {step.id})")
+    
     def _create_action_node(self, step: WorkflowStep) -> Callable:
         """Create an action node that calls an agent"""
         async def action_node(state: WorkflowState) -> Dict[str, Any]:
             # Substitute variables in the instruction
+            # Note: step.instruction is guaranteed to be non-None by _validate_step
             instruction = self._substitute_variables(step.instruction, state)
             
             logger.info("workflow_action_node_executing",
@@ -228,6 +259,8 @@ class WorkflowCompiler:
             
             try:
                 # Call the agent
+                # Note: step.agent is guaranteed to be non-None by _validate_step
+                assert step.agent is not None  # Type guard for mypy
                 result = await call_agent(
                     agent_name=step.agent,
                     instruction=instruction,
@@ -238,7 +271,7 @@ class WorkflowCompiler:
                         "step_name": step.name,
                         "variables": state["variables"]
                     },
-                    state_snapshot=state.get("orchestrator_state_snapshot", {})
+                    state_snapshot=state.get("orchestrator_state_snapshot") or {}
                 )
                 
                 # Store the result
@@ -358,6 +391,8 @@ class WorkflowCompiler:
     def _create_condition_function(self, step: WorkflowStep) -> Callable:
         """Create the edge function for conditional routing"""
         def condition_func(state: WorkflowState) -> str:
+            # Note: step.condition is guaranteed to be non-None by _validate_step
+            assert step.condition is not None  # Type guard for mypy
             result = self._evaluate_condition(step.condition, state)
             logger.info("workflow_condition_evaluated",
                        component="workflow",
@@ -400,6 +435,8 @@ class WorkflowCompiler:
                        extract_from=step.extract_from)
             
             try:
+                # Initialize extraction_result
+                extraction_result = ""
                 # Get the source data to extract from
                 source_data = self._resolve_variable(f"${step.extract_from}", state) if step.extract_from else ""
                 
@@ -522,29 +559,32 @@ Source data:
                             
                             # Flatten extracted data into simple variables
                             flattened_vars = {}
-                            if step.extract_model == "OnboardingDetails" and hasattr(extracted, 'account_id'):
+                            if extracted and step.extract_model == "OnboardingDetails" and hasattr(extracted, 'account_id'):
                                 # Flatten all fields into top-level variables
-                                flattened_vars["account_id"] = extracted.account_id
-                                flattened_vars["account_name"] = extracted.account_name
-                                flattened_vars["opportunity_id"] = extracted.opportunity_id
-                                flattened_vars["opportunity_name"] = extracted.opportunity_name
+                                flattened_vars["account_id"] = getattr(extracted, 'account_id', '')
+                                flattened_vars["account_name"] = getattr(extracted, 'account_name', '')
+                                flattened_vars["opportunity_id"] = getattr(extracted, 'opportunity_id', '')
+                                flattened_vars["opportunity_name"] = getattr(extracted, 'opportunity_name', '')
                                 
                                 # Store a summary for logging/debugging
-                                result = f"Extracted: {extracted.account_name} ({extracted.account_id})"
+                                account_name = getattr(extracted, 'account_name', 'Unknown')
+                                account_id = getattr(extracted, 'account_id', 'Unknown')
+                                extraction_result = f"Extracted: {account_name} ({account_id})"
                             else:
                                 # Generic: flatten all fields from the model
-                                if hasattr(extracted, 'dict'):
-                                    for field_name, field_value in extracted.dict().items():
+                                if extracted and hasattr(extracted, 'dict') and callable(getattr(extracted, 'dict')):
+                                    extracted_dict = extracted.dict()
+                                    for field_name, field_value in extracted_dict.items():
                                         if isinstance(field_value, (str, int, float, bool)):
                                             flattened_vars[field_name] = field_value
-                                    result = f"Extracted {step.extract_model} successfully"
+                                    extraction_result = f"Extracted {step.extract_model} successfully"
                                 else:
                                     # Extraction failed, log for debugging
                                     logger.warning("trustcall_extraction_no_model",
                                                  component="workflow",
                                                  step_id=step.id,
                                                  extracted_type=type(extracted).__name__)
-                                    result = str(extracted)[:200]
+                                    extraction_result = str(extracted)
                             
                             logger.info("workflow_structured_extraction_success",
                                        component="workflow",
@@ -565,7 +605,8 @@ Source data:
                                 {"role": "user", "content": f"{extraction_prompt}\n\nSource data:\n{source_data}"}
                             ]
                             response = await llm.ainvoke(messages)
-                            result = response.content.strip()
+                            content = response.content
+                            extraction_result = content.strip() if isinstance(content, str) else str(content)
                     else:
                         logger.error("workflow_extraction_model_not_found",
                                    component="workflow",
@@ -576,30 +617,32 @@ Source data:
                         flattened_vars = {}  # Model not found
                         messages = [
                             {"role": "system", "content": get_extraction_prompt()},
-                            {"role": "user", "content": f"{extraction_prompt}\n\nSource data:\n{str(source_data)[:2000]}"}
+                            {"role": "user", "content": f"{extraction_prompt}\n\nSource data:\n{str(source_data)}"}
                         ]
                         response = await llm.ainvoke(messages)
-                        result = response.content.strip()
+                        content = response.content
+                        extraction_result = content.strip() if isinstance(content, str) else str(content)
                 else:
                     # Use direct LLM extraction
                     flattened_vars = {}  # No structured extraction
                     messages = [
                         {"role": "system", "content": get_extraction_prompt()},
-                        {"role": "user", "content": f"{extraction_prompt}\n\nSource data:\n{str(source_data)[:2000]}"}
+                        {"role": "user", "content": f"{extraction_prompt}\n\nSource data:\n{str(source_data)}"}
                     ]
                     response = await llm.ainvoke(messages)
-                    result = response.content.strip()
+                    content = response.content
+                    extraction_result = content.strip() if isinstance(content, str) else str(content)
                 
                 logger.info("workflow_extract_node_completed",
                            component="workflow",
                            workflow_id=state["workflow_id"],
                            step_id=step.id,
-                           extracted_value=result[:100])
+                           extracted_value=extraction_result[:100])
                 
                 # Prepare variables update - include flattened vars if extraction succeeded
                 variables_update = {
-                    f"{step.id}_result": result,
-                    "last_extract_result": result
+                    f"{step.id}_result": extraction_result,
+                    "last_extract_result": extraction_result
                 }
                 
                 # Add flattened variables from structured extraction
@@ -615,14 +658,14 @@ Source data:
                 return {
                     "current_step": step.id,
                     "step_results": {
-                        step.id: result,
-                        f"{step.id}_result": result
+                        step.id: extraction_result,
+                        f"{step.id}_result": extraction_result
                     },
                     "variables": variables_update,
                     "history": [{
                         "step": step.id,
                         "action": "completed",
-                        "result": f"Extracted: {result[:100]}"
+                        "result": f"Extracted: {extraction_result[:100]}"
                     }]
                 }
             except Exception as e:

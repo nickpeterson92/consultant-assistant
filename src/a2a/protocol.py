@@ -241,7 +241,7 @@ class A2AResponse:
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to JSON-RPC 2.0 response format."""
-        response = {
+        response: Dict[str, Any] = {
             "jsonrpc": self.jsonrpc,
             "id": self.id
         }
@@ -582,12 +582,17 @@ class A2AClient:
                         method=method,
                         params_keys=list(params.keys()))
         
+        # Initialize variables that might be used in except blocks
+        start_time = time.time()
+        session = None
+        
         # External logging with safe fallback
         try:
 
             # Session management with pooling optimization
             if self.use_pool:
                 # Pooled mode: efficient connection reuse
+                assert self._pool is not None  # Type guard for mypy
                 session = await self._pool.get_session(endpoint, self.timeout)
             else:
                 # Dedicated mode: isolated session for testing
@@ -670,20 +675,20 @@ class A2AClient:
         except asyncio.TimeoutError as e:
             # Timeout errors are common in distributed systems - handle gracefully
             # with clear error messages for debugging
-            elapsed = time.time() - start_time if 'start_time' in locals() else 0
+            elapsed = time.time() - start_time
             logger.error("a2a_timeout_error",
                 component="a2a",
                 operation="make_raw_call",
                 endpoint=endpoint,
                 elapsed_seconds=round(elapsed, 2),
                 configured_timeout=self.timeout,
-                session_timeout=session.timeout if 'session' in locals() else 'unknown'
+                session_timeout=session.timeout if session and hasattr(session, 'timeout') else 'unknown'
             )
             raise A2AException(f"Request timed out after {elapsed:.2f}s")
         except aiohttp.ClientError as e:
             # Network errors include connection failures, DNS issues, etc.
             # These are often transient and will be retried by the resilience layer
-            elapsed = time.time() - start_time if 'start_time' in locals() else 0
+            elapsed = time.time() - start_time
             logger.error("a2a_network_error",
                 component="a2a",
                 operation="make_raw_call",
@@ -864,7 +869,7 @@ class A2AServer:
         self.host = host
         self.port = port
         self.app = web.Application()
-        self.handlers = {}
+        self.handlers: Dict[str, Any] = {}
         self._setup_routes()
     
     def _setup_routes(self):

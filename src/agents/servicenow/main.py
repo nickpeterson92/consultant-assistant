@@ -2,7 +2,7 @@
 
 import os
 import asyncio
-from typing import Dict, Any, List, TypedDict, Annotated
+from typing import Dict, Any, List, TypedDict, Annotated, Optional
 import operator
 from dotenv import load_dotenv
 
@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.memory import MemorySaver
@@ -33,7 +34,7 @@ class ServiceNowAgentState(TypedDict):
     task_context: Dict[str, Any]
     external_context: Dict[str, Any]
 
-def get_servicenow_system_message(task_context: dict = None, external_context: dict = None) -> str:
+def get_servicenow_system_message(task_context: Optional[Dict[Any, Any]] = None, external_context: Optional[Dict[Any, Any]] = None) -> str:
     """Generate the system message that defines the ServiceNow agent's behavior and capabilities.
     
     Returns a comprehensive system prompt that:
@@ -132,6 +133,9 @@ def build_servicenow_graph():
 # A2A Server implementation
 async def handle_a2a_request(params: dict) -> dict:
     """Process a ServiceNow task via A2A protocol."""
+    # Initialize task_id for use in except block
+    task_id = "unknown"
+    
     try:
         # Extract task data from params (support both wrapped and unwrapped formats)
         task_data = params.get("task", params)  # Support both wrapped and unwrapped
@@ -162,12 +166,12 @@ async def handle_a2a_request(params: dict) -> dict:
         
         # Configure thread
         llm_config = get_llm_config()
-        config = {
-            "configurable": {
+        config = RunnableConfig(
+            configurable={
                 "thread_id": f"servicenow_{task_id}"
             },
-            "recursion_limit": llm_config.recursion_limit
-        }
+            recursion_limit=llm_config.recursion_limit
+        )
         
         # Run the graph
         final_state = await app.ainvoke(initial_state, config)

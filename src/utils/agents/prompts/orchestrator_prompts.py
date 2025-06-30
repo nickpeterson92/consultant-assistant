@@ -1,9 +1,10 @@
 """System messages and prompts for the Orchestrator agent."""
 
+from typing import Optional, Dict, Any, List
 
-def orchestrator_chatbot_sys_msg(summary: str = None, memory: dict = None, agent_context: str = None,
-                                task_context: dict = None, external_context: dict = None,
-                                agent_stats: dict = None) -> str:
+def orchestrator_chatbot_sys_msg(summary: Optional[str] = None, memory: Optional[Dict[Any, Any]] = None, agent_context: Optional[str] = None,
+                                task_context: Optional[Dict[Any, Any]] = None, external_context: Optional[Dict[Any, Any]] = None,
+                                agent_stats: Optional[Dict[Any, Any]] = None) -> str:
     """Hybrid orchestrator system message supporting both interactive and A2A modes.
     
     Args:
@@ -288,7 +289,7 @@ User: "Show me the GenePoint account"
 6. YOU ARE A BIDIRECTIONAL COPY-PASTE MACHINE - formatting is the agent's responsibility"""
 
 
-def orchestrator_summary_sys_msg(summary: str = None, memory: dict = None) -> str:
+def orchestrator_summary_sys_msg(summary: Optional[str] = None, memory: Optional[Dict[Any, Any]] = None) -> str:
     """System message for generating structured conversation summaries.
     
     Args:
@@ -335,7 +336,7 @@ Your response must start with "**Topics Discussed**:" and follow the exact forma
 
 
 def get_fallback_summary(message_count: int = 0, has_tool_calls: bool = False, 
-                        agent_names: list = None, error_count: int = 0) -> str:
+                        agent_names: Optional[List[Any]] = None, error_count: int = 0) -> str:
     """Generate a structured fallback summary when LLM fails to follow format.
     
     Args:
@@ -371,7 +372,7 @@ def get_fallback_summary(message_count: int = 0, has_tool_calls: bool = False,
 - Check agent logs for operation details"""
 
 
-def orchestrator_a2a_sys_msg(task_context: dict = None, external_context: dict = None, agent_stats: dict = None) -> str:
+def orchestrator_a2a_sys_msg(task_context: Optional[Dict[Any, Any]] = None, external_context: Optional[Dict[Any, Any]] = None, agent_stats: Optional[Dict[Any, Any]] = None) -> str:
     """System message for orchestrator in A2A mode.
     
     Args:

@@ -24,9 +24,10 @@ class OrchestratorState(TypedDict):
     background_operations: Annotated[List[str], operator.add]
     background_results: Annotated[Dict[str, Any], lambda x, y: {**x, **y}]
     interrupted_workflow: Optional[Dict[str, Any]]  # Track interrupted workflow state
+    _workflow_human_response: Optional[str]  # Human response for interrupted workflow
 
 
-def load_events_with_limit(state: dict, limit: Optional[int] = None) -> List[OrchestratorEvent]:
+def load_events_with_limit(state: Dict[str, Any], limit: Optional[int] = None) -> List[OrchestratorEvent]:
     """Load events from state with automatic limiting to prevent unbounded growth.
     
     Args:

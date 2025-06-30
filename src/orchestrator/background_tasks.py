@@ -3,7 +3,7 @@
 import asyncio
 import time
 import traceback
-from typing import Dict, Any
+from typing import Dict, Any, cast
 
 from langchain_core.messages import SystemMessage, RemoveMessage
 
@@ -28,7 +28,7 @@ async def summarize_conversation(state: OrchestratorState, invoke_llm):
     """Summarize conversation with intelligent message preservation."""
     start_time = time.time()
     messages_count = len(state.get('messages', []))
-    events = load_events_with_limit(state)
+    events = load_events_with_limit(cast(Dict[str, Any], state))
     
     summary = state.get("summary", "No summary available")
     memory_val = state.get("memory", "No memory available")
@@ -40,7 +40,7 @@ async def summarize_conversation(state: OrchestratorState, invoke_llm):
         memory_context=memory_val
     )
     
-    system_message = orchestrator_summary_sys_msg(summary, memory_val)
+    system_message = orchestrator_summary_sys_msg(summary, memory_val if isinstance(memory_val, dict) else {})
     messages = [SystemMessage(content=system_message)] + state["messages"]
     
     response = invoke_llm(messages, use_tools=False, temperature=DETERMINISTIC_TEMPERATURE, top_p=DETERMINISTIC_TOP_P)
@@ -94,7 +94,7 @@ async def summarize_conversation(state: OrchestratorState, invoke_llm):
                     agent_names.append(msg.name)
         agent_names = list(set(agent_names))
         
-        events = load_events_with_limit(state)
+        events = load_events_with_limit(cast(Dict[str, Any], state))
         error_count = sum(1 for e in events if e.event_type == EventType.ERROR)
         
         response_content = get_fallback_summary(
@@ -159,8 +159,8 @@ async def summarize_conversation(state: OrchestratorState, invoke_llm):
 async def memorize_records(state: OrchestratorState, config: Dict[str, Any], memory_store, trustcall_extractor):
     """Extract and persist structured data from conversation."""
     conv_config = get_conversation_config()
-    user_id = config["configurable"].get("user_id", conv_config.default_user_id)
-    thread_id = config["configurable"].get("thread_id")
+    user_id = config.get("configurable", {}).get("user_id", conv_config.default_user_id)
+    thread_id = config.get("configurable", {}).get("thread_id")
     namespace = (conv_config.memory_namespace_prefix, user_id)
     key = conv_config.memory_key
     

@@ -80,8 +80,8 @@ class WorkflowManager:
         return self._interrupted_workflows.get(thread_id)
     
     async def execute_workflow(self, workflow_name: str, instruction: str, 
-                             context: Dict[str, Any] = None,
-                             thread_id: str = None) -> Dict[str, Any]:
+                             context: Optional[Dict[str, Any]] = None,
+                             thread_id: Optional[str] = None) -> Dict[str, Any]:
         """Execute a workflow"""
         workflow = self.get_workflow(workflow_name)
         if not workflow:
@@ -128,7 +128,7 @@ class WorkflowManager:
             
             # Check if the workflow was interrupted
             # LangGraph's interrupt() pauses execution, we need to check the state
-            config = {"configurable": {"thread_id": thread_id}}
+            config = {"configurable": {"thread_id": thread_id or f"workflow-{workflow_name}-default"}}
             state = workflow.get_state(config)
             
             # Log the state structure for debugging
@@ -152,7 +152,7 @@ class WorkflowManager:
                                    thread_id=thread_id,
                                    has_interrupt=True)
                         # Handle the interrupt
-                        return await self._handle_interrupt(workflow, workflow_name, thread_id, None)
+                        return await self._handle_interrupt(workflow, workflow_name, thread_id or f"workflow-{workflow_name}-default", None)
             
             logger.info("workflow_execution_complete",
                        component="workflow",
@@ -163,15 +163,16 @@ class WorkflowManager:
             
             # Clean up tracking if workflow completed
             if result.get("status") != "interrupted":
-                self._interrupted_workflows.pop(thread_id, None)
+                if thread_id:
+                    self._interrupted_workflows.pop(thread_id, None)
             
             return result
         except Exception as e:
             # Check if this is a GraphInterrupt (expected for human-in-the-loop)
             if WorkflowErrorHandler.is_graph_interrupt(e):
-                return await self._handle_interrupt(workflow, workflow_name, thread_id, e)
+                return await self._handle_interrupt(workflow, workflow_name, thread_id or f"workflow-{workflow_name}-default", e)
             
-            WorkflowErrorHandler.handle_workflow_error(e, workflow_name, thread_id)
+            WorkflowErrorHandler.handle_workflow_error(e, workflow_name, thread_id or f"workflow-{workflow_name}-default")
             raise
     
     async def resume_workflow(self, workflow_name: str, human_input: str, 

@@ -33,7 +33,7 @@ class SOQLOperator(Enum):
 class SOQLCondition(BaseCondition):
     """SOQL-specific condition implementation."""
     field: str
-    operator: Union[BaseOperator, SOQLOperator]
+    operator: Union[BaseOperator, SOQLOperator]  # type: ignore[assignment]
     value: Any
     
     def to_query_string(self) -> str:
@@ -100,11 +100,11 @@ class SOQLQueryBuilder(BaseQueryBuilder['SOQLQueryBuilder']):
     
     def where_like(self, field: str, pattern: str) -> 'SOQLQueryBuilder':
         """Add WHERE LIKE condition."""
-        return self.where(field, SOQLOperator.LIKE, pattern)
+        return self.where(field, SOQLOperator.LIKE, pattern)  # type: ignore[arg-type]
     
     def where_not_like(self, field: str, pattern: str) -> 'SOQLQueryBuilder':
         """Add WHERE NOT LIKE condition."""
-        return self.where(field, SOQLOperator.NOT_LIKE, pattern)
+        return self.where(field, SOQLOperator.NOT_LIKE, pattern)  # type: ignore[arg-type]
     
     def for_update(self) -> 'SOQLQueryBuilder':
         """Add FOR UPDATE clause."""
@@ -186,7 +186,8 @@ class SOQLQueryBuilder(BaseQueryBuilder['SOQLQueryBuilder']):
         where_parts = []
         for condition in self._conditions:
             if hasattr(condition, 'to_query_string'):
-                if hasattr(condition, 'conditions'):  # ConditionGroup
+                from ..query.base_builder import ConditionGroup
+                if isinstance(condition, ConditionGroup):
                     where_parts.append(f"({condition.to_query_string(lambda c: c.to_query_string())})")
                 else:
                     where_parts.append(condition.to_query_string())
@@ -208,7 +209,11 @@ class SOQLQueryBuilder(BaseQueryBuilder['SOQLQueryBuilder']):
         having_parts = []
         for condition in self._having_conditions:
             if hasattr(condition, 'to_query_string'):
-                having_parts.append(condition.to_query_string())
+                from ..query.base_builder import ConditionGroup
+                if isinstance(condition, ConditionGroup):
+                    having_parts.append(f"({condition.to_query_string(lambda c: c.to_query_string())})")
+                else:
+                    having_parts.append(condition.to_query_string())
         having_clause = f"HAVING {' AND '.join(having_parts)}" if having_parts else ""
         
         # Build ORDER BY clause

@@ -19,7 +19,7 @@ from src.utils.logging import get_logger
 
 # Import Tavily after checking for package
 try:
-    from langchain_tavily import TavilySearch
+    from langchain_tavily import TavilySearch  # type: ignore[import-untyped]
     TAVILY_AVAILABLE = True
 except ImportError:
     TAVILY_AVAILABLE = False
@@ -197,10 +197,10 @@ class WebSearchTool(BaseUtilityTool):
         
         # Add domain filters if provided
         if kwargs.get("include_domains"):
-            params["include_domains"] = kwargs["include_domains"]
+            params["include_domains"] = kwargs.get("include_domains")
         
         if kwargs.get("exclude_domains"):
-            params["exclude_domains"] = kwargs["exclude_domains"]
+            params["exclude_domains"] = kwargs.get("exclude_domains")
         
         # Add time filter
         time_range = kwargs.get("time_range")
@@ -217,17 +217,16 @@ class WebSearchTool(BaseUtilityTool):
         
         return params
     
-    def _execute(self, 
-                query: str,
-                context_enhance: bool = True,
-                max_results: int = 5,
-                search_depth: str = "basic",
-                include_domains: Optional[List[str]] = None,
-                exclude_domains: Optional[List[str]] = None,
-                time_range: Optional[str] = None,
-                state: Annotated[Optional[Dict[str, Any]], InjectedState] = None,
-                **kwargs) -> Any:
+    def _execute(self, **kwargs) -> Any:
         """Execute the web search operation."""
+        query = kwargs.get('query', '')
+        context_enhance = kwargs.get('context_enhance', True)
+        max_results = kwargs.get('max_results', 5)
+        search_depth = kwargs.get('search_depth', "basic")
+        include_domains = kwargs.get('include_domains', None)
+        exclude_domains = kwargs.get('exclude_domains', None)
+        time_range = kwargs.get('time_range', None)
+        state = kwargs.get('state', None)
         
         # Check if Tavily is available
         if not TAVILY_AVAILABLE:

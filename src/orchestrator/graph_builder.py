@@ -94,7 +94,9 @@ def build_orchestrator_graph():
     
     graph_builder.set_finish_point("conversation")
     
-    return graph_builder.compile(checkpointer=memory, store=memory_store)
+    # Note: AsyncStoreAdapter is not a BaseStore, so we pass None for store
+    # The memory operations are handled separately through global_memory_store
+    return graph_builder.compile(checkpointer=memory, store=None)
 
 
 # Create default orchestrator graph for module export - lazy initialization to avoid circular imports

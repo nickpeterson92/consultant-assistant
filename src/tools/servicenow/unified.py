@@ -33,9 +33,12 @@ class ServiceNowGet(ServiceNowReadTool):
     
     args_schema: type = Input
     
-    def _execute(self, table_name: Optional[str] = None, sys_id: Optional[str] = None,
-                 number: Optional[str] = None, fields: Optional[List[str]] = None) -> Any:
+    def _execute(self, **kwargs) -> Any:
         """Execute the get operation."""
+        table_name = kwargs.get('table_name', None)
+        sys_id = kwargs.get('sys_id', None)
+        number = kwargs.get('number', None)
+        fields = kwargs.get('fields', None)
         # Validate inputs
         if not sys_id and not number:
             return {
@@ -134,10 +137,14 @@ class ServiceNowSearch(ServiceNowReadTool):
     
     args_schema: type = Input
     
-    def _execute(self, table_name: str, query: str, fields: Optional[List[str]] = None,
-                 limit: int = 100, order_by: Optional[str] = None, 
-                 order_desc: bool = True) -> Any:
+    def _execute(self, **kwargs) -> Any:
         """Execute the search operation with NLQ support."""
+        table_name = kwargs['table_name']
+        query = kwargs['query']
+        fields = kwargs.get('fields', None)
+        limit = kwargs.get('limit', 100)
+        order_by = kwargs.get('order_by', None)
+        order_desc = kwargs.get('order_desc', True)
         
         # Check if query is already encoded
         if self._is_encoded_query(query):
@@ -202,8 +209,10 @@ class ServiceNowCreate(ServiceNowWriteTool):
     
     args_schema: type = Input
     
-    def _execute(self, table_name: str, data: Dict[str, Any]) -> Any:
+    def _execute(self, **kwargs) -> Any:
         """Execute the create operation."""
+        table_name = kwargs['table_name']
+        data = kwargs['data']
         # Validate required fields
         self._validate_required_fields(table_name, data)
         
@@ -243,10 +252,13 @@ class ServiceNowUpdate(ServiceNowWriteTool):
     
     args_schema: type = Input
     
-    def _execute(self, table_name: str, data: Dict[str, Any],
-                 sys_id: Optional[str] = None, number: Optional[str] = None,
-                 where: Optional[str] = None) -> Any:
+    def _execute(self, **kwargs) -> Any:
         """Execute the update operation following ServiceNow best practices."""
+        table_name = kwargs['table_name']
+        data = kwargs['data']
+        sys_id = kwargs.get('sys_id', None)
+        number = kwargs.get('number', None)
+        where = kwargs.get('where', None)
         # Best practice: Use sys_id when available for direct updates
         if sys_id and not number:  # Only use sys_id if number not provided
             endpoint = f"/table/{table_name}/{sys_id}"
@@ -334,9 +346,12 @@ class ServiceNowWorkflow(ServiceNowWorkflowTool):
     
     args_schema: type = Input
     
-    def _execute(self, table_name: str, sys_id: str, action: str,
-                 data: Optional[Dict[str, Any]] = None) -> Any:
+    def _execute(self, **kwargs) -> Any:
         """Execute the workflow operation."""
+        table_name = kwargs['table_name']
+        sys_id = kwargs['sys_id']
+        action = kwargs['action']
+        data = kwargs.get('data', None)
         data = data or {}
         
         # Handle different workflow actions
@@ -441,10 +456,14 @@ class ServiceNowAnalytics(ServiceNowAnalyticsTool):
     
     args_schema: type = Input
     
-    def _execute(self, table_name: str, metric_type: str, 
-                 group_by: Optional[str] = None, conditions: Optional[str] = None,
-                 time_field: str = "sys_created_on", time_period: Optional[str] = None) -> Any:
+    def _execute(self, **kwargs) -> Any:
         """Execute the analytics operation."""
+        table_name = kwargs['table_name']
+        metric_type = kwargs['metric_type']
+        group_by = kwargs.get('group_by', None)
+        conditions = kwargs.get('conditions', None)
+        time_field = kwargs.get('time_field', "sys_created_on")
+        time_period = kwargs.get('time_period', None)
         # Build base query
         query_parts = []
         
@@ -630,21 +649,16 @@ class ServiceNowAnalytics(ServiceNowAnalyticsTool):
                 }
             }
     
-    def _breakdown_using_table_api(self, table_name: str, group_by: str, conditions: str = None) -> Dict[str, Any]:
+    def _breakdown_using_table_api(self, table_name: str, group_by: str, conditions: Optional[str] = None) -> Dict[str, Any]:
         """Fallback method to calculate breakdown using table API when stats API fails."""
         try:
             # Build query to get all distinct values for the group_by field
-            query_builder = GlideQueryBuilder(table_name)
-            
-            if conditions:
-                # Parse and apply the conditions
-                # For simplicity, we'll just pass it as encoded query
-                query_builder._query_parts.append(conditions)
+            # For this fallback method, we'll just use the encoded query directly
             
             # We need to get all records and group them manually
             # Limit to 1000 records for performance
             params = {
-                'sysparm_query': query_builder.build() if query_builder._query_parts else '',
+                'sysparm_query': conditions or '',
                 'sysparm_fields': f'{group_by},sys_id',
                 'sysparm_limit': '1000',
                 'sysparm_display_value': 'all'
@@ -655,7 +669,7 @@ class ServiceNowAnalytics(ServiceNowAnalyticsTool):
             records = data.get('result', [])
             
             # Count occurrences of each group value
-            breakdown = {}
+            breakdown: Dict[str, int] = {}
             for record in records:
                 # Handle both display value and raw value
                 if isinstance(record.get(group_by), dict):

@@ -243,21 +243,21 @@ class GlideQueryBuilder(BaseQueryBuilder['GlideQueryBuilder']):
         
         # State detection
         if 'open' in query_lower:
-            builder.where('state', GlideOperator.IN, ['1', '2', '3'])  # type: ignore[arg-type]  # New, In Progress, On Hold
+            builder.where('state', GlideOperator.IN, ['1', '2', '3'])  # New, In Progress, On Hold
         elif 'closed' in query_lower:
-            builder.where('state', GlideOperator.EQUALS, '7')  # type: ignore[arg-type]  # Closed
+            builder.where('state', GlideOperator.EQUALS, '7')  # Closed
         
         # Assignment detection
         if 'assigned to me' in query_lower:
-            builder.where('assigned_to', GlideOperator.EQUALS, 'javascript:gs.getUserID()')  # type: ignore[arg-type]
+            builder.where('assigned_to', GlideOperator.EQUALS, 'javascript:gs.getUserID()')
         elif 'unassigned' in query_lower:
             builder.is_empty('assigned_to')
         
         # Time-based queries
         if 'today' in query_lower:
-            builder.where('sys_created_on', GlideOperator.ON, 'Today@javascript:gs.beginningOfToday()@javascript:gs.endOfToday()')  # type: ignore[arg-type]
+            builder.where('sys_created_on', GlideOperator.ON, 'Today@javascript:gs.beginningOfToday()@javascript:gs.endOfToday()')
         elif 'this week' in query_lower:
-            builder.where('sys_created_on', GlideOperator.AT_OR_AFTER, 'javascript:gs.beginningOfThisWeek()')  # type: ignore[arg-type]
+            builder.where('sys_created_on', GlideOperator.AT_OR_AFTER, 'javascript:gs.beginningOfThisWeek()')
         
         # Text search
         import re

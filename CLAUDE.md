@@ -285,6 +285,13 @@ curl -X POST http://localhost:8000/a2a \
 
 ## 🏆 Design Principles
 
+### TYPE SAFETY
+- **WE DO IT HERE**
+- **Ensure** all structs have proper type definitions
+- **Ensure** all returns respect the caller's expected type
+- **Ensure** all access to fields within objects are safe
+- **Periodically** run mypy and other tooling to sniff out type safety smells
+
 ### DRY (Don't Repeat Yourself)
 - **Extract common functionality** into base classes (e.g., `BaseAgentTool`)
 - **Centralize constants** in one location (`constants.py`)
@@ -482,6 +489,23 @@ Result: Shows all matches (Express Logistics SLA, Express Logistics Inc, etc.)
 - **Root Cause**: Memory expects tuple namespace format
 - **Fix**: Use `("memory", user_id)` not `"memory"`
 - **Pattern**: Always use tuple format for namespaces
+
+### Human-in-the-Loop Workflow
+**How it works**: Workflows can pause for human decisions using LangGraph's interrupt mechanism
+- **Workflow Side**: 
+  - HUMAN step type calls `interrupt()` with context
+  - Execution pauses, returns interrupt data to orchestrator
+  - Waits for `Command(resume=human_input)` to continue
+- **Orchestrator Side**:
+  - Detects `WORKFLOW_HUMAN_INPUT_REQUIRED` in response
+  - Sets `interrupted_workflow` state with workflow details
+  - When user responds, sets `_workflow_human_response`
+  - Auto-generates workflow_agent tool call to resume
+- **Key Files**:
+  - `src/agents/workflow/compiler.py:318-370` - Human node implementation
+  - `src/orchestrator/conversation_handler.py:142-185` - Auto-resume logic
+  - `src/orchestrator/agent_caller_tools.py:1347-1417` - Interrupt handling
+- **Testing**: Use `test_workflow_human_loop.py` to verify end-to-end flow
 
 ## 🎯 Quick Task Reference
 

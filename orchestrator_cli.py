@@ -239,17 +239,28 @@ async def main():
                     
                     # Extract and display response
                     if result.get('status') == 'completed':
-                        # Check for interrupted workflow in metadata
+                        # Synchronize workflow state from server
+                        # Use .get() for safety even though metadata should always be present
                         metadata = result.get('metadata', {})
-                        if 'interrupted_workflow' in metadata:
-                            interrupted_workflow = metadata['interrupted_workflow']
-                            logger.debug(f"Workflow interrupted: {interrupted_workflow}")
+                        
+                        # interrupted_workflow is optional in metadata
+                        server_workflow_state = metadata.get('interrupted_workflow')
+                        
+                        # Update local context to match server state
+                        if server_workflow_state:
+                            # Workflow is interrupted
+                            context['interrupted_workflow'] = server_workflow_state
+                            interrupted_workflow = server_workflow_state
+                            logger.debug(f"Workflow interrupted: {server_workflow_state}")
                         else:
-                            # Clear interrupted workflow if completed
+                            # Workflow completed or not present - clear from context
+                            context.pop('interrupted_workflow', None)
                             interrupted_workflow = None
+                            logger.debug("Workflow state cleared - no interrupted workflow")
                         
                         artifacts = result.get('artifacts', [])
-                        if artifacts:
+                        if artifacts:  # Empty list is falsy
+                            # Safe to access first artifact since list is non-empty
                             response_content = artifacts[0].get('content', 'No response content')
                             formatted_response = format_markdown_for_console(response_content)
                             
@@ -283,7 +294,26 @@ async def main():
                     processing_done.set()
                     indicator_thread.join(timeout=1.0)
                     
-                    print(f"\r{GREEN}│{RESET} Error: {str(e)}")
+                    # Check if this is a timeout error (from A2A client)
+                    is_timeout = isinstance(e, asyncio.TimeoutError) or "timed out" in str(e).lower()
+                    
+                    # Clear interrupted workflow on timeout to prevent stale context
+                    if is_timeout and interrupted_workflow:
+                        logger.warning(
+                            "Clearing interrupted workflow due to timeout",
+                            component="orchestrator",
+                            operation="cli_timeout_handler",
+                            workflow_name=interrupted_workflow.get("workflow_name"),
+                            error=str(e)
+                        )
+                        interrupted_workflow = None
+                        context.pop('interrupted_workflow', None)
+                        print(f"\r{GREEN}│{RESET} Request timed out. Workflow context cleared.")
+                    elif is_timeout:
+                        print(f"\r{GREEN}│{RESET} Request timed out. Please try again.")
+                    else:
+                        print(f"\r{GREEN}│{RESET} Error: {str(e)}")
+                    
                     print(f"\n{GREEN}╰{'─' * (box_width - 2)}╯{RESET}")
                     
             except KeyboardInterrupt:

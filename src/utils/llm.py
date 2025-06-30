@@ -1,7 +1,7 @@
 """Centralized LLM utilities for the multi-agent orchestrator system"""
 
 import os
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, Callable, Dict, Any, List
 from langchain_openai import AzureChatOpenAI
 from src.utils.config import get_llm_config
 from src.utils.logging import get_logger
@@ -21,7 +21,7 @@ def create_azure_openai_chat(**kwargs) -> AzureChatOpenAI:
     llm_config = get_llm_config()
     
     # Build base configuration from global config
-    llm_kwargs = {
+    llm_kwargs: Dict[str, Any] = {
         "azure_endpoint": os.environ.get("AZURE_OPENAI_ENDPOINT"),
         "azure_deployment": llm_config.azure_deployment,
         "openai_api_version": llm_config.api_version,
@@ -39,15 +39,15 @@ def create_azure_openai_chat(**kwargs) -> AzureChatOpenAI:
     llm_kwargs.update(kwargs)
     
     # Validate required environment variables
-    if not llm_kwargs["azure_endpoint"]:
+    if not llm_kwargs.get("azure_endpoint"):
         raise ValueError("AZURE_OPENAI_ENDPOINT environment variable is required")
-    if not llm_kwargs["openai_api_key"]:
+    if not llm_kwargs.get("openai_api_key"):
         raise ValueError("AZURE_OPENAI_API_KEY environment variable is required")
     
     logger.info("creating_llm_instance",
                 deployment=llm_config.azure_deployment,
-                temperature=llm_kwargs["temperature"],
-                max_tokens=llm_kwargs["max_tokens"])
+                temperature=llm_kwargs.get("temperature", llm_config.temperature),
+                max_tokens=llm_kwargs.get("max_tokens", llm_config.max_tokens))
     
     return AzureChatOpenAI(**llm_kwargs)
 
@@ -62,7 +62,7 @@ def create_streaming_llm(**kwargs) -> AzureChatOpenAI:
         Configured AzureChatOpenAI instance with streaming enabled
     """
     # Enable streaming by default
-    streaming_kwargs = {"streaming": True}
+    streaming_kwargs: Dict[str, Any] = {"streaming": True}
     streaming_kwargs.update(kwargs)
     
     return create_azure_openai_chat(**streaming_kwargs)
@@ -80,7 +80,7 @@ def create_low_temp_llm(**kwargs) -> AzureChatOpenAI:
     Returns:
         Configured AzureChatOpenAI instance with temperature=0
     """
-    low_temp_kwargs = {"temperature": 0}
+    low_temp_kwargs: Dict[str, Any] = {"temperature": 0}
     low_temp_kwargs.update(kwargs)
     
     return create_azure_openai_chat(**low_temp_kwargs)
@@ -97,7 +97,7 @@ def create_creative_llm(**kwargs) -> AzureChatOpenAI:
     Returns:
         Configured AzureChatOpenAI instance with temperature=0.7
     """
-    creative_kwargs = {"temperature": 0.7}
+    creative_kwargs: Dict[str, Any] = {"temperature": 0.7}
     creative_kwargs.update(kwargs)
     
     return create_azure_openai_chat(**creative_kwargs)
@@ -117,7 +117,7 @@ def create_deterministic_llm(**kwargs) -> AzureChatOpenAI:
     """
     from src.utils.config import DETERMINISTIC_TEMPERATURE, DETERMINISTIC_TOP_P
     
-    deterministic_kwargs = {
+    deterministic_kwargs: Dict[str, Any] = {
         "temperature": DETERMINISTIC_TEMPERATURE,
         "top_p": DETERMINISTIC_TOP_P
     }
@@ -126,7 +126,7 @@ def create_deterministic_llm(**kwargs) -> AzureChatOpenAI:
     return create_azure_openai_chat(**deterministic_kwargs)
 
 
-def create_llm_with_tools(tools: list, **kwargs) -> AzureChatOpenAI:
+def create_llm_with_tools(tools: list, **kwargs) -> Any:
     """Create Azure OpenAI chat instance with tools bound.
     
     Args:
@@ -140,7 +140,7 @@ def create_llm_with_tools(tools: list, **kwargs) -> AzureChatOpenAI:
     return llm.bind_tools(tools)
 
 
-def create_flexible_llm(tools: Optional[list] = None) -> callable:
+def create_flexible_llm(tools: Optional[list] = None) -> Callable:
     """Create a flexible LLM invocation function like the orchestrator uses.
     
     Args:
@@ -157,7 +157,7 @@ def create_flexible_llm(tools: Optional[list] = None) -> callable:
         """Invoke LLM with optional tool binding and generation parameters."""
         if temperature is not None or top_p is not None:
             # Create a new LLM with custom parameters
-            custom_kwargs = {}
+            custom_kwargs: Dict[str, Any] = {}
             if temperature is not None:
                 custom_kwargs["temperature"] = temperature
             if top_p is not None:

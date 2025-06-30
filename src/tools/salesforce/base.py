@@ -242,31 +242,31 @@ class SalesforceReadTool(BaseSalesforceTool):
         
         # Time-based filters
         if 'today' in query_lower:
-            builder.where('CreatedDate', SOQLOperator.EQUALS, 'TODAY')
+            builder.where('CreatedDate', SOQLOperator.EQUALS, 'TODAY')  # type: ignore[arg-type]
         elif 'yesterday' in query_lower:
-            builder.where('CreatedDate', SOQLOperator.EQUALS, 'YESTERDAY')
+            builder.where('CreatedDate', SOQLOperator.EQUALS, 'YESTERDAY')  # type: ignore[arg-type]
         elif 'this week' in query_lower:
-            builder.where('CreatedDate', SOQLOperator.EQUALS, 'THIS_WEEK')
+            builder.where('CreatedDate', SOQLOperator.EQUALS, 'THIS_WEEK')  # type: ignore[arg-type]
         elif 'last week' in query_lower:
-            builder.where('CreatedDate', SOQLOperator.EQUALS, 'LAST_WEEK')
+            builder.where('CreatedDate', SOQLOperator.EQUALS, 'LAST_WEEK')  # type: ignore[arg-type]
         elif 'this month' in query_lower:
-            builder.where('CreatedDate', SOQLOperator.EQUALS, 'THIS_MONTH')
+            builder.where('CreatedDate', SOQLOperator.EQUALS, 'THIS_MONTH')  # type: ignore[arg-type]
         elif 'last month' in query_lower:
-            builder.where('CreatedDate', SOQLOperator.EQUALS, 'LAST_MONTH')
+            builder.where('CreatedDate', SOQLOperator.EQUALS, 'LAST_MONTH')  # type: ignore[arg-type]
         
         # Status filters
         if 'closed' in query_lower and object_type in ['Opportunity', 'Case']:
             if 'not closed' in query_lower or 'open' in query_lower:
-                builder.where('IsClosed', SOQLOperator.EQUALS, False)
+                builder.where('IsClosed', SOQLOperator.EQUALS, False)  # type: ignore[arg-type]
             else:
-                builder.where('IsClosed', SOQLOperator.EQUALS, True)
+                builder.where('IsClosed', SOQLOperator.EQUALS, True)  # type: ignore[arg-type]
         
         # Amount filters for Opportunity
         if object_type == 'Opportunity':
             if 'high value' in query_lower or 'over 100k' in query_lower:
-                builder.where('Amount', SOQLOperator.GREATER_THAN, 100000)
+                builder.where('Amount', SOQLOperator.GREATER_THAN, 100000)  # type: ignore[arg-type]
             elif 'over 50k' in query_lower:
-                builder.where('Amount', SOQLOperator.GREATER_THAN, 50000)
+                builder.where('Amount', SOQLOperator.GREATER_THAN, 50000)  # type: ignore[arg-type]
         
         return builder
 
@@ -320,7 +320,7 @@ class SalesforceAnalyticsTool(BaseSalesforceTool):
     
     def _build_aggregate_query(self, object_type: str, 
                              group_by: Optional[str] = None,
-                             metrics: List[str] = None) -> str:
+                             metrics: Optional[List[str]] = None) -> str:
         """Build aggregate SOQL query."""
         builder = SOQLQueryBuilder().from_object(object_type)
         

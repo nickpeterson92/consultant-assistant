@@ -4,7 +4,7 @@ import os
 import asyncio
 import argparse
 import json
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from dotenv import load_dotenv
 
@@ -32,6 +32,9 @@ class WorkflowA2AHandler:
     
     async def process_task(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Process A2A task for workflow execution"""
+        # Initialize task_id for use in except block
+        task_id = "unknown"
+        
         try:
             # Extract task data
             task_data = params.get("task", params)
@@ -92,6 +95,9 @@ class WorkflowA2AHandler:
                           instruction_preview=instruction[:100])
             
             # Execute workflow
+            # At this point, workflow_name is guaranteed to be non-None due to the check above
+            assert workflow_name is not None  # Type assertion for type checker
+            
             if is_resume:
                 # For resume, pass the human input as the instruction
                 result = await self.workflow_manager.resume_workflow(
@@ -168,7 +174,7 @@ class WorkflowA2AHandler:
                 "status": "failed"
             }
     
-    async def _select_workflow_with_llm(self, instruction: str) -> str:
+    async def _select_workflow_with_llm(self, instruction: str) -> Optional[str]:
         """Use LLM to select appropriate workflow"""
         workflows = self.workflow_manager.list_workflows()
         
@@ -216,7 +222,9 @@ Generate a comprehensive report that includes:
 Format the report in a clear, professional manner using markdown. Focus on actionable insights."""
                 
                 response = await self.llm.ainvoke([HumanMessage(content=report_prompt)])
-                return response.content
+                # Ensure we return a string
+                content = response.content
+                return str(content) if content else f"Workflow {workflow_name} completed successfully."
             else:
                 return f"Workflow {workflow_name} completed successfully."
         elif result.get("status") == "failed":

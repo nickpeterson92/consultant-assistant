@@ -44,7 +44,7 @@ def create_llm_instances(tools: List[Any]):
 def get_orchestrator_system_message(state: OrchestratorState, agent_registry) -> str:
     """Generate dynamic system message with current context."""
     summary = state.get("summary", "No summary available")
-    memory_val = state.get("memory", "No memory available")
+    memory_val = state.get("memory", {})
     active_agents = state.get("active_agents", [])
     
     registry_stats = agent_registry.get_registry_stats()

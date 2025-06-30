@@ -8,7 +8,7 @@ from .config import WORKFLOW_ROUTING_RULES
 class WorkflowRouter:
     """Routes instructions to appropriate workflows using pattern matching"""
     
-    def __init__(self, routing_rules: List[Tuple[str, str]] = None):
+    def __init__(self, routing_rules: Optional[List[Tuple[str, str]]] = None):
         """Initialize router with optional custom routing rules"""
         self.routing_rules = routing_rules or WORKFLOW_ROUTING_RULES
         # Pre-compile regex patterns for performance
