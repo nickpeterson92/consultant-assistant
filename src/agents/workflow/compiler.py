@@ -1,5 +1,6 @@
 """Workflow Compiler - Converts declarative workflow templates to LangGraph graphs"""
 
+import asyncio
 import json
 from typing import Dict, Any, Optional, Callable, Annotated
 from typing_extensions import TypedDict
@@ -452,29 +453,98 @@ class WorkflowCompiler:
                             tool_choice=step.extract_model
                         )
                         
-                        # Use the provided prompt or a generic one
-                        prompt = f"{extraction_prompt}\n\nSource data:\n{str(source_data)[:2000]}"
+                        # Use structured extraction prompt for TrustCall
+                        # Format similar to TRUSTCALL_INSTRUCTION from salesforce_prompts.py
+                        prompt = f"""Extract the following structured data from the provided information.
+
+{extraction_prompt}
+
+Return a structured {step.extract_model} object with these fields:
+"""
+                        
+                        # Add model-specific field descriptions
+                        if step.extract_model == "OnboardingDetails":
+                            prompt += """- account_id: The Salesforce Account ID (18-character string starting with 001)
+- account_name: The full account/company name
+- opportunity_id: The Salesforce Opportunity ID (18-character string starting with 006)
+- opportunity_name: The full opportunity/deal name
+
+Rules:
+1. Extract ONLY from the provided data, do not make up values
+2. Use the exact IDs and names as they appear in the source
+3. If a field is not found, leave it empty
+
+Source data:
+""" + str(source_data)
+                        else:
+                            # Generic structured extraction
+                            prompt += f"""Extract all relevant fields for {step.extract_model} from the source data.
+
+Source data:
+{source_data}"""
                         
                         try:
-                            extracted = await extractor.extract_async(prompt)
+                            # TrustCall uses invoke, not aextract
+                            result = await asyncio.to_thread(
+                                extractor.invoke,
+                                {"messages": [("human", prompt)]}
+                            )
+                            
+                            # TrustCall returns a dict with the model name as key
+                            logger.info("trustcall_raw_result",
+                                       component="workflow",
+                                       step_id=step.id,
+                                       result_type=type(result).__name__,
+                                       result_keys=list(result.keys()) if isinstance(result, dict) else None)
+                            
+                            # Extract the actual model instance
+                            # TrustCall returns {"responses": [model_instance], "response_metadata": [...]}
+                            if isinstance(result, dict) and 'responses' in result:
+                                responses = result.get('responses', [])
+                                if responses and len(responses) > 0:
+                                    extracted = responses[0]  # Get first response
+                                    logger.info("trustcall_extracted_model",
+                                               component="workflow",
+                                               step_id=step.id,
+                                               model_type=type(extracted).__name__)
+                                else:
+                                    logger.warning("trustcall_empty_responses",
+                                                 component="workflow",
+                                                 step_id=step.id)
+                                    extracted = None
+                            else:
+                                # Fallback if result structure is different
+                                logger.warning("trustcall_unexpected_format",
+                                             component="workflow",
+                                             step_id=step.id,
+                                             result_type=type(result).__name__)
+                                extracted = result
                             
                             # Flatten extracted data into simple variables
-                            if step.extract_model == "OnboardingDetails":
+                            flattened_vars = {}
+                            if step.extract_model == "OnboardingDetails" and hasattr(extracted, 'account_id'):
                                 # Flatten all fields into top-level variables
-                                state["variables"]["account_id"] = extracted.account_id
-                                state["variables"]["account_name"] = extracted.account_name
-                                state["variables"]["opportunity_id"] = extracted.opportunity_id
-                                state["variables"]["opportunity_name"] = extracted.opportunity_name
+                                flattened_vars["account_id"] = extracted.account_id
+                                flattened_vars["account_name"] = extracted.account_name
+                                flattened_vars["opportunity_id"] = extracted.opportunity_id
+                                flattened_vars["opportunity_name"] = extracted.opportunity_name
                                 
                                 # Store a summary for logging/debugging
                                 result = f"Extracted: {extracted.account_name} ({extracted.account_id})"
                             else:
                                 # Generic: flatten all fields from the model
-                                for field_name, field_value in extracted.dict().items():
-                                    if isinstance(field_value, (str, int, float, bool)):
-                                        state["variables"][field_name] = field_value
-                                
-                                result = f"Extracted {step.extract_model} successfully"
+                                if hasattr(extracted, 'dict'):
+                                    for field_name, field_value in extracted.dict().items():
+                                        if isinstance(field_value, (str, int, float, bool)):
+                                            flattened_vars[field_name] = field_value
+                                    result = f"Extracted {step.extract_model} successfully"
+                                else:
+                                    # Extraction failed, log for debugging
+                                    logger.warning("trustcall_extraction_no_model",
+                                                 component="workflow",
+                                                 step_id=step.id,
+                                                 extracted_type=type(extracted).__name__)
+                                    result = str(extracted)[:200]
                             
                             logger.info("workflow_structured_extraction_success",
                                        component="workflow",
@@ -489,9 +559,10 @@ class WorkflowCompiler:
                                          model=step.extract_model,
                                          error=str(e))
                             # Fallback to direct extraction
+                            flattened_vars = {}  # Empty for fallback
                             messages = [
                                 {"role": "system", "content": get_extraction_prompt()},
-                                {"role": "user", "content": f"{extraction_prompt}\n\nSource data:\n{str(source_data)[:2000]}"}
+                                {"role": "user", "content": f"{extraction_prompt}\n\nSource data:\n{source_data}"}
                             ]
                             response = await llm.ainvoke(messages)
                             result = response.content.strip()
@@ -502,6 +573,7 @@ class WorkflowCompiler:
                                    step_id=step.id,
                                    model=step.extract_model)
                         # Fallback to direct extraction
+                        flattened_vars = {}  # Model not found
                         messages = [
                             {"role": "system", "content": get_extraction_prompt()},
                             {"role": "user", "content": f"{extraction_prompt}\n\nSource data:\n{str(source_data)[:2000]}"}
@@ -510,6 +582,7 @@ class WorkflowCompiler:
                         result = response.content.strip()
                 else:
                     # Use direct LLM extraction
+                    flattened_vars = {}  # No structured extraction
                     messages = [
                         {"role": "system", "content": get_extraction_prompt()},
                         {"role": "user", "content": f"{extraction_prompt}\n\nSource data:\n{str(source_data)[:2000]}"}
@@ -523,6 +596,21 @@ class WorkflowCompiler:
                            step_id=step.id,
                            extracted_value=result[:100])
                 
+                # Prepare variables update - include flattened vars if extraction succeeded
+                variables_update = {
+                    f"{step.id}_result": result,
+                    "last_extract_result": result
+                }
+                
+                # Add flattened variables from structured extraction
+                if 'flattened_vars' in locals() and flattened_vars:
+                    variables_update.update(flattened_vars)
+                    logger.info("workflow_extract_flattened_vars",
+                               component="workflow",
+                               workflow_id=state["workflow_id"],
+                               step_id=step.id,
+                               flattened_vars=list(flattened_vars.keys()))
+                
                 # Store the extracted result
                 return {
                     "current_step": step.id,
@@ -530,10 +618,7 @@ class WorkflowCompiler:
                         step.id: result,
                         f"{step.id}_result": result
                     },
-                    "variables": {
-                        f"{step.id}_result": result,
-                        "last_extract_result": result
-                    },
+                    "variables": variables_update,
                     "history": [{
                         "step": step.id,
                         "action": "completed",

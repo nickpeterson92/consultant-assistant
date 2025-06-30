@@ -435,14 +435,14 @@ class WorkflowTemplates:
             name="New Customer Onboarding",
             description="Automated workflow for onboarding new customers",
             trigger={"type": "event", "event": "opportunity_closed_won"},
-            variables={"account_name": "", "opportunity_id": ""},
+            variables={},
             steps={
                 "find_account": WorkflowStep(
                     id="find_account",
                     type=StepType.ACTION,
                     name="Find account by name",
                     agent="salesforce-agent",
-                    instruction="Search for accounts with name containing '{account_name}'. Use LIKE query with wildcards. Return ALL matches with their ID, full name, and type. IMPORTANT: Clearly state how many accounts were found (e.g., 'I found 1 account' or 'I found 3 accounts').",
+                    instruction="Based on the context '{original_instruction}', search for the relevant account. Look for any company name mentioned (e.g., 'Express Logistics', 'Acme Corp', etc.). Use LIKE query with wildcards to find accounts. Return ALL matches with their ID, full name, and type. IMPORTANT: Clearly state how many accounts were found (e.g., 'I found 1 account' or 'I found 3 accounts').",
                     next_step="check_account_matches",
                     critical=True
                 ),
@@ -555,7 +555,7 @@ class WorkflowTemplates:
                     type=StepType.ACTION,
                     name="Update opportunity to Closed Won",
                     agent="salesforce-agent",
-                    instruction="Update the opportunity with ID {set_opportunity_id_result} to stage 'Closed Won' with Probability=100. Use the salesforce_update tool with object_type='Opportunity', record_id='{set_opportunity_id_result}', and fields={'StageName': 'Closed Won', 'Probability': 100}.",
+                    instruction="Update opportunity {set_opportunity_id_result} with StageName='Closed Won' and Probability=100",
                     next_step="get_opportunity_details",
                     critical=True
                 ),

@@ -83,53 +83,13 @@ class WorkflowA2AHandler:
                 "original_instruction": instruction
             }
             
-            # Check if instruction contains specific values to extract
+            # For new_customer_onboarding, let the workflow handle extraction
+            # This ensures we use actual Salesforce data, not guessed values
             if workflow_name == "new_customer_onboarding":
-                # First try to get the original user message from context
-                account_name = None
-                
-                # Look for recent messages in the orchestrator state
-                if state_snapshot and "recent_messages" in state_snapshot:
-                    messages = state_snapshot["recent_messages"]
-                    # Find the most recent human message
-                    for msg in reversed(messages):
-                        if msg.get("kwargs", {}).get("type") == "human":
-                            original_user_message = msg.get("kwargs", {}).get("content", "")
-                            logger.info("extracting_account_from_original",
-                                      component="workflow",
-                                      original_message=original_user_message[:100])
-                            # Extract account name from the original message
-                            account_name = await self._extract_parameter(
-                                original_user_message,
-                                "Extract the company or account name from this message. Look for company names like 'Express Logistics', 'Acme Corp', etc. Return ONLY the company name."
-                            )
-                            if account_name != "NONE":
-                                logger.info("extracted_account_name",
-                                          component="workflow",
-                                          account_name=account_name,
-                                          source="original_user_message")
-                            break
-                
-                # Fallback to instruction if no account found in original message
-                if not account_name or account_name == "NONE":
-                    account_name = await self._extract_parameter(
-                        instruction,
-                        "Extract the company or account name from this instruction. Return ONLY the company name."
-                    )
-                    if account_name != "NONE":
-                        logger.info("extracted_account_name",
-                                  component="workflow",
-                                  account_name=account_name,
-                                  source="instruction_fallback")
-                
-                if account_name and account_name != "NONE":
-                    workflow_context["account_name"] = account_name
-                    # Also set opportunity_name for backward compatibility
-                    workflow_context["opportunity_name"] = account_name
-                else:
-                    logger.warning("no_account_name_extracted",
-                                 component="workflow",
-                                 instruction=instruction[:100])
+                logger.info("workflow_will_extract_details",
+                          component="workflow",
+                          workflow_name=workflow_name,
+                          instruction_preview=instruction[:100])
             
             # Execute workflow
             if is_resume:

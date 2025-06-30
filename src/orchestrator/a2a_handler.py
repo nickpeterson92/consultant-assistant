@@ -155,13 +155,11 @@ class OrchestratorA2AHandler:
                     )
                 elif has_interrupted_workflow:
                     # This instruction is a response to the interrupted workflow
-                    # Don't add it as a new HumanMessage - it will be consumed by the workflow
+                    # We need to update the existing state with the workflow response
+                    # and NOT add it as a new HumanMessage
                     initial_state = {
-                        "messages": [],  # Empty - the workflow will handle the instruction
-                        "background_operations": [],
-                        "background_results": {},
-                        "interrupted_workflow": existing_state.values["interrupted_workflow"],
-                        "_workflow_human_response": instruction  # Pass instruction for workflow consumption
+                        "messages": [],  # Don't add a new message - the workflow will consume the response
+                        "_workflow_human_response": instruction  # This will trigger auto-call in conversation_handler
                     }
                     logger.info("found_interrupted_workflow_in_state",
                         component="orchestrator",

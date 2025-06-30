@@ -37,7 +37,7 @@
         }
       },
       "status": "online",
-      "last_health_check": "2025-06-29T21:18:00.455365"
+      "last_health_check": "2025-06-30T07:18:48.744003"
     },
     {
       "name": "jira-agent",
@@ -78,7 +78,7 @@
         }
       },
       "status": "online",
-      "last_health_check": "2025-06-29T21:18:00.455174"
+      "last_health_check": "2025-06-30T07:18:48.743483"
     },
     {
       "name": "servicenow-agent",
@@ -120,7 +120,7 @@
         }
       },
       "status": "online",
-      "last_health_check": "2025-06-29T21:18:00.455265"
+      "last_health_check": "2025-06-30T07:18:48.743595"
     },
     {
       "name": "workflow-agent",
@@ -194,7 +194,7 @@
         }
       },
       "status": "online",
-      "last_health_check": "2025-06-29T21:18:00.455032"
+      "last_health_check": "2025-06-30T07:18:48.743342"
     }
   ]
 }
