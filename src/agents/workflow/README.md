@@ -1,6 +1,6 @@
 # Workflow Agent
 
-The Workflow Agent is a sophisticated orchestration system that coordinates complex multi-step, multi-system operations across Salesforce, Jira, and ServiceNow. It operates as both a standalone agent and integrates seamlessly with the broader multi-agent orchestrator system.
+The Workflow Agent is a sophisticated orchestration system that coordinates complex multi-step, multi-system operations across Salesforce, Jira, and ServiceNow. It uses native LangGraph compilation for workflow execution and integrates seamlessly with the broader multi-agent orchestrator system.
 
 ## Quick Start
 
@@ -29,17 +29,17 @@ python3 workflow_agent.py --port 8004
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │   Orchestrator  │    │  Workflow Agent  │    │  Other Agents   │
 │                 │────│                  │────│ (SF/JIRA/SN)    │
-│ WorkflowTools   │    │  Engine + State  │    │                 │
+│ WorkflowTools   │    │  Compiled Graphs │    │                 │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
 ```
 
 ### Core Components
 
-- **`main.py`**: LangGraph-based agent with A2A protocol integration
-- **`engine.py`**: Workflow execution engine with state management
+- **`main.py`**: Simplified A2A handler using compiled workflows
+- **`compiler.py`**: Converts declarative templates to LangGraph graphs
+- **`workflow_manager.py`**: Manages compiled workflow graphs
 - **`models.py`**: Data models and type definitions
 - **`templates.py`**: Pre-built workflow templates
-- **`workflow_tools.py`**: Orchestrator integration tools
 
 ## Available Workflows
 
@@ -68,31 +68,40 @@ python3 workflow_agent.py --port 8004
 - **Systems**: All systems for comprehensive health metrics
 
 ### 5. New Customer Onboarding
-- **Purpose**: Automated customer setup
-- **Trigger**: Event-driven (opportunity closed won)
-- **Flow**: Get opportunity → Create case → Parallel setup → Schedule kickoff
+- **Purpose**: Automated customer setup with human-in-the-loop
+- **Trigger**: `"onboard {opportunity/customer}"`
+- **Flow**: Find opportunity → Human selection (if multiple) → Close opportunity → Create case → Parallel setup → Schedule kickoff
 - **Systems**: Salesforce → Parallel (Jira + ServiceNow + Tasks)
+- **Human Steps**: Opportunity selection when multiple matches found
 
 ## Key Features
 
-### Advanced Workflow Engine
-- **Multi-step execution**: ACTION, CONDITION, WAIT, PARALLEL, HUMAN, SWITCH, FOR_EACH
-- **Conditional branching**: Multiple condition evaluation types
-- **Parallel processing**: Concurrent step execution
-- **State persistence**: Resume workflows after interruption
-- **Error handling**: Retry logic with exponential backoff
+### Native LangGraph Compilation
+- **Direct compilation**: Declarative templates compile to LangGraph StateGraphs
+- **Built-in checkpointing**: State persistence via MemorySaver
+- **Native interrupts**: Human-in-the-loop using LangGraph's interrupt feature
+- **Efficient execution**: No intermediate execution layer
+
+### Advanced Workflow Steps
+- **ACTION**: Call another agent via A2A
+- **CONDITION**: Conditional branching with multiple operators
+- **HUMAN**: Native interrupt-based human interaction
+- **PARALLEL**: Concurrent step execution (future enhancement)
+- **WAIT**: Event-based waiting
+- **SWITCH**: Multi-way branching
+- **FOR_EACH**: Iteration over collections
 
 ### Smart Integration
-- **A2A Protocol**: Seamless agent communication
-- **Context propagation**: Maintains conversation state across agents
-- **Intelligent routing**: LLM-powered workflow selection
+- **A2A Protocol**: Direct agent communication
+- **Context propagation**: Maintains state across agent calls
+- **Intelligent routing**: Keyword and LLM-based workflow selection
 - **Real-time monitoring**: Detailed execution tracking
 
 ### Business Intelligence
 - **LLM-powered reporting**: Executive summaries and detailed analysis
-- **Risk assessment**: Automated identification of issues and blockers
+- **Compiled results**: Step results aggregated for final reporting
+- **Risk assessment**: Automated identification of issues
 - **Action items**: Specific recommendations based on findings
-- **Compliance**: Audit trail and execution history
 
 ## Configuration
 
@@ -113,10 +122,10 @@ The agent automatically registers with the orchestrator:
   "endpoint": "http://localhost:8004",
   "capabilities": [
     "Execute predefined workflow templates",
-    "Handle asynchronous workflow execution",
-    "Manage workflow state and resumption",
-    "Coordinate multi-system operations",
-    "Support human-in-the-loop workflows"
+    "Native LangGraph human-in-the-loop support",
+    "Automatic state persistence and recovery",
+    "Parallel and conditional execution",
+    "Cross-system orchestration"
   ]
 }
 ```
@@ -125,7 +134,7 @@ The agent automatically registers with the orchestrator:
 
 ### Logging
 - **Component**: `workflow` (logs to `logs/workflow.log`)
-- **Key events**: Workflow start/complete, step execution, agent calls
+- **Key events**: Workflow compilation, execution, interrupts, agent calls
 - **Metrics**: Duration, step count, success/failure rates
 
 ### Status Monitoring
@@ -134,7 +143,7 @@ The agent automatically registers with the orchestrator:
 curl http://localhost:8004/a2a/agent-card
 
 # Via orchestrator tools
-"Check workflow status for ID wf_123"
+"Check workflow status"
 "List available workflows"
 ```
 
@@ -144,27 +153,31 @@ curl http://localhost:8004/a2a/agent-card
 
 1. **Define Template** (`templates.py`):
 ```python
-CUSTOM_WORKFLOW = WorkflowDefinition(
-    id="custom_workflow",
-    name="Custom Business Process",
-    description="Description of the workflow",
-    triggers=["custom trigger phrase"],
-    steps=[
-        # Define workflow steps
-    ]
-)
+@staticmethod
+def custom_workflow() -> WorkflowDefinition:
+    return WorkflowDefinition(
+        id="custom_workflow",
+        name="Custom Business Process",
+        description="Description of the workflow",
+        trigger={"type": "manual"},
+        steps={
+            # Define workflow steps
+        }
+    )
 ```
 
-2. **Add to Templates**:
+2. **Add to Template Registry**:
 ```python
-WORKFLOW_TEMPLATES = {
-    # ... existing templates
-    "custom_workflow": CUSTOM_WORKFLOW,
-}
+@classmethod
+def get_all_templates(cls) -> Dict[str, WorkflowDefinition]:
+    return {
+        # ... existing templates
+        "custom_workflow": cls.custom_workflow(),
+    }
 ```
 
 3. **Test Execution**:
-```python
+```bash
 # Test via orchestrator
 "Execute custom business process"
 ```
@@ -179,7 +192,7 @@ WorkflowStep(
     name="Get account data",
     agent="salesforce-agent",
     instruction="Find account {account_name}",
-    on_complete="next_step"
+    next_step="process_result"
 )
 ```
 
@@ -190,42 +203,31 @@ WorkflowStep(
     type=StepType.CONDITION,
     name="Check if data found",
     condition={
-        "type": "count_greater_than",
-        "variable": "salesforce_result",
-        "value": 0
+        "operator": "exists",
+        "left": "$find_result"
     },
-    on_complete={
-        "if_true": "process_data",
-        "if_false": "handle_no_data"
-    }
+    true_next="process_data",
+    false_next="handle_no_data"
 )
 ```
 
-**PARALLEL**: Concurrent execution
+**HUMAN**: Human interaction with interrupt
 ```python
 WorkflowStep(
-    id="gather_data",
-    type=StepType.PARALLEL,
-    name="Gather data from all systems",
-    parallel_steps=["get_salesforce", "get_jira", "get_servicenow"],
-    on_complete="compile_results"
+    id="select_option",
+    type=StepType.HUMAN,
+    name="User selection required",
+    description="Please select from the options",
+    next_step="process_selection"
 )
 ```
 
-### Testing
+### Variable Substitution
 
-```bash
-# Run workflow tests
-python3 test_workflows.py
-
-# Test specific workflow
-python3 -c "
-from src.agents.workflow.engine import WorkflowEngine
-from src.agents.workflow.templates import DEAL_RISK_ASSESSMENT
-engine = WorkflowEngine()
-await engine.execute_workflow(DEAL_RISK_ASSESSMENT, {})
-"
-```
+Variables can be referenced using `{variable_name}` syntax:
+- `{opportunity_name}`: From workflow variables
+- `{find_opportunity_result}`: From step results
+- `{user_opportunity_selection}`: From human inputs
 
 ## API Reference
 
@@ -233,35 +235,35 @@ await engine.execute_workflow(DEAL_RISK_ASSESSMENT, {})
 
 - **POST `/a2a`**: Execute workflow
   - **Request**: `{"instruction": "workflow description", "context": {...}}`
-  - **Response**: Workflow execution result or status
+  - **Response**: Workflow result or interrupt request
 
 - **GET `/a2a/agent-card`**: Get agent capabilities
   - **Response**: Agent metadata and available workflows
 
 ### Integration with Orchestrator
 
-The workflow agent integrates via three orchestrator tools:
+The workflow agent integrates via orchestrator tools:
 
-1. **WorkflowExecutionTool**: Intelligent workflow routing and execution
-2. **WorkflowStatusTool**: Monitor running workflows by ID
+1. **WorkflowExecutionTool**: Smart workflow routing and execution
+2. **WorkflowStatusTool**: Monitor workflow status
 3. **WorkflowListTool**: Discover available workflow templates
 
 ## Security and Best Practices
 
 ### State Management
-- **Persistence**: All workflow state stored in SQLite with encryption
-- **Isolation**: Each workflow instance runs in isolated context
-- **Cleanup**: Automatic cleanup of completed workflows after 30 days
+- **LangGraph Checkpointing**: Built-in state persistence
+- **Thread Isolation**: Each workflow runs in separate thread
+- **Automatic Recovery**: Resume from interrupts seamlessly
 
 ### Error Handling
-- **Retry Logic**: Exponential backoff for transient failures
-- **Circuit Breaker**: Protection against cascading failures
-- **Graceful Degradation**: Partial execution with clear error reporting
+- **GraphInterrupt**: Properly handled for human-in-the-loop
+- **Critical Steps**: Marked steps that must succeed
+- **Graceful Degradation**: Non-critical failures logged but continue
 
 ### Performance
-- **Concurrent Execution**: Parallel steps for independent operations
-- **Resource Limits**: Maximum execution time and step count per workflow
-- **Memory Management**: Efficient state serialization and cleanup
+- **Pre-compilation**: All workflows compiled at startup
+- **Efficient State**: Minimal state updates between steps
+- **Direct Execution**: No intermediate execution layers
 
 ## Troubleshooting
 
@@ -272,42 +274,58 @@ The workflow agent integrates via three orchestrator tools:
 # Check agent health
 curl http://localhost:8004/a2a/agent-card
 
-# Check logs
-tail -f logs/workflow.log
+# Check compilation logs
+tail -f logs/workflow.log | grep "compiling_workflow"
+```
+
+**Human Input Not Working**
+```bash
+# Check for GraphInterrupt handling
+tail -f logs/workflow.log | grep "interrupted"
+
+# Verify thread state
+tail -f logs/workflow.log | grep "thread_id"
 ```
 
 **Agent Communication Failures**
 ```bash
-# Verify agent registry
-curl http://localhost:8000/agent-status
+# Check A2A calls
+tail -f logs/workflow.log | grep "agent_call"
 
-# Check A2A protocol logs
+# Verify agent ports
 tail -f logs/a2a_protocol.log
-```
-
-**State Persistence Issues**
-```bash
-# Check SQLite database
-sqlite3 memory_store.db "SELECT * FROM store WHERE namespace LIKE 'workflow%'"
-
-# Check storage logs
-tail -f logs/storage.log
 ```
 
 ### Debug Mode
 
-```python
-# Enable detailed logging
-import logging
-logging.getLogger('workflow').setLevel(logging.DEBUG)
+```bash
+# Enable debug logging
+export DEBUG_MODE=true
 
-# Run with debug output
-python3 workflow_agent.py --port 8004 --debug
+# Watch workflow execution
+tail -f logs/workflow.log | jq -r '[.timestamp,.step_id,.message] | @csv'
 ```
+
+## Architecture Benefits
+
+### Why Compiler-Based Approach?
+
+1. **Native LangGraph**: Uses LangGraph as designed, not building on top
+2. **Declarative Templates**: Easy to understand and modify workflows
+3. **Type Safety**: Compile-time validation of workflow structure
+4. **Performance**: Pre-compiled graphs execute efficiently
+5. **Maintainability**: Clear separation of definition and execution
+
+### Future Enhancements
+
+- True parallel execution in PARALLEL steps
+- Dynamic workflow generation from natural language
+- Workflow versioning and migration
+- Visual workflow designer integration
+- Advanced condition evaluation with expressions
 
 ## Related Documentation
 
-- [Workflow Engine Architecture](../../docs/components/workflow-engine.md)
-- [Workflow Templates Guide](../../docs/guides/workflow-templates.md)
+- [LangGraph Documentation](https://langchain-ai.github.io/langgraph/)
 - [A2A Protocol Specification](../../docs/protocols/a2a-protocol.md)
 - [Multi-Agent Architecture](../../docs/architecture/multi-agent-architecture.md)

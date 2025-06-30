@@ -34,14 +34,14 @@ RESET = '\033[0m'
 
 async def initialize_orchestrator():
     """Initialize orchestrator and discover available agents."""
-    logger.info("Initializing Consultant Assistant Orchestrator...")
+    logger.info("Initializing Consultant Assistant Orchestrator...", component="orchestrator")
     
     agent_registry = get_agent_registry()
     
     # Clear any existing conversation summaries for fresh start
     try:
         memory_store = get_global_memory_store()
-        logger.info("Initialized without clearing summaries - thread-specific summaries preserved")
+        logger.info("Initialized without clearing summaries - thread-specific summaries preserved", component="orchestrator")
     except Exception as e:
         logger.warning("summary_clear_failed",
             component="system",
@@ -50,7 +50,7 @@ async def initialize_orchestrator():
             error_type=type(e).__name__
         )
     
-    logger.info("Checking agent health...")
+    logger.info("Checking agent health...", component="orchestrator")
     health_results = await agent_registry.health_check_all_agents()
     
     online_agents = [name for name, status in health_results.items() if status]
@@ -73,7 +73,7 @@ async def initialize_orchestrator():
     
     # Attempt auto-discovery if no agents registered
     if not agent_registry.list_agents():
-        logger.info("No agents registered, attempting auto-discovery...")
+        logger.info("No agents registered, attempting auto-discovery...", component="orchestrator")
         discovery_endpoints = [
             f"http://{LOCALHOST}:{SALESFORCE_AGENT_PORT}",  # Salesforce agent
             f"http://{LOCALHOST}:8002",  # Jira agent
@@ -88,9 +88,9 @@ async def initialize_orchestrator():
                 count=discovered
             )
         else:
-            logger.warning("No agents discovered - you may need to start specialized agents manually")
+            logger.warning("No agents discovered - you may need to start specialized agents manually", component="orchestrator")
     
-    logger.info("Orchestrator initialization complete")
+    logger.info("Orchestrator initialization complete", component="orchestrator")
 
 
 async def handle_command(command: str, command_parts: list, current_thread_id: str, 

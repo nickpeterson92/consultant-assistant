@@ -32,7 +32,7 @@ from .text_effects import (
 
 # Import animations
 from .animations import (
-    animated_banner_display, display_capabilities_banner
+    animated_banner_display, display_capabilities_banner, display_static_banner
 )
 
 # Import categorized banner
@@ -66,7 +66,7 @@ __all__ = [
     'type_out', 'type_out_sync', 'instant_print', 'StreamingContext',
     
     # Animations
-    'animated_banner_display', 'display_capabilities_banner',
+    'animated_banner_display', 'display_capabilities_banner', 'display_static_banner',
     'display_categorized_capabilities_banner',
     
     # Tables

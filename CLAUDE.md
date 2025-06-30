@@ -27,18 +27,21 @@ SALESFORCE AGENT + JIRA AGENT + SERVICE NOW AGENT + WORKFLOW AGENT
 ## 🚀 Quick Start
 
 ```bash
-# Complete system startup
+# Complete system startup (traditional CLI mode)
 python3 start_system.py
 
-# Debug mode
-python3 start_system.py
+# Complete system with A2A orchestrator + CLI client (RECOMMENDED for workflows)
+python3 start_system.py --a2a  # Terminal 1: Start all agents + orchestrator in A2A mode
+python3 orchestrator_cli.py    # Terminal 2: Chat interface with same look & feel
 
 # Individual components (dev only)
 python3 salesforce_agent.py --port 8001
 python3 jira_agent.py --port 8002
 python3 servicenow_agent.py --port 8003
 python3 workflow_agent.py --port 8004
-python3 orchestrator.py
+python3 orchestrator.py  # Interactive CLI mode (standalone)
+python3 orchestrator.py --a2a --port 8000  # A2A network mode
+python3 orchestrator_cli.py  # CLI client for A2A orchestrator
 ```
 
 ### Environment Setup (.env)
@@ -65,6 +68,7 @@ LLM_RECURSION_LIMIT=15
 
 ```
 ├── orchestrator.py              # Main entry
+├── orchestrator_cli.py          # CLI client for A2A orchestrator
 ├── salesforce_agent.py          # SF agent entry
 ├── jira_agent.py               # Jira agent entry
 ├── servicenow_agent.py         # ServiceNow agent entry
@@ -122,7 +126,8 @@ LLM_RECURSION_LIMIT=15
 │       │       └── glide_builder.py # Glide query builder
 │       └── helpers.py          # General utilities
 ├── memory_store.db             # SQLite storage
-└── logs/                       # JSON logs by component
+├── logs/                       # JSON logs by component
+└── test_orchestrator_a2a.py    # A2A interface test script
 ```
 
 ## 🛠️ Core Tools
@@ -198,7 +203,14 @@ CREATE TABLE store (
 - **Circuit Breaker**: 5 failures threshold, 60s timeout
 - **Retry**: 3 attempts with exponential backoff
 
-## 🔄 Workflow Agent
+### 🔄 Workflow Agent
+
+### Why A2A Mode for Workflows?
+Running the orchestrator in A2A mode (`python3 start_system.py --a2a`) provides better workflow orchestration:
+- **Cleaner architecture**: Separates UI from orchestration logic
+- **Better concurrency**: Handles complex multi-step workflows more reliably
+- **Network-native**: Agents communicate via proper A2A protocol instead of callbacks
+- **Same UI experience**: `orchestrator_cli.py` provides identical interface
 
 ### Available Workflows (5 templates)
 - **deal_risk_assessment**: Find at-risk opportunities + blockers across systems
@@ -224,6 +236,7 @@ CREATE TABLE store (
 
 ## 🎯 Usage Examples
 
+### Interactive CLI Mode
 ```bash
 # Account operations
 "get the Genepoint account"
@@ -240,6 +253,34 @@ CREATE TABLE store (
 # System admin
 "check agent status"
 "list available agents"
+```
+
+### A2A Mode (Network Interface)
+```bash
+# Start orchestrator with A2A interface
+python3 orchestrator.py --a2a --port 8000
+
+# Or start entire system with A2A mode
+python3 start_system.py --a2a --orchestrator-port 8000
+
+# Test A2A interface
+python3 test_orchestrator_a2a.py
+
+# Call orchestrator from another agent/system
+curl -X POST http://localhost:8000/a2a \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "process_task",
+    "params": {
+      "task": {
+        "id": "test-001",
+        "instruction": "Get the GenePoint account from Salesforce",
+        "context": {}
+      }
+    },
+    "id": "test-001"
+  }'
 ```
 
 ## 🏆 Design Principles
@@ -415,6 +456,14 @@ Result: Shows all matches (Express Logistics SLA, Express Logistics Inc, etc.)
 - **Root Cause**: Inconsistent parameter handling between agents
 - **Fix**: Add fallback: `task_data = params.get("task", params)`
 - **Location**: `src/agents/servicenow/main.py:137`
+
+### Orchestrator A2A Mode vs Interactive Mode
+**Problem**: Using A2A protocol for interactive CLI but getting single-task behavior
+- **Root Cause**: A2A system message was designed for single-task operations, not conversations
+- **Solution**: A2A handler checks `context.source == "cli_client"` to determine mode
+- **Interactive CLI**: Uses regular orchestrator system message for full conversational features
+- **True A2A calls**: Uses A2A system message for focused, single-task execution
+- **Key**: The CLI client sets `"source": "cli_client"` in the context to trigger interactive mode
 
 ### Environment Variable Escaping
 **Problem**: Passwords with special characters (`!$@#`) causing authentication failures

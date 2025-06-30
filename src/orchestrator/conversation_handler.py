@@ -1,6 +1,8 @@
 """Conversation handling logic for the orchestrator."""
 
 import asyncio
+import json
+import uuid
 
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_core.runnables import RunnableConfig
@@ -135,8 +137,91 @@ async def orchestrator(
                                 summary_length=len(summary) if summary else 0,
                                 summary_preview=summary[:200] if summary else "NO_SUMMARY")
         
+        # Check if there's an interrupted workflow that needs the user's response
+        interrupted_workflow = state.get("interrupted_workflow")
+        workflow_human_response = state.get("_workflow_human_response")
+        
+        # If we have both, we need to automatically call workflow_agent
+        if interrupted_workflow and workflow_human_response:
+            logger.info("auto_calling_workflow_for_interrupted_response",
+                component="orchestrator",
+                operation="conversation_node",
+                workflow_name=interrupted_workflow.get("workflow_name"),
+                thread_id=interrupted_workflow.get("thread_id"),
+                human_response_preview=workflow_human_response[:50] if workflow_human_response else ""
+            )
+            
+            # Create a properly formatted tool call following LangChain standards
+            tool_call_id = f"call_{uuid.uuid4().hex[:24]}"
+            
+            # Create AI message with tool call using dict format (as expected by execute_command_tools)
+            ai_msg = AIMessage(
+                content="",  # Empty content as per LangChain standards when using tools
+                tool_calls=[{
+                    "name": "workflow_agent",
+                    "args": {"instruction": workflow_human_response},
+                    "id": tool_call_id
+                }]
+            )
+            
+            # Log the auto-generated tool call
+            logger.info("auto_tool_call_created",
+                component="orchestrator", 
+                tool_name="workflow_agent",
+                tool_call_id=tool_call_id,
+                tool_args={"instruction": workflow_human_response[:100]},
+                event_count=len(state.get("events", [])) + 1
+            )
+            
+            # Clear the human response flag after using it
+            updated_state = {
+                "messages": [ai_msg],
+                "events": state.get("events", []),
+                "_workflow_human_response": None
+            }
+            
+            # Return early with this tool call
+            return updated_state
+        
         system_message = get_orchestrator_system_message(state, agent_registry)
-        messages = [SystemMessage(content=system_message)] + state["messages"]
+        
+        # Get all messages from state
+        state_messages = state.get("messages", [])
+        
+        # Check if we need to trim messages for LLM context window
+        conv_config = get_conversation_config()
+        if len(state_messages) > conv_config.max_conversation_length:
+            logger.info("message_trimming_for_llm",
+                component="orchestrator",
+                operation="trim_for_llm_context",
+                total_messages=len(state_messages),
+                max_allowed=conv_config.max_conversation_length,
+                thread_id=config["configurable"].get("thread_id", "default")
+            )
+            
+            # Import trimming utility
+            from src.utils.agents.message_processing import trim_messages_for_context
+            
+            # Trim messages ONLY for LLM call, not in state
+            llm_messages = trim_messages_for_context(
+                state_messages,
+                max_tokens=100000,  # Conservative token limit
+                keep_system=False,  # System message is added separately
+                keep_first_n=5,     # Keep first few messages for context
+                keep_last_n=conv_config.max_conversation_length - 10  # Keep most recent
+            )
+            
+            logger.info("message_trimming_complete",
+                component="orchestrator",
+                operation="trim_for_llm_context",
+                trimmed_count=len(llm_messages),
+                thread_id=config["configurable"].get("thread_id", "default")
+            )
+        else:
+            # Use all messages if under limit
+            llm_messages = state_messages
+        
+        messages = [SystemMessage(content=system_message)] + llm_messages
         
         logger.info("llm_invocation_start",
             component="orchestrator",
@@ -194,33 +279,68 @@ async def orchestrator(
                                     kept_events=max_events,
                                     trimmed_events=len(events) - max_events)
         
-        updated_state = {
+        # Preserve all existing state fields and only update specific ones
+        updated_state = state.copy()
+        updated_state.update({
             "messages": response,
             "memory": existing_memory,
             "events": event_dicts
-        }
+        })
         
         if "summary" not in state or not state.get("summary"):
             updated_state["summary"] = "No summary available"
             logger.info("summary_initialized", component="orchestrator", operation="setting_default_summary")
         
+        # Check if we need to clear completed workflow state
+        # This happens when workflow agent returns a completion (handled by tool)
+        if "interrupted_workflow" in state and state.get("interrupted_workflow") is None:
+            # Workflow was explicitly cleared by the tool, preserve this
+            updated_state["interrupted_workflow"] = None
+            logger.info("workflow_state_cleared",
+                component="orchestrator",
+                operation="clear_completed_workflow",
+                reason="workflow_completed"
+            )
+        elif "interrupted_workflow" in state:
+            # Preserve existing interrupted workflow state if not explicitly cleared
+            updated_state["interrupted_workflow"] = state["interrupted_workflow"]
+        
         # Check for background task triggers
         conv_config = get_conversation_config()
         
-        # Check summary trigger
-        if EventAnalyzer.should_trigger_summary(events, 
+        # Check summary trigger based on total message count OR event-based triggers
+        total_messages = len(state.get("messages", []))
+        should_trigger_by_count = total_messages >= conv_config.summary_threshold
+        should_trigger_by_events = EventAnalyzer.should_trigger_summary(events, 
                                                user_message_threshold=SUMMARY_USER_MESSAGE_THRESHOLD,
-                                               time_threshold_seconds=SUMMARY_TIME_THRESHOLD_SECONDS):
+                                               time_threshold_seconds=SUMMARY_TIME_THRESHOLD_SECONDS)
+        
+        if should_trigger_by_count or should_trigger_by_events:
+            
+            # Determine trigger reason
+            if should_trigger_by_count and should_trigger_by_events:
+                trigger_reason = f"Message count ({total_messages}) exceeded threshold ({conv_config.summary_threshold}) and event-based triggers"
+            elif should_trigger_by_count:
+                trigger_reason = f"Message count ({total_messages}) reached threshold ({conv_config.summary_threshold})"
+            else:
+                trigger_reason = "Event-based triggers (user messages or time threshold)"
             
             summary_event = create_summary_triggered_event(
                 msg_count,
-                "Threshold reached based on user messages or time"
+                trigger_reason
             )
             events.append(summary_event)
             event_dicts.append(summary_event.to_dict())
             
-            logger.info("summary_trigger", component="orchestrator", message_count=len(state["messages"]), 
-                                    event_count=len(events))
+            logger.info("summary_trigger", 
+                component="orchestrator", 
+                operation="summary_triggered",
+                total_message_count=total_messages,
+                summary_threshold=conv_config.summary_threshold,
+                triggered_by_count=should_trigger_by_count,
+                triggered_by_events=should_trigger_by_events,
+                trigger_reason=trigger_reason,
+                event_count=len(events))
             
             user_id = config["configurable"].get("user_id", "default")
             thread_id = config["configurable"].get("thread_id", "default")

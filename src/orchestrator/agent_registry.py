@@ -77,7 +77,8 @@ class AgentRegistry:
                         name=agent_config["name"],
                         endpoint=agent_config["endpoint"],
                         agent_card=agent_card,
-                        status=agent_config.get("status", "unknown")
+                        status=agent_config.get("status", "unknown"),
+                        last_health_check=agent_config.get("last_health_check")
                     )
                     self.agents[agent_config["name"]] = registered_agent
                     
@@ -171,7 +172,7 @@ class AgentRegistry:
             agent.status = status
             agent.last_health_check = datetime.now().isoformat()
             logger.info(f"Updated agent {name} status to {status}")
-            self.save_config()
+            # Don't save config here - let caller decide when to persist
     
     def get_agent(self, name: str) -> Optional[RegisteredAgent]:
         """Get a registered agent by name"""
@@ -273,7 +274,7 @@ class AgentRegistry:
                 
                 agent.agent_card = agent_card
                 agent.status = "online"
-                agent.last_health_check = asyncio.get_event_loop().time()
+                agent.last_health_check = datetime.now().isoformat()
                 
                 elapsed = asyncio.get_event_loop().time() - start_time
                 logger.info("health_check_success",
