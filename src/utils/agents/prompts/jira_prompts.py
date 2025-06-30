@@ -1,7 +1,8 @@
 """System messages and prompts for the Jira agent."""
 
+from typing import Optional, Dict, Any
 
-def jira_agent_sys_msg(task_context: dict = None, external_context: dict = None) -> str:
+def jira_agent_sys_msg(task_context: Optional[Dict[Any, Any]] = None, external_context: Optional[Dict[Any, Any]] = None) -> str:
     """System message for Jira issue tracking specialist agent.
     
     Args:

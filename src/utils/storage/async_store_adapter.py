@@ -22,7 +22,7 @@ logger = get_logger()
 class AsyncStoreAdapter:
     """Simple async adapter for SQLiteStore using thread pool executor."""
     
-    def __init__(self, db_path: str = None, max_workers: int = None):
+    def __init__(self, db_path: Optional[str] = None, max_workers: Optional[int] = None):
         from ..config import get_database_config
         db_config = get_database_config()
         
@@ -49,6 +49,17 @@ class AsyncStoreAdapter:
                 db_path=self.db_path
             )
         return self._thread_local.store
+    
+    def _list_keys_sync(self, namespace: Tuple[str, ...]) -> List[str]:
+        """List all keys in a namespace synchronously."""
+        store = self._get_store()
+        # Since SQLiteStore doesn't have a list method, we'll return empty list
+        # This is a limitation that should be addressed in SQLiteStore
+        logger.warning("list_keys_not_implemented", 
+                      component="storage",
+                      operation="list_keys",
+                      namespace=namespace)
+        return []
     
     async def get(self, namespace: Tuple[str, ...], key: str) -> Optional[Any]:
         """Get a value from the store asynchronously."""
@@ -177,7 +188,7 @@ class AsyncStoreAdapter:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
             self._executor,
-            lambda: self._get_store().list(namespace)
+            self._list_keys_sync, namespace
         )
     
     async def batch_get(self, requests: List[Tuple[Tuple[str, ...], str]]) -> List[Optional[Any]]:

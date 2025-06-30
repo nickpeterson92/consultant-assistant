@@ -3,6 +3,7 @@
 import asyncio
 import json
 import uuid
+from typing import Dict, Any, cast
 
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_core.runnables import RunnableConfig
@@ -48,7 +49,7 @@ async def orchestrator(
         msg_count = len(state.get('messages', []))
         last_msg = state.get('messages', [])[-1] if state.get('messages') else None
         
-        events = load_events_with_limit(state)
+        events = load_events_with_limit(cast(Dict[str, Any], state))
         
         logger.info("orchestrator_state_entry",
             component="orchestrator",
@@ -56,7 +57,7 @@ async def orchestrator(
             message_count=msg_count,
             has_summary=bool(state.get('summary')),
             has_memory=bool(state.get('memory')),
-            thread_id=config["configurable"].get("thread_id", "default")
+            thread_id=config.get("configurable", {}).get("thread_id", "default")
         )
         
         # Log message types
@@ -76,7 +77,7 @@ async def orchestrator(
                                          event_count=len(events))
                     
         # Load persistent memory
-        user_id = config["configurable"].get("user_id", "default")
+        user_id = config.get("configurable", {}).get("user_id", "default")
         namespace = (MEMORY_NAMESPACE_PREFIX, user_id)
         key = SIMPLE_MEMORY_KEY
         
@@ -116,8 +117,8 @@ async def orchestrator(
         summary = state.get(SUMMARY_KEY, NO_SUMMARY_TEXT)
         if summary == NO_SUMMARY_TEXT:
             conv_config = get_conversation_config()
-            user_id = config["configurable"].get("user_id", conv_config.default_user_id)
-            thread_id = config["configurable"].get("thread_id", conv_config.default_thread_id)
+            user_id = config.get("configurable", {}).get("user_id", conv_config.default_user_id)
+            thread_id = config.get("configurable", {}).get("thread_id", conv_config.default_thread_id)
             namespace = (conv_config.memory_namespace_prefix, user_id)
             key = f"summary_{thread_id}"
             
@@ -134,8 +135,8 @@ async def orchestrator(
         
         logger.info("summary_state_check", component="orchestrator", operation="conversation_node_entry",
                                 has_summary=bool(summary and summary != "No summary available"),
-                                summary_length=len(summary) if summary else 0,
-                                summary_preview=summary[:200] if summary else "NO_SUMMARY")
+                                summary_length=len(str(summary)) if summary else 0,
+                                summary_preview=str(summary)[:200] if summary else "NO_SUMMARY")
         
         # Check if there's an interrupted workflow that needs the user's response
         interrupted_workflow = state.get("interrupted_workflow")
@@ -148,7 +149,7 @@ async def orchestrator(
                 operation="conversation_node",
                 workflow_name=interrupted_workflow.get("workflow_name"),
                 thread_id=interrupted_workflow.get("thread_id"),
-                human_response_preview=workflow_human_response[:50] if workflow_human_response else ""
+                human_response_preview=str(workflow_human_response)[:50] if workflow_human_response else ""
             )
             
             # Create a properly formatted tool call following LangChain standards
@@ -169,7 +170,7 @@ async def orchestrator(
                 component="orchestrator", 
                 tool_name="workflow_agent",
                 tool_call_id=tool_call_id,
-                tool_args={"instruction": workflow_human_response[:100]},
+                tool_args={"instruction": str(workflow_human_response)[:100]},
                 event_count=len(state.get("events", [])) + 1
             )
             
@@ -196,7 +197,7 @@ async def orchestrator(
                 operation="trim_for_llm_context",
                 total_messages=len(state_messages),
                 max_allowed=conv_config.max_conversation_length,
-                thread_id=config["configurable"].get("thread_id", "default")
+                thread_id=config.get("configurable", {}).get("thread_id", "default")
             )
             
             # Import trimming utility
@@ -215,7 +216,7 @@ async def orchestrator(
                 component="orchestrator",
                 operation="trim_for_llm_context",
                 trimmed_count=len(llm_messages),
-                thread_id=config["configurable"].get("thread_id", "default")
+                thread_id=config.get("configurable", {}).get("thread_id", "default")
             )
         else:
             # Use all messages if under limit
@@ -280,7 +281,7 @@ async def orchestrator(
                                     trimmed_events=len(events) - max_events)
         
         # Preserve all existing state fields and only update specific ones
-        updated_state = state.copy()
+        updated_state = dict(state)
         updated_state.update({
             "messages": response,
             "memory": existing_memory,
@@ -342,8 +343,8 @@ async def orchestrator(
                 trigger_reason=trigger_reason,
                 event_count=len(events))
             
-            user_id = config["configurable"].get("user_id", "default")
-            thread_id = config["configurable"].get("thread_id", "default")
+            user_id = config.get("configurable", {}).get("user_id", "default")
+            thread_id = config.get("configurable", {}).get("thread_id", "default")
             
             asyncio.create_task(
                 _run_background_summary_async(
@@ -373,7 +374,7 @@ async def orchestrator(
             logger.info("memory_trigger", component="orchestrator", event_count=len(events),
                                     message_count=len(state["messages"]))
             
-            user_id = config["configurable"].get("user_id", "default")
+            user_id = config.get("configurable", {}).get("user_id", "default")
             
             # Create new store instance for async context
             async_memory_store = get_async_store_adapter(

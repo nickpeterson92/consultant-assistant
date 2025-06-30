@@ -2,7 +2,7 @@
 
 import os
 import logging
-from typing import Dict, Any, List, TypedDict, Annotated
+from typing import Dict, Any, List, TypedDict, Annotated, Optional
 import operator
 from dotenv import load_dotenv
 
@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_openai import AzureChatOpenAI
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode, tools_condition
@@ -36,7 +37,7 @@ class JiraAgentState(TypedDict):
     task_context: Dict[str, Any]
     external_context: Dict[str, Any]
 
-def get_jira_system_message(task_context: dict = None, external_context: dict = None) -> str:
+def get_jira_system_message(task_context: Optional[Dict[Any, Any]] = None, external_context: Optional[Dict[Any, Any]] = None) -> str:
     """Generate the system message that defines the Jira agent's behavior and capabilities.
     
     Args:
@@ -187,6 +188,9 @@ async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
             - artifacts: Response data including issue keys
             - metadata: Agent name, tools used, timestamp
     """
+    # Initialize task_id for use in except block
+    task_id = "unknown"
+    
     try:
         # Extract task data from params (following Salesforce pattern)
         task_data = params.get("task", {})
@@ -227,10 +231,10 @@ async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
         
         # Run the agent
         llm_config = get_llm_config()
-        config = {
-            "configurable": {"thread_id": task_id},
-            "recursion_limit": llm_config.recursion_limit
-        }
+        config = RunnableConfig(
+            configurable={"thread_id": task_id},
+            recursion_limit=llm_config.recursion_limit
+        )
         result = await jira_agent.ainvoke(initial_state, config)
         
         # Log agent invocation complete
@@ -349,12 +353,13 @@ def get_agent_card() -> Dict[str, Any]:
             "health": "/health",
             "agent_card": "/a2a/agent-card"
         },
+        communication_modes=["a2a", "async"],
         metadata={
             "tools_count": len(jira_tools),
             "tool_names": [tool.name for tool in jira_tools]
         }
     )
-    return card.model_dump()
+    return card.to_dict()
 
 async def main():
     """Main entry point for Jira agent."""

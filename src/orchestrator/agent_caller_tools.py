@@ -162,7 +162,10 @@ class SalesforceAgentTool(BaseAgentTool):
     # See: https://github.com/langchain-ai/langgraph/issues/2220
     
     def __init__(self, registry: AgentRegistry):
-        super().__init__(metadata={"registry": registry})
+        # Access field defaults through Pydantic's model_fields
+        name = self.__class__.model_fields['name'].default
+        description = self.__class__.model_fields['description'].default
+        super().__init__(name=name, description=description, metadata={"registry": registry})
     
     
     def _extract_conversation_context(self, state: Optional[Dict[str, Any]], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -226,7 +229,10 @@ class SalesforceAgentTool(BaseAgentTool):
         Returns:
             Agent instance or None if not found
         """
-        registry = self.metadata["registry"]
+        if self.metadata and "registry" in self.metadata:
+            registry = self.metadata["registry"]
+        else:
+            return None
         agent = registry.find_agents_by_capability("salesforce_operations")
         
         if not agent:
@@ -239,7 +245,7 @@ class SalesforceAgentTool(BaseAgentTool):
         
         return agent
     
-    def _create_error_command(self, error_message: str, tool_call_id: Optional[str] = None):
+    def _create_error_command(self, error_message: str, tool_call_id: Optional[str] = None) -> Command:
         """Create a standardized error Command response.
         
         Args:
@@ -247,7 +253,7 @@ class SalesforceAgentTool(BaseAgentTool):
             tool_call_id: Optional tool call identifier for response tracking
             
         Returns:
-            Command object with error message or plain error string
+            Command object with error message
         """
         if tool_call_id:
             return Command(
@@ -259,8 +265,13 @@ class SalesforceAgentTool(BaseAgentTool):
                 }
             )
         else:
-            # Return plain error message when no tool_call_id
-            return error_message
+            # Return Command with error message when no tool_call_id
+            from langchain_core.messages import AIMessage
+            return Command(
+                update={
+                    "messages": [AIMessage(content=error_message)]
+                }
+            )
     
     def _extract_response_content(self, result: Dict[str, Any]) -> str:
         """Extract response content from A2A result.
@@ -319,20 +330,20 @@ class SalesforceAgentTool(BaseAgentTool):
         else:
             return response_content
     
-    def _run(self, instruction: str, context: Optional[Dict[str, Any]] = None, 
-            state: Annotated[Dict[str, Any], InjectedState] = None, **kwargs) -> Union[str, Command]:
+    def _run(self, instruction: str, state: Annotated[Dict[str, Any], InjectedState], 
+            context: Optional[Dict[str, Any]] = None, **kwargs) -> Union[str, Command]:
         """Synchronous wrapper for async execution."""
         import asyncio
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
             return loop.run_until_complete(
-                self._arun(instruction, context, state, **kwargs)
+                self._arun(instruction, state, context, **kwargs)
             )
         finally:
             loop.close()
     
-    async def _arun(self, instruction: str, context: Optional[Dict[str, Any]] = None, state: Annotated[Dict[str, Any], InjectedState] = None, **kwargs) -> Command:
+    async def _arun(self, instruction: str, state: Annotated[Dict[str, Any], InjectedState], context: Optional[Dict[str, Any]] = None, **kwargs) -> Command:
         """Execute the Salesforce agent call using Command pattern.
         
         This method orchestrates the entire flow but delegates specific responsibilities
@@ -441,8 +452,16 @@ class SalesforceAgentTool(BaseAgentTool):
                         }
                     )
                 else:
-                    # Return plain response when called without tool_call_id
-                    return final_response
+                    # Return Command even without tool_call_id for consistency
+                    return Command(
+                        update={
+                            "messages": [ToolMessage(
+                                content=final_response,
+                                tool_call_id="direct_call",  # Placeholder ID
+                                name="salesforce_agent"
+                            )]
+                        }
+                    )
         
         except A2AException as e:
             logger.error("tool_invocation_error",
@@ -471,10 +490,6 @@ class SalesforceAgentTool(BaseAgentTool):
                 tool_call_id
             )
     
-    def _run(self, instruction: str, context: Optional[Dict[str, Any]] = None, **kwargs) -> Command:
-        """Synchronous wrapper for async execution"""
-        return asyncio.run(self._arun(instruction, context, **kwargs))
-
 class JiraAgentTool(BaseAgentTool):
     """Orchestrator Tool for Jira Issue Tracking Agent Communication.
     
@@ -519,7 +534,10 @@ class JiraAgentTool(BaseAgentTool):
     # See: https://github.com/langchain-ai/langgraph/issues/2220
     
     def __init__(self, registry: AgentRegistry):
-        super().__init__(metadata={"registry": registry})
+        # Access field defaults through Pydantic's model_fields
+        name = self.__class__.model_fields['name'].default
+        description = self.__class__.model_fields['description'].default
+        super().__init__(name=name, description=description, metadata={"registry": registry})
     
     
     def _extract_conversation_context(self, state: Optional[Dict[str, Any]], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -583,7 +601,10 @@ class JiraAgentTool(BaseAgentTool):
         Returns:
             Agent instance or None if not found
         """
-        registry = self.metadata["registry"]
+        if self.metadata and "registry" in self.metadata:
+            registry = self.metadata["registry"]
+        else:
+            return None
         agent = registry.find_agents_by_capability("jira_operations")
         
         if not agent:
@@ -596,7 +617,7 @@ class JiraAgentTool(BaseAgentTool):
         
         return agent
     
-    def _create_error_command(self, error_message: str, tool_call_id: Optional[str] = None):
+    def _create_error_command(self, error_message: str, tool_call_id: Optional[str] = None) -> Command:
         """Create a standardized error Command response.
         
         Args:
@@ -604,7 +625,7 @@ class JiraAgentTool(BaseAgentTool):
             tool_call_id: Optional tool call identifier for response tracking
             
         Returns:
-            Command object with error message or plain error string
+            Command object with error message
         """
         if tool_call_id:
             return Command(
@@ -616,8 +637,13 @@ class JiraAgentTool(BaseAgentTool):
                 }
             )
         else:
-            # Return plain error message when no tool_call_id
-            return error_message
+            # Return Command with error message when no tool_call_id
+            from langchain_core.messages import AIMessage
+            return Command(
+                update={
+                    "messages": [AIMessage(content=error_message)]
+                }
+            )
     
     def _extract_response_content(self, result: Dict[str, Any]) -> str:
         """Extract response content from A2A result.
@@ -676,20 +702,20 @@ class JiraAgentTool(BaseAgentTool):
         else:
             return response_content
     
-    def _run(self, instruction: str, context: Optional[Dict[str, Any]] = None, 
-            state: Annotated[Dict[str, Any], InjectedState] = None, **kwargs) -> Union[str, Command]:
+    def _run(self, instruction: str, state: Annotated[Dict[str, Any], InjectedState], 
+            context: Optional[Dict[str, Any]] = None, **kwargs) -> Union[str, Command]:
         """Synchronous wrapper for async execution."""
         import asyncio
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
             return loop.run_until_complete(
-                self._arun(instruction, context, state, **kwargs)
+                self._arun(instruction, state, context, **kwargs)
             )
         finally:
             loop.close()
     
-    async def _arun(self, instruction: str, context: Optional[Dict[str, Any]] = None, state: Annotated[Dict[str, Any], InjectedState] = None, **kwargs) -> Command:
+    async def _arun(self, instruction: str, state: Annotated[Dict[str, Any], InjectedState], context: Optional[Dict[str, Any]] = None, **kwargs) -> Command:
         """Execute the Jira agent call using Command pattern.
         
         This method orchestrates the entire flow but delegates specific responsibilities
@@ -798,8 +824,16 @@ class JiraAgentTool(BaseAgentTool):
                         }
                     )
                 else:
-                    # Return plain response when called without tool_call_id
-                    return final_response
+                    # Return Command even without tool_call_id for consistency
+                    return Command(
+                        update={
+                            "messages": [ToolMessage(
+                                content=final_response,
+                                tool_call_id="direct_call",  # Placeholder ID
+                                name="jira_agent"
+                            )]
+                        }
+                    )
         
         except A2AException as e:
             logger.error("tool_invocation_error",
@@ -828,9 +862,6 @@ class JiraAgentTool(BaseAgentTool):
                 tool_call_id
             )
     
-    def _run(self, instruction: str, context: Optional[Dict[str, Any]] = None, **kwargs) -> Command:
-        """Synchronous wrapper for async execution"""
-        return asyncio.run(self._arun(instruction, context, **kwargs))
 
 
 class ServiceNowAgentTool(BaseAgentTool):
@@ -873,23 +904,26 @@ class ServiceNowAgentTool(BaseAgentTool):
     Returns structured ITSM data with record numbers for downstream processing."""
     
     def __init__(self, registry: AgentRegistry):
-        super().__init__(metadata={"registry": registry})
+        # Access field defaults through Pydantic's model_fields
+        name = self.__class__.model_fields['name'].default
+        description = self.__class__.model_fields['description'].default
+        super().__init__(name=name, description=description, metadata={"registry": registry})
     
-    def _run(self, instruction: str, context: Optional[Dict[str, Any]] = None, 
-            state: Annotated[Dict[str, Any], InjectedState] = None, **kwargs) -> Union[str, Command]:
+    def _run(self, instruction: str, state: Annotated[Dict[str, Any], InjectedState], 
+            context: Optional[Dict[str, Any]] = None, **kwargs) -> Union[str, Command]:
         """Synchronous wrapper for async execution."""
         import asyncio
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
             return loop.run_until_complete(
-                self._arun(instruction, context, state, **kwargs)
+                self._arun(instruction, state, context, **kwargs)
             )
         finally:
             loop.close()
     
-    async def _arun(self, instruction: str, context: Optional[Dict[str, Any]] = None, 
-                    state: Annotated[Dict[str, Any], InjectedState] = None, **kwargs) -> Command:
+    async def _arun(self, instruction: str, state: Annotated[Dict[str, Any], InjectedState], 
+                    context: Optional[Dict[str, Any]] = None, **kwargs) -> Command:
         """Execute the ServiceNow agent call using Command pattern."""
         # Log tool invocation start
         tool_call_id = kwargs.get("tool_call_id", None)
@@ -916,8 +950,18 @@ class ServiceNowAgentTool(BaseAgentTool):
                 extracted_context.update(context)
             
             # Find the ServiceNow agent
-            registry = self.metadata["registry"]
-            agent = registry.find_agents_by_capability("servicenow_operations")
+            if self.metadata and "registry" in self.metadata:
+                registry = self.metadata["registry"]
+                agent = registry.find_agents_by_capability("servicenow_operations")
+            else:
+                return Command(
+                    update={
+                        "messages": [ToolMessage(
+                            content=json.dumps({"error": "Agent registry not available"}),
+                            tool_call_id=tool_call_id
+                        )]
+                    }
+                )
             
             if not agent:
                 logger.warning("ServiceNow agent not found by capability, trying by name...")
@@ -1001,7 +1045,15 @@ class ServiceNowAgentTool(BaseAgentTool):
                         }
                     )
                 else:
-                    return final_response
+                    return Command(
+                        update={
+                            "messages": [ToolMessage(
+                                content=final_response,
+                                tool_call_id="direct_call",  # Placeholder ID
+                                name="servicenow_agent"
+                            )]
+                        }
+                    )
         
         except A2AException as e:
             logger.error("tool_invocation_error",
@@ -1030,7 +1082,7 @@ class ServiceNowAgentTool(BaseAgentTool):
                 tool_call_id
             )
     
-    def _create_error_command(self, error_message: str, tool_call_id: Optional[str] = None):
+    def _create_error_command(self, error_message: str, tool_call_id: Optional[str] = None) -> Command:
         """Create a standardized error Command response."""
         if tool_call_id:
             return Command(
@@ -1042,7 +1094,12 @@ class ServiceNowAgentTool(BaseAgentTool):
                 }
             )
         else:
-            return error_message
+            from langchain_core.messages import AIMessage
+            return Command(
+                update={
+                    "messages": [AIMessage(content=error_message)]
+                }
+            )
     
     def _extract_response_content(self, result: Dict[str, Any]) -> str:
         """Extract response content from A2A result."""
@@ -1125,16 +1182,22 @@ class WorkflowAgentTool(BaseAgentTool):
     return_direct: bool = False
     
     def __init__(self, agent_registry: AgentRegistry):
-        super().__init__(metadata={"registry": agent_registry})
+        # Access field defaults through Pydantic's model_fields
+        name = self.__class__.model_fields['name'].default
+        description = self.__class__.model_fields['description'].default
+        super().__init__(name=name, description=description, metadata={"registry": agent_registry})
     
-    async def _arun(self, instruction: str, context: Optional[Dict[str, Any]] = None, 
-                   state: Annotated[Dict[str, Any], InjectedState] = None, **kwargs) -> Union[str, Command]:
+    async def _arun(self, instruction: str, state: Annotated[Dict[str, Any], InjectedState], 
+                   context: Optional[Dict[str, Any]] = None, **kwargs) -> Union[str, Command]:
         """Execute the workflow agent call asynchronously."""
         # Extract tool_call_id if provided
         tool_call_id = kwargs.get("tool_call_id")
         
         # Find workflow agent
-        registry = self.metadata.get("registry")
+        if self.metadata:
+            registry = self.metadata.get("registry")
+        else:
+            registry = None
         if not registry:
             return self._create_error_command(
                 "Error: Agent registry not available",
@@ -1368,7 +1431,7 @@ class WorkflowAgentTool(BaseAgentTool):
                 )
                 
                 # Check if workflow completed (not interrupted)
-                workflow_update = {}
+                workflow_update: Dict[str, Any] = {}
                 if interrupted_workflow and not response_content.startswith("WORKFLOW_HUMAN_INPUT_REQUIRED:"):
                     # Workflow completed, clear the interrupted state
                     workflow_update["interrupted_workflow"] = None
@@ -1436,20 +1499,20 @@ class WorkflowAgentTool(BaseAgentTool):
                 tool_call_id
             )
     
-    def _run(self, instruction: str, context: Optional[Dict[str, Any]] = None, 
-            state: Annotated[Dict[str, Any], InjectedState] = None, **kwargs) -> Union[str, Command]:
+    def _run(self, instruction: str, state: Annotated[Dict[str, Any], InjectedState], 
+            context: Optional[Dict[str, Any]] = None, **kwargs) -> Union[str, Command]:
         """Synchronous wrapper for async execution."""
         import asyncio
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
             return loop.run_until_complete(
-                self._arun(instruction, context, state, **kwargs)
+                self._arun(instruction, state, context, **kwargs)
             )
         finally:
             loop.close()
     
-    def _create_error_command(self, error_message: str, tool_call_id: Optional[str] = None):
+    def _create_error_command(self, error_message: str, tool_call_id: Optional[str] = None) -> Command:
         """Create a standardized error Command response."""
         if tool_call_id:
             return Command(
@@ -1461,7 +1524,12 @@ class WorkflowAgentTool(BaseAgentTool):
                 }
             )
         else:
-            return error_message
+            from langchain_core.messages import AIMessage
+            return Command(
+                update={
+                    "messages": [AIMessage(content=error_message)]
+                }
+            )
 
 
 class AgentRegistryTool(BaseTool):
@@ -1500,12 +1568,18 @@ class AgentRegistryTool(BaseTool):
     args_schema: type = AgentRegistryInput
     
     def __init__(self, registry: AgentRegistry):
-        super().__init__(metadata={"registry": registry})
+        # Access field defaults through Pydantic's model_fields
+        name = self.__class__.model_fields['name'].default
+        description = self.__class__.model_fields['description'].default
+        super().__init__(name=name, description=description, metadata={"registry": registry})
     
     async def _arun(self, action: str, agent_name: Optional[str] = None, state: Optional[Dict[str, Any]] = None) -> str:
         """Execute registry management action"""
         # Note: state is passed by the tool execution framework but not needed for registry operations
-        registry = self.metadata["registry"]
+        if self.metadata and "registry" in self.metadata:
+            registry = self.metadata["registry"]
+        else:
+            return json.dumps({"error": "Agent registry not available"})
         if action == "list":
             agents = registry.list_agents()
             if not agents:

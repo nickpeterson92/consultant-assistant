@@ -6,7 +6,7 @@ analytics, and allow for more intelligent triggering of background tasks.
 """
 
 from datetime import datetime
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, cast
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -176,7 +176,7 @@ class EventAnalyzer:
     @staticmethod
     def get_event_summary(events: List[OrchestratorEvent]) -> Dict[str, Any]:
         """Generate a summary of all events."""
-        summary = {
+        summary: Dict[str, Any] = {
             "total_events": len(events),
             "event_counts": {},
             "total_cost": EventAnalyzer.calculate_total_cost(events),

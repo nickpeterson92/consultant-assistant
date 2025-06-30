@@ -203,7 +203,7 @@ class StructuredLogger:
 # Global logger instance
 _logger = None
 
-def get_logger(component: str = None) -> StructuredLogger:
+def get_logger(component: Optional[str] = None) -> StructuredLogger:
     """Get the global logger instance (singleton).
     
     Args:
@@ -239,7 +239,7 @@ def log_a2a_activity(operation: str, **kwargs):
     get_logger().log_agent_activity("a2a_protocol", operation, **kwargs)
 
 
-def log_cost_activity(operation: str, tokens_used: int, model: str = None, **kwargs):
+def log_cost_activity(operation: str, tokens_used: int, model: Optional[str] = None, **kwargs):
     """Legacy function for cost tracking."""
     get_logger().track_cost(operation, tokens_used, model or "gpt-4o-mini", **kwargs)
 

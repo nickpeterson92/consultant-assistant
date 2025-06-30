@@ -1,14 +1,16 @@
 """Workflow Agent Configuration"""
 
+from typing import Dict, Any, List, Tuple
+
 # Agent network configuration
-AGENT_PORTS = {
+AGENT_PORTS: Dict[str, int] = {
     "salesforce-agent": 8001,
     "jira-agent": 8002,
     "servicenow-agent": 8003
 }
 
 # Workflow execution defaults
-WORKFLOW_DEFAULTS = {
+WORKFLOW_DEFAULTS: Dict[str, Any] = {
     "recursion_limit": 10,
     "history_window": 5,
     "default_timeout": 86400,  # 24 hours
@@ -16,7 +18,7 @@ WORKFLOW_DEFAULTS = {
 }
 
 # Business rules and thresholds
-BUSINESS_RULES = {
+BUSINESS_RULES: Dict[str, Any] = {
     "key_account_revenue_threshold": 1000000,
     "health_score_risk_threshold": 70,
     "onboarding_task_offsets": {
@@ -28,7 +30,7 @@ BUSINESS_RULES = {
 }
 
 # Workflow routing patterns
-WORKFLOW_ROUTING_RULES = [
+WORKFLOW_ROUTING_RULES: List[Tuple[str, str]] = [
     (r"risk.*(?:deal|opportunity)", "deal_risk_assessment"),
     (r"incident.*resolution", "incident_to_resolution"),
     (r"360|everything about", "customer_360_report"),
@@ -37,7 +39,7 @@ WORKFLOW_ROUTING_RULES = [
 ]
 
 # ServiceNow table names (may vary by instance)
-SERVICENOW_TABLES = {
+SERVICENOW_TABLES: Dict[str, str] = {
     "company": "core_company",
     "incident": "incident",
     "change": "change_request",

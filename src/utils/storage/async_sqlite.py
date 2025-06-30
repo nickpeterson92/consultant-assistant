@@ -41,7 +41,7 @@ class AsyncSQLitePool:
         self._lock = asyncio.Lock()
         
         # Track active connections for cleanup
-        self._active_connections = weakref.WeakSet()
+        self._active_connections: weakref.WeakSet = weakref.WeakSet()
     
     async def initialize(self):
         """Initialize the connection pool"""

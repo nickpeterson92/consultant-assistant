@@ -14,7 +14,7 @@ from src.agents.workflow.models import StepType
 logger = get_logger("workflow_tools")
 
 
-async def call_agent(agent_name: str, instruction: str, context: Dict[str, Any] = None, state_snapshot: Dict[str, Any] = None) -> Any:
+async def call_agent(agent_name: str, instruction: str, context: Optional[Dict[str, Any]] = None, state_snapshot: Optional[Dict[str, Any]] = None) -> Any:
     """Helper function to call an agent via A2A protocol
     
     Args:
@@ -39,7 +39,7 @@ async def call_agent(agent_name: str, instruction: str, context: Dict[str, Any] 
                     component="workflow_tools",
                     operation="call_agent",
                     agent_name=agent_name,
-                    available_agents=[a.name for a in registry.get_all_agents()])
+                    available_agents=[a.name for a in registry.list_agents()])
         raise ValueError(f"Agent '{agent_name}' not found in registry")
     
     logger.info("workflow_tools_agent_found",

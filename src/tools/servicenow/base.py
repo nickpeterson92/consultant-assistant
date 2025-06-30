@@ -325,7 +325,7 @@ class BaseServiceNowTool(BaseTool, ABC):
 class ServiceNowReadTool(BaseServiceNowTool):
     """Base class for ServiceNow read operations."""
     
-    def _build_query_params(self, query: str = None, fields: List[str] = None, 
+    def _build_query_params(self, query: Optional[str] = None, fields: Optional[List[str]] = None, 
                            limit: int = 100, offset: int = 0, 
                            display_value: str = "all") -> Dict[str, str]:
         """Build query parameters for API request.
@@ -496,8 +496,8 @@ class ServiceNowWorkflowTool(BaseServiceNowTool):
 class ServiceNowAnalyticsTool(BaseServiceNowTool):
     """Base class for ServiceNow analytics operations."""
     
-    def _build_aggregate_query(self, table_name: str, group_by: str = None,
-                              count: bool = True, conditions: str = None) -> str:
+    def _build_aggregate_query(self, table_name: str, group_by: Optional[str] = None,
+                              count: bool = True, conditions: Optional[str] = None) -> str:
         """Build aggregate query for stats API."""
         query_parts = []
         

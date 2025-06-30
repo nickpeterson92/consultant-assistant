@@ -77,7 +77,7 @@ class LLMConfig:
                 for model, prices in MODEL_PRICING.items()
             }
     
-    def get_pricing(self, model: str = None) -> ModelPricing:
+    def get_pricing(self, model: Optional[str] = None) -> ModelPricing:
         """Get pricing for a specific model or the configured model"""
         model_name = model or self.model
         model_lower = model_name.lower()
@@ -300,7 +300,7 @@ class ConfigManager:
     
     def _get_env_overrides(self) -> Dict[str, Any]:
         """Get configuration overrides from environment variables."""
-        overrides = {}
+        overrides: Dict[str, Any] = {}
         
         
         # Environment
@@ -308,7 +308,7 @@ class ConfigManager:
             overrides['environment'] = env
         
         # LLM configuration
-        llm_overrides = {}
+        llm_overrides: Dict[str, Any] = {}
         if model := os.environ.get('LLM_MODEL'):
             llm_overrides['model'] = model
         if temp := os.environ.get('LLM_TEMPERATURE'):
@@ -319,7 +319,7 @@ class ConfigManager:
                     component="config",
                     operation="validation",
                     invalid_value=temp,
-                    using_default=defaults.temperature
+                    using_default=LLMConfig.temperature
                 )
         if max_tokens := os.environ.get('LLM_MAX_TOKENS'):
             try:
@@ -329,7 +329,7 @@ class ConfigManager:
                     component="config",
                     operation="validation",
                     invalid_value=max_tokens,
-                    using_default=defaults.max_tokens
+                    using_default=LLMConfig.max_tokens
                 )
         if recursion_limit := os.environ.get('LLM_RECURSION_LIMIT'):
             try:
@@ -346,14 +346,14 @@ class ConfigManager:
             overrides['llm'] = llm_overrides
         
         # Database configuration
-        db_overrides = {}
+        db_overrides: Dict[str, Any] = {}
         if db_path := os.environ.get('DATABASE_PATH'):
             db_overrides['path'] = db_path
         if db_overrides:
             overrides['database'] = db_overrides
         
         # Logging configuration
-        log_overrides = {}
+        log_overrides: Dict[str, Any] = {}
         if log_level := os.environ.get('LOG_LEVEL'):
             log_overrides['level'] = log_level
         if log_dir := os.environ.get('LOGS_DIR'):
@@ -397,6 +397,9 @@ class ConfigManager:
         """Get configuration instance."""
         if self._config is None:
             self._load_config()
+        if self._config is None:
+            # Fallback to defaults if loading failed
+            self._config = SystemConfig.from_dict(self._get_default_config())
         return self._config
     
     def reload_config(self):
@@ -411,25 +414,27 @@ class ConfigManager:
     
     def update_config(self, updates: Dict[str, Any]):
         """Update configuration at runtime."""
-        if self._config is None:
-            self._load_config()
+        config = self.get_config()  # This ensures _config is not None
         
-        current_dict = self._config.to_dict()
+        current_dict = config.to_dict()
         updated_dict = self._merge_configs(current_dict, updates)
         self._config = SystemConfig.from_dict(updated_dict)
     
     def get_agent_config(self, agent_name: str) -> Optional[AgentConfig]:
         """Get configuration for a specific agent"""
-        return self._config.agents.get(agent_name)
+        config = self.get_config()
+        return config.agents.get(agent_name)
     
     def add_agent_config(self, agent_config: AgentConfig):
         """Add or update agent configuration"""
-        self._config.agents[agent_config.name] = agent_config
+        config = self.get_config()
+        config.agents[agent_config.name] = agent_config
     
     def remove_agent_config(self, agent_name: str):
         """Remove agent configuration"""
-        if agent_name in self._config.agents:
-            del self._config.agents[agent_name]
+        config = self.get_config()
+        if agent_name in config.agents:
+            del config.agents[agent_name]
 
 # Singleton instance with thread-safe lazy initialization
 _config_manager: Optional[ConfigManager] = None
@@ -500,7 +505,7 @@ def get_jira_config():
     }
 
 
-def get_memory_namespace(user_id: str = None) -> tuple:
+def get_memory_namespace(user_id: Optional[str] = None) -> tuple:
     """Get the namespace tuple for memory storage.
     
     Args:

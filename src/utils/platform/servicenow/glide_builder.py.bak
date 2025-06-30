@@ -108,7 +108,7 @@ class GlideQueryBuilder(BaseQueryBuilder['GlideQueryBuilder']):
     
     def create_condition(self, field: str, operator: Union[BaseOperator, GlideOperator], value: Any) -> GlideCondition:
         """Create a ServiceNow-specific condition."""
-        return GlideCondition(field, operator, value)  # type: ignore[arg-type]
+        return GlideCondition(field, operator, value)
     
     def format_field_name(self, field: str) -> str:
         """Format field names for ServiceNow (supports dot-walking)."""
@@ -125,23 +125,23 @@ class GlideQueryBuilder(BaseQueryBuilder['GlideQueryBuilder']):
     
     def contains(self, field: str, value: str) -> 'GlideQueryBuilder':
         """Add CONTAINS condition."""
-        return self.where(field, GlideOperator.CONTAINS, value)  # type: ignore[arg-type]
+        return self.where(field, GlideOperator.CONTAINS, value)
     
     def starts_with(self, field: str, value: str) -> 'GlideQueryBuilder':
         """Add STARTS WITH condition."""
-        return self.where(field, GlideOperator.STARTS_WITH, value)  # type: ignore[arg-type]
+        return self.where(field, GlideOperator.STARTS_WITH, value)
     
     def ends_with(self, field: str, value: str) -> 'GlideQueryBuilder':
         """Add ENDS WITH condition."""
-        return self.where(field, GlideOperator.ENDS_WITH, value)  # type: ignore[arg-type]
+        return self.where(field, GlideOperator.ENDS_WITH, value)
     
     def is_empty(self, field: str) -> 'GlideQueryBuilder':
         """Add IS EMPTY condition."""
-        return self.where(field, GlideOperator.IS_EMPTY, None)  # type: ignore[arg-type]
+        return self.where(field, GlideOperator.IS_EMPTY, None)
     
     def is_not_empty(self, field: str) -> 'GlideQueryBuilder':
         """Add IS NOT EMPTY condition."""
-        return self.where(field, GlideOperator.IS_NOT_EMPTY, None)  # type: ignore[arg-type]
+        return self.where(field, GlideOperator.IS_NOT_EMPTY, None)
     
     def text_search(self, query: str) -> 'GlideQueryBuilder':
         """Add text search across searchable fields."""
@@ -239,25 +239,25 @@ class GlideQueryBuilder(BaseQueryBuilder['GlideQueryBuilder']):
         
         # Priority detection
         if any(word in query_lower for word in ['urgent', 'critical', 'high priority']):
-            builder.where('priority', GlideOperator.IN, ['1', '2'])  # type: ignore[arg-type]
+            builder.where('priority', GlideOperator.IN, ['1', '2'])
         
         # State detection
         if 'open' in query_lower:
-            builder.where('state', GlideOperator.IN, ['1', '2', '3'])  # type: ignore[arg-type]  # New, In Progress, On Hold
+            builder.where('state', GlideOperator.IN, ['1', '2', '3'])  # New, In Progress, On Hold
         elif 'closed' in query_lower:
-            builder.where('state', GlideOperator.EQUALS, '7')  # type: ignore[arg-type]  # Closed
+            builder.where('state', GlideOperator.EQUALS, '7')  # Closed
         
         # Assignment detection
         if 'assigned to me' in query_lower:
-            builder.where('assigned_to', GlideOperator.EQUALS, 'javascript:gs.getUserID()')  # type: ignore[arg-type]
+            builder.where('assigned_to', GlideOperator.EQUALS, 'javascript:gs.getUserID()')
         elif 'unassigned' in query_lower:
             builder.is_empty('assigned_to')
         
         # Time-based queries
         if 'today' in query_lower:
-            builder.where('sys_created_on', GlideOperator.ON, 'Today@javascript:gs.beginningOfToday()@javascript:gs.endOfToday()')  # type: ignore[arg-type]
+            builder.where('sys_created_on', GlideOperator.ON, 'Today@javascript:gs.beginningOfToday()@javascript:gs.endOfToday()')
         elif 'this week' in query_lower:
-            builder.where('sys_created_on', GlideOperator.AT_OR_AFTER, 'javascript:gs.beginningOfThisWeek()')  # type: ignore[arg-type]
+            builder.where('sys_created_on', GlideOperator.AT_OR_AFTER, 'javascript:gs.beginningOfThisWeek()')
         
         # Text search
         import re

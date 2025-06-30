@@ -96,7 +96,8 @@ def extract_user_intent(messages: List[BaseMessage]) -> Optional[str]:
     # Look for the most recent human message
     for msg in reversed(messages):
         if isinstance(msg, HumanMessage):
-            return msg.content
+            content = msg.content
+            return content if isinstance(content, str) else None
     return None
 
 
@@ -109,7 +110,7 @@ def count_tool_calls(messages: List[BaseMessage]) -> Dict[str, int]:
     Returns:
         Dictionary of tool name to call count
     """
-    tool_counts = {}
+    tool_counts: Dict[str, int] = {}
     
     for msg in messages:
         if isinstance(msg, AIMessage) and hasattr(msg, 'tool_calls'):
@@ -131,7 +132,7 @@ def extract_entities_from_messages(messages: List[BaseMessage]) -> Dict[str, Lis
     Returns:
         Dictionary of entity type to list of entities
     """
-    entities = {
+    entities: Dict[str, List[str]] = {
         'accounts': [],
         'contacts': [],
         'emails': [],

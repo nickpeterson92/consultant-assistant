@@ -159,6 +159,9 @@ class SalesforceA2AHandler:
         self.graph = graph
     async def process_task(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Process A2A task using modern LangGraph pattern"""
+        # Initialize task_id for use in except block
+        task_id = "unknown"
+        
         try:
             # A2A protocol wraps task in "task" key
             task_data = params.get("task", params)  # Support both wrapped and unwrapped

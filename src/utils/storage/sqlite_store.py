@@ -21,7 +21,9 @@ Key features:
 import sqlite3
 import json
 import asyncio
-from langgraph.store.base import BaseStore  # Adjust this import as needed
+from datetime import datetime
+from typing import Optional, List, Any, Tuple, Iterable, Union
+from langgraph.store.base import BaseStore, Item, SearchItem, GetOp, PutOp, SearchOp, ListNamespacesOp
 from src.utils.logging import get_logger
 
 # Initialize logger
@@ -65,7 +67,7 @@ class SQLiteStore(BaseStore):
         self._create_table()
         logger.info("sqlite_init", component="storage", db_path=db_path)
 
-    def get_connection(self, db_path: str = None):
+    def get_connection(self, db_path: Optional[str] = None):
         """Create a new SQLiteStore instance for thread-safe operations.
         
         Returns a new SQLiteStore instance with its own database connection
@@ -279,7 +281,7 @@ class SQLiteStore(BaseStore):
             )
             raise
 
-    def batch(self, items: list[tuple]) -> None:
+    def batch(self, ops: Iterable[Union[GetOp, PutOp, SearchOp, ListNamespacesOp]]) -> List[Union[Item, List[Item], List[SearchItem], List[Tuple[str, ...]], None]]:
         """Perform multiple storage operations in a single batch.
         
         Executes multiple put operations sequentially for bulk data storage.
@@ -340,10 +342,26 @@ class SQLiteStore(BaseStore):
             guarantees. For atomic batch operations, consider wrapping
             in a database transaction or implementing a custom method.
         """
-        for ns, key, value in items:
-            self.put(ns, key, value)
+        results: List[Union[Item, List[Item], List[SearchItem], List[Tuple[str, ...]], None]] = []
+        for op in ops:
+            if isinstance(op, GetOp):
+                value = self.get(op.namespace, op.key)
+                now = datetime.utcnow()
+                results.append(Item(namespace=op.namespace, key=op.key, value=value, created_at=now, updated_at=now) if value is not None else None)
+            elif isinstance(op, PutOp):
+                self.put(op.namespace, op.key, op.value)
+                results.append(None)
+            elif isinstance(op, SearchOp):
+                # SQLiteStore doesn't implement search, return empty list
+                results.append([])
+            elif isinstance(op, ListNamespacesOp):
+                # SQLiteStore doesn't implement list_namespaces, return empty list
+                results.append([])
+            else:
+                results.append(None)
+        return results
 
-    async def abatch(self, items: list[tuple]) -> None:
+    async def abatch(self, ops: Iterable[Union[GetOp, PutOp, SearchOp, ListNamespacesOp]]) -> List[Union[Item, List[Item], List[SearchItem], List[Tuple[str, ...]], None]]:
         """Asynchronously perform multiple storage operations with cooperative yielding.
         
         Executes multiple put operations with periodic yielding to the event loop,
@@ -415,9 +433,25 @@ class SQLiteStore(BaseStore):
             This method provides async-friendly batch processing within
             the constraints of synchronous SQLite.
         """
-        for ns, key, value in items:
-            self.put(ns, key, value)
+        results: List[Union[Item, List[Item], List[SearchItem], List[Tuple[str, ...]], None]] = []
+        for op in ops:
+            if isinstance(op, GetOp):
+                value = self.get(op.namespace, op.key)
+                now = datetime.utcnow()
+                results.append(Item(namespace=op.namespace, key=op.key, value=value, created_at=now, updated_at=now) if value is not None else None)
+            elif isinstance(op, PutOp):
+                self.put(op.namespace, op.key, op.value)
+                results.append(None)
+            elif isinstance(op, SearchOp):
+                # SQLiteStore doesn't implement search, return empty list
+                results.append([])
+            elif isinstance(op, ListNamespacesOp):
+                # SQLiteStore doesn't implement list_namespaces, return empty list
+                results.append([])
+            else:
+                results.append(None)
             await asyncio.sleep(0)  # Yield control to the event loop
+        return results
 
     def __del__(self):
         self.conn.close()
