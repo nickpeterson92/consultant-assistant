@@ -3,7 +3,7 @@
 import asyncio
 import time
 import traceback
-from typing import Dict, Any, cast
+from typing import Dict, Any, cast, List
 
 from langchain_core.messages import SystemMessage, RemoveMessage
 
@@ -13,13 +13,12 @@ from src.utils.config import (
     STATE_KEY_PREFIX
 )
 from src.utils.agents.prompts import TRUSTCALL_INSTRUCTION
-from src.utils.shared import EventType, OrchestratorEvent
 from src.utils.agents.message_processing import smart_preserve_messages
 from src.utils.logging import get_logger
 from src.utils.storage import get_async_store_adapter
 from src.utils.storage.memory_schemas import SimpleMemory
 from src.utils.agents.prompts import orchestrator_summary_sys_msg, get_fallback_summary
-from .state import OrchestratorState, load_events_with_limit
+from .state import OrchestratorState
 
 logger = get_logger()
 
@@ -28,7 +27,6 @@ async def summarize_conversation(state: OrchestratorState, invoke_llm):
     """Summarize conversation with intelligent message preservation."""
     start_time = time.time()
     messages_count = len(state.get('messages', []))
-    events = load_events_with_limit(cast(Dict[str, Any], state))
     
     summary = state.get("summary", "No summary available")
     memory_val = state.get("memory", "No memory available")
@@ -94,8 +92,8 @@ async def summarize_conversation(state: OrchestratorState, invoke_llm):
                     agent_names.append(msg.name)
         agent_names = list(set(agent_names))
         
-        events = load_events_with_limit(cast(Dict[str, Any], state))
-        error_count = sum(1 for e in events if e.event_type == EventType.ERROR)
+        # Simple error count tracking (no events)
+        error_count = 0
         
         response_content = get_fallback_summary(
             message_count=message_count,
@@ -120,15 +118,13 @@ async def summarize_conversation(state: OrchestratorState, invoke_llm):
     
     logger.info("llm_generation_complete", component="orchestrator", response_length=len(response_content),
                 response_content=response_content[:500],
-                operation="SUMMARIZATION",
-                event_count=len(events))
+                operation="SUMMARIZATION")
     
     message_chars = sum(len(str(m.content if hasattr(m, 'content') else m)) for m in messages)
     estimated_tokens = message_chars // 4
     logger.track_cost("ORCHESTRATOR_LLM_CALL", tokens=estimated_tokens, 
                      message_count=len(messages_to_preserve),
-                     response_length=len(str(response.content)) if hasattr(response, 'content') else 0,
-                     event_count=len(events))
+                     response_length=len(str(response.content)) if hasattr(response, 'content') else 0)
     
     processing_time = time.time() - start_time
     logger.info("summary_response",
@@ -139,20 +135,9 @@ async def summarize_conversation(state: OrchestratorState, invoke_llm):
         processing_time=processing_time
     )
     
-    summary_completed_event = OrchestratorEvent(
-        event_type=EventType.SUMMARY_COMPLETED,
-        details={
-            "messages_preserved": len(messages_to_preserve),
-            "messages_deleted": len(messages_to_delete),
-            "processing_time": processing_time
-        },
-        message_count=messages_count
-    )
-    
     return {
         "summary": response_content,
-        "messages": messages_to_delete,
-        "events": [summary_completed_event.to_dict()]
+        "messages": messages_to_delete
     }
 
 
@@ -281,30 +266,26 @@ Tool Message {idx + 1} of {len(tool_messages)}:
     
     updated_memory = {conv_config.memory_key: current_memory.model_dump()}
     
-    # Create memory extraction event
-    memory_event = OrchestratorEvent(
-        event_type=EventType.MEMORY_UPDATE_COMPLETED,
-        details={
-            "entities_extracted": sum([
-                len(current_memory.accounts),
-                len(current_memory.contacts),
-                len(current_memory.opportunities),
-                len(current_memory.cases),
-                len(current_memory.tasks),
-                len(current_memory.leads)
-            ]),
-            "extraction_time": time.time() - extraction_start_time
-        },
-        message_count=len(state.get("messages", []))
+    # Log completion
+    logger.info("memory_extraction_summary",
+        component="orchestrator",
+        entities_extracted=sum([
+            len(current_memory.accounts),
+            len(current_memory.contacts),
+            len(current_memory.opportunities),
+            len(current_memory.cases),
+            len(current_memory.tasks),
+            len(current_memory.leads)
+        ]),
+        extraction_time=time.time() - extraction_start_time
     )
     
     return {
-        "memory": updated_memory,
-        "events": [memory_event.to_dict()]
+        "memory": updated_memory
     }
 
 
-async def _run_background_summary_async(messages, summary, events, memory, user_id, thread_id, summarize_func, invoke_llm):
+async def _run_background_summary_async(messages, summary, memory, user_id, thread_id, summarize_func, invoke_llm):
     """Execute summarization in background using async."""
     try:
         memory_store = get_async_store_adapter(
@@ -314,11 +295,10 @@ async def _run_background_summary_async(messages, summary, events, memory, user_
         mock_state = {
             "messages": messages,  # Don't serialize here - summarize_conversation expects actual messages
             "summary": summary,
-            "events": [e.to_dict() for e in events],
             "memory": memory
         }
         
-        result = await summarize_func(mock_state)
+        result = await summarize_func(mock_state, invoke_llm)
         
         if result and "summary" in result:
             new_summary = result["summary"]
@@ -334,14 +314,12 @@ async def _run_background_summary_async(messages, summary, events, memory, user_
             
             mock_state["summary"] = new_summary
             
-            # Serialize messages before saving (put expects bytes or JSON-serializable)
-            # Since we're storing in a dict, we need JSON-serializable format
+            # Serialize messages before saving
             from src.utils.agents.message_processing import serialize_messages_to_dict
             
             serialized_state = {
                 "messages": serialize_messages_to_dict(mock_state["messages"]),
                 "summary": mock_state["summary"],
-                "events": mock_state["events"],
                 "memory": mock_state["memory"]
             }
             
@@ -360,13 +338,12 @@ async def _run_background_summary_async(messages, summary, events, memory, user_
         )
 
 
-async def _run_background_memory_async(messages, summary, events, memory, user_id, memorize_func, memory_store, trustcall_extractor):
+async def _run_background_memory_async(messages, summary, memory, user_id, memorize_func, memory_store, trustcall_extractor):
     """Execute memory extraction in background using async."""
     try:
         mock_state = {
             "messages": messages,  # Don't serialize here - memorize_records expects actual message objects
             "summary": summary,
-            "events": [e.to_dict() for e in events],
             "memory": memory
         }
         conv_config = get_conversation_config()
@@ -388,64 +365,3 @@ async def _run_background_memory_async(messages, summary, events, memory, user_i
             error_type=type(e).__name__
         )
 
-
-def _run_background_summary(messages, summary, events, memory, user_id, thread_id, memory_store, summarize_func, invoke_llm):
-    """Execute summarization in background thread (deprecated)."""
-    try:
-        mock_state = {
-            "messages": messages,  # Don't serialize here - summarize_conversation expects actual messages
-            "summary": summary,
-            "events": [e.to_dict() for e in events],
-            "memory": memory
-        }
-        result = asyncio.run(summarize_func(mock_state))
-        
-        if result and "summary" in result:
-            new_summary = result["summary"]
-            logger.info("background_summary_save", component="system", operation="saving_summary_to_store",
-                        summary_preview=new_summary[:200] if new_summary else "NO_SUMMARY")
-            
-            conv_config = get_conversation_config()
-            namespace = (conv_config.memory_namespace_prefix, user_id)
-            key = f"{STATE_KEY_PREFIX}{thread_id}"
-            
-            mock_state["summary"] = new_summary
-            
-            # Serialize messages before saving
-            from src.utils.agents.message_processing import serialize_messages_to_dict
-            
-            serialized_state = {
-                "messages": serialize_messages_to_dict(mock_state["messages"]),
-                "summary": mock_state["summary"],
-                "events": mock_state["events"],
-                "memory": mock_state["memory"]
-            }
-            
-            memory_store.sync_put(namespace, key, {
-                "state": serialized_state,
-                "thread_id": thread_id,
-                "timestamp": time.time()
-            })
-            
-    except Exception as e:
-        logger.info("background_summary_error", component="orchestrator", error=str(e),
-                     traceback=traceback.format_exc()[:500])
-
-
-def _run_background_memory(messages, summary, events, memory, memorize_func, config, memory_store, trustcall_extractor):
-    """Execute memory extraction in background thread (deprecated)."""
-    try:
-        mock_state = {
-            "messages": messages,  # Don't serialize here - memorize_records expects actual message objects
-            "summary": summary,
-            "events": [e.to_dict() for e in events],
-            "memory": memory
-        }
-        result = asyncio.run(memorize_func(mock_state, config, memory_store, trustcall_extractor))
-    except Exception as e:
-        logger.error("background_memory_error",
-            component="system",
-            operation="background_memory", 
-            error=str(e),
-            error_type=type(e).__name__,
-            traceback=traceback.format_exc()[:500])

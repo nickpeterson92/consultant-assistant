@@ -184,10 +184,25 @@ class WorkflowA2AHandler:
         
         Respond with ONLY the workflow key or 'none' if no workflow matches."""
         
-        response = await self.llm.ainvoke([
+        # Import message processing utilities
+        from src.utils.agents.message_processing import estimate_message_tokens
+        
+        messages = [
             SystemMessage(content=system_msg),
             HumanMessage(content=f"Instruction: {instruction}")
-        ])
+        ]
+        
+        # Log token usage
+        total_tokens = estimate_message_tokens(messages)
+        logger.info("workflow_routing_token_usage",
+            component="workflow",
+            operation="select_workflow",
+            message_count=len(messages),
+            estimated_tokens=total_tokens,
+            token_limit=128000
+        )
+        
+        response = await self.llm.ainvoke(messages)
         
         content = response.content
         workflow_name = content.strip() if isinstance(content, str) else str(content).strip()
@@ -196,10 +211,26 @@ class WorkflowA2AHandler:
     async def _extract_parameter(self, instruction: str, prompt: str) -> str:
         """Extract a parameter from instruction using LLM"""
         enhanced_prompt = f"{prompt}\n\nIMPORTANT: If you cannot find the requested information, return exactly 'NONE' (without quotes)."
-        response = await self.llm.ainvoke([
+        
+        # Import message processing utilities
+        from src.utils.agents.message_processing import estimate_message_tokens
+        
+        messages = [
             SystemMessage(content=enhanced_prompt),
             HumanMessage(content=instruction)
-        ])
+        ]
+        
+        # Log token usage
+        total_tokens = estimate_message_tokens(messages)
+        logger.info("workflow_parameter_extraction_token_usage",
+            component="workflow",
+            operation="extract_parameter",
+            message_count=len(messages),
+            estimated_tokens=total_tokens,
+            token_limit=128000
+        )
+        
+        response = await self.llm.ainvoke(messages)
         content = response.content
         return content.strip() if isinstance(content, str) else str(content).strip()
     
@@ -223,7 +254,23 @@ Generate a comprehensive report that includes:
 
 Format the report in a clear, professional manner using markdown. Focus on actionable insights."""
                 
-                response = await self.llm.ainvoke([HumanMessage(content=report_prompt)])
+                # Import message processing utilities
+                from src.utils.agents.message_processing import estimate_message_tokens
+                
+                messages = [HumanMessage(content=report_prompt)]
+                
+                # Log token usage
+                total_tokens = estimate_message_tokens(messages)
+                logger.info("workflow_report_generation_token_usage",
+                    component="workflow",
+                    operation="generate_report",
+                    workflow_name=workflow_name,
+                    message_count=len(messages),
+                    estimated_tokens=total_tokens,
+                    token_limit=128000
+                )
+                
+                response = await self.llm.ainvoke(messages)
                 # Ensure we return a string
                 content = response.content
                 return str(content) if content else f"Workflow {workflow_name} completed successfully."

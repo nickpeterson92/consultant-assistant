@@ -6,19 +6,23 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 
 def trim_messages_for_context(
     messages: List[BaseMessage],
-    max_tokens: int = 100000,
+    max_tokens: int = 80000,  # Conservative default - leave room for system messages and completion
     keep_system: bool = True,
-    keep_first_n: int = 1,
-    keep_last_n: int = 10
+    keep_first_n: int = 2,
+    keep_last_n: int = 15,
+    use_smart_trimming: bool = True
 ) -> List[BaseMessage]:
     """Trim messages to fit within token limits while preserving important context.
     
+    Uses LangChain's official trim_messages when available for better tool call preservation.
+    
     Args:
         messages: List of messages to trim
-        max_tokens: Maximum token limit
+        max_tokens: Maximum token limit (default 80k for 128k models)
         keep_system: Whether to preserve system messages
         keep_first_n: Number of initial messages to keep
         keep_last_n: Number of recent messages to keep
+        use_smart_trimming: Use LangChain's trim_messages if available
         
     Returns:
         Trimmed list of messages
@@ -26,6 +30,41 @@ def trim_messages_for_context(
     if not messages:
         return []
     
+    # Try to use LangChain's official trim_messages first
+    if use_smart_trimming:
+        try:
+            from langchain_core.messages.utils import trim_messages
+            
+            # More accurate token estimation
+            def token_counter(msgs):
+                return estimate_message_tokens(msgs)
+            
+            trimmed = trim_messages(
+                messages,
+                strategy="last",
+                token_counter=token_counter,
+                max_tokens=max_tokens,
+                start_on="human",
+                end_on=("human", "tool"),
+                include_system=keep_system
+            )
+            
+            # Log trimming info
+            from src.utils.logging import get_logger
+            logger = get_logger("message_processing")
+            logger.info("smart_message_trimming",
+                component="message_processing",
+                original_count=len(messages),
+                trimmed_count=len(trimmed),
+                estimated_tokens=estimate_message_tokens(trimmed),
+                max_tokens=max_tokens
+            )
+            
+            return trimmed
+        except ImportError:
+            pass  # Fall back to manual trimming
+    
+    # Manual trimming fallback
     # Separate messages into categories
     system_messages = []
     first_messages = []
@@ -48,13 +87,36 @@ def trim_messages_for_context(
     # Add middle messages if there's room
     current_tokens = estimate_message_tokens(result)
     
+    # Add important middle messages (errors, tool results)
     for msg in reversed(middle_messages):  # Add from most recent
         msg_tokens = estimate_message_tokens([msg])
         if current_tokens + msg_tokens <= max_tokens:
-            result.insert(len(system_messages) + len(first_messages), msg)
-            current_tokens += msg_tokens
-        else:
-            break
+            # Prioritize error messages and important tool results
+            if (isinstance(msg, AIMessage) and "error" in str(msg.content).lower()) or \
+               (hasattr(msg, 'name') and msg.name in ['tool_error', 'tool_result']):
+                result.insert(len(system_messages) + len(first_messages), msg)
+                current_tokens += msg_tokens
+    
+    # Add remaining middle messages if still room
+    for msg in reversed(middle_messages):
+        if msg not in result:
+            msg_tokens = estimate_message_tokens([msg])
+            if current_tokens + msg_tokens <= max_tokens:
+                result.insert(len(system_messages) + len(first_messages), msg)
+                current_tokens += msg_tokens
+            else:
+                break
+    
+    # Log manual trimming info
+    from src.utils.logging import get_logger
+    logger = get_logger("message_processing")
+    logger.info("manual_message_trimming",
+        component="message_processing",
+        original_count=len(messages),
+        trimmed_count=len(result),
+        estimated_tokens=current_tokens,
+        max_tokens=max_tokens
+    )
     
     return result
 
@@ -62,7 +124,10 @@ def trim_messages_for_context(
 def estimate_message_tokens(messages: List[BaseMessage]) -> int:
     """Estimate token count for messages.
     
-    Simple estimation: ~4 characters per token.
+    More accurate estimation based on OpenAI's guidelines:
+    - ~4 characters per token for English text
+    - Account for message structure overhead
+    - Tool calls and their results can be verbose
     
     Args:
         messages: List of messages
@@ -71,17 +136,39 @@ def estimate_message_tokens(messages: List[BaseMessage]) -> int:
         Estimated token count
     """
     total_chars = 0
+    
     for msg in messages:
-        total_chars += len(str(msg.content))
-        # Add extra for metadata
-        total_chars += 50  # Role, additional kwargs, etc.
+        # Content tokens
+        content_str = str(msg.content)
+        total_chars += len(content_str)
         
-        # Add extra for tool calls
+        # Message structure overhead (role, type, etc.)
+        # Each message has ~20-30 tokens of overhead
+        total_chars += 100  # ~25 tokens * 4 chars
+        
+        # System messages have more overhead
+        if msg.__class__.__name__ == "SystemMessage":
+            total_chars += 100  # Extra overhead
+        
+        # Tool calls are expensive
         if isinstance(msg, AIMessage) and hasattr(msg, 'tool_calls'):
             for tool_call in (msg.tool_calls or []):
-                total_chars += len(str(tool_call))
+                # Tool call structure + arguments
+                tool_str = str(tool_call)
+                total_chars += len(tool_str) + 200  # Extra for JSON structure
+        
+        # Tool messages (results) also have overhead
+        if hasattr(msg, 'name') and msg.name:
+            total_chars += 200  # Tool message structure
+            # Large tool results (like search results) are very expensive
+            if len(content_str) > 1000:
+                total_chars += len(content_str) * 0.2  # Add 20% for JSON escaping
     
-    return total_chars // 4
+    # Conservative estimate: ~3.5 characters per token for structured content
+    estimated_tokens = int(total_chars / 3.5)
+    
+    # Add safety margin (10%)
+    return int(estimated_tokens * 1.1)
 
 
 def extract_user_intent(messages: List[BaseMessage]) -> Optional[str]:

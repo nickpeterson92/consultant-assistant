@@ -75,8 +75,39 @@ def build_servicenow_graph():
             external_context=state.get("external_context")
         )
         
+        # Import trimming utility
+        from src.utils.agents.message_processing import trim_messages_for_context, estimate_message_tokens
+        
+        # Trim messages to prevent token limit issues
+        state_messages = state.get("messages", [])
+        trimmed_messages = trim_messages_for_context(
+            state_messages,
+            max_tokens=70000,  # Conservative limit for agent (less than orchestrator)
+            keep_system=False,  # System message added separately
+            keep_first_n=2,     # Keep original request context
+            keep_last_n=10,     # Keep recent tool interactions
+            use_smart_trimming=True
+        )
+        
+        # Log token usage
+        system_tokens = estimate_message_tokens([SystemMessage(content=system_msg)])
+        message_tokens = estimate_message_tokens(trimmed_messages)
+        total_tokens = system_tokens + message_tokens
+        
+        logger.info("servicenow_token_usage",
+            component="servicenow",
+            operation="prepare_messages",
+            task_id=task_id,
+            original_message_count=len(state_messages),
+            trimmed_message_count=len(trimmed_messages),
+            system_tokens=system_tokens,
+            message_tokens=message_tokens,
+            total_tokens=total_tokens,
+            token_limit=128000
+        )
+        
         # Prepare messages
-        messages = [SystemMessage(content=system_msg)] + state["messages"]
+        messages = [SystemMessage(content=system_msg)] + trimmed_messages
         
         try:
             # Call LLM with tools

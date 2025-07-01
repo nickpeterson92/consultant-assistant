@@ -84,13 +84,16 @@ class OrchestratorA2AHandler:
                     "messages": [],
                     "summary": "No summary available",
                     "memory": {},
-                    "events": [],
                     "active_agents": [],
                     "last_agent_interaction": {},
                     "background_operations": [],
                     "background_results": {},
                     "interrupted_workflow": None,
-                    "_workflow_human_response": None
+                    "_workflow_human_response": None,
+                    "last_summary_trigger": None,
+                    "last_memory_trigger": None,
+                    "tool_calls_since_memory": 0,
+                    "agent_calls_since_memory": 0
                 })
                 
                 system_message_content = get_orchestrator_system_message(minimal_state, self.agent_registry)
