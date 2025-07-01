@@ -111,15 +111,46 @@ def build_jira_agent():
             has_external_context=bool(state.get("external_context"))
         )
         
-        messages = state["messages"]
-        
         # Get contexts for system message
         task_context = state.get("task_context", {})
         external_context = state.get("external_context", {})
         
-        # Add system message with contexts
-        if not messages or messages[0].type != "system":
-            messages = [SystemMessage(content=get_jira_system_message(task_context=task_context, external_context=external_context))] + messages
+        # Generate system message
+        system_message_content = get_jira_system_message(task_context=task_context, external_context=external_context)
+        
+        # Import trimming utility
+        from src.utils.agents.message_processing import trim_messages_for_context, estimate_message_tokens
+        
+        # Trim messages to prevent token limit issues
+        state_messages = state.get("messages", [])
+        trimmed_messages = trim_messages_for_context(
+            state_messages,
+            max_tokens=70000,  # Conservative limit for agent
+            keep_system=False,  # System message added separately
+            keep_first_n=2,     # Keep original request context
+            keep_last_n=10,     # Keep recent tool interactions
+            use_smart_trimming=True
+        )
+        
+        # Log token usage
+        system_tokens = estimate_message_tokens([SystemMessage(content=system_message_content)])
+        message_tokens = estimate_message_tokens(trimmed_messages)
+        total_tokens = system_tokens + message_tokens
+        
+        logger.info("jira_token_usage",
+            component="jira",
+            operation="prepare_messages",
+            task_id=task_id,
+            original_message_count=len(state_messages),
+            trimmed_message_count=len(trimmed_messages),
+            system_tokens=system_tokens,
+            message_tokens=message_tokens,
+            total_tokens=total_tokens,
+            token_limit=128000
+        )
+        
+        # Prepare messages with system message
+        messages = [SystemMessage(content=system_message_content)] + trimmed_messages
         
         # Log LLM invocation
         logger.info("jira_llm_invocation_start",

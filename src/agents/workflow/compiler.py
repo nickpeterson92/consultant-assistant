@@ -600,10 +600,28 @@ Source data:
                                          error=str(e))
                             # Fallback to direct extraction
                             flattened_vars = {}  # Empty for fallback
+                            
+                            # Import message processing utilities
+                            from langchain_core.messages import SystemMessage, HumanMessage
+                            from src.utils.agents.message_processing import trim_messages_for_context, estimate_message_tokens
+                            
+                            # Create messages
                             messages = [
-                                {"role": "system", "content": get_extraction_prompt()},
-                                {"role": "user", "content": f"{extraction_prompt}\n\nSource data:\n{source_data}"}
+                                SystemMessage(content=get_extraction_prompt()),
+                                HumanMessage(content=f"{extraction_prompt}\n\nSource data:\n{source_data}")
                             ]
+                            
+                            # Log token usage
+                            total_tokens = estimate_message_tokens(messages)
+                            logger.info("workflow_extraction_token_usage",
+                                component="workflow",
+                                workflow_id=state["workflow_id"],  # pyright: ignore[reportTypedDictNotRequiredAccess]
+                                step_id=step.id,
+                                message_count=len(messages),
+                                estimated_tokens=total_tokens,
+                                token_limit=128000
+                            )
+                            
                             response = await llm.ainvoke(messages)
                             content = response.content
                             extraction_result = content.strip() if isinstance(content, str) else str(content)
@@ -615,20 +633,56 @@ Source data:
                                    model=step.extract_model)
                         # Fallback to direct extraction
                         flattened_vars = {}  # Model not found
+                        
+                        # Import message processing utilities
+                        from langchain_core.messages import SystemMessage, HumanMessage
+                        from src.utils.agents.message_processing import trim_messages_for_context, estimate_message_tokens
+                        
+                        # Create messages
                         messages = [
-                            {"role": "system", "content": get_extraction_prompt()},
-                            {"role": "user", "content": f"{extraction_prompt}\n\nSource data:\n{str(source_data)}"}
+                            SystemMessage(content=get_extraction_prompt()),
+                            HumanMessage(content=f"{extraction_prompt}\n\nSource data:\n{str(source_data)}")
                         ]
+                        
+                        # Log token usage
+                        total_tokens = estimate_message_tokens(messages)
+                        logger.info("workflow_extraction_token_usage",
+                            component="workflow",
+                            workflow_id=state["workflow_id"],  # pyright: ignore[reportTypedDictNotRequiredAccess]
+                            step_id=step.id,
+                            message_count=len(messages),
+                            estimated_tokens=total_tokens,
+                            token_limit=128000
+                        )
+                        
                         response = await llm.ainvoke(messages)
                         content = response.content
                         extraction_result = content.strip() if isinstance(content, str) else str(content)
                 else:
                     # Use direct LLM extraction
                     flattened_vars = {}  # No structured extraction
+                    
+                    # Import message processing utilities
+                    from langchain_core.messages import SystemMessage, HumanMessage
+                    from src.utils.agents.message_processing import trim_messages_for_context, estimate_message_tokens
+                    
+                    # Create messages
                     messages = [
-                        {"role": "system", "content": get_extraction_prompt()},
-                        {"role": "user", "content": f"{extraction_prompt}\n\nSource data:\n{str(source_data)}"}
+                        SystemMessage(content=get_extraction_prompt()),
+                        HumanMessage(content=f"{extraction_prompt}\n\nSource data:\n{str(source_data)}")
                     ]
+                    
+                    # Log token usage
+                    total_tokens = estimate_message_tokens(messages)
+                    logger.info("workflow_extraction_token_usage",
+                        component="workflow",
+                        workflow_id=state["workflow_id"],  # pyright: ignore[reportTypedDictNotRequiredAccess]
+                        step_id=step.id,
+                        message_count=len(messages),
+                        estimated_tokens=total_tokens,
+                        token_limit=128000
+                    )
+                    
                     response = await llm.ainvoke(messages)
                     content = response.content
                     extraction_result = content.strip() if isinstance(content, str) else str(content)

@@ -152,16 +152,13 @@ async def handle_command(command: str, command_parts: list, current_thread_id: s
                                 if verbose and len(value) > 0:
                                     print(f"    First item: {str(value[0])[:100]}...")
                 
-                events = state_values.get('events', [])
-                print(f"\nEvents: {len(events)}")
-                if verbose and events:
-                    print("  Recent events:")
-                    for event in events[-3:]:
-                        if isinstance(event, dict):
-                            event_type = event.get('event_type', 'Unknown')
-                        else:
-                            event_type = getattr(event, 'event_type', 'Unknown')
-                        print(f"    - {event_type}")
+                # Events have been removed - using simple triggers now
+                if "last_summary_trigger" in state_values:
+                    print(f"\nLast Summary Trigger: {state_values['last_summary_trigger']}")
+                if "last_memory_trigger" in state_values:
+                    print(f"Last Memory Trigger: {state_values['last_memory_trigger']}")
+                print(f"Tool Calls Since Memory: {state_values.get('tool_calls_since_memory', 0)}")
+                print(f"Agent Calls Since Memory: {state_values.get('agent_calls_since_memory', 0)}")
                 
                 messages = state_values.get('messages', [])
                 if messages:

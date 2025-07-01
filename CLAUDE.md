@@ -24,6 +24,38 @@ A2A Protocol Layer (JSON-RPC 2.0)
 SALESFORCE AGENT + JIRA AGENT + SERVICE NOW AGENT + WORKFLOW AGENT
 ```
 
+## 🎯 State Management Changes (January 2025)
+
+### Simplified Trigger System
+We've replaced the complex event system with a simple counter-based approach:
+
+**Old System (REMOVED):**
+- Event objects with timestamps, types, details
+- EventAnalyzer for complex logic
+- 250+ lines of code, 25-50KB state storage
+
+**New System (SIMPLE):**
+- Simple counters: `tool_calls_since_memory`, `agent_calls_since_memory`
+- SimpleTriggerState: just timestamp + message_count
+- ~79 lines total, <1KB state storage
+- Functions: `should_trigger_summary()`, `should_trigger_memory_update()`
+
+### Why We Changed
+- Events were storing 50 events × 500-1000 chars each = 25-50KB
+- Complex event analysis wasn't being used
+- Simple counters achieve the same goal with 98% less code
+
+### How Triggers Work Now
+```python
+# Summary triggers when:
+- 5+ user messages since last summary
+- OR 300+ seconds since last summary (if messages exist)
+
+# Memory triggers when:
+- 3+ tool calls since last memory update
+- OR 2+ agent calls since last memory update
+```
+
 ## 🚀 Quick Start
 
 ```bash
@@ -140,13 +172,17 @@ LLM_RECURSION_LIMIT=15
 - **SalesforceAnalyticsTool**: Pipeline analytics and aggregations
 - **SalesforceCollaborationTool**: Activity and note management
 
-### Jira Tools (6 unified)
+### Jira Tools (10 unified)
 - **GetJiraTool**: Get issues by key or ID
 - **CreateJiraTool**: Create new issues (bug, story, task, epic)
 - **UpdateJiraTool**: Update issue fields and transitions
 - **JiraSearchTool**: JQL search with natural language support
 - **JiraAnalyticsTool**: Sprint metrics and team analytics
 - **JiraCollaborationTool**: Comments and collaboration features
+- **JiraGetResource**: Get projects, users, boards, sprints
+- **JiraListResources**: List all resource types
+- **JiraUpdateResource**: Update projects, boards, sprints
+- **JiraSprintOperations**: Sprint management
 
 ### ServiceNow Tools (6 unified)
 - **GetServiceNowTool**: Get records by sys_id or number
@@ -347,6 +383,52 @@ namespace = "memory"
 namespace = ("memory", user_id)
 ```
 
+### State Synchronization (Critical!)
+**Problem**: System agents (Jira, Salesforce, ServiceNow) were not receiving orchestrator state
+**Solution**: All agents now merge `state_snapshot` into their context
+
+```python
+# All system agents now do this:
+state_snapshot = task_data.get("state_snapshot", {})
+merged_context = {
+    **context,
+    "orchestrator_state": state_snapshot  # Contains messages, memory, etc.
+}
+```
+
+**Impact**: Agents can now see:
+- Recent conversation history (`messages`)
+- Memory data (accounts, contacts, etc.)
+- Conversation summaries
+- Any orchestrator state that provides context
+
+**Example**: Jira agent can now see that "NTP project was just created" from orchestrator state
+
+### Context Window Management (NEW!)
+**Problem**: Agents hitting 130k+ token limits with large conversations
+**Solution**: Smart message trimming with LangChain's official utilities
+
+```python
+# Orchestrator: 80k token limit
+# System agents: 70k token limit
+from src.utils.agents.message_processing import trim_messages_for_context
+
+trimmed_messages = trim_messages_for_context(
+    messages,
+    max_tokens=70000,
+    keep_system=False,
+    keep_first_n=2,
+    keep_last_n=15,
+    use_smart_trimming=True
+)
+```
+
+**Features**:
+- Preserves tool calls and their results together
+- Keeps most recent messages for context
+- Logs token usage for monitoring
+- Applied to all agents (Salesforce, Jira, ServiceNow)
+
 ## 📚 Key Architecture Decisions
 
 1. **Loose Coupling**: Tools as interface contracts
@@ -357,10 +439,13 @@ namespace = ("memory", user_id)
 6. **Thread Persistence**: Full state storage
 7. **BaseAgentTool**: DRY pattern for agents
 8. **Constants**: Centralized in `constants.py`
-9. **YAGNI Applied**: Removed speculative features
+9. **YAGNI Applied**: Removed speculative features (events system)
 10. **Global Recursion Limit**: 15 iterations max for all agents (configurable)
 11. **Modular Code Organization**: Split large files (sys_msg.py, ux.py) into focused modules
 12. **Query Builder Pattern**: Base query builder with platform-specific implementations
+13. **Simple Triggers**: Replaced event system with counters (98% less code)
+14. **State Synchronization**: All agents receive orchestrator context
+15. **Smart Context Management**: Token-aware message trimming
 
 ## 📊 Multi-File Logging System
 
