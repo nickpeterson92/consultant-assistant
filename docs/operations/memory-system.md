@@ -285,33 +285,32 @@ def deserialize_messages(serialized: List[Dict[str, Any]]) -> List[BaseMessage]:
 
 ### Automatic Context Compression
 
+**Note: We've simplified our trigger system (January 2025)**
+
+Previously, we tracked complex events. Now we use simple counters:
+
 ```python
-class BackgroundSummarizer:
-    """Handles automatic conversation summarization"""
+# From src/orchestrator/state.py
+def should_trigger_summary(state: Dict[str, Any], 
+                          user_message_threshold: int = 5,
+                          time_threshold_seconds: float = 300) -> bool:
+    """Simple logic instead of complex event analysis"""
+    current_message_count = len(state.get("messages", []))
+    last_trigger = state.get("last_summary_trigger")
     
-    def __init__(self):
-        self.summary_triggers = {
-            "message_count": 15,      # Trigger after 15 messages
-            "agent_calls": 2,         # Trigger after 2 agent calls
-            "time_threshold": 180     # Trigger after 3 minutes
-        }
-    
-    async def should_trigger_summary(self, state: Dict[str, Any]) -> bool:
-        """Check if summarization should be triggered"""
-        message_count = len(state.get("messages", []))
-        agent_calls = len(state.get("agent_call_history", []))
+    if last_trigger:
+        # Calculate messages since last summary
+        messages_since = current_message_count - last_trigger["message_count"]
         
-        # Message count trigger
-        if message_count >= self.summary_triggers["message_count"]:
-            return True
+        # Check time since last summary
+        last_time = datetime.fromisoformat(last_trigger["timestamp"])
+        time_since = (datetime.now() - last_time).total_seconds()
         
-        # Agent calls trigger
-        if agent_calls >= self.summary_triggers["agent_calls"]:
-            return True
-        
-        # Time-based trigger would be implemented here
-        
-        return False
+        return (messages_since >= user_message_threshold or 
+               (time_since >= time_threshold_seconds and messages_since > 0))
+    else:
+        # No summary yet, check total messages
+        return current_message_count >= user_message_threshold
     
     async def summarize_conversation(self, messages: List[BaseMessage]) -> str:
         """Create conversation summary"""
@@ -336,28 +335,21 @@ class BackgroundSummarizer:
 ### Memory Update Triggers
 
 ```python
-async def check_memory_update_triggers(state: Dict[str, Any]) -> bool:
-    """Check if memory should be updated"""
+# From src/orchestrator/state.py
+def should_trigger_memory_update(state: Dict[str, Any],
+                               tool_call_threshold: int = 3,
+                               agent_call_threshold: int = 2) -> bool:
+    """Simple counter-based triggers"""
+    tool_calls = state.get("tool_calls_since_memory", 0)
+    agent_calls = state.get("agent_calls_since_memory", 0)
     
-    # Tool call trigger
-    tool_calls = state.get("tool_calls_count", 0)
-    if tool_calls >= 3:
-        return True
-    
-    # Agent call trigger
-    agent_calls = len(state.get("agent_call_history", []))
-    if agent_calls >= 2:
-        return True
-    
-    # Time-based trigger (3 minutes)
-    last_update = state.get("last_memory_update")
-    if last_update:
-        time_diff = time.time() - last_update
-        if time_diff >= 180:  # 3 minutes
-            return True
-    
-    return False
+    return tool_calls >= tool_call_threshold or agent_calls >= agent_call_threshold
 ```
+
+The simplified system tracks:
+- `tool_calls_since_memory`: Incremented for each tool call
+- `agent_calls_since_memory`: Incremented for each agent call
+- Both reset to 0 after memory update triggers
 
 ## Entity Extraction
 
@@ -463,17 +455,22 @@ async def get_memory_lazy(user_id: str) -> SimpleMemory:
 
 ## Configuration
 
-### Memory Settings
+### Memory Settings (Updated for Simple Triggers)
 
-```json
+```python
+# From src/utils/config/constants.py
+SUMMARY_USER_MESSAGE_THRESHOLD = 5  # Messages before summary
+SUMMARY_TIME_THRESHOLD_SECONDS = 300  # 5 minutes
+MEMORY_TOOL_CALL_THRESHOLD = 3  # Tool calls before memory update
+MEMORY_AGENT_CALL_THRESHOLD = 2  # Agent calls before memory update
+
+# From system_config.json
 {
-  "memory": {
-    "summary_trigger_messages": 15,
-    "max_messages_to_preserve": 5,
-    "memory_update_trigger_tools": 3,
-    "memory_update_trigger_agents": 2,
-    "memory_update_trigger_time": 180,
-    "cache_ttl": 300
+  "conversation": {
+    "summary_threshold": 5,
+    "max_conversation_length": 50,
+    "memory_extraction_enabled": true,
+    "memory_extraction_delay": 0.5
   }
 }
 ```
