@@ -7,7 +7,7 @@ import os
 # Add the project root to Python path for src imports
 sys.path.insert(0, os.path.dirname(__file__))
 
-from src.agents.salesforce.main import main
+from src.agents.salesforce.main import main  # pyright: ignore[reportAttributeAccessIssue]
 
 if __name__ == "__main__":
     import asyncio

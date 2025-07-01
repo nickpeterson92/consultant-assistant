@@ -50,6 +50,7 @@ def main():
     
     processes = []
     output_threads = []
+    orchestrator_process = None
     
     try:
         # Start all agent processes
@@ -109,7 +110,7 @@ def main():
             except subprocess.TimeoutExpired:
                 process.kill()
         
-        if 'orchestrator_process' in locals():
+        if orchestrator_process is not None:
             orchestrator_process.terminate()
             try:
                 orchestrator_process.wait(timeout=5)

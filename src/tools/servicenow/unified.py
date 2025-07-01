@@ -31,7 +31,7 @@ class ServiceNowGet(ServiceNowReadTool):
         number: Optional[str] = Field(None, description="Record number (e.g., INC0001234)")
         fields: Optional[List[str]] = Field(None, description="Specific fields to return")
     
-    args_schema: type = Input
+    args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
     
     def _execute(self, **kwargs) -> Any:
         """Execute the get operation."""
@@ -42,6 +42,7 @@ class ServiceNowGet(ServiceNowReadTool):
         # Validate inputs
         if not sys_id and not number:
             return {
+                "success": False,
                 "error": "Missing required identifier",
                 "error_code": "MISSING_IDENTIFIER",
                 "guidance": {
@@ -56,6 +57,7 @@ class ServiceNowGet(ServiceNowReadTool):
             table_name = self._detect_table_from_number(number)
             if not table_name:
                 return {
+                    "success": False,
                     "error": "Unknown record number format",
                     "error_code": "UNKNOWN_NUMBER_FORMAT",
                     "number": number,
@@ -68,6 +70,7 @@ class ServiceNowGet(ServiceNowReadTool):
         
         if not table_name:
             return {
+                "success": False,
                 "error": "Missing table name",
                 "error_code": "MISSING_TABLE_NAME",
                 "guidance": {
@@ -105,6 +108,7 @@ class ServiceNowGet(ServiceNowReadTool):
                 return data['result'][0]
             else:
                 return {
+                    "success": False,
                     "error": "Record not found",
                     "error_code": "NOT_FOUND",
                     "number": number,
@@ -135,7 +139,7 @@ class ServiceNowSearch(ServiceNowReadTool):
         order_by: Optional[str] = Field(None, description="Field to sort by")
         order_desc: bool = Field(True, description="Sort descending")
     
-    args_schema: type = Input
+    args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
     
     def _execute(self, **kwargs) -> Any:
         """Execute the search operation with NLQ support."""
@@ -159,6 +163,7 @@ class ServiceNowSearch(ServiceNowReadTool):
             else:
                 # Return guidance for LLM to retry with structured query
                 return {
+                    "success": False,
                     "error": "Natural language query not understood",
                     "error_code": "NLQ_INTERPRETATION_FAILED", 
                     "query": query,
@@ -207,7 +212,7 @@ class ServiceNowCreate(ServiceNowWriteTool):
         table_name: str = Field(description="Table to create record in")
         data: Dict[str, Any] = Field(description="Field values for the new record")
     
-    args_schema: type = Input
+    args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
     
     def _execute(self, **kwargs) -> Any:
         """Execute the create operation."""
@@ -250,7 +255,7 @@ class ServiceNowUpdate(ServiceNowWriteTool):
         where: Optional[str] = Field(None, description="Encoded query for bulk updates")
         data: Dict[str, Any] = Field(description="Field values to update")
     
-    args_schema: type = Input
+    args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
     
     def _execute(self, **kwargs) -> Any:
         """Execute the update operation following ServiceNow best practices."""
@@ -284,6 +289,7 @@ class ServiceNowUpdate(ServiceNowWriteTool):
             
             if not search_data.get('result') or len(search_data['result']) == 0:
                 return {
+                    "success": False,
                     "error": "Record not found",
                     "error_code": "NOT_FOUND",
                     "number": number,
@@ -319,6 +325,7 @@ class ServiceNowUpdate(ServiceNowWriteTool):
             
         else:
             return {
+                "success": False,
                 "error": "Missing required identifier",
                 "error_code": "MISSING_IDENTIFIER",
                 "guidance": {
@@ -344,7 +351,7 @@ class ServiceNowWorkflow(ServiceNowWorkflowTool):
         action: str = Field(description="Workflow action (e.g., approve, assign, transition)")
         data: Optional[Dict[str, Any]] = Field(None, description="Additional data for the action")
     
-    args_schema: type = Input
+    args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
     
     def _execute(self, **kwargs) -> Any:
         """Execute the workflow operation."""
@@ -375,6 +382,7 @@ class ServiceNowWorkflow(ServiceNowWorkflowTool):
             # Assignment logic
             if not data.get('assigned_to'):
                 return {
+                    "success": False,
                     "error": "Missing required field for assignment",
                     "error_code": "MISSING_REQUIRED_FIELD",
                     "field": "assigned_to",
@@ -393,6 +401,7 @@ class ServiceNowWorkflow(ServiceNowWorkflowTool):
             # State transition logic
             if not data.get('state'):
                 return {
+                    "success": False,
                     "error": "Missing required field for transition",
                     "error_code": "MISSING_REQUIRED_FIELD",
                     "field": "state",
@@ -414,6 +423,7 @@ class ServiceNowWorkflow(ServiceNowWorkflowTool):
             
         else:
             return {
+                "success": False,
                 "error": "Unknown workflow action",
                 "error_code": "INVALID_ACTION",
                 "action": action,
@@ -454,7 +464,7 @@ class ServiceNowAnalytics(ServiceNowAnalyticsTool):
         time_field: Optional[str] = Field("sys_created_on", description="Field for time-based analysis")
         time_period: Optional[str] = Field(None, description="Time period (e.g., 'last 7 days')")
     
-    args_schema: type = Input
+    args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
     
     def _execute(self, **kwargs) -> Any:
         """Execute the analytics operation."""
@@ -535,6 +545,7 @@ class ServiceNowAnalytics(ServiceNowAnalyticsTool):
                     content_type=response.headers.get('Content-Type', 'unknown')
                 )
                 return {
+                    "success": False,
                     "error": "ServiceNow returned non-JSON response",
                     "error_code": "INVALID_RESPONSE",
                     "details": f"Response: {response.text[:200]}...",
@@ -639,6 +650,7 @@ class ServiceNowAnalytics(ServiceNowAnalyticsTool):
             
         else:
             return {
+                "success": False,
                 "error": "Unknown metric type",
                 "error_code": "INVALID_METRIC_TYPE",
                 "metric_type": metric_type,

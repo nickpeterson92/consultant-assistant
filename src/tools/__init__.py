@@ -36,6 +36,9 @@ from .servicenow import (
 # Utility tools (for orchestrator only)
 from .utility import WebSearchTool
 
+# Define utility tools list
+UTILITY_TOOLS = [WebSearchTool]
+
 # Combined exports (agent tools only, not utility tools)
 ALL_UNIFIED_TOOLS = (
     UNIFIED_SALESFORCE_TOOLS +

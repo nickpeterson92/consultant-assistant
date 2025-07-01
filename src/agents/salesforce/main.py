@@ -102,8 +102,25 @@ def build_salesforce_graph():
             response = llm_with_tools.invoke(messages)
             
             # Log LLM response with full content for debugging
-            has_tool_calls = bool(hasattr(response, 'tool_calls') and response.tool_calls)
+            has_tool_calls = bool(hasattr(response, 'tool_calls') and response.tool_calls)  # pyright: ignore[reportAttributeAccessIssue]
             response_content = str(response.content) if hasattr(response, 'content') else ""
+            
+            # Include tool call details in the debug log
+            tool_call_details = []
+            if has_tool_calls and hasattr(response, 'tool_calls'):
+                for tc in response.tool_calls:  # pyright: ignore[reportAttributeAccessIssue]
+                    # Handle both dict and object access patterns
+                    if isinstance(tc, dict):
+                        tool_name = tc.get('name', 'unknown')
+                        tool_args = tc.get('args', {})
+                    else:
+                        tool_name = getattr(tc, 'name', 'unknown')
+                        tool_args = getattr(tc, 'args', {})
+                    
+                    tool_call_details.append({
+                        'name': tool_name,
+                        'args': tool_args
+                    })
             
             logger.info("salesforce_llm_invocation_complete",
                 component="salesforce",
@@ -111,7 +128,8 @@ def build_salesforce_graph():
                 task_id=task_id,
                 has_tool_calls=has_tool_calls,
                 response_length=len(response_content),
-                response_content_full=response_content if not has_tool_calls else "TOOL_CALLS_PRESENT"
+                response_content_full=response_content if not has_tool_calls else "TOOL_CALLS_PRESENT",
+                tool_calls=tool_call_details if has_tool_calls else None
             )
             
             # Cost tracking removed - activity logger no longer exists
@@ -210,8 +228,8 @@ class SalesforceA2AHandler:
             
             # Log tool calls found in messages
             for msg in messages:
-                if hasattr(msg, 'tool_calls') and msg.tool_calls:
-                    for tool_call in msg.tool_calls:
+                if hasattr(msg, 'tool_calls') and msg.tool_calls:  # pyright: ignore[reportAttributeAccessIssue]
+                    for tool_call in msg.tool_calls:  # pyright: ignore[reportAttributeAccessIssue]
                         # Handle both dict and object access patterns
                         if isinstance(tool_call, dict):
                             tool_name = tool_call.get("name", "unknown")

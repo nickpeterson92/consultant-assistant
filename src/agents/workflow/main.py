@@ -189,7 +189,8 @@ class WorkflowA2AHandler:
             HumanMessage(content=f"Instruction: {instruction}")
         ])
         
-        workflow_name = response.content.strip()
+        content = response.content
+        workflow_name = content.strip() if isinstance(content, str) else str(content).strip()
         return workflow_name if workflow_name != "none" else None
     
     async def _extract_parameter(self, instruction: str, prompt: str) -> str:
@@ -199,7 +200,8 @@ class WorkflowA2AHandler:
             SystemMessage(content=enhanced_prompt),
             HumanMessage(content=instruction)
         ])
-        return response.content.strip()
+        content = response.content
+        return content.strip() if isinstance(content, str) else str(content).strip()
     
     async def _generate_report(self, workflow_name: str, result: Dict[str, Any]) -> str:
         """Generate a report from workflow results"""

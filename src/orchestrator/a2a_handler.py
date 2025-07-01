@@ -21,6 +21,9 @@ class OrchestratorA2AHandler:
         
     async def process_task(self, params: Dict[str, Any]) -> A2AResponse:
         """Process A2A task using the orchestrator graph"""
+        # Initialize task_id outside try block for error handling
+        task_id = "unknown"
+        
         try:
             # A2A protocol wraps task in "task" key
             task_data = params.get("task", params)  # Support both wrapped and unwrapped

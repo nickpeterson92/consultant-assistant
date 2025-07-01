@@ -99,35 +99,28 @@ class BaseJiraTool(BaseTool, ABC):
         error_str = str(error)
         if "401" in error_str or "Unauthorized" in error_str:
             return {
+                "success": False,
                 "error": "Authentication failed",
                 "error_code": "UNAUTHORIZED",
-                "details": str(error),
-                "guidance": {
-                    "reflection": "The credentials are invalid or missing.",
-                    "consider": "Are the JIRA_USER and JIRA_API_TOKEN environment variables correctly set?",
-                    "approach": "Verify your Jira credentials and API token permissions."
-                }
+                "details": str(error)
             }
         elif "403" in error_str or "Forbidden" in error_str:
             return {
+                "success": False,
                 "error": "Permission denied",
                 "error_code": "FORBIDDEN",
-                "details": str(error),
-                "guidance": {
-                    "reflection": "You don't have permission to perform this action.",
-                    "consider": "Does your user account have the necessary permissions for this operation?",
-                    "approach": "Check with your Jira administrator about required permissions."
-                }
+                "details": str(error)
             }
         elif "404" in error_str or "Not Found" in error_str:
             return {
+                "success": False,
                 "error": "Resource not found",
                 "error_code": "NOT_FOUND",
                 "details": str(error),
                 "guidance": {
                     "reflection": "The requested resource doesn't exist.",
-                    "consider": "Is the issue key, project key, or resource ID correct?",
-                    "approach": "Verify the identifier and try searching for the resource first."
+                    "consider": "Check if the issue key or project key is correct.",
+                    "approach": "Try searching for the resource first or verify the identifier format."
                 }
             }
         elif "400" in error_str or "Bad Request" in error_str:
@@ -137,17 +130,19 @@ class BaseJiraTool(BaseTool, ABC):
             field_name = field_match.group(1) or field_match.group(2) if field_match else "unknown"
             
             return {
+                "success": False,
                 "error": "Invalid request",
                 "error_code": "BAD_REQUEST",
                 "details": str(error),
                 "guidance": {
-                    "reflection": f"The request format or parameters are invalid.",
-                    "consider": "Are all required fields provided? Is the field format correct?",
-                    "approach": "Review the field requirements and data types for this operation."
+                    "reflection": "The request format or parameters are invalid.",
+                    "consider": "Check required fields and data formats.",
+                    "approach": "Review the error details and adjust your request."
                 }
             }
         else:
             return {
+                "success": False,
                 "error": "Operation failed",
                 "error_code": "UNKNOWN_ERROR",
                 "details": str(error)
@@ -159,10 +154,19 @@ class BaseJiraTool(BaseTool, ABC):
         
         try:
             result = self._execute(**kwargs)
-            self._log_result(result)
-            return result
+            formatted_result = self._format_result(result)
+            self._log_result(formatted_result)
+            return formatted_result
         except Exception as e:
             return self._handle_error(e)
+    
+    def _format_result(self, result: Any) -> Dict[str, Any]:
+        """Wrap result with success indicator and data."""
+        return {
+            "success": True,
+            "data": result,
+            "operation": self.name
+        }
     
     @abstractmethod
     def _execute(self, **kwargs) -> Any:

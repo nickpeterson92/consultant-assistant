@@ -125,7 +125,7 @@ class WorkflowExecutionTool(BaseTool):
             description="Optional hint about which workflow to use"
         )
     
-    args_schema: type = Input
+    args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
     
     def _run(self, instruction: str, workflow_hint: Optional[str] = None) -> str:
         """Execute workflow synchronously if possible, delegate to agent if async needed"""
@@ -260,7 +260,7 @@ class WorkflowStatusTool(BaseTool):
     class Input(BaseModel):
         instance_id: str = Field(description="The workflow instance ID to check")
     
-    args_schema: type = Input
+    args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
     
     def _run(self, instance_id: str) -> str:
         raise NotImplementedError("Use async version")

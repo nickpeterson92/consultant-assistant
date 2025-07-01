@@ -95,7 +95,7 @@ class WebSearchTool(BaseUtilityTool):
     
     Returns structured results with titles, snippets, URLs, and relevance scores."""
     
-    args_schema: Type[BaseModel] = WebSearchInput
+    args_schema: Type[BaseModel] = WebSearchInput  # pyright: ignore[reportIncompatibleVariableOverride]
     
     def __init__(self):
         super().__init__()
@@ -283,6 +283,12 @@ class WebSearchTool(BaseUtilityTool):
         
         try:
             # Create a new search instance with updated parameters
+            if TavilySearch is None:
+                return {
+                    "error": "TavilySearch not available",
+                    "error_code": "TAVILY_NOT_AVAILABLE"
+                }
+            
             tavily_search = TavilySearch(
                 api_key=api_key,
                 search_depth=search_params["search_depth"],
