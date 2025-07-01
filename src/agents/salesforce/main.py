@@ -186,6 +186,13 @@ class SalesforceA2AHandler:
             task_id = task_data.get("id", task_data.get("task_id", "unknown"))
             instruction = task_data.get("instruction", "")
             context = task_data.get("context", {})
+            state_snapshot = task_data.get("state_snapshot", {})
+            
+            # Merge state_snapshot into context for full orchestrator state access
+            merged_context = {
+                **context,
+                "orchestrator_state": state_snapshot
+            }
             
             # Log task start with more detail
             logger.info("salesforce_a2a_task_start",
@@ -195,14 +202,16 @@ class SalesforceA2AHandler:
                 instruction_preview=instruction[:100] if instruction else "",
                 instruction_length=len(instruction) if instruction else 0,
                 context_keys=list(context.keys()) if context else [],
-                context_size=len(str(context)) if context else 0
+                context_size=len(str(context)) if context else 0,
+                has_state_snapshot=bool(state_snapshot),
+                state_snapshot_keys=list(state_snapshot.keys()) if state_snapshot else []
             )
             
             # Simple state preparation - modern LangGraph prefers minimal state
             initial_state = {
                 "messages": [HumanMessage(content=instruction)],
                 "task_context": {"task_id": task_id, "instruction": instruction},
-                "external_context": context
+                "external_context": merged_context
             }
             
             # Modern config - no need for complex setup

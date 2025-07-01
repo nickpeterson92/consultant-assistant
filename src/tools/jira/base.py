@@ -175,7 +175,13 @@ class BaseJiraTool(BaseTool, ABC):
     
     def _make_request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
         """Make HTTP request to Jira API."""
-        url = f"{self.jira['base_url']}/rest/api/2{endpoint}"
+        # Handle different API versions
+        if endpoint.startswith("/agile/"):
+            # Agile API endpoints use /rest/agile/1.0
+            url = f"{self.jira['base_url']}/rest{endpoint}"
+        else:
+            # Regular API endpoints use /rest/api/2
+            url = f"{self.jira['base_url']}/rest/api/2{endpoint}"
         
         response = requests.request(
             method=method,

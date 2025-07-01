@@ -197,6 +197,13 @@ async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
         task_id = task_data.get("id", "unknown")
         instruction = task_data.get("instruction", "")
         context = task_data.get("context", {})
+        state_snapshot = task_data.get("state_snapshot", {})
+        
+        # Merge state_snapshot into context for full orchestrator state access
+        merged_context = {
+            **context,
+            "orchestrator_state": state_snapshot
+        }
         
         # Log task processing start
         logger.info("jira_a2a_task_start",
@@ -207,7 +214,9 @@ async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
             instruction_length=len(instruction) if instruction else 0,
             has_context=bool(context),
             context_keys=list(context.keys()) if context else [],
-            context_size=len(str(context)) if context else 0
+            context_size=len(str(context)) if context else 0,
+            has_state_snapshot=bool(state_snapshot),
+            state_snapshot_keys=list(state_snapshot.keys()) if state_snapshot else []
         )
         
         # Prepare initial state
@@ -217,7 +226,7 @@ async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
             "tool_results": [],
             "error": "",
             "task_context": {"task_id": task_id, "instruction": instruction},
-            "external_context": context or {}
+            "external_context": merged_context
         }
         
         # Log agent invocation
@@ -260,12 +269,8 @@ async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
         artifact = A2AArtifact(
             id=f"artifact_{task_id}",
             task_id=task_id,
-            content={
-                "response": response_content,
-                "tool_results": tool_data,
-                "issue_keys": extract_issue_keys(response_content)
-            },
-            content_type="jira_response",
+            content=response_content,
+            content_type="text/plain",
             metadata={"agent": "jira-agent"}
         )
         
