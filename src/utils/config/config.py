@@ -379,7 +379,7 @@ class ConfigManager:
         """Save configuration to file."""
         try:
             with open(self.config_path, 'w') as f:
-                json.dump(self._config.to_dict(), f, indent=2)
+                json.dump(self._config.to_dict() if self._config else {}, f, indent=2)
             logger.info("config_saved",
                 component="config",
                 operation="save",

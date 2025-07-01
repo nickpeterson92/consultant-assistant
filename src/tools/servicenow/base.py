@@ -120,14 +120,10 @@ class BaseServiceNowTool(BaseTool, ABC):
         error_str = str(error)
         if "401" in error_str or "Unauthorized" in error_str:
             return {
+                "success": False,
                 "error": "Authentication failed",
                 "error_code": "UNAUTHORIZED",
-                "details": str(error),
-                "guidance": {
-                    "reflection": "The credentials are invalid or missing.",
-                    "consider": "Are the SERVICENOW_USER and SERVICENOW_PASSWORD environment variables correctly set?",
-                    "approach": "Verify your ServiceNow credentials and instance configuration."
-                }
+                "details": str(error)
             }
         elif "403" in error_str or "Forbidden" in error_str:
             # Extract table name from error
@@ -135,29 +131,26 @@ class BaseServiceNowTool(BaseTool, ABC):
             table_match = re.search(r"table/(\w+)|Table '(\w+)'", error_str)
             table_name = table_match.group(1) or table_match.group(2) if table_match else None
             
-            # Special guidance for company tables
+            # Special guidance for company tables (actionable)
             if table_name and ('company' in table_name.lower() or 'vendor' in table_name.lower()):
                 return {
+                    "success": False,
                     "error": "Permission denied for company table",
                     "error_code": "FORBIDDEN_COMPANY_TABLE",
                     "details": str(error),
                     "table": table_name,
                     "guidance": {
-                        "reflection": f"Access denied to table '{table_name}'. This might be due to table not existing or lacking permissions.",
-                        "consider": "Common ServiceNow company tables: 'core_company', 'customer_account', 'ast_vendor'. Some instances use 'cmn_company'.",
-                        "approach": "Try using 'customer_account' table for customer records, or check with admin for the correct company table name and permissions."
+                        "reflection": f"Access denied to table '{table_name}'.",
+                        "consider": "Common company tables: 'core_company', 'customer_account', 'ast_vendor'.",
+                        "approach": "Try a different table name like 'customer_account' or 'core_company'."
                     }
                 }
             else:
                 return {
+                    "success": False,
                     "error": "Permission denied",
                     "error_code": "FORBIDDEN",
-                    "details": str(error),
-                    "guidance": {
-                        "reflection": "You don't have permission to perform this action.",
-                        "consider": "Does your user account have the necessary roles and permissions?",
-                        "approach": "Check with your ServiceNow administrator about required roles."
-                    }
+                    "details": str(error)
                 }
         elif "404" in error_str or "Not Found" in error_str:
             # Try to extract table or record info
@@ -166,13 +159,14 @@ class BaseServiceNowTool(BaseTool, ABC):
             table_name = table_match.group(1) or table_match.group(2) if table_match else "unknown"
             
             return {
+                "success": False,
                 "error": "Resource not found",
                 "error_code": "NOT_FOUND",
                 "details": str(error),
                 "guidance": {
-                    "reflection": f"The requested resource doesn't exist.",
-                    "consider": "Is the table name correct? ServiceNow tables often have prefixes like 'incident', 'change_request', etc.",
-                    "approach": "Verify the table name and record ID. Common tables: incident, change_request, problem, sc_task."
+                    "reflection": "The requested resource doesn't exist.",
+                    "consider": "Common tables: incident, change_request, problem, sc_task, sc_request.",
+                    "approach": "Try a different table name or verify the record ID format."
                 }
             }
         elif "400" in error_str or "Bad Request" in error_str:
@@ -184,6 +178,7 @@ class BaseServiceNowTool(BaseTool, ABC):
                 field_name = field_match.group(1) or field_match.group(2) or field_match.group(3)
             
             return {
+                "success": False,
                 "error": "Invalid request",
                 "error_code": "BAD_REQUEST",
                 "details": str(error),
@@ -195,6 +190,7 @@ class BaseServiceNowTool(BaseTool, ABC):
             }
         else:
             return {
+                "success": False,
                 "error": "Operation failed",
                 "error_code": "UNKNOWN_ERROR",
                 "details": str(error)
@@ -206,10 +202,19 @@ class BaseServiceNowTool(BaseTool, ABC):
         
         try:
             result = self._execute(**kwargs)
-            self._log_result(result)
-            return result
+            formatted_result = self._format_result(result)
+            self._log_result(formatted_result)
+            return formatted_result
         except Exception as e:
             return self._handle_error(e)
+    
+    def _format_result(self, result: Any) -> Dict[str, Any]:
+        """Wrap result with success indicator and data."""
+        return {
+            "success": True,
+            "data": result,
+            "operation": self.name
+        }
     
     @abstractmethod
     def _execute(self, **kwargs) -> Any:
@@ -268,8 +273,7 @@ class BaseServiceNowTool(BaseTool, ABC):
                     response_preview=response.text[:300]
                 )
                 raise ValueError(
-                    "ServiceNow instance is hibernated. Developer instances hibernate after periods of inactivity. "
-                    "Please wake up the instance by logging into the ServiceNow Developer Portal."
+                    "ServiceNow instance is hibernated."
                 )
             else:
                 # Other non-JSON response
@@ -281,9 +285,7 @@ class BaseServiceNowTool(BaseTool, ABC):
                     response_preview=response.text[:200] if response.text else 'empty'
                 )
                 raise ValueError(
-                    f"ServiceNow returned {content_type} instead of JSON. "
-                    f"Status: {response.status_code}. This may indicate authentication issues, "
-                    f"incorrect API endpoint, or instance configuration problems."
+                    f"ServiceNow returned {content_type} instead of JSON. Status: {response.status_code}."
                 )
         
         return response

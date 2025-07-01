@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional, Union
 from dataclasses import dataclass
 from enum import Enum
 
-from ..query import BaseQueryBuilder, BaseOperator, BaseCondition, LogicalOperator
+from ..query import BaseQueryBuilder, BaseOperator, BaseCondition, LogicalOperator, ConditionGroup
 
 
 class GlideOperator(Enum):
@@ -167,13 +167,21 @@ class GlideQueryBuilder(BaseQueryBuilder['GlideQueryBuilder']):
                     parts.append('^')
             
             if hasattr(condition, 'to_query_string'):
-                if hasattr(condition, 'conditions'):  # ConditionGroup
+                if isinstance(condition, ConditionGroup):
                     # Handle OR groups with ^OR
                     group_parts = []
                     for j, cond in enumerate(condition.conditions):
                         if j > 0:
                             group_parts.append('^OR' if condition.operator.value == 'OR' else '^')
-                        group_parts.append(cond.to_query_string())
+                        if isinstance(cond, GlideCondition):
+                            group_parts.append(cond.to_query_string())
+                        elif isinstance(cond, ConditionGroup):
+                            # Recursively handle nested groups
+                            group_parts.append(f"({cond.to_query_string(lambda c: GlideCondition(c.field, c.operator, c.value).to_query_string())})")
+                        else:
+                            # Format BaseCondition using GlideCondition
+                            glide_cond = GlideCondition(cond.field, cond.operator, cond.value)
+                            group_parts.append(glide_cond.to_query_string())
                     parts.append(''.join(group_parts))
                 else:
                     parts.append(condition.to_query_string())

@@ -88,7 +88,7 @@ def build_servicenow_graph():
                 operation="llm_invoke",
                 task_id=task_id,
                 response_length=len(response.content),
-                has_tool_calls=bool(response.tool_calls) if hasattr(response, 'tool_calls') else False
+                has_tool_calls=bool(response.tool_calls) if hasattr(response, 'tool_calls') else False  # pyright: ignore[reportAttributeAccessIssue]
             )
             
             return {"messages": [response]}

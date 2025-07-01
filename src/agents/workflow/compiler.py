@@ -252,7 +252,7 @@ class WorkflowCompiler:
             
             logger.info("workflow_action_node_executing",
                        component="workflow",
-                       workflow_id=state["workflow_id"],
+                       workflow_id=state["workflow_id"],  # pyright: ignore[reportTypedDictNotRequiredAccess]
                        step_id=step.id,
                        agent=step.agent,
                        instruction_preview=instruction[:100] if instruction else "")
@@ -265,11 +265,11 @@ class WorkflowCompiler:
                     agent_name=step.agent,
                     instruction=instruction,
                     context={
-                        "workflow_id": state["workflow_id"],
-                        "workflow_name": state["workflow_name"],
+                        "workflow_id": state["workflow_id"],  # pyright: ignore[reportTypedDictNotRequiredAccess]
+                        "workflow_name": state["workflow_name"],  # pyright: ignore[reportTypedDictNotRequiredAccess]
                         "step_id": step.id,
                         "step_name": step.name,
-                        "variables": state["variables"]
+                        "variables": state["variables"]  # pyright: ignore[reportTypedDictNotRequiredAccess]
                     },
                     state_snapshot=state.get("orchestrator_state_snapshot") or {}
                 )
@@ -294,7 +294,7 @@ class WorkflowCompiler:
             except Exception as e:
                 logger.error("workflow_action_node_error",
                            component="workflow",
-                           workflow_id=state["workflow_id"],
+                           workflow_id=state["workflow_id"],  # pyright: ignore[reportTypedDictNotRequiredAccess]
                            step_id=step.id,
                            error=str(e))
                 
@@ -320,7 +320,7 @@ class WorkflowCompiler:
         async def human_node(state: WorkflowState) -> Dict[str, Any]:
             logger.info("workflow_human_node_executing",
                        component="workflow",
-                       workflow_id=state["workflow_id"],
+                       workflow_id=state["workflow_id"],  # pyright: ignore[reportTypedDictNotRequiredAccess]
                        step_id=step.id)
             
             # Build context dynamically from state and step metadata
@@ -336,8 +336,8 @@ class WorkflowCompiler:
                 # metadata can specify which previous results to include
                 if "context_from" in step.metadata:
                     for prev_step in step.metadata["context_from"]:
-                        if prev_step in state["step_results"]:
-                            context[prev_step] = state["step_results"][prev_step]
+                        if prev_step in state["step_results"]:  # pyright: ignore[reportTypedDictNotRequiredAccess]
+                            context[prev_step] = state["step_results"][prev_step]  # pyright: ignore[reportTypedDictNotRequiredAccess]
                 
                 # Add any additional context fields from metadata
                 for key, value in step.metadata.items():
@@ -349,8 +349,8 @@ class WorkflowCompiler:
                 "step_id": step.id,
                 "step_name": step.name,
                 "description": step.description,
-                "workflow_id": state["workflow_id"],
-                "workflow_name": state["workflow_name"],
+                "workflow_id": state["workflow_id"],  # pyright: ignore[reportTypedDictNotRequiredAccess]
+                "workflow_name": state["workflow_name"],  # pyright: ignore[reportTypedDictNotRequiredAccess]
                 "context": context,
                 "metadata": step.metadata or {}
             })
@@ -396,7 +396,7 @@ class WorkflowCompiler:
             result = self._evaluate_condition(step.condition, state)
             logger.info("workflow_condition_evaluated",
                        component="workflow",
-                       workflow_id=state["workflow_id"],
+                       workflow_id=state["workflow_id"],  # pyright: ignore[reportTypedDictNotRequiredAccess]
                        step_id=step.id,
                        condition=step.condition,
                        result=result)
@@ -430,7 +430,7 @@ class WorkflowCompiler:
         async def extract_node(state: WorkflowState) -> Dict[str, Any]:
             logger.info("workflow_extract_node_executing",
                        component="workflow",
-                       workflow_id=state["workflow_id"],
+                       workflow_id=state["workflow_id"],  # pyright: ignore[reportTypedDictNotRequiredAccess]
                        step_id=step.id,
                        extract_from=step.extract_from)
             
@@ -444,7 +444,7 @@ class WorkflowCompiler:
                 if not source_data:
                     logger.warning("workflow_extract_node_empty_source",
                                component="workflow",
-                               workflow_id=state["workflow_id"],
+                               workflow_id=state["workflow_id"],  # pyright: ignore[reportTypedDictNotRequiredAccess]
                                step_id=step.id)
                     return {
                         "current_step": step.id,
@@ -588,13 +588,13 @@ Source data:
                             
                             logger.info("workflow_structured_extraction_success",
                                        component="workflow",
-                                       workflow_id=state["workflow_id"],
+                                       workflow_id=state["workflow_id"],  # pyright: ignore[reportTypedDictNotRequiredAccess]
                                        step_id=step.id,
                                        model=step.extract_model)
                         except Exception as e:
                             logger.warning("workflow_structured_extraction_failed",
                                          component="workflow",
-                                         workflow_id=state["workflow_id"],
+                                         workflow_id=state["workflow_id"],  # pyright: ignore[reportTypedDictNotRequiredAccess]
                                          step_id=step.id,
                                          model=step.extract_model,
                                          error=str(e))
@@ -610,7 +610,7 @@ Source data:
                     else:
                         logger.error("workflow_extraction_model_not_found",
                                    component="workflow",
-                                   workflow_id=state["workflow_id"],
+                                   workflow_id=state["workflow_id"],  # pyright: ignore[reportTypedDictNotRequiredAccess]
                                    step_id=step.id,
                                    model=step.extract_model)
                         # Fallback to direct extraction
@@ -635,7 +635,7 @@ Source data:
                 
                 logger.info("workflow_extract_node_completed",
                            component="workflow",
-                           workflow_id=state["workflow_id"],
+                           workflow_id=state["workflow_id"],  # pyright: ignore[reportTypedDictNotRequiredAccess]
                            step_id=step.id,
                            extracted_value=extraction_result[:100])
                 
@@ -650,7 +650,7 @@ Source data:
                     variables_update.update(flattened_vars)
                     logger.info("workflow_extract_flattened_vars",
                                component="workflow",
-                               workflow_id=state["workflow_id"],
+                               workflow_id=state["workflow_id"],  # pyright: ignore[reportTypedDictNotRequiredAccess]
                                step_id=step.id,
                                flattened_vars=list(flattened_vars.keys()))
                 
@@ -671,7 +671,7 @@ Source data:
             except Exception as e:
                 logger.error("workflow_extract_node_error",
                            component="workflow",
-                           workflow_id=state["workflow_id"],
+                           workflow_id=state["workflow_id"],  # pyright: ignore[reportTypedDictNotRequiredAccess]
                            step_id=step.id,
                            error=str(e))
                 
@@ -890,11 +890,11 @@ Source data:
             
             # Check all variable sources
             if var_name in state.get("variables", {}):
-                return state["variables"][var_name]
+                return state["variables"][var_name]  # pyright: ignore[reportTypedDictNotRequiredAccess]
             elif var_name in state.get("step_results", {}):
-                return state["step_results"][var_name]
+                return state["step_results"][var_name]  # pyright: ignore[reportTypedDictNotRequiredAccess]
             elif var_name in state.get("human_inputs", {}):
-                return state["human_inputs"][var_name]
+                return state["human_inputs"][var_name]  # pyright: ignore[reportTypedDictNotRequiredAccess]
         
         return value
     

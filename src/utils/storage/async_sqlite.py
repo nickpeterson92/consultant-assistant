@@ -337,20 +337,24 @@ class AsyncSQLiteStore:
             async with conn.execute(
                 "SELECT COUNT(*) FROM key_value_store"
             ) as cursor:
-                row_count = (await cursor.fetchone())[0]
+                result = await cursor.fetchone()
+                row_count = result[0] if result else 0
             
             # Get namespace count
             async with conn.execute(
                 "SELECT COUNT(DISTINCT namespace) FROM key_value_store"
             ) as cursor:
-                namespace_count = (await cursor.fetchone())[0]
+                result = await cursor.fetchone()
+                namespace_count = result[0] if result else 0
             
             # Get database size
             async with conn.execute("PRAGMA page_size") as cursor:
-                page_size = (await cursor.fetchone())[0]
+                result = await cursor.fetchone()
+                page_size = result[0] if result else 0
             
             async with conn.execute("PRAGMA page_count") as cursor:
-                page_count = (await cursor.fetchone())[0]
+                result = await cursor.fetchone()
+                page_count = result[0] if result else 0
             
             database_size = page_size * page_count
             

@@ -205,15 +205,15 @@ async def main():
                 indicator_thread.daemon = True
                 indicator_thread.start()
                 
+                # Initialize context outside try block
+                context = {
+                    "thread_id": current_thread_id,
+                    "source": "cli_client"
+                }
+                
                 # Send request to orchestrator via A2A
                 try:
                     start_time = time.time()
-                    
-                    # Build context with interrupted workflow if present
-                    context = {
-                        "thread_id": current_thread_id,
-                        "source": "cli_client"
-                    }
                     
                     # Important: Pass interrupted_workflow in the context
                     if interrupted_workflow:

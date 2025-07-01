@@ -21,7 +21,7 @@ Architecture patterns:
 - A2A protocol compliance for seamless integration
 """
 
-from .salesforce import salesforce_graph, build_salesforce_graph, SalesforceA2AHandler
+from .salesforce import salesforce_graph, build_salesforce_graph, SalesforceA2AHandler  # pyright: ignore[reportAttributeAccessIssue]
 
 __all__ = [
     "salesforce_graph",

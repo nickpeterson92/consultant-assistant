@@ -17,7 +17,7 @@ from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, List, ClassVar
 
 from langchain.tools import BaseTool
-from simple_salesforce import Salesforce
+from simple_salesforce.api import Salesforce
 
 from src.utils.logging import get_logger
 from src.utils.platform.salesforce import SOQLQueryBuilder, SOQLOperator
@@ -134,13 +134,13 @@ class BaseSalesforceTool(BaseTool, ABC):
         return None
     
     def _handle_error(self, error: Exception) -> Dict[str, Any]:
-        """Convert exception to user-friendly error response."""
+        """Convert exception to user-friendly error response with success=False."""
         self._log_error(error)
         
         # Extract error code if available
         error_code = None
-        if hasattr(error, 'content') and isinstance(error.content, list) and error.content:
-            error_code = error.content[0].get('errorCode', '')
+        if hasattr(error, 'content') and isinstance(getattr(error, 'content', None), list) and getattr(error, 'content', []):
+            error_code = getattr(error, 'content')[0].get('errorCode', '')
         
         # Simple, focused error responses
         if error_code == 'INVALID_FIELD':
@@ -150,6 +150,7 @@ class BaseSalesforceTool(BaseTool, ABC):
             field_name = field_match.group(1) or field_match.group(2) if field_match else "unknown"
             
             return {
+                "success": False,
                 "error": "Invalid field in query",
                 "error_code": "INVALID_FIELD",
                 "details": str(error),
@@ -164,6 +165,7 @@ class BaseSalesforceTool(BaseTool, ABC):
             # Check for the specific DESC ASC issue
             if 'DESC ASC' in error_str or 'ASC DESC' in error_str:
                 return {
+                    "success": False,
                     "error": "Invalid ORDER BY clause with conflicting sort directions",
                     "error_code": "MALFORMED_QUERY",
                     "details": error_str,
@@ -176,6 +178,7 @@ class BaseSalesforceTool(BaseTool, ABC):
                 }
             else:
                 return {
+                    "success": False,
                     "error": "Malformed SOQL query", 
                     "error_code": "MALFORMED_QUERY",
                     "details": error_str,
@@ -186,11 +189,102 @@ class BaseSalesforceTool(BaseTool, ABC):
                     }
                 }
         elif error_code == 'INVALID_TYPE':
-            return {"error": "Invalid object type", "details": str(error)}
+            # Extract object type from error if possible
+            import re
+            type_match = re.search(r"type '(\w+)'|object '(\w+)'", str(error))
+            obj_type = type_match.group(1) or type_match.group(2) if type_match else "unknown"
+            
+            return {
+                "success": False,
+                "error": "Invalid object type",
+                "error_code": "INVALID_TYPE",
+                "details": str(error),
+                "guidance": {
+                    "reflection": f"The object type '{obj_type}' is not recognized in Salesforce.",
+                    "consider": "Common objects: Account, Contact, Lead, Opportunity, Case, Task. Custom objects need '__c' suffix.",
+                    "approach": "Try a different object type or verify the exact name."
+                }
+            }
         elif error_code == 'INSUFFICIENT_ACCESS':
-            return {"error": "Insufficient access rights"}
+            return {
+                "success": False,
+                "error": "Insufficient access rights",
+                "error_code": "INSUFFICIENT_ACCESS",
+                "details": str(error)
+            }
+        elif error_code == 'STORAGE_LIMIT_EXCEEDED':
+            return {
+                "success": False,
+                "error": "Storage limit exceeded", 
+                "error_code": "STORAGE_LIMIT_EXCEEDED",
+                "details": str(error),
+                "guidance": {
+                    "reflection": "The Salesforce org has exceeded its storage limits.",
+                    "consider": "This often happens in developer orgs with limited storage.",
+                    "approach": "Try searching or updating existing records instead of creating new ones."
+                }
+            }
+        elif error_code == 'DUPLICATE_VALUE':
+            # Extract field info from error
+            import re
+            field_match = re.search(r"duplicate value found: (\w+)", str(error))
+            field_name = field_match.group(1) if field_match else "unknown field"
+            
+            return {
+                "success": False,
+                "error": "Duplicate value found",
+                "error_code": "DUPLICATE_VALUE",
+                "details": str(error),
+                "guidance": {
+                    "reflection": f"A record with this {field_name} already exists.",
+                    "consider": "This field must be unique across all records.",
+                    "approach": "Try searching for the existing record or use a different value."
+                }
+            }
+        elif error_code == 'FIELD_CUSTOM_VALIDATION_EXCEPTION':
+            return {
+                "success": False,
+                "error": "Validation rule failed",
+                "error_code": "FIELD_CUSTOM_VALIDATION_EXCEPTION",
+                "details": str(error),
+                "guidance": {
+                    "reflection": "A custom validation rule prevented this operation.",
+                    "consider": "Check the error message for specific requirements.",
+                    "approach": "Adjust your data to meet the validation requirements."
+                }
+            }
+        elif error_code == 'REQUIRED_FIELD_MISSING':
+            # Extract field names from error
+            import re
+            fields = re.findall(r"Required fields are missing: \[(.*?)\]", str(error))
+            missing_fields = fields[0] if fields else "unknown"
+            
+            return {
+                "success": False,
+                "error": "Required field missing",
+                "error_code": "REQUIRED_FIELD_MISSING",
+                "details": str(error),
+                "guidance": {
+                    "reflection": f"Required fields are missing: {missing_fields}",
+                    "consider": "These fields must be provided for this object type.",
+                    "approach": "Include all required fields in your request."
+                }
+            }
+        elif error_code == 'INVALID_SESSION_ID':
+            return {
+                "success": False,
+                "error": "Session expired",
+                "error_code": "INVALID_SESSION_ID",
+                "details": str(error)
+            }
         else:
-            return {"error": f"Operation failed: {str(error)}"}
+            # Generic error - minimal details
+            return {
+                "success": False,
+                "error": "Operation failed",
+                "error_code": error_code or "UNKNOWN_ERROR",
+                "details": str(error)
+            }
     
     def _run(self, **kwargs) -> Any:
         """Execute tool with automatic logging and error handling."""
@@ -209,10 +303,14 @@ class BaseSalesforceTool(BaseTool, ABC):
         """Execute the tool's main logic. Must be implemented by subclasses."""
         pass
     
-    def _format_result(self, result: Any) -> Any:
-        """Return result without any formatting or truncation."""
-        # No longer truncating - return raw results
-        return result
+    def _format_result(self, result: Any) -> Dict[str, Any]:
+        """Wrap result with success indicator and data."""
+        # Always return a dictionary with success field
+        return {
+            "success": True,
+            "data": result,
+            "operation": self.name
+        }
 
 
 class SalesforceReadTool(BaseSalesforceTool):

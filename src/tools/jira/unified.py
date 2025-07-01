@@ -26,7 +26,7 @@ class JiraGet(JiraReadTool):
         include_comments: bool = Field(True, description="Include comments in response")
         include_attachments: bool = Field(True, description="Include attachments in response")
     
-    args_schema: type = Input
+    args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
     
     def _execute(self, **kwargs) -> Any:
         """Execute the get operation."""
@@ -61,7 +61,7 @@ class JiraSearch(JiraReadTool):
         start_at: int = Field(0, description="Starting index for pagination")
         fields: Optional[List[str]] = Field(None, description="Specific fields to return")
     
-    args_schema: type = Input
+    args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
     
     def _execute(self, **kwargs) -> Any:
         """Execute the search operation."""
@@ -125,7 +125,7 @@ class JiraCreate(JiraWriteTool):
         components: Optional[List[str]] = Field(None, description="Component names")
         custom_fields: Optional[Dict[str, Any]] = Field(None, description="Custom field values")
     
-    args_schema: type = Input
+    args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
     
     def _execute(self, **kwargs) -> Any:
         """Execute the create operation."""
@@ -200,7 +200,7 @@ class JiraUpdate(JiraWriteTool):
         assignee: Optional[str] = Field(None, description="New assignee username")
         comment: Optional[str] = Field(None, description="Comment to add with update")
     
-    args_schema: type = Input
+    args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
     
     def _execute(self, **kwargs) -> Any:
         """Execute the update operation."""
@@ -301,7 +301,7 @@ class JiraCollaboration(JiraCollaborationTool):
         link_type: Optional[str] = Field("relates to", description="Link type")
         visibility: Optional[str] = Field(None, description="Comment visibility group")
     
-    args_schema: type = Input
+    args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
     
     def _execute(self, **kwargs) -> Any:
         """Execute the collaboration operation."""
@@ -313,16 +313,16 @@ class JiraCollaboration(JiraCollaborationTool):
         visibility = kwargs.get('visibility', None)
         if action == "comment":
             if content is None:
-                return {"error": "Content is required for comment action"}
+                return {"success": False, "error": "Content is required for comment action"}
             return self._add_comment(issue_key, content, visibility)
         elif action == "link":
             if link_to is None:
-                return {"error": "link_to is required for link action"}
+                return {"success": False, "error": "link_to is required for link action"}
             return self._link_issues(issue_key, link_to, link_type)
         elif action == "attach":
-            return {"error": "File attachments require multipart upload - use direct API"}
+            return {"success": False, "error": "File attachments require multipart upload - use direct API"}
         else:
-            return {"error": f"Unknown action: {action}"}
+            return {"success": False, "error": f"Unknown action: {action}"}
     
     def _add_comment(self, issue_key: str, comment_text: str, visibility: Optional[str] = None) -> Dict[str, Any]:
         """Add comment to issue."""
@@ -363,7 +363,7 @@ class JiraAnalytics(JiraAnalyticsTool):
         metric_type: str = Field("history", description="Type: 'history', 'worklog', 'project_stats'")
         time_period: Optional[str] = Field(None, description="Time period filter")
     
-    args_schema: type = Input
+    args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
     
     def _execute(self, **kwargs) -> Any:
         """Execute the analytics operation."""
@@ -378,7 +378,7 @@ class JiraAnalytics(JiraAnalyticsTool):
         elif metric_type == "project_stats" and project_key:
             return self._get_project_stats(project_key, time_period)
         else:
-            return {"error": "Invalid metric type or missing required parameters"}
+            return {"success": False, "error": "Invalid metric type or missing required parameters"}
     
     def _get_issue_history(self, issue_key: str) -> Dict[str, Any]:
         """Get issue change history."""
@@ -440,7 +440,7 @@ class JiraProjectCreate(JiraWriteTool):
         lead_account_id: Optional[str] = Field(None, description="Account ID of project lead (if not provided, will use current user)")
         assignee_type: str = Field("PROJECT_LEAD", description="Default assignee: 'PROJECT_LEAD' or 'UNASSIGNED'")
     
-    args_schema: type = Input
+    args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
     
     def _execute(self, **kwargs) -> Any:
         """Execute the project creation."""
@@ -453,6 +453,7 @@ class JiraProjectCreate(JiraWriteTool):
         # Validate project key format
         if not key or not key.isupper() or not key.isalpha() or len(key) < 2 or len(key) > 10:
             return {
+                "success": False,
                 "error": "Invalid project key",
                 "error_code": "INVALID_KEY",
                 "details": "Project key must be 2-10 uppercase letters",
@@ -515,6 +516,7 @@ class JiraProjectCreate(JiraWriteTool):
                     field_errors = error_details["errors"]
                 
                 return {
+                    "success": False,
                     "error": "Invalid project data",
                     "error_code": "BAD_REQUEST",
                     "details": error_details,
@@ -527,6 +529,7 @@ class JiraProjectCreate(JiraWriteTool):
                 }
             elif response.status_code == 401:
                 return {
+                    "success": False,
                     "error": "Authentication failed",
                     "error_code": "UNAUTHORIZED",
                     "details": error_details,
@@ -538,6 +541,7 @@ class JiraProjectCreate(JiraWriteTool):
                 }
             elif response.status_code == 403:
                 return {
+                    "success": False,
                     "error": "Permission denied",
                     "error_code": "FORBIDDEN", 
                     "details": error_details,

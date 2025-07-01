@@ -403,6 +403,14 @@ class SalesforceAgentTool(BaseAgentTool):
             
             # Execute A2A call
             async with A2AClient() as client:
+                # Ensure agent is not a list
+                if isinstance(agent, list):
+                    agent = agent[0] if agent else None
+                if not agent:
+                    return self._create_error_command(
+                        "Error: Agent not found",
+                        tool_call_id
+                    )
                 endpoint = agent.endpoint + "/a2a"
                 
                 # Log A2A dispatch
@@ -775,6 +783,14 @@ class JiraAgentTool(BaseAgentTool):
             
             # Execute A2A call
             async with A2AClient() as client:
+                # Ensure agent is not a list
+                if isinstance(agent, list):
+                    agent = agent[0] if agent else None
+                if not agent:
+                    return self._create_error_command(
+                        "Error: Agent not found",
+                        tool_call_id
+                    )
                 endpoint = agent.endpoint + "/a2a"
                 
                 # Log A2A dispatch
@@ -997,6 +1013,14 @@ class ServiceNowAgentTool(BaseAgentTool):
             
             # Execute A2A call
             async with A2AClient() as client:
+                # Ensure agent is not a list
+                if isinstance(agent, list):
+                    agent = agent[0] if agent else None
+                if not agent:
+                    return self._create_error_command(
+                        "Error: Agent not found",
+                        tool_call_id
+                    )
                 endpoint = agent.endpoint + "/a2a"
                 
                 # Log A2A dispatch
@@ -1178,7 +1202,7 @@ class WorkflowAgentTool(BaseAgentTool):
     - "Start onboarding workflow for new customer TechCorp"
     """
     
-    args_schema: type = AgentCallInput
+    args_schema: type = AgentCallInput  # pyright: ignore[reportIncompatibleVariableOverride]
     return_direct: bool = False
     
     def __init__(self, agent_registry: AgentRegistry):
@@ -1338,9 +1362,9 @@ class WorkflowAgentTool(BaseAgentTool):
                         interaction_data = json.loads(interaction_json) if interaction_json else {}
                         
                         # Get metadata from result if available
-                        metadata = result.get("metadata", {})
-                        workflow_name = metadata.get("workflow_name", "")
-                        thread_id = metadata.get("thread_id", task_id)
+                        metadata = result.get("metadata", {}) if isinstance(result, dict) else {}
+                        workflow_name = metadata.get("workflow_name", "") if metadata else ""
+                        thread_id = metadata.get("thread_id", task_id) if metadata else task_id
                         
                         # Extract the context for better formatting
                         step_desc = interaction_data.get("description", "Human input required")
@@ -1351,7 +1375,7 @@ class WorkflowAgentTool(BaseAgentTool):
                         message = step_desc
                         
                         # If we have step results, include the most recent one
-                        if context.get("step_results"):
+                        if context and context.get("step_results"):
                             # Get the last step result for context
                             step_results = context["step_results"]
                             if step_results:
@@ -1362,7 +1386,7 @@ class WorkflowAgentTool(BaseAgentTool):
                                         break
                         
                         # Add any additional instruction from context
-                        if context.get("instruction"):
+                        if context and context.get("instruction"):
                             message += f"\n\n{context['instruction']}"
                         
                         # Store workflow state for resume
@@ -1565,7 +1589,7 @@ class AgentRegistryTool(BaseTool):
         action: str = Field(description="Action to perform: 'list', 'health_check', 'stats'")
         agent_name: Optional[str] = Field(default=None, description="Specific agent name for health check")
     
-    args_schema: type = AgentRegistryInput
+    args_schema: type = AgentRegistryInput  # pyright: ignore[reportIncompatibleVariableOverride]
     
     def __init__(self, registry: AgentRegistry):
         # Access field defaults through Pydantic's model_fields

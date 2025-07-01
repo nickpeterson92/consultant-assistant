@@ -10,7 +10,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 # Now we can import from src
-from src.agents.jira.main import main
+from src.agents.jira.main import main  # pyright: ignore[reportAttributeAccessIssue]
 import asyncio
 
 if __name__ == "__main__":

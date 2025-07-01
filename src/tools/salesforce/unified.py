@@ -25,7 +25,7 @@ class SalesforceGet(SalesforceReadTool):
         object_type: Optional[str] = Field(None, description="Object type (auto-detected if not provided)")
         fields: Optional[List[str]] = Field(None, description="Specific fields to retrieve")
     
-    args_schema: type = Input
+    args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
     
     def _execute(self, **kwargs) -> Any:
         """Execute the get operation."""
@@ -46,7 +46,7 @@ class SalesforceGet(SalesforceReadTool):
             object_type = id_prefixes.get(prefix)
             
             if not object_type:
-                return {"error": f"Cannot determine object type from ID prefix '{prefix}'"}
+                return {"success": False, "error": f"Cannot determine object type from ID prefix '{prefix}'"}
         
         # Get the record
         fields_to_query = self._build_field_list(object_type, fields)
@@ -63,7 +63,7 @@ class SalesforceGet(SalesforceReadTool):
             return result
         except Exception as e:
             if "NOT_FOUND" in str(e):
-                return {"error": f"No {object_type} found with ID {record_id}"}
+                return {"success": False, "error": f"No {object_type} found with ID {record_id}"}
             raise
 
 
@@ -79,7 +79,7 @@ class SalesforceSearch(SalesforceReadTool):
         limit: int = Field(50, description="Maximum records to return")
         order_by: Optional[str] = Field(None, description="Field to sort by")
     
-    args_schema: type = Input
+    args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
     
     def _execute(self, **kwargs) -> Any:
         """Execute the search operation."""
@@ -96,7 +96,7 @@ class SalesforceSearch(SalesforceReadTool):
         # Validate filter doesn't contain non-filterable fields
         validation_error = self._validate_filter_fields(object_type, filter)
         if validation_error:
-            return {"error": validation_error}
+            return {"success": False, "error": validation_error}
         
         # Build field list
         fields_to_query = self._build_field_list(object_type, fields)
@@ -163,7 +163,7 @@ class SalesforceCreate(SalesforceWriteTool):
         object_type: str = Field(description="Type of object to create")
         data: Dict[str, Any] = Field(description="Field values for the new record")
     
-    args_schema: type = Input
+    args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
     
     def _execute(self, **kwargs) -> Any:
         """Execute the create operation."""
@@ -172,7 +172,7 @@ class SalesforceCreate(SalesforceWriteTool):
         # Validate required fields
         validation_error = self._validate_required_fields(object_type, data)
         if validation_error:
-            return {"error": validation_error}
+            return {"success": False, "error": validation_error}
         
         # Prepare data
         prepared_data = self._prepare_data(data)
@@ -189,7 +189,7 @@ class SalesforceCreate(SalesforceWriteTool):
         else:
             errors = result.get('errors', [])
             error_msg = errors[0].get('message', 'Unknown error') if errors else 'Creation failed'
-            return {"error": f"Failed to create {object_type}: {error_msg}"}
+            return {"success": False, "error": f"Failed to create {object_type}: {error_msg}"}
 
 
 class SalesforceUpdate(SalesforceWriteTool):
@@ -203,7 +203,7 @@ class SalesforceUpdate(SalesforceWriteTool):
         where: Optional[str] = Field(None, description="Condition to find records to update")
         data: Dict[str, Any] = Field(description="Fields to update")
     
-    args_schema: type = Input
+    args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
     
     def _execute(self, **kwargs) -> Any:
         """Execute the update operation."""
@@ -212,7 +212,7 @@ class SalesforceUpdate(SalesforceWriteTool):
         record_id = kwargs.get('record_id', None)
         where = kwargs.get('where', None)
         if not record_id and not where:
-            return {"error": "Must provide either record_id or where condition"}
+            return {"success": False, "error": "Must provide either record_id or where condition"}
         
         # Prepare update data
         prepared_data = self._prepare_data(data)
@@ -228,17 +228,17 @@ class SalesforceUpdate(SalesforceWriteTool):
                 updated_record = sobject.get(record_id)
                 return updated_record
             else:
-                return {"error": f"Failed to update {object_type} {record_id}"}
+                return {"success": False, "error": f"Failed to update {object_type} {record_id}"}
         else:
             # Find records to update using query builder
             if where:
                 query = SOQLQueryBuilder().from_object(object_type).select('Id').where_raw(where).build()
                 records = self.sf.query(query)['records']
             else:
-                return {"error": "where condition cannot be None when record_id is not provided"}
+                return {"success": False, "error": "where condition cannot be None when record_id is not provided"}
             
             if not records:
-                return {"error": f"No {object_type} records found matching: {where}"}
+                return {"success": False, "error": f"No {object_type} records found matching: {where}"}
             
             # Update each record
             updated = []
@@ -272,7 +272,7 @@ class SalesforceSOSL(SalesforceReadTool):
         )
         limit_per_object: int = Field(20, description="Max results per object type")
     
-    args_schema: type = Input
+    args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
     
     def _execute(self, **kwargs) -> Any:
         """Execute cross-object search."""
@@ -348,7 +348,7 @@ class SalesforceAnalytics(SalesforceAnalyticsTool):
             description="Time period filter (THIS_MONTH, LAST_MONTH, THIS_YEAR, etc.) - leave empty if not filtering by time"
         )
     
-    args_schema: type = Input
+    args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
     
     def _execute(self, **kwargs) -> Any:
         """Execute analytics query."""

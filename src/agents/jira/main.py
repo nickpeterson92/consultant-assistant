@@ -71,8 +71,8 @@ def build_jira_agent():
     llm = AzureChatOpenAI(
         azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
         azure_deployment=llm_config.azure_deployment,
-        openai_api_version=llm_config.api_version,
-        openai_api_key=os.environ["AZURE_OPENAI_API_KEY"],
+        api_version=llm_config.api_version,
+        api_key=os.environ["AZURE_OPENAI_API_KEY"],  # pyright: ignore[reportArgumentType]
         temperature=llm_config.temperature,
         max_tokens=llm_config.max_tokens,
         timeout=llm_config.timeout,
@@ -137,7 +137,7 @@ def build_jira_agent():
             component="jira",
             operation="invoke_llm",
             task_id=task_id,
-            has_tool_calls=bool(hasattr(response, 'tool_calls') and response.tool_calls),
+            has_tool_calls=bool(hasattr(response, 'tool_calls') and response.tool_calls),  # pyright: ignore[reportAttributeAccessIssue]
             response_length=len(str(response.content)) if hasattr(response, 'content') else 0
         )
         

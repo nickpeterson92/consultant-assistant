@@ -22,7 +22,7 @@ import sqlite3
 import json
 import asyncio
 from datetime import datetime
-from typing import Optional, List, Any, Tuple, Iterable, Union
+from typing import Optional, List, Any, Tuple, Iterable, Union, Literal
 from langgraph.store.base import BaseStore, Item, SearchItem, GetOp, PutOp, SearchOp, ListNamespacesOp
 from src.utils.logging import get_logger
 
@@ -113,7 +113,7 @@ class SQLiteStore(BaseStore):
         )
         self.conn.commit()
 
-    def get(self, namespace, key):
+    def get(self, namespace, key, *, refresh_ttl: Optional[bool] = None):
         """Retrieve a value from the store by namespace and key.
         
         Performs a lookup in the SQLite store using the composite key
@@ -144,7 +144,7 @@ class SQLiteStore(BaseStore):
                                found=result is not None)
         return result
 
-    def put(self, namespace, key, value):
+    def put(self, namespace, key, value, index: Optional[Union[List[str], Literal[False]]] = None, ttl: Optional[float] = None):  # pyright: ignore[reportIncompatibleMethodOverride]
         """Store or update a value in the SQLite store.
         
         Performs an upsert operation (INSERT OR REPLACE) to store the provided

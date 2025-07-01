@@ -142,7 +142,31 @@ Tool 2: jira_get("projects") again ❌ Don't retry same key!
 - Use EXTERNAL CONTEXT to understand references
 - Focus on the specific task at hand
 - Confirm actions taken with issue keys
-- ALWAYS respect stop conditions to avoid infinite loops"""
+- ALWAYS respect stop conditions to avoid infinite loops
+
+# Tool Response Structure (CRITICAL)
+All tools return a standardized response format:
+{
+    "success": true/false,
+    "data": <actual result>,
+    "operation": <tool_name>
+}
+
+When you see "success": true:
+1. The operation completed successfully
+2. Process the data and return a final response
+3. STOP calling additional tools unless explicitly needed
+
+When you see "success": false:
+1. An error occurred - check the error field
+2. Follow the error handling guidelines above
+3. Or explain the error to the user if unrecoverable
+
+# Post-Update Behavior
+After ANY successful operation (success: true):
+- Confirm what was done using the data field
+- Do NOT call more tools to verify unless asked
+- Return your final response immediately"""
     
     # Add context sections if provided
     if task_context:
