@@ -142,13 +142,22 @@ async def handle_a2a_request(params: dict) -> dict:
         task_id = task_data.get("id", task_data.get("task_id", "unknown"))
         instruction = task_data.get("instruction", "")
         context = task_data.get("context", {})
+        state_snapshot = task_data.get("state_snapshot", {})
+        
+        # Merge state_snapshot into context for full orchestrator state access
+        merged_context = {
+            **context,
+            "orchestrator_state": state_snapshot
+        }
         
         logger.info("a2a_task_received",
             component="servicenow",
             operation="process_task",
             task_id=task_id,
             instruction_preview=instruction[:100] if instruction else "",
-            has_context=bool(context)
+            has_context=bool(context),
+            has_state_snapshot=bool(state_snapshot),
+            state_snapshot_keys=list(state_snapshot.keys()) if state_snapshot else []
         )
         
         # Build the graph
@@ -161,7 +170,7 @@ async def handle_a2a_request(params: dict) -> dict:
             "tool_results": [],
             "error": "",
             "task_context": {"task_id": task_id},
-            "external_context": context or {}
+            "external_context": merged_context
         }
         
         # Configure thread

@@ -556,6 +556,362 @@ class JiraProjectCreate(JiraWriteTool):
                 response.raise_for_status()
 
 
+class JiraGetResource(JiraReadTool):
+    """Get any Jira resource by type and identifier.
+    
+    Universal getter for projects, users, boards, sprints, and other Jira objects.
+    Handles the most common non-issue resources in Jira.
+    """
+    name: str = "jira_get_resource"
+    description: str = "Get Jira resources like projects, users, boards, or sprints"
+    
+    class Input(BaseModel):
+        resource_type: str = Field(
+            description="Type of resource: 'project', 'user', 'board', 'sprint', 'component', 'version'"
+        )
+        identifier: str = Field(
+            description="Resource identifier (key, ID, username, etc.)"
+        )
+        expand: Optional[str] = Field(
+            None,
+            description="Additional data to include (resource-specific)"
+        )
+    
+    args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
+    
+    def _execute(self, **kwargs) -> Any:
+        """Execute the resource retrieval based on type."""
+        resource_type = kwargs['resource_type'].lower()
+        identifier = kwargs['identifier']
+        expand = kwargs.get('expand')
+        
+        if resource_type == 'project':
+            return self._get_project(identifier, expand)
+        elif resource_type == 'user':
+            return self._get_user(identifier)
+        elif resource_type == 'board':
+            return self._get_board(identifier)
+        elif resource_type == 'sprint':
+            return self._get_sprint(identifier)
+        elif resource_type == 'component':
+            return self._get_component(identifier)
+        elif resource_type == 'version':
+            return self._get_version(identifier)
+        else:
+            return {
+                "success": False,
+                "error": f"Unsupported resource type: {resource_type}",
+                "supported_types": ["project", "user", "board", "sprint", "component", "version"]
+            }
+    
+    def _get_project(self, key_or_id: str, expand: Optional[str] = None) -> Dict[str, Any]:
+        """Get project details."""
+        url = f"/project/{key_or_id}"
+        if expand:
+            url += f"?expand={expand}"
+        response = self._make_request("GET", url)
+        return response.json()
+    
+    def _get_user(self, account_id_or_username: str) -> Dict[str, Any]:
+        """Get user details."""
+        # Try account ID first (Cloud)
+        try:
+            response = self._make_request("GET", f"/user?accountId={account_id_or_username}")
+            return response.json()
+        except:
+            # Fall back to username (Server/DC)
+            response = self._make_request("GET", f"/user?username={account_id_or_username}")
+            return response.json()
+    
+    def _get_board(self, board_id: str) -> Dict[str, Any]:
+        """Get board details."""
+        # Note: This uses the Agile API endpoint
+        response = self._make_request("GET", f"/agile/1.0/board/{board_id}")
+        return response.json()
+    
+    def _get_sprint(self, sprint_id: str) -> Dict[str, Any]:
+        """Get sprint details."""
+        # Note: This uses the Agile API endpoint
+        response = self._make_request("GET", f"/agile/1.0/sprint/{sprint_id}")
+        return response.json()
+    
+    def _get_component(self, component_id: str) -> Dict[str, Any]:
+        """Get component details."""
+        response = self._make_request("GET", f"/component/{component_id}")
+        return response.json()
+    
+    def _get_version(self, version_id: str) -> Dict[str, Any]:
+        """Get version details."""
+        response = self._make_request("GET", f"/version/{version_id}")
+        return response.json()
+
+
+class JiraListResources(JiraReadTool):
+    """List or search for Jira resources.
+    
+    Universal listing tool for projects, users, boards, sprints, and other collections.
+    """
+    name: str = "jira_list_resources"
+    description: str = "List Jira resources like all projects, users, boards, or sprints"
+    
+    class Input(BaseModel):
+        resource_type: str = Field(
+            description="Type of resource: 'projects', 'users', 'boards', 'sprints', 'components', 'versions'"
+        )
+        project_key: Optional[str] = Field(
+            None,
+            description="Project key (required for components, versions, boards)"
+        )
+        board_id: Optional[str] = Field(
+            None,
+            description="Board ID (required for listing sprints)"
+        )
+        query: Optional[str] = Field(
+            None,
+            description="Search query (for users, projects)"
+        )
+        max_results: int = Field(50, description="Maximum results to return")
+        start_at: int = Field(0, description="Starting index for pagination")
+    
+    args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
+    
+    def _execute(self, **kwargs) -> Any:
+        """Execute the resource listing based on type."""
+        resource_type = kwargs['resource_type'].lower()
+        
+        if resource_type == 'projects':
+            return self._list_projects(kwargs.get('query'), kwargs.get('max_results', 50))
+        elif resource_type == 'users':
+            return self._search_users(kwargs.get('query', ''), kwargs.get('max_results', 50))
+        elif resource_type == 'boards':
+            return self._list_boards(kwargs.get('project_key'), kwargs.get('max_results', 50), kwargs.get('start_at', 0))
+        elif resource_type == 'sprints':
+            board_id = kwargs.get('board_id')
+            if not board_id:
+                return {"success": False, "error": "board_id is required for listing sprints"}
+            return self._list_sprints(board_id, kwargs.get('max_results', 50), kwargs.get('start_at', 0))
+        elif resource_type == 'components':
+            project_key = kwargs.get('project_key')
+            if not project_key:
+                return {"success": False, "error": "project_key is required for listing components"}
+            return self._list_components(project_key)
+        elif resource_type == 'versions':
+            project_key = kwargs.get('project_key')
+            if not project_key:
+                return {"success": False, "error": "project_key is required for listing versions"}
+            return self._list_versions(project_key)
+        else:
+            return {
+                "success": False,
+                "error": f"Unsupported resource type: {resource_type}",
+                "supported_types": ["projects", "users", "boards", "sprints", "components", "versions"]
+            }
+    
+    def _list_projects(self, query: Optional[str] = None, max_results: int = 50) -> Dict[str, Any]:
+        """List all accessible projects."""
+        url = f"/project/search?maxResults={max_results}"
+        if query:
+            url += f"&query={query}"
+        response = self._make_request("GET", url)
+        return response.json()
+    
+    def _search_users(self, query: str, max_results: int = 50) -> Dict[str, Any]:
+        """Search for users."""
+        response = self._make_request("GET", f"/user/search?query={query}&maxResults={max_results}")
+        return response.json()
+    
+    def _list_boards(self, project_key: Optional[str] = None, max_results: int = 50, start_at: int = 0) -> Dict[str, Any]:
+        """List boards, optionally filtered by project."""
+        url = f"/agile/1.0/board?maxResults={max_results}&startAt={start_at}"
+        if project_key:
+            url += f"&projectKeyOrId={project_key}"
+        response = self._make_request("GET", url)
+        return response.json()
+    
+    def _list_sprints(self, board_id: str, max_results: int = 50, start_at: int = 0) -> Dict[str, Any]:
+        """List sprints for a board."""
+        response = self._make_request(
+            "GET", 
+            f"/agile/1.0/board/{board_id}/sprint?maxResults={max_results}&startAt={start_at}"
+        )
+        return response.json()
+    
+    def _list_components(self, project_key: str) -> Dict[str, Any]:
+        """List components for a project."""
+        response = self._make_request("GET", f"/project/{project_key}/components")
+        return response.json()
+    
+    def _list_versions(self, project_key: str) -> Dict[str, Any]:
+        """List versions for a project."""
+        response = self._make_request("GET", f"/project/{project_key}/versions")
+        return response.json()
+
+
+class JiraUpdateResource(JiraWriteTool):
+    """Update Jira resources like projects, boards, and sprints.
+    
+    Handles updates for non-issue resources that have different update patterns.
+    """
+    name: str = "jira_update_resource"
+    description: str = "Update Jira resources like projects, boards, or sprints"
+    
+    class Input(BaseModel):
+        resource_type: str = Field(
+            description="Type of resource: 'project', 'board', 'sprint'"
+        )
+        identifier: str = Field(
+            description="Resource identifier (key, ID)"
+        )
+        updates: Dict[str, Any] = Field(
+            description="Fields to update (varies by resource type)"
+        )
+    
+    args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
+    
+    def _execute(self, **kwargs) -> Any:
+        """Execute the resource update based on type."""
+        resource_type = kwargs['resource_type'].lower()
+        identifier = kwargs['identifier']
+        updates = kwargs['updates']
+        
+        if resource_type == 'project':
+            return self._update_project(identifier, updates)
+        elif resource_type == 'board':
+            return self._update_board(identifier, updates)
+        elif resource_type == 'sprint':
+            return self._update_sprint(identifier, updates)
+        else:
+            return {
+                "success": False,
+                "error": f"Unsupported resource type: {resource_type}",
+                "supported_types": ["project", "board", "sprint"]
+            }
+    
+    def _update_project(self, key_or_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """Update project details."""
+        response = self._make_request("PUT", f"/project/{key_or_id}", json=updates)
+        return {"success": True, "project": key_or_id, "updates": updates}
+    
+    def _update_board(self, board_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """Update board configuration."""
+        # Board updates are limited - mainly name and type
+        allowed_updates = {k: v for k, v in updates.items() if k in ['name', 'type']}
+        response = self._make_request("PUT", f"/agile/1.0/board/{board_id}", json=allowed_updates)
+        return {"success": True, "board": board_id, "updates": allowed_updates}
+    
+    def _update_sprint(self, sprint_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """Update sprint details."""
+        # Sprint updates: name, startDate, endDate, goal, state
+        response = self._make_request("PUT", f"/agile/1.0/sprint/{sprint_id}", json=updates)
+        return {"success": True, "sprint": sprint_id, "updates": updates}
+
+
+class JiraSprintOperations(JiraWriteTool):
+    """Manage sprint operations in Jira.
+    
+    Create sprints, move issues between sprints, start/complete sprints.
+    """
+    name: str = "jira_sprint_operations"
+    description: str = "Create sprints and manage sprint operations"
+    
+    class Input(BaseModel):
+        operation: str = Field(
+            description="Operation: 'create', 'start', 'complete', 'move_issues'"
+        )
+        board_id: Optional[str] = Field(
+            None,
+            description="Board ID (required for create)"
+        )
+        sprint_id: Optional[str] = Field(
+            None,
+            description="Sprint ID (required for start, complete, move_issues)"
+        )
+        name: Optional[str] = Field(
+            None,
+            description="Sprint name (required for create)"
+        )
+        start_date: Optional[str] = Field(
+            None,
+            description="Sprint start date ISO format (for create/start)"
+        )
+        end_date: Optional[str] = Field(
+            None,
+            description="Sprint end date ISO format (for create/start)"
+        )
+        goal: Optional[str] = Field(
+            None,
+            description="Sprint goal"
+        )
+        issue_keys: Optional[List[str]] = Field(
+            None,
+            description="Issue keys to move (for move_issues)"
+        )
+    
+    args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
+    
+    def _execute(self, **kwargs) -> Any:
+        """Execute the sprint operation."""
+        operation = kwargs['operation'].lower()
+        
+        if operation == 'create':
+            return self._create_sprint(kwargs)
+        elif operation == 'start':
+            return self._start_sprint(kwargs['sprint_id'])
+        elif operation == 'complete':
+            return self._complete_sprint(kwargs['sprint_id'])
+        elif operation == 'move_issues':
+            return self._move_issues_to_sprint(kwargs['sprint_id'], kwargs.get('issue_keys', []))
+        else:
+            return {
+                "success": False,
+                "error": f"Unsupported operation: {operation}",
+                "supported_operations": ["create", "start", "complete", "move_issues"]
+            }
+    
+    def _create_sprint(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new sprint."""
+        sprint_data = {
+            "name": params['name'],
+            "originBoardId": params['board_id']
+        }
+        if params.get('start_date'):
+            sprint_data['startDate'] = params['start_date']
+        if params.get('end_date'):
+            sprint_data['endDate'] = params['end_date']
+        if params.get('goal'):
+            sprint_data['goal'] = params['goal']
+        
+        response = self._make_request("POST", "/agile/1.0/sprint", json=sprint_data)
+        return response.json()
+    
+    def _start_sprint(self, sprint_id: str) -> Dict[str, Any]:
+        """Start a sprint."""
+        response = self._make_request(
+            "PUT", 
+            f"/agile/1.0/sprint/{sprint_id}",
+            json={"state": "active"}
+        )
+        return {"success": True, "sprint": sprint_id, "state": "active"}
+    
+    def _complete_sprint(self, sprint_id: str) -> Dict[str, Any]:
+        """Complete a sprint."""
+        response = self._make_request(
+            "PUT",
+            f"/agile/1.0/sprint/{sprint_id}",
+            json={"state": "closed"}
+        )
+        return {"success": True, "sprint": sprint_id, "state": "closed"}
+    
+    def _move_issues_to_sprint(self, sprint_id: str, issue_keys: List[str]) -> Dict[str, Any]:
+        """Move issues to a sprint."""
+        response = self._make_request(
+            "POST",
+            f"/agile/1.0/sprint/{sprint_id}/issue",
+            json={"issues": issue_keys}
+        )
+        return {"success": True, "sprint": sprint_id, "moved_issues": issue_keys}
+
+
 # Export the new unified tools
 UNIFIED_JIRA_TOOLS = [
     JiraGet(),
@@ -564,5 +920,9 @@ UNIFIED_JIRA_TOOLS = [
     JiraUpdate(),
     JiraCollaboration(),
     JiraAnalytics(),
-    JiraProjectCreate()
+    JiraProjectCreate(),
+    JiraGetResource(),
+    JiraListResources(),
+    JiraUpdateResource(),
+    JiraSprintOperations()
 ]
