@@ -72,15 +72,7 @@ async def execute_command_tools(state: Dict[str, Any], tools: List[Any], compone
                 else:
                     result = tool._run(**clean_args, state=state, tool_call_id=tool_call_id)
                 
-                # Debug log for workflow agent
-                if tool_name == "workflow_agent":
-                    logger.info("workflow_tool_execution_result",
-                        component=component,
-                        tool_name=tool_name,
-                        result_type=type(result).__name__,
-                        is_command=hasattr(result, 'update'),
-                        has_messages="messages" in getattr(result, 'update', {})
-                    )
+                # Debug logging removed for workflow agent (no longer exists)
                 
                 # Log tool success - IDENTICAL format to orchestrator pattern
                 logger.info("tool_result",

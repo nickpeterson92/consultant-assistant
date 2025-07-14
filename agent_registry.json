@@ -37,7 +37,7 @@
         }
       },
       "status": "online",
-      "last_health_check": "2025-07-14T09:58:52.561482"
+      "last_health_check": "2025-07-14T12:26:06.417967"
     },
     {
       "name": "jira-agent",
@@ -82,7 +82,7 @@
         }
       },
       "status": "online",
-      "last_health_check": "2025-07-14T09:58:52.561375"
+      "last_health_check": "2025-07-14T12:26:06.418114"
     },
     {
       "name": "servicenow-agent",
@@ -124,81 +124,7 @@
         }
       },
       "status": "online",
-      "last_health_check": "2025-07-14T09:58:52.561739"
-    },
-    {
-      "name": "workflow-agent",
-      "endpoint": "http://localhost:8004",
-      "agent_card": {
-        "name": "workflow-agent",
-        "version": "2.0.0",
-        "description": "Executes complex multi-step workflows using compiled LangGraph graphs",
-        "capabilities": [
-          "Execute predefined workflow templates",
-          "Native LangGraph human-in-the-loop support",
-          "Automatic state persistence and recovery",
-          "Parallel and conditional execution",
-          "Cross-system orchestration"
-        ],
-        "endpoints": {
-          "process_task": "/a2a",
-          "agent_card": "/a2a/agent-card"
-        },
-        "communication_modes": [
-          "sync",
-          "async"
-        ],
-        "metadata": {
-          "available_workflows": [
-            {
-              "name": "At-Risk Deal Assessment",
-              "description": "Identify opportunities at risk of not closing and create action plans",
-              "trigger": {
-                "type": "scheduled",
-                "cron": "0 9 * * *"
-              },
-              "steps": 8
-            },
-            {
-              "name": "Incident to Resolution Pipeline",
-              "description": "Manage incident from customer report through resolution and follow-up",
-              "trigger": {
-                "type": "event",
-                "event": "new_critical_case"
-              },
-              "steps": 10
-            },
-            {
-              "name": "Customer 360 Report Generation",
-              "description": "Gather all information about a customer across systems",
-              "trigger": {
-                "type": "manual"
-              },
-              "steps": 7
-            },
-            {
-              "name": "Weekly Account Health Check",
-              "description": "Analyze health metrics for key accounts and alert on issues",
-              "trigger": {
-                "type": "scheduled",
-                "cron": "0 8 * * MON"
-              },
-              "steps": 11
-            },
-            {
-              "name": "New Customer Onboarding",
-              "description": "Automated workflow for onboarding new customers",
-              "trigger": {
-                "type": "event",
-                "event": "opportunity_closed_won"
-              },
-              "steps": 21
-            }
-          ]
-        }
-      },
-      "status": "online",
-      "last_health_check": "2025-07-14T09:58:52.561241"
+      "last_health_check": "2025-07-14T12:26:06.418224"
     }
   ]
 }

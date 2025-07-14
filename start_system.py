@@ -43,7 +43,6 @@ def main():
         ("python3 salesforce_agent.py --port 8001", "Salesforce-Agent"),
         ("python3 jira_agent.py --port 8002", "Jira-Agent"),
         ("python3 servicenow_agent.py --port 8003", "ServiceNow-Agent"),
-        ("python3 workflow_agent.py --port 8004", "Workflow-Agent"),
         # Add more agents here as they're implemented:
         # ("python3 expense_agent.py --port 8005", "Expense-Agent"),
     ]
