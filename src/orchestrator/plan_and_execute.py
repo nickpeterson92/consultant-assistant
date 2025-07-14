@@ -6,7 +6,6 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langgraph.types import Command
 
 from src.utils.logging import get_logger
 from src.utils.agents.message_processing import estimate_message_tokens
@@ -251,7 +250,7 @@ IMPORTANT: Return only valid JSON, no additional text."""
                 "id": self._generate_task_id(),
                 "content": f"Handle the following request: {instruction}",
                 "status": TaskStatus.PENDING.value,
-                "priority": TaskPriority.MEDIUM,
+                "priority": TaskPriority.MEDIUM.value,
                 "agent": None,  # Let the executor decide
                 "depends_on": [],
                 "created_at": datetime.now().isoformat(),
@@ -282,7 +281,7 @@ IMPORTANT: Return only valid JSON, no additional text."""
         
         # Generate updated plan
         updated_plan_data = await self._generate_replan_with_llm(
-            replanning_prompt, modification_request
+            replanning_prompt, modification_request, current_plan
         )
         
         # Update the plan
@@ -350,7 +349,7 @@ Return your response as a JSON object with this structure:
 
 Include all tasks (both existing and new) in the tasks array. IMPORTANT: Return only valid JSON, no additional text."""
     
-    async def _generate_replan_with_llm(self, prompt: str, modification_request: str) -> Dict[str, Any]:
+    async def _generate_replan_with_llm(self, prompt: str, modification_request: str, current_plan: ExecutionPlan) -> Dict[str, Any]:
         """Generate updated plan using LLM."""
         
         messages = [

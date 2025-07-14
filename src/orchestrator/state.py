@@ -1,6 +1,6 @@
 """Orchestrator state management."""
 
-from typing import Annotated, Dict, Any, List, Optional
+from typing import Annotated, Dict, Any, List, Optional, Literal
 import operator
 from typing_extensions import TypedDict
 from datetime import datetime
@@ -34,8 +34,8 @@ class ExecutionTask(TypedDict):
     """Individual task in the plan-and-execute system."""
     id: str
     content: str
-    status: TaskStatus
-    priority: TaskPriority
+    status: Literal["pending", "in_progress", "completed", "failed", "cancelled"]
+    priority: Literal["low", "medium", "high", "urgent"]
     agent: Optional[str]  # Which agent should handle this task
     depends_on: List[str]  # Task IDs this task depends on
     created_at: str  # ISO timestamp
@@ -51,7 +51,7 @@ class ExecutionPlan(TypedDict):
     original_instruction: str
     tasks: List[ExecutionTask]
     current_task_id: Optional[str]
-    status: TaskStatus
+    status: Literal["pending", "in_progress", "completed", "failed", "cancelled"]
     created_at: str
     completed_at: Optional[str]
     metadata: Dict[str, Any]
