@@ -18,6 +18,8 @@ class OrchestratorA2AHandler:
     def __init__(self, graph, agent_registry):
         self.graph = graph
         self.agent_registry = agent_registry
+        # Progress tracking for active tasks
+        self.active_progress = {}
         
     async def process_task(self, params: Dict[str, Any]) -> A2AResponse:
         """Process A2A task using the orchestrator graph"""
@@ -63,7 +65,8 @@ class OrchestratorA2AHandler:
             config = {
                 "configurable": {
                     "thread_id": thread_id,
-                    "user_id": context.get("user_id", conv_config.default_user_id)
+                    "user_id": context.get("user_id", conv_config.default_user_id),
+                    "_a2a_handler": self  # Pass handler for progress tracking
                 },
                 "recursion_limit": llm_config.recursion_limit
             }
@@ -340,3 +343,41 @@ class OrchestratorA2AHandler:
                 "online_agent_names": online_agent_names
             }
         }
+    
+    async def get_progress(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Get progress updates for an active task"""
+        task_id = params.get("task_id")
+        thread_id = params.get("thread_id")
+        
+        if not task_id and not thread_id:
+            return {
+                "success": False,
+                "data": {},
+                "message": "task_id or thread_id required"
+            }
+        
+        # Look up progress by task_id or thread_id
+        progress_key = task_id or thread_id
+        progress_data = self.active_progress.get(progress_key, {})
+        
+        return {
+            "success": True,
+            "data": progress_data,
+            "message": "Progress data retrieved"
+        }
+    
+    def update_progress(self, task_id: str, progress_data: Dict[str, Any]):
+        """Update progress for a task (called by conversation handler)"""
+        self.active_progress[task_id] = progress_data
+        logger.info("progress_updated", 
+                   component="orchestrator",
+                   task_id=task_id,
+                   progress_data=progress_data)
+    
+    def clear_progress(self, task_id: str):
+        """Clear progress for a completed task"""
+        if task_id in self.active_progress:
+            del self.active_progress[task_id]
+            logger.info("progress_cleared", 
+                       component="orchestrator",
+                       task_id=task_id)

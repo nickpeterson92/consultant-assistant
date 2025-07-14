@@ -237,6 +237,58 @@ def show_processing_indicator(processing_done, current_operation):
     print(f"\r{GREEN}│{RESET} ", end="", flush=True)
 
 
+def show_progressive_processing_indicator(processing_done, current_operation):
+    """Show step-by-step progress with checkmarks and grayed out completed steps."""
+    spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    
+    spinner_colors = [
+        '\033[38;5;36m',   # Cyan
+        '\033[38;5;37m',   # Light cyan
+        '\033[38;5;44m',   # Bright cyan
+        '\033[38;5;45m',   # Light bright cyan
+        '\033[38;5;51m',   # Very bright cyan
+    ]
+    
+    GRAY = '\033[90m'
+    GREEN_CHECK = '\033[32m✓\033[0m'
+    
+    i = 0
+    displayed_lines = 0
+    
+    while not processing_done.is_set():
+        color_idx = i % len(spinner_colors)
+        frame_idx = i % len(spinner_frames)
+        
+        # Get current steps from operation
+        current_step = current_operation.get("current_step", "Processing...")
+        completed_steps = current_operation.get("completed_steps", [])
+        
+        # Clear previous display
+        if displayed_lines > 0:
+            for _ in range(displayed_lines):
+                print(f"\033[F\033[K", end="")  # Move up and clear line
+        
+        displayed_lines = 0
+        
+        # Show completed steps (grayed out with checkmarks)
+        for step in completed_steps:
+            print(f"{GREEN}│{RESET} {GREEN_CHECK} {GRAY}{step}{RESET}")
+            displayed_lines += 1
+        
+        # Show current step (with spinner)
+        spinner_part = f"{spinner_colors[color_idx]}{spinner_frames[frame_idx]}{RESET}"
+        print(f"{GREEN}│{RESET} {spinner_part} {current_step}...", flush=True)
+        displayed_lines += 1
+        
+        time.sleep(0.1)
+        i += 1
+    
+    # Final cleanup - clear all displayed lines
+    for _ in range(displayed_lines):
+        print(f"\033[F\033[K", end="")
+    print(f"{GREEN}│{RESET} ", end="", flush=True)
+
+
 async def main():
     """Main CLI interface for the orchestrator."""
     # Setup logging
@@ -380,21 +432,120 @@ async def main():
             # Show processing indicator
             import threading
             processing_done = threading.Event()
-            current_operation = {"message": "Processing...", "details": ""}
+            current_operation = {
+                "message": "Processing...", 
+                "details": "",
+                "current_step": "Processing...",
+                "completed_steps": [],
+                "use_progressive": False
+            }
             
             def update_processing_context(message):
                 current_operation["message"] = message
+                if not current_operation["use_progressive"]:
+                    current_operation["current_step"] = message
             
-            indicator_thread = threading.Thread(
-                target=show_processing_indicator,
-                args=(processing_done, current_operation)
-            )
+            def update_progressive_step(step_text, completed_steps=None):
+                print(f"[DEBUG] update_progressive_step called: {step_text}", flush=True)
+                current_operation["use_progressive"] = True
+                current_operation["current_step"] = step_text
+                if completed_steps is not None:
+                    current_operation["completed_steps"] = completed_steps
+            
+            def complete_current_step():
+                if current_operation["use_progressive"] and current_operation["current_step"]:
+                    current_operation["completed_steps"].append(current_operation["current_step"])
+                    current_operation["current_step"] = ""
+            
+            def indicator_worker():
+                """Dynamic indicator that continuously monitors and switches modes."""
+                spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+                spinner_colors = [
+                    '\033[38;5;36m',   # Cyan
+                    '\033[38;5;37m',   # Light cyan
+                    '\033[38;5;44m',   # Bright cyan
+                    '\033[38;5;45m',   # Light bright cyan
+                    '\033[38;5;51m',   # Very bright cyan
+                ]
+                GRAY = '\033[90m'
+                GREEN_CHECK = '\033[32m✓\033[0m'
+                
+                i = 0
+                displayed_lines = 0
+                current_mode = None
+                
+                while not processing_done.is_set():
+                    use_progressive = current_operation.get("use_progressive", False)
+                    
+                    # Check if we need to switch modes
+                    if current_mode != use_progressive:
+                        print(f"[DEBUG] Mode switch: {current_mode} -> {use_progressive}", flush=True)
+                        # Clear any existing display
+                        if displayed_lines > 0:
+                            for _ in range(displayed_lines):
+                                print(f"\033[F\033[K", end="")  # Move up and clear line
+                        else:
+                            print(f"\r{GREEN}│{RESET} {' ' * 50}", end="", flush=True)
+                            print(f"\r{GREEN}│{RESET} ", end="", flush=True)
+                        
+                        displayed_lines = 0
+                        current_mode = use_progressive
+                    
+                    color_idx = i % len(spinner_colors)
+                    frame_idx = i % len(spinner_frames)
+                    
+                    if use_progressive:
+                        # Progressive mode: show completed steps + current step
+                        current_step = current_operation.get("current_step", "Processing...")
+                        completed_steps = current_operation.get("completed_steps", [])
+                        
+                        # Clear previous display
+                        if displayed_lines > 0:
+                            for _ in range(displayed_lines):
+                                print(f"\033[F\033[K", end="")  # Move up and clear line
+                        
+                        displayed_lines = 0
+                        
+                        # Show completed steps (grayed out with checkmarks)
+                        for step in completed_steps:
+                            print(f"{GREEN}│{RESET} {GREEN_CHECK} {GRAY}{step}{RESET}")
+                            displayed_lines += 1
+                        
+                        # Show current step (with spinner)
+                        if current_step:
+                            spinner_part = f"{spinner_colors[color_idx]}{spinner_frames[frame_idx]}{RESET}"
+                            print(f"{GREEN}│{RESET} {spinner_part} {current_step}...", flush=True)
+                            displayed_lines += 1
+                    else:
+                        # Regular mode: simple spinner with message
+                        operation_msg = current_operation.get("message", "Processing")
+                        spinner_part = f"{spinner_colors[color_idx]}{spinner_frames[frame_idx]}{RESET}"
+                        display_text = f"{operation_msg}..."
+                        print(f"\r{GREEN}│{RESET} {spinner_part} {display_text}", end="", flush=True)
+                    
+                    time.sleep(0.1)
+                    i += 1
+                
+                # Final cleanup
+                if displayed_lines > 0:
+                    for _ in range(displayed_lines):
+                        print(f"\033[F\033[K", end="")
+                else:
+                    print(f"\r{GREEN}│{RESET} {' ' * 50}", end="", flush=True)
+                print(f"\r{GREEN}│{RESET} ", end="", flush=True)
+            
+            indicator_thread = threading.Thread(target=indicator_worker)
             indicator_thread.daemon = True
             indicator_thread.start()
             
             # Stream response
             conversation_response = None
             response_shown = False
+            
+            # Set up global progress tracking for plan execution
+            # Use module-level global state since LangGraph config doesn't preserve functions
+            from .progress_state import set_progress_functions
+            set_progress_functions(current_operation, update_progressive_step, complete_current_step)
             
             async for event in local_graph.astream(
                 {
@@ -474,6 +625,10 @@ async def main():
                 indicator_thread.join(timeout=1.0)
                 print("Processing your request...")
                 print(f"\n{GREEN}╰{'─' * (box_width - 2)}╯{RESET}")
+            
+            # Clean up progress state when done
+            from .progress_state import clear_progress_functions
+            clear_progress_functions()
             
             # Update thread info
             if current_thread_id in active_threads:

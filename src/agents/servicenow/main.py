@@ -245,6 +245,13 @@ async def handle_a2a_request(params: dict) -> dict:
             raise ValueError("No response generated")
             
     except Exception as e:
+        error_msg = str(e)
+        # Check for specific error types (align with Salesforce agent)
+        if "GraphRecursionError" in type(e).__name__ or "recursion limit" in error_msg.lower():
+            error_msg = "Query complexity exceeded maximum iterations. Please try a more specific search."
+        elif "GRAPH_RECURSION_LIMIT" in error_msg:
+            error_msg = "Too many tool calls required. Please simplify your request."
+            
         logger.error("a2a_task_error",
             component="servicenow",
             operation="process_task",
@@ -253,11 +260,14 @@ async def handle_a2a_request(params: dict) -> dict:
             error_type=type(e).__name__
         )
         
-        # Return error in expected format
+        # Return error in expected format (align with Salesforce agent)
         return {
-            "artifacts": [],
+            "artifacts": [{
+                "type": "text",
+                "content": f"Error processing ServiceNow request: {error_msg}"
+            }],
             "status": "failed",
-            "error": str(e)
+            "error": error_msg
         }
 
 def create_servicenow_agent_card() -> AgentCard:

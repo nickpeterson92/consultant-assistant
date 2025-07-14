@@ -171,6 +171,7 @@ async def main(host: str, port: int):
     server = A2AServer(agent_card, host, port)
     server.register_handler("process_task", handler.process_task)
     server.register_handler("get_agent_card", handler.get_agent_card)
+    server.register_handler("get_progress", handler.get_progress)
     
     # Start the server
     runner = await server.start()
