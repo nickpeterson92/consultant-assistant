@@ -24,3 +24,6 @@ deep_*.py
 
 # Agent registry (contains test agents that accumulate)
 agent_registry.json
+
+# Nick's secret dir
+nick/

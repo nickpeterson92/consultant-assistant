@@ -315,10 +315,10 @@ async def _run_background_summary_async(messages, summary, memory, user_id, thre
             mock_state["summary"] = new_summary
             
             # Serialize messages before saving
-            from src.utils.agents.message_processing import serialize_messages_to_dict
+            from src.utils.agents.message_processing.unified_serialization import serialize_messages_for_json
             
             serialized_state = {
-                "messages": serialize_messages_to_dict(mock_state["messages"]),
+                "messages": serialize_messages_for_json(mock_state["messages"]),
                 "summary": mock_state["summary"],
                 "memory": mock_state["memory"]
             }

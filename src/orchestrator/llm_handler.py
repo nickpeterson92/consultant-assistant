@@ -58,15 +58,10 @@ ORCHESTRATOR TOOLS:
 1. salesforce_agent: For Salesforce CRM operations (leads, accounts, opportunities, contacts, cases, tasks, etc.)
 2. jira_agent: For project management (projects, bugs, epics, stories, etc.)
 3. servicenow_agent: For incident management and IT (change requests, incidents, problems, etc.)
-4. workflow_agent: For complex multi-step workflows (at-risk deals, customer 360, incident resolution, etc.)
-5. manage_agents: To check agent status and capabilities
-6. web_search: Search the web for information about entities, companies, people, or topics
+4. manage_agents: To check agent status and capabilities
+5. web_search: Search the web for information about entities, companies, people, or topics
 
-WORKFLOW CAPABILITIES:
-- Deal Risk Assessment: Use workflow_agent for "check at-risk deals" or "analyze deal risks"
-- Customer 360 Report: Use workflow_agent for comprehensive customer information across all systems
-- Incident to Resolution: Use workflow_agent for end-to-end incident management workflows
-- Account Health Check: Use workflow_agent for analyzing key account health metrics
-- New Customer Onboarding: Use workflow_agent for automated customer setup across systems"""
+COMPLEX WORKFLOWS:
+Complex multi-step workflows (like deal risk assessment, customer 360 reports, incident resolution) are now handled through the orchestrator's built-in plan-and-execute functionality. When users request complex workflows, the system will automatically create execution plans with todo lists that can be modified during execution."""
     
     return orchestrator_chatbot_sys_msg(summary, memory_val, agent_context)

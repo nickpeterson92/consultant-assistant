@@ -12,7 +12,7 @@ from src.utils.storage import get_async_store_adapter
 from src.utils.shared import create_tool_node
 
 from .agent_registry import AgentRegistry
-from .agent_caller_tools import SalesforceAgentTool, JiraAgentTool, ServiceNowAgentTool, WorkflowAgentTool, AgentRegistryTool
+from .agent_caller_tools import SalesforceAgentTool, JiraAgentTool, ServiceNowAgentTool, AgentRegistryTool
 from .state import OrchestratorState
 from src.tools.utility import WebSearchTool
 from .llm_handler import create_llm_instances
@@ -50,9 +50,8 @@ def build_orchestrator_graph():
         SalesforceAgentTool(agent_registry),
         JiraAgentTool(agent_registry),
         ServiceNowAgentTool(agent_registry),
-        WorkflowAgentTool(agent_registry),  # Add workflow agent tool
         AgentRegistryTool(agent_registry),
-        WebSearchTool()  # New utility tool for web search
+        WebSearchTool()  # Utility tool for web search
     ]
     
     # Add workflow tools (direct workflow execution tools)

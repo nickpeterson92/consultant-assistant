@@ -1,11 +1,11 @@
 """Message processing utilities for agent communication."""
 
 from .serialization import (
-    serialize_messages,
-    serialize_messages_to_dict,
     deserialize_messages,
     extract_message_metadata
 )
+# Legacy functions - use unified_serialization.serialize_messages_for_json instead
+from .serialization import serialize_messages, serialize_messages_to_dict
 from .helpers import (
     trim_messages_for_context,
     estimate_message_tokens,
@@ -16,22 +16,17 @@ from .helpers import (
     smart_preserve_messages
 )
 
-# Add helper functions
+# DEPRECATED: Use unified_serialization.serialize_messages_for_json instead
 def serialize_message(message):
-    """Serialize a single message to JSON-serializable format for A2A."""
-    import json
-    from langgraph.checkpoint.memory import MemorySaver
-    _saver = MemorySaver()
-    # Return JSON-serializable dict, not bytes
-    serialized_bytes = _saver.serde.dumps(message)
-    return json.loads(serialized_bytes.decode('utf-8'))
+    """DEPRECATED: Use unified_serialization.serialize_messages_for_json instead."""
+    from .unified_serialization import serialize_messages_for_json
+    return serialize_messages_for_json(message)
 
 def serialize_recent_messages(messages, count=None, message_count=None):
-    """Serialize recent messages to JSON-serializable format for A2A."""
-    from .serialization import serialize_messages_to_dict
+    """DEPRECATED: Use unified_serialization.serialize_messages_for_json instead."""
+    from .unified_serialization import serialize_messages_for_json
     limit = count or message_count or len(messages)
-    recent = messages[-limit:] if len(messages) > limit else messages
-    return serialize_messages_to_dict(recent)
+    return serialize_messages_for_json(messages, limit=limit)
 
 __all__ = [
     # Serialization

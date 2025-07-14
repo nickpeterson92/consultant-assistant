@@ -29,6 +29,7 @@ from .background_tasks import (
 logger = get_logger()
 
 
+
 async def orchestrator(
     state: OrchestratorState, 
     config: RunnableConfig,
@@ -126,49 +127,7 @@ async def orchestrator(
                                 summary_length=len(str(summary)) if summary else 0,
                                 summary_preview=str(summary)[:200] if summary else "NO_SUMMARY")
         
-        # Check if there's an interrupted workflow that needs the user's response
-        interrupted_workflow = state.get("interrupted_workflow")
-        workflow_human_response = state.get("_workflow_human_response")
-        
-        # If we have both, we need to automatically call workflow_agent
-        if interrupted_workflow and workflow_human_response:
-            logger.info("auto_calling_workflow_for_interrupted_response",
-                component="orchestrator",
-                operation="conversation_node",
-                workflow_name=interrupted_workflow.get("workflow_name"),
-                thread_id=interrupted_workflow.get("thread_id"),
-                human_response_preview=str(workflow_human_response)[:50] if workflow_human_response else ""
-            )
-            
-            # Create a properly formatted tool call following LangChain standards
-            tool_call_id = f"call_{uuid.uuid4().hex[:24]}"
-            
-            # Create AI message with tool call using dict format (as expected by execute_command_tools)
-            ai_msg = AIMessage(
-                content="",  # Empty content as per LangChain standards when using tools
-                tool_calls=[{
-                    "name": "workflow_agent",
-                    "args": {"instruction": workflow_human_response},
-                    "id": tool_call_id
-                }]
-            )
-            
-            # Log the auto-generated tool call
-            logger.info("auto_tool_call_created",
-                component="orchestrator", 
-                tool_name="workflow_agent",
-                tool_call_id=tool_call_id,
-                tool_args={"instruction": str(workflow_human_response)[:100]}
-            )
-            
-            # Clear the human response flag after using it
-            updated_state = {
-                "messages": [ai_msg],
-                "_workflow_human_response": None
-            }
-            
-            # Return early with this tool call
-            return updated_state
+        # Note: Old workflow interruption logic removed - now handled by plan-and-execute system
         
         system_message = get_orchestrator_system_message(state, agent_registry)
         
@@ -208,6 +167,42 @@ async def orchestrator(
         else:
             # Use all messages if under limit
             llm_messages = state_messages
+        
+        # Get latest human message for execution logic
+        human_messages = [msg for msg in state.get("messages", []) if isinstance(msg, HumanMessage)]
+        latest_input = human_messages[-1].content if human_messages else ""
+        
+        # Check if we have an existing plan that should be executed
+        current_plan = state.get("current_plan")
+        execution_mode = state.get("execution_mode")
+        
+        # Priority 1: Handle existing plan execution
+        if current_plan and execution_mode == "executing":
+            # First check if user provided new requirements that need replanning
+            if await _should_replan(latest_input, state, invoke_llm):
+                logger.info("replanning_detected",
+                           component="orchestrator",
+                           plan_id=current_plan.get("id", "unknown"),
+                           user_input=latest_input[:100])
+                return await _handle_replanning(latest_input, state, invoke_llm)
+            
+            # Then check if user wants to execute the current plan
+            if await _should_execute_plan(latest_input, current_plan, invoke_llm):
+                logger.info("executing_existing_plan",
+                           component="orchestrator",
+                           plan_id=current_plan.get("id", "unknown"),
+                           user_input=latest_input[:100])
+                return await _handle_plan_execution(state, invoke_llm)
+            
+            # Default: continue executing the plan
+            logger.info("continuing_plan_execution",
+                       component="orchestrator",
+                       plan_id=current_plan.get("id", "unknown"))
+            return await _handle_plan_execution(state, invoke_llm)
+        
+        # Priority 2: Check if we should create a NEW plan (only if no existing plan)
+        if await _should_create_plan(state, invoke_llm):
+            return await _handle_plan_creation(state, invoke_llm)
         
         messages = [SystemMessage(content=system_message)] + llm_messages
         
@@ -267,19 +262,7 @@ async def orchestrator(
             updated_state["summary"] = "No summary available"
             logger.info("summary_initialized", component="orchestrator", operation="setting_default_summary")
         
-        # Check if we need to clear completed workflow state
-        # This happens when workflow agent returns a completion (handled by tool)
-        if "interrupted_workflow" in state and state.get("interrupted_workflow") is None:
-            # Workflow was explicitly cleared by the tool, preserve this
-            updated_state["interrupted_workflow"] = None
-            logger.info("workflow_state_cleared",
-                component="orchestrator",
-                operation="clear_completed_workflow",
-                reason="workflow_completed"
-            )
-        elif "interrupted_workflow" in state:
-            # Preserve existing interrupted workflow state if not explicitly cleared
-            updated_state["interrupted_workflow"] = state["interrupted_workflow"]
+        # Note: Old workflow state management removed - now using plan-and-execute system
         
         # Check for background task triggers
         conv_config = get_conversation_config()
@@ -372,3 +355,581 @@ async def orchestrator(
             error_type=type(e).__name__
         )
         raise
+
+
+async def _should_create_plan(state: OrchestratorState, invoke_llm) -> bool:
+    """Check if we should create a plan for the current request."""
+    
+    # CRITICAL: If we already have a plan, don't create a new one!
+    # Check if we're in execution mode or have an existing plan
+    if state.get("execution_mode") == "executing" or state.get("current_plan"):
+        logger.info("plan_already_exists",
+                   component="orchestrator",
+                   execution_mode=state.get("execution_mode"),
+                   has_plan=bool(state.get("current_plan")),
+                   decision="SKIP_PLANNING")
+        return False
+    
+    # Get latest human message
+    human_messages = [msg for msg in state.get("messages", []) if isinstance(msg, HumanMessage)]
+    if not human_messages:
+        return False
+    
+    latest_instruction = human_messages[-1].content
+    
+    
+    # LLM-based routing decision - be very explicit with examples
+    routing_prompt = f"""You are determining if a user request needs structured execution planning or normal conversation.
+
+USER REQUEST: "{latest_instruction}"
+
+Look at this request carefully:
+
+DEFINITELY NORMAL (respond immediately, no planning):
+- "hello" / "hi" / "hey" / "thanks" 
+- "what" / "why" / "how" / "when"
+- "proceed" / "start" / "continue" / "yes" / "no"
+- Simple single queries like "get account X" or "find Y"
+- Status checks and basic questions
+
+DEFINITELY PLAN (create structured todo list):
+- Customer onboarding workflows ("onboard X customer")
+- Multi-step business processes that span systems
+- Complex analysis or reporting tasks
+- Project-like work with dependencies
+
+Answer with exactly one word: NORMAL or PLAN"""
+    
+    try:
+        messages = [
+            SystemMessage(content=routing_prompt),
+            HumanMessage(content="Classify this request")
+        ]
+        
+        response = invoke_llm(messages, use_tools=False)
+        decision = response.content.strip().upper()
+        
+        logger.info("planning_routing_decision",
+                   component="orchestrator",
+                   decision=decision,
+                   instruction_preview=latest_instruction[:100])
+        
+        return decision == "PLAN"
+        
+    except Exception as e:
+        logger.error("planning_routing_error",
+                    component="orchestrator",
+                    error=str(e),
+                    defaulting_to=False)
+        return False
+
+
+async def _should_execute_plan(user_input: str, current_plan: dict, invoke_llm) -> bool:
+    """Check if user input indicates they want to execute the existing plan."""
+    
+    # Simple LLM-based decision with safe terminology
+    execution_prompt = f"""User said: "{user_input}"
+    
+Question: Does this mean run the plan?
+Answer: RUN or WAIT"""
+    
+    try:
+        messages = [
+            SystemMessage(content=execution_prompt),
+            HumanMessage(content="Make execution decision")
+        ]
+        
+        response = invoke_llm(messages, use_tools=False)
+        decision = response.content.strip().upper()
+        
+        logger.info("plan_start_decision",
+                   component="orchestrator",
+                   decision=decision,
+                   user_input=user_input[:100])
+        
+        return decision == "RUN"
+        
+    except Exception as e:
+        logger.error("execution_decision_error",
+                    component="orchestrator",
+                    error=str(e))
+        return False
+
+
+async def _should_replan(user_input: str, state: OrchestratorState, invoke_llm) -> bool:
+    """Check if user input requires replanning."""
+    
+    current_plan = state.get("current_plan")
+    if not current_plan:
+        return False
+    
+    # Simple LLM-based decision
+    replan_prompt = f"""You are analyzing if a user input during plan execution requires modifying the plan.
+
+CURRENT PLAN: {current_plan.get('original_instruction', 'N/A')}
+USER INPUT: {user_input}
+
+USER INPUT REQUIRES REPLANNING if it:
+- Adds new requirements or tasks
+- Changes priorities or scope
+- Modifies the approach
+- Requests different actions
+
+USER INPUT DOES NOT require replanning if it:
+- Asks for status or progress
+- Makes general comments
+- Asks clarifying questions
+- Says "continue" or "proceed"
+
+Respond with only: "REPLAN" or "CONTINUE"
+"""
+    
+    try:
+        messages = [
+            SystemMessage(content=replan_prompt),
+            HumanMessage(content="Make replanning decision")
+        ]
+        
+        response = invoke_llm(messages, use_tools=False)
+        decision = response.content.strip().upper()
+        
+        logger.info("replanning_decision",
+                   component="orchestrator",
+                   decision=decision,
+                   user_input=user_input[:100])
+        
+        return decision == "REPLAN"
+        
+    except Exception as e:
+        logger.error("replanning_decision_error",
+                    component="orchestrator",
+                    error=str(e))
+        return False
+
+
+async def _handle_plan_creation(state: OrchestratorState, invoke_llm) -> OrchestratorState:
+    """Handle creation of a new execution plan."""
+    
+    # Import here to avoid circular imports
+    from .plan_and_execute import PlanAndExecuteManager
+    
+    # Get latest human message
+    human_messages = [msg for msg in state.get("messages", []) if isinstance(msg, HumanMessage)]
+    if not human_messages:
+        return state
+    
+    latest_instruction = human_messages[-1].content
+    
+    try:
+        # Create a simple wrapper for invoke_llm to match LLM interface
+        class LLMWrapper:
+            def __init__(self, invoke_func):
+                self.invoke_func = invoke_func
+            
+            async def ainvoke(self, messages, **kwargs):
+                return self.invoke_func(messages, use_tools=False)
+        
+        # Create plan manager with wrapped LLM
+        plan_manager = PlanAndExecuteManager(LLMWrapper(invoke_llm))
+        
+        # Build context with recent conversation history for context preservation
+        recent_messages = state.get("messages", [])[-10:]  # Include recent context
+        context = {
+            "messages": recent_messages,
+            "memory": state.get("memory", {}),
+            "summary": state.get("summary", ""),
+            "active_agents": state.get("active_agents", []),
+            "conversation_context": f"Recent conversation about: {latest_instruction}"
+        }
+        
+        # Create execution plan
+        execution_plan = await plan_manager.create_plan(latest_instruction, context)
+        
+        # Create plan summary with todo list
+        todo_list = _format_todo_list(execution_plan["tasks"])
+        
+        plan_summary = f"""I've created an execution plan for your request:
+
+**Original Request:** {latest_instruction}
+
+**Proposed Todo List:**
+{todo_list}
+
+**Next Steps:**
+- Say "proceed" or "start" to begin execution
+- Say "modify" to request changes to the plan  
+- Ask me to "add", "remove", or "change" specific tasks
+- Or just tell me what you'd like different
+
+What would you like to do?"""
+        
+        logger.info("plan_created",
+                   component="orchestrator",
+                   plan_id=execution_plan["id"],
+                   task_count=len(execution_plan["tasks"]))
+        
+        # Update state
+        updated_state = dict(state)
+        updated_state.update({
+            "messages": [AIMessage(content=plan_summary)],
+            "current_plan": execution_plan,
+            "execution_mode": "executing"
+        })
+        
+        return updated_state
+        
+    except Exception as e:
+        logger.error("plan_creation_error",
+                    component="orchestrator",
+                    error=str(e))
+        
+        # Fall back to normal processing
+        error_message = f"I had trouble creating the plan: {str(e)}. I'll handle your request normally."
+        
+        updated_state = dict(state)
+        updated_state.update({
+            "messages": [AIMessage(content=error_message)],
+            "execution_mode": "normal"
+        })
+        
+        return updated_state
+
+
+async def _handle_replanning(user_input: str, state: OrchestratorState, invoke_llm) -> OrchestratorState:
+    """Handle replanning based on user input."""
+    
+    # Import here to avoid circular imports
+    from .plan_and_execute import PlanAndExecuteManager
+    
+    current_plan = state.get("current_plan")
+    if not current_plan:
+        return state
+    
+    try:
+        # Create a simple wrapper for invoke_llm to match LLM interface
+        class LLMWrapper:
+            def __init__(self, invoke_func):
+                self.invoke_func = invoke_func
+            
+            async def ainvoke(self, messages, **kwargs):
+                return self.invoke_func(messages, use_tools=False)
+        
+        # Create plan manager with wrapped LLM
+        plan_manager = PlanAndExecuteManager(LLMWrapper(invoke_llm))
+        
+        # Build context
+        context = {
+            "messages": state.get("messages", []),
+            "memory": state.get("memory", {}),
+            "summary": state.get("summary", ""),
+            "active_agents": state.get("active_agents", [])
+        }
+        
+        # Update the plan
+        updated_plan = await plan_manager.replan(current_plan, user_input, context)
+        
+        # Create replan summary with updated todo list
+        pending_tasks = [task for task in updated_plan["tasks"] if (task["status"].value if hasattr(task["status"], "value") else task["status"]) == "pending"]
+        completed_tasks = [task for task in updated_plan["tasks"] if (task["status"].value if hasattr(task["status"], "value") else task["status"]) == "completed"]
+        
+        todo_list = _format_todo_list(pending_tasks, show_status=False)
+        
+        replan_summary = f"""I've updated the plan based on your request:
+
+**Your Request:** {user_input}
+
+**Updated Todo List:**
+{todo_list}
+
+**Progress:** {len(completed_tasks)} completed, {len(pending_tasks)} remaining
+
+Continuing with the updated plan..."""
+        
+        logger.info("plan_updated",
+                   component="orchestrator",
+                   plan_id=updated_plan["id"],
+                   modification=user_input[:100])
+        
+        # Update state
+        updated_state = dict(state)
+        updated_state.update({
+            "messages": [AIMessage(content=replan_summary)],
+            "current_plan": updated_plan,
+            "execution_mode": "executing"
+        })
+        
+        return updated_state
+        
+    except Exception as e:
+        logger.error("replanning_error",
+                    component="orchestrator",
+                    error=str(e))
+        
+        # Continue with current plan
+        error_message = f"I had trouble updating the plan: {str(e)}. Continuing with the current plan."
+        
+        updated_state = dict(state)
+        updated_state.update({
+            "messages": [AIMessage(content=error_message)],
+            "execution_mode": "executing"
+        })
+        
+        return updated_state
+
+
+async def _handle_plan_execution(state: OrchestratorState, invoke_llm) -> OrchestratorState:
+    """Handle execution of the current plan."""
+    
+    # Import here to avoid circular imports
+    from .plan_and_execute import PlanAndExecuteManager
+    
+    current_plan = state.get("current_plan")
+    if not current_plan:
+        logger.error("plan_execution_no_plan", component="orchestrator")
+        return dict(state, execution_mode="normal")
+    
+    try:
+        # Create a simple wrapper for invoke_llm to match LLM interface
+        class LLMWrapper:
+            def __init__(self, invoke_func):
+                self.invoke_func = invoke_func
+            
+            async def ainvoke(self, messages, **kwargs):
+                return self.invoke_func(messages, use_tools=False)
+        
+        # Create plan manager with wrapped LLM
+        plan_manager = PlanAndExecuteManager(LLMWrapper(invoke_llm))
+        
+        # Get next task
+        next_task = plan_manager.get_next_task(current_plan)
+        
+        if not next_task:
+            # Plan is complete
+            return await _handle_plan_completion(current_plan, state)
+        
+        # Mark task as in progress
+        plan_manager.mark_task_in_progress(current_plan, next_task["id"])
+        
+        # Execute the task using existing tools
+        task_result = await _execute_task_with_existing_tools(next_task, state, invoke_llm)
+        
+        # Mark task as completed or failed
+        if "error" in task_result.lower() or "failed" in task_result.lower():
+            plan_manager.mark_task_failed(current_plan, next_task["id"], task_result)
+            status_emoji = "❌"
+        else:
+            plan_manager.mark_task_completed(current_plan, next_task["id"], {"result": task_result})
+            status_emoji = "✅"
+        
+        # Get progress
+        total_tasks = len(current_plan["tasks"])
+        completed_tasks = sum(1 for t in current_plan["tasks"] if (t["status"].value if hasattr(t["status"], "value") else t["status"]) in ["completed", "failed"])
+        
+        # Create result message
+        result_message = f"""{status_emoji} **Task Completed** ({completed_tasks}/{total_tasks})
+
+**Task:** {next_task['content']}
+**Result:** {task_result[:300]}{'...' if len(task_result) > 300 else ''}
+
+**Progress:** {(completed_tasks/total_tasks)*100:.0f}% complete"""
+        
+        # Check if plan is complete
+        if plan_manager.is_plan_complete(current_plan):
+            completion_message = await _create_plan_completion_message(current_plan)
+            
+            updated_state = dict(state)
+            updated_state.update({
+                "messages": [AIMessage(content=result_message), completion_message],
+                "current_plan": current_plan,
+                "execution_mode": "normal"
+            })
+        else:
+            updated_state = dict(state)
+            updated_state.update({
+                "messages": [AIMessage(content=result_message)],
+                "current_plan": current_plan,
+                "execution_mode": "executing"
+            })
+        
+        return updated_state
+        
+    except Exception as e:
+        logger.error("plan_execution_error",
+                    component="orchestrator",
+                    error=str(e))
+        
+        # Continue with plan
+        error_message = f"Task execution encountered an issue: {str(e)}. Continuing with plan..."
+        
+        updated_state = dict(state)
+        updated_state.update({
+            "messages": [AIMessage(content=error_message)],
+            "execution_mode": "executing"
+        })
+        
+        return updated_state
+
+
+async def _execute_task_with_existing_tools(task: dict, state: OrchestratorState, invoke_llm) -> str:
+    """Execute a task using existing agent tools."""
+    
+    task_content = task["content"]
+    task_lower = task_content.lower()
+    
+    # Import the actual agent tools
+    from .agent_caller_tools import SalesforceAgentTool, JiraAgentTool, ServiceNowAgentTool
+    from .agent_registry import AgentRegistry
+    
+    # Get the agent registry (should be available globally)
+    try:
+        from .graph_builder import get_agent_registry
+        agent_registry = get_agent_registry()
+    except Exception:
+        return f"Task failed: Agent registry not available"
+    
+    # Determine which agent tool to use based on task content
+    agent_tool = None
+    instruction = task_content
+    
+    if any(keyword in task_lower for keyword in ["salesforce", "account", "opportunity", "contact", "lead", "case"]):
+        agent_tool = SalesforceAgentTool(agent_registry)
+        logger.info("task_execution_routing", component="orchestrator", 
+                   task=task_content[:100], routed_to="salesforce_agent")
+    
+    elif any(keyword in task_lower for keyword in ["jira", "project", "task", "meeting", "issue", "ticket"]):
+        agent_tool = JiraAgentTool(agent_registry)
+        logger.info("task_execution_routing", component="orchestrator",
+                   task=task_content[:100], routed_to="jira_agent")
+    
+    elif any(keyword in task_lower for keyword in ["servicenow", "company", "incident", "service"]):
+        agent_tool = ServiceNowAgentTool(agent_registry)
+        logger.info("task_execution_routing", component="orchestrator",
+                   task=task_content[:100], routed_to="servicenow_agent")
+    
+    # If we found a matching agent tool, use it
+    if agent_tool:
+        try:
+            logger.info("task_execution_start", component="orchestrator",
+                       task=task_content[:100], agent=agent_tool.__class__.__name__)
+            
+            # Call the agent tool async method directly to avoid event loop conflicts
+            result = await agent_tool._arun(instruction, state)
+            
+            logger.info("task_execution_complete", component="orchestrator", 
+                       task=task_content[:100], result_length=len(str(result)))
+            
+            return str(result)
+            
+        except Exception as e:
+            logger.error("task_execution_error", component="orchestrator",
+                        task=task_content[:100], error=str(e))
+            return f"Task failed: {str(e)}"
+    
+    # Fallback: Use LLM with tools for general tasks
+    try:
+        logger.info("task_execution_fallback", component="orchestrator",
+                   task=task_content[:100], method="llm_with_tools")
+        
+        messages = [
+            SystemMessage(content=f"Execute this specific task: {task_content}"),
+            HumanMessage(content=task_content)
+        ]
+        
+        response = invoke_llm(messages, use_tools=True)
+        return str(response.content) if response.content else "Task completed"
+        
+    except Exception as e:
+        logger.error("task_execution_fallback_error", component="orchestrator",
+                    task=task_content[:100], error=str(e))
+        return f"Task failed: {str(e)}"
+
+
+async def _handle_plan_completion(current_plan: dict, state: OrchestratorState) -> OrchestratorState:
+    """Handle completion of the execution plan."""
+    
+    completion_message = await _create_plan_completion_message(current_plan)
+    
+    updated_state = dict(state)
+    updated_state.update({
+        "messages": [completion_message],
+        "current_plan": current_plan,
+        "execution_mode": "normal"
+    })
+    
+    return updated_state
+
+
+async def _create_plan_completion_message(current_plan: dict) -> AIMessage:
+    """Create completion message for the plan."""
+    
+    # Update plan status
+    current_plan["status"] = "completed"
+    current_plan["completed_at"] = datetime.now().isoformat()
+    
+    # Get task summary
+    completed_tasks = [t for t in current_plan["tasks"] if (t["status"].value if hasattr(t["status"], "value") else t["status"]) == "completed"]
+    failed_tasks = [t for t in current_plan["tasks"] if (t["status"].value if hasattr(t["status"], "value") else t["status"]) == "failed"]
+    
+    # Show completed tasks
+    task_summary = ""
+    if completed_tasks:
+        task_summary += "**Completed Tasks:**\n" + "\n".join([
+            f"✅ {task['content']}" for task in completed_tasks[:5]  # Show first 5
+        ])
+        if len(completed_tasks) > 5:
+            task_summary += f"\n... and {len(completed_tasks) - 5} more"
+    
+    if failed_tasks:
+        task_summary += "\n\n**Failed Tasks:**\n" + "\n".join([
+            f"❌ {task['content']}" for task in failed_tasks[:3]  # Show first 3
+        ])
+    
+    completion_text = f"""🎉 **Plan Execution Complete!**
+
+**Original Request:** {current_plan.get('original_instruction', 'N/A')}
+
+**Summary:**
+- Total Tasks: {len(current_plan['tasks'])}
+- Completed: {len(completed_tasks)}
+- Failed: {len(failed_tasks)}
+- Success Rate: {(len(completed_tasks)/len(current_plan['tasks']))*100:.0f}%
+
+{task_summary}
+
+All tasks have been executed. What would you like to do next?"""
+    
+    return AIMessage(content=completion_text)
+
+
+def _format_todo_list(tasks: list, show_status: bool = True) -> str:
+    """Format tasks as a todo list."""
+    
+    if not tasks:
+        return "No tasks"
+    
+    todo_items = []
+    for i, task in enumerate(tasks, 1):
+        status_icon = ""
+        if show_status:
+            # Handle both enum objects and string values
+            status_value = task["status"].value if hasattr(task["status"], "value") else task["status"]
+            if status_value == "completed":
+                status_icon = "✅ "
+            elif status_value == "failed":
+                status_icon = "❌ "
+            elif status_value == "in_progress":
+                status_icon = "🔄 "
+            else:
+                status_icon = "📋 "
+        
+        priority_indicator = ""
+        # Handle both enum objects and string values
+        priority_value = task["priority"].value if hasattr(task["priority"], "value") else task["priority"]
+        if priority_value == "high":
+            priority_indicator = " (HIGH)"
+        elif priority_value == "urgent":
+            priority_indicator = " (URGENT)"
+        
+        todo_items.append(f"{status_icon}{i}. {task['content']}{priority_indicator}")
+    
+    return "\n".join(todo_items)
