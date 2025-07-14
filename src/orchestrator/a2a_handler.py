@@ -7,7 +7,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from src.utils.logging import get_logger
 from src.utils.config import get_conversation_config, get_llm_config
 from src.utils.agents.prompts import orchestrator_a2a_sys_msg
-from .types import A2AResponse, A2AContext, A2AMetadata, WorkflowState
+from .types import A2AResponse, A2AContext, A2AMetadata
 
 logger = get_logger("orchestrator")
 
@@ -88,8 +88,7 @@ class OrchestratorA2AHandler:
                     "last_agent_interaction": {},
                     "background_operations": [],
                     "background_results": {},
-                    "interrupted_workflow": None,
-                    "_workflow_human_response": None,
+                    # Workflow fields removed - functionality moved to plan-and-execute
                     "last_summary_trigger": None,
                     "last_memory_trigger": None,
                     "tool_calls_since_memory": 0,
@@ -141,84 +140,24 @@ class OrchestratorA2AHandler:
                     error_type=type(e).__name__
                 )
             
-            # Check if there's an interrupted workflow in the context (from CLI)
-            context_interrupted_workflow = context.get("interrupted_workflow")
-            
+            # Simplified state management - workflow interruption removed
             if existing_state and existing_state.values and existing_state.values.get("messages"):
-                # Check if there's an interrupted workflow in the existing state
-                has_interrupted_workflow = existing_state.values.get("interrupted_workflow") is not None
-                
-                # Also check if it's passed in the context (for CLI mode)
-                if not has_interrupted_workflow and context_interrupted_workflow:
-                    has_interrupted_workflow = True
-                    # We need to restore the interrupted workflow state
-                    initial_state = {
-                        "messages": [],  # Empty - the workflow will handle the instruction
-                        "background_operations": [],
-                        "background_results": {},
-                        "interrupted_workflow": context_interrupted_workflow,
-                        "_workflow_human_response": instruction  # Pass instruction for workflow consumption
-                    }
-                    logger.info(message="found_interrupted_workflow_in_context",
-                        component="orchestrator",
-                        operation="process_a2a_task",
-                        thread_id=thread_id,
-                        workflow_name=context_interrupted_workflow.get("workflow_name"),
-                        workflow_thread_id=context_interrupted_workflow.get("thread_id"),
-                        instruction_for_workflow=instruction[:50],
-                        source="context"
-                    )
-                elif has_interrupted_workflow:
-                    # This instruction is a response to the interrupted workflow
-                    # We need to update the existing state with the workflow response
-                    # and NOT add it as a new HumanMessage
-                    initial_state = {
-                        "messages": [],  # Don't add a new message - the workflow will consume the response
-                        "_workflow_human_response": instruction  # This will trigger auto-call in conversation_handler
-                    }
-                    logger.info(message="found_interrupted_workflow_in_state",
-                        component="orchestrator",
-                        operation="process_a2a_task",
-                        thread_id=thread_id,
-                        workflow_name=existing_state.values["interrupted_workflow"].get("workflow_name"),
-                        workflow_thread_id=existing_state.values["interrupted_workflow"].get("thread_id"),
-                        instruction_for_workflow=instruction[:50]
-                    )
-                else:
-                    # Continue existing conversation normally
-                    initial_state = {
-                        "messages": [HumanMessage(content=instruction)],
-                        "background_operations": [],
-                        "background_results": {}
-                    }
+                # Continue existing conversation
+                initial_state = {
+                    "messages": [HumanMessage(content=instruction)],
+                    "background_operations": [],
+                    "background_results": {}
+                }
             else:
-                # Check if we have interrupted workflow from context even without existing state
-                if context_interrupted_workflow:
-                    # We have an interrupted workflow but no state - this is a resumed session
-                    initial_state = {
-                        "messages": [SystemMessage(content=system_message_content)],
-                        "background_operations": [],
-                        "background_results": {},
-                        "interrupted_workflow": context_interrupted_workflow,
-                        "_workflow_human_response": instruction
-                    }
-                    logger.info(message="interrupted_workflow_from_context_no_state",
-                        component="orchestrator",
-                        operation="process_a2a_task",
-                        thread_id=thread_id,
-                        workflow_name=context_interrupted_workflow.get("workflow_name"),
-                        instruction_for_workflow=instruction[:50]
-                    )
-                else:
-                    # Start new conversation
-                    initial_state = {
-                        "messages": [
-                            SystemMessage(content=system_message_content),
-                            HumanMessage(content=instruction)
-                        ],
-                        "background_operations": [],
-                        "background_results": {}
-                    }
+                # Start new conversation
+                initial_state = {
+                    "messages": [
+                        SystemMessage(content=system_message_content),
+                        HumanMessage(content=instruction)
+                    ],
+                    "background_operations": [],
+                    "background_results": {}
+                }
             
             # Execute graph
             result = await self.graph.ainvoke(initial_state, config)
@@ -287,13 +226,8 @@ class OrchestratorA2AHandler:
                 response_preview=response_content[:200]
             )
             
-            # Check if we have an interrupted workflow in the result
-            interrupted_workflow = result.get("interrupted_workflow")
-            
             # Build typed response
-            metadata: A2AMetadata = {
-                "interrupted_workflow": cast(Optional[WorkflowState], interrupted_workflow)
-            }
+            metadata: A2AMetadata = {}
             
             response: A2AResponse = {
                 "artifacts": [{
@@ -307,23 +241,13 @@ class OrchestratorA2AHandler:
                 "error": None
             }
             
-            if interrupted_workflow:
-                logger.info(
-                    message="a2a_response_includes_interrupted_workflow",
-                    component="orchestrator",
-                    operation="process_a2a_task",
-                    task_id=task_id,
-                    workflow_name=interrupted_workflow.get("workflow_name"),
-                    workflow_thread_id=interrupted_workflow.get("thread_id")
-                )
-            else:
-                logger.info(
-                    message="a2a_response_workflow_completed",
-                    component="orchestrator",
-                    operation="process_a2a_task",
-                    task_id=task_id,
-                    note="No interrupted workflow - signaling completion to client"
-                )
+            logger.info(
+                message="a2a_response_completed",
+                component="orchestrator",
+                operation="process_a2a_task",
+                task_id=task_id,
+                note="Task completed successfully"
+            )
             
             return response
             

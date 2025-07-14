@@ -3,12 +3,7 @@
 from typing import TypedDict, Optional, Dict, Any, List
 
 
-class WorkflowState(TypedDict):
-    """Workflow state information."""
-    workflow_name: str
-    thread_id: str
-    step_id: Optional[str]
-    context: Optional[Dict[str, Any]]
+# WorkflowState removed - workflow functionality moved to plan-and-execute
 
 
 class A2AArtifact(TypedDict):
@@ -21,7 +16,6 @@ class A2AArtifact(TypedDict):
 
 class A2AMetadata(TypedDict, total=False):
     """A2A response metadata."""
-    interrupted_workflow: Optional[WorkflowState]
     state_sync: Optional[Dict[str, Any]]
 
 
@@ -37,5 +31,4 @@ class A2AContext(TypedDict, total=False):
     """A2A request context."""
     thread_id: str
     source: str
-    interrupted_workflow: Optional[WorkflowState]
     state_snapshot: Optional[Dict[str, Any]]
