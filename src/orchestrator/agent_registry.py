@@ -468,3 +468,14 @@ class AgentRegistry:
             "available_capabilities": sorted(list(all_capabilities)),
             "agents_by_capability": agents_by_capability
         }
+
+
+# Global registry instance
+_global_registry = None
+
+def get_agent_registry() -> AgentRegistry:
+    """Get the global agent registry instance."""
+    global _global_registry
+    if _global_registry is None:
+        _global_registry = AgentRegistry()
+    return _global_registry

@@ -456,6 +456,92 @@ Answer: RUN or WAIT"""
         return False
 
 
+async def _route_task_to_agent(task_content: str, invoke_llm):
+    """Use LLM intelligence to route tasks to the correct agent based on intent and capabilities."""
+    
+    routing_prompt = f"""You are a task router for a multi-agent system. Analyze this task and determine which specialized agent should handle it.
+
+TASK: "{task_content}"
+
+AVAILABLE AGENTS AND THEIR CAPABILITIES:
+
+**SALESFORCE AGENT** - Handles:
+- CRM operations (accounts, contacts, leads, opportunities) 
+- Sales pipeline management
+- Customer relationship data
+- Salesforce-specific operations
+- Cases and tasks in Salesforce CRM
+
+**JIRA AGENT** - Handles:
+- Project management and tracking
+- Issue creation and management  
+- Task management for development/work
+- Sprint and epic management
+- Project planning and organization
+
+**SERVICENOW AGENT** - Handles:
+- IT Service Management (ITSM)
+- Incident and problem management
+- Company/organization records in ServiceNow
+- Change management processes
+- CMDB and configuration items
+- Service requests and workflows
+
+ROUTING RULES:
+- If task mentions creating a "company" → ServiceNow (companies are managed in ServiceNow CMDB)
+- If task mentions Salesforce "accounts" → Salesforce (CRM customer records)
+- If task mentions "projects" or development tasks → Jira
+- If task mentions "incidents" or IT services → ServiceNow
+- If task explicitly names a system → Route to that system
+
+Respond with exactly one word: SALESFORCE, JIRA, or SERVICENOW"""
+
+    try:
+        messages = [
+            SystemMessage(content=routing_prompt),
+            HumanMessage(content="Route this task")
+        ]
+        
+        response = invoke_llm(messages, use_tools=False)
+        routing_decision = response.content.strip().upper()
+        
+        # Import agent tools here to avoid circular imports
+        from .agent_caller_tools import SalesforceAgentTool, JiraAgentTool, ServiceNowAgentTool
+        from .agent_registry import get_agent_registry
+        
+        agent_registry = get_agent_registry()
+        
+        if routing_decision == "SALESFORCE":
+            logger.info("task_execution_routing", component="orchestrator", 
+                       task=task_content[:100], routed_to="salesforce_agent", 
+                       routing_method="llm_intelligent")
+            return SalesforceAgentTool(agent_registry)
+        elif routing_decision == "JIRA":
+            logger.info("task_execution_routing", component="orchestrator",
+                       task=task_content[:100], routed_to="jira_agent",
+                       routing_method="llm_intelligent")
+            return JiraAgentTool(agent_registry)
+        elif routing_decision == "SERVICENOW":
+            logger.info("task_execution_routing", component="orchestrator",
+                       task=task_content[:100], routed_to="servicenow_agent",
+                       routing_method="llm_intelligent")
+            return ServiceNowAgentTool(agent_registry)
+        else:
+            logger.warning("task_routing_fallback", component="orchestrator",
+                          task=task_content[:100], decision=routing_decision,
+                          fallback_to="salesforce_agent")
+            return SalesforceAgentTool(agent_registry)  # Fallback
+            
+    except Exception as e:
+        logger.error("task_routing_error", component="orchestrator",
+                    task=task_content[:100], error=str(e),
+                    fallback_to="salesforce_agent")
+        # Fallback to Salesforce if routing fails
+        from .agent_caller_tools import SalesforceAgentTool
+        from .agent_registry import get_agent_registry
+        return SalesforceAgentTool(get_agent_registry())
+
+
 async def _should_replan(user_input: str, state: OrchestratorState, invoke_llm) -> bool:
     """Check if user input requires replanning."""
     
@@ -721,53 +807,84 @@ async def _handle_plan_execution(state: OrchestratorState, invoke_llm) -> Orches
             plan_manager.mark_task_completed(current_plan, next_task["id"], {"result": task_result})
             status_emoji = "✅"
         
-        # Get progress
+        # Get progress for internal logging
         total_tasks = len(current_plan["tasks"])
         completed_tasks = sum(1 for t in current_plan["tasks"] if (t["status"].value if hasattr(t["status"], "value") else t["status"]) in ["completed", "failed"])
         
-        # Create result message
-        result_message = f"""{status_emoji} **Task Completed** ({completed_tasks}/{total_tasks})
-
-**Task:** {next_task['content']}
-**Result:** {task_result[:300]}{'...' if len(task_result) > 300 else ''}
-
-**Progress:** {(completed_tasks/total_tasks)*100:.0f}% complete"""
+        # Log progress internally (don't show to user during execution)
+        logger.info("task_execution_complete",
+                   component="orchestrator",
+                   plan_id=current_plan.get("id", "unknown"),
+                   task_id=next_task["id"],
+                   task_content=next_task['content'][:100],
+                   status=status_emoji,
+                   progress=f"{completed_tasks}/{total_tasks}",
+                   progress_percent=f"{(completed_tasks/total_tasks)*100:.0f}%",
+                   task_result_preview=task_result[:200])
         
         # Check if plan is complete
         if plan_manager.is_plan_complete(current_plan):
+            # Plan complete - show final summary
             completion_message = await _create_plan_completion_message(current_plan)
             
             updated_state = dict(state)
             updated_state.update({
-                "messages": [AIMessage(content=result_message), completion_message],
+                "messages": [completion_message],
                 "current_plan": current_plan,
                 "execution_mode": "normal"
             })
+            return updated_state
         else:
+            # Plan not complete - continue automatically with next task
+            # Update state internally but don't show progress message
             updated_state = dict(state)
             updated_state.update({
-                "messages": [AIMessage(content=result_message)],
                 "current_plan": current_plan,
                 "execution_mode": "executing"
             })
-        
-        return updated_state
+            
+            # Recursively continue execution without user input
+            return await _handle_plan_execution(updated_state, invoke_llm)
         
     except Exception as e:
         logger.error("plan_execution_error",
                     component="orchestrator",
                     error=str(e))
         
-        # Continue with plan
-        error_message = f"Task execution encountered an issue: {str(e)}. Continuing with plan..."
+        # Determine if this error requires user intervention
+        error_str = str(e).lower()
+        critical_errors = ["authentication", "permission", "network", "timeout", "connection"]
         
-        updated_state = dict(state)
-        updated_state.update({
-            "messages": [AIMessage(content=error_message)],
-            "execution_mode": "executing"
-        })
-        
-        return updated_state
+        if any(critical_error in error_str for critical_error in critical_errors):
+            # Critical error - pause and ask for user input
+            error_message = f"❌ **Critical Error**: {str(e)}\n\nThis error requires attention. Please resolve the issue and say 'continue' to proceed with the plan."
+            
+            updated_state = dict(state)
+            updated_state.update({
+                "messages": [AIMessage(content=error_message)],
+                "execution_mode": "executing"  # This will pause for user input
+            })
+            return updated_state
+        else:
+            # Non-critical error - log and continue automatically
+            logger.warning("non_critical_error_auto_continuing",
+                          component="orchestrator",
+                          plan_id=current_plan.get("id", "unknown"),
+                          error=str(e))
+            
+            # Mark current task as failed and continue with next task
+            if next_task:
+                plan_manager.mark_task_failed(current_plan, next_task["id"], f"Error: {str(e)}")
+            
+            # Update state and continue automatically
+            updated_state = dict(state)
+            updated_state.update({
+                "current_plan": current_plan,
+                "execution_mode": "executing"
+            })
+            
+            # Continue with next task
+            return await _handle_plan_execution(updated_state, invoke_llm)
 
 
 async def _execute_task_with_existing_tools(task: dict, state: OrchestratorState, invoke_llm) -> str:
@@ -787,24 +904,9 @@ async def _execute_task_with_existing_tools(task: dict, state: OrchestratorState
     except Exception:
         return f"Task failed: Agent registry not available"
     
-    # Determine which agent tool to use based on task content
-    agent_tool = None
+    # Intelligent LLM-based routing instead of brittle keyword matching
+    agent_tool = await _route_task_to_agent(task_content, invoke_llm)
     instruction = task_content
-    
-    if any(keyword in task_lower for keyword in ["salesforce", "account", "opportunity", "contact", "lead", "case"]):
-        agent_tool = SalesforceAgentTool(agent_registry)
-        logger.info("task_execution_routing", component="orchestrator", 
-                   task=task_content[:100], routed_to="salesforce_agent")
-    
-    elif any(keyword in task_lower for keyword in ["jira", "project", "task", "meeting", "issue", "ticket"]):
-        agent_tool = JiraAgentTool(agent_registry)
-        logger.info("task_execution_routing", component="orchestrator",
-                   task=task_content[:100], routed_to="jira_agent")
-    
-    elif any(keyword in task_lower for keyword in ["servicenow", "company", "incident", "service"]):
-        agent_tool = ServiceNowAgentTool(agent_registry)
-        logger.info("task_execution_routing", component="orchestrator",
-                   task=task_content[:100], routed_to="servicenow_agent")
     
     # If we found a matching agent tool, use it
     if agent_tool:
@@ -870,19 +972,21 @@ async def _create_plan_completion_message(current_plan: dict) -> AIMessage:
     completed_tasks = [t for t in current_plan["tasks"] if (t["status"].value if hasattr(t["status"], "value") else t["status"]) == "completed"]
     failed_tasks = [t for t in current_plan["tasks"] if (t["status"].value if hasattr(t["status"], "value") else t["status"]) == "failed"]
     
-    # Show completed tasks
+    # Show completed tasks with more detail
     task_summary = ""
     if completed_tasks:
         task_summary += "**Completed Tasks:**\n" + "\n".join([
-            f"✅ {task['content']}" for task in completed_tasks[:5]  # Show first 5
+            f"✅ {task['content']}" for task in completed_tasks[:7]  # Show more tasks
         ])
-        if len(completed_tasks) > 5:
-            task_summary += f"\n... and {len(completed_tasks) - 5} more"
+        if len(completed_tasks) > 7:
+            task_summary += f"\n... and {len(completed_tasks) - 7} more"
     
     if failed_tasks:
         task_summary += "\n\n**Failed Tasks:**\n" + "\n".join([
             f"❌ {task['content']}" for task in failed_tasks[:3]  # Show first 3
         ])
+        if len(failed_tasks) > 3:
+            task_summary += f"\n... and {len(failed_tasks) - 3} more failed tasks"
     
     completion_text = f"""🎉 **Plan Execution Complete!**
 
