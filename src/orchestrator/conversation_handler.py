@@ -198,13 +198,13 @@ async def orchestrator(
                            component="orchestrator",
                            plan_id=current_plan.get("id", "unknown"),
                            user_input=latest_input[:100])
-                return await _handle_plan_execution(state, invoke_llm, config)
+                return await _handle_plan_execution(state, invoke_llm, config, trustcall_extractor)
             
             # Default: continue executing the plan
             logger.info("continuing_plan_execution",
                        component="orchestrator",
                        plan_id=current_plan.get("id", "unknown"))
-            return await _handle_plan_execution(state, invoke_llm, config)
+            return await _handle_plan_execution(state, invoke_llm, config, trustcall_extractor)
         
         # Priority 2: Check if we should create a NEW plan (only if no existing plan)
         if await _should_create_plan(state, invoke_llm):
@@ -779,7 +779,7 @@ Continuing with the updated plan..."""
         return updated_state  # type: ignore
 
 
-async def _handle_plan_execution(state: OrchestratorState, invoke_llm, config=None) -> OrchestratorState:
+async def _handle_plan_execution(state: OrchestratorState, invoke_llm, config=None, trustcall_extractor=None) -> OrchestratorState:
     """Handle execution of the current plan."""
     
     # Import here to avoid circular imports
@@ -909,8 +909,11 @@ async def _handle_plan_execution(state: OrchestratorState, invoke_llm, config=No
         # Mark task as in progress
         plan_manager.mark_task_in_progress(current_plan, next_task["id"])
         
+        # Enhance task instruction with context from recent messages
+        enhanced_task = _enhance_task_with_context(next_task, state.get('messages', []), trustcall_extractor)
+        
         # Execute the task using existing tools
-        task_result_data = await _execute_task_with_existing_tools(next_task, state, invoke_llm)  # type: ignore
+        task_result_data = await _execute_task_with_existing_tools(enhanced_task, state, invoke_llm)  # type: ignore
         
         # Determine success/failure from Command object structure
         task_success = True
@@ -984,7 +987,7 @@ async def _handle_plan_execution(state: OrchestratorState, invoke_llm, config=No
             })
             
             # Recursively continue execution without user input
-            return await _handle_plan_execution(updated_state, invoke_llm, config)  # type: ignore
+            return await _handle_plan_execution(updated_state, invoke_llm, config, trustcall_extractor)  # type: ignore
         
     except Exception as e:
         logger.error("plan_execution_error",
@@ -1031,7 +1034,7 @@ async def _handle_plan_execution(state: OrchestratorState, invoke_llm, config=No
             })
             
             # Continue with next task
-            return await _handle_plan_execution(updated_state, invoke_llm, config)  # type: ignore
+            return await _handle_plan_execution(updated_state, invoke_llm, config, trustcall_extractor)  # type: ignore
 
 
 async def _execute_task_with_existing_tools(task: dict, state: OrchestratorState, invoke_llm):
@@ -1178,3 +1181,83 @@ def _format_todo_list(tasks: list, show_status: bool = True) -> str:
         todo_items.append(f"{status_icon}{i}. {task['content']}{priority_indicator}")
     
     return "\n".join(todo_items)
+
+
+def _enhance_task_with_context(task: dict, messages: list, trustcall_extractor) -> dict:
+    """
+    Use existing multi-schema trustcall extractor to enhance instructions with context.
+    """
+    
+    # Prepare context from recent messages
+    context_messages = []
+    for msg in messages[-5:]:  # Last 5 messages for context
+        if hasattr(msg, 'content') and msg.content:
+            # Truncate very long messages
+            content = msg.content[:1500] if len(msg.content) > 1500 else msg.content
+            context_messages.append(content)
+    
+    context_text = "\n---\n".join(context_messages)
+    
+    # Create extraction prompt
+    extraction_prompt = f"""
+TASK: Enhance the following instruction by resolving vague entity references using conversation context.
+
+ORIGINAL INSTRUCTION:
+"{task.get('content', '')}"
+
+RECENT CONVERSATION CONTEXT:
+{context_text}
+
+INSTRUCTIONS:
+1. Extract any Salesforce entities (accounts, opportunities, contacts, cases) mentioned in the context
+2. Identify vague references in the instruction like:
+   - "the existing account" 
+   - "the account"
+   - "associated with the existing account"
+   - "the SLA opportunity"
+3. Replace vague references with specific entity details including names and IDs
+4. Only make changes if vague references can be resolved with certainty
+
+EXAMPLE:
+Original: "Close the SLA opportunity associated with the existing account"
+Enhanced: "Close the SLA opportunity associated with Express Logistics account (ID: 001bm00000SA8pSAAT)"
+"""
+    
+    try:
+        # Use trustcall extractor with InstructionEnhancement tool
+        result = trustcall_extractor.invoke({
+            "messages": [
+                ("system", "You are an expert at analyzing conversation context and enhancing task instructions with specific entity references. Be precise and only make changes when you can definitively resolve vague references."),
+                ("human", extraction_prompt)
+            ]
+        }, tool_choice="InstructionEnhancement")
+        
+        if result.changes_made:
+            logger.info("instruction_enhanced_via_trustcall",
+                component="orchestrator",
+                original=result.original_instruction,
+                enhanced=result.enhanced_instruction,
+                entities_found=[f"{e.entity_type}:{e.name}({e.salesforce_id})" for e in result.entities_found],
+                reasoning=result.reasoning
+            )
+            
+            # Return enhanced task
+            enhanced_task = task.copy()
+            enhanced_task['content'] = result.enhanced_instruction
+            return enhanced_task
+        else:
+            logger.info("instruction_no_enhancement_needed",
+                component="orchestrator",
+                instruction=task.get('content', ''),
+                reasoning=result.reasoning
+            )
+    
+    except Exception as e:
+        logger.warning("trustcall_enhancement_failed",
+            component="orchestrator",
+            instruction=task.get('content', ''),
+            error=str(e)
+        )
+    
+    # Return original task if enhancement failed or wasn't needed
+    return task

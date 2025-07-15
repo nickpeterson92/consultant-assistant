@@ -198,7 +198,7 @@ Tool Message {idx + 1} of {len(tool_messages)}:
                 result = trustcall_extractor.invoke({
                     "messages": [("human", extraction_prompt)],
                     "existing": {"SimpleMemory": current_memory.model_dump()}
-                })
+                }, tool_choice="SimpleMemory")
                 
                 if result and hasattr(result, 'model_dump'):
                     result_data = result.model_dump()

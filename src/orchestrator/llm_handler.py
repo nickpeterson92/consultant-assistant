@@ -1,8 +1,9 @@
 """LLM configuration and invocation handling for the orchestrator."""
 
-from typing import Any, List
+from typing import Any, List, Optional
 
 from trustcall import create_extractor
+from pydantic import BaseModel, Field
 
 from src.utils.llm import (
     create_azure_openai_chat,
@@ -13,6 +14,22 @@ from src.utils.llm import (
 from src.utils.agents.prompts import orchestrator_chatbot_sys_msg
 from src.utils.storage.memory_schemas import SimpleMemory
 from .state import OrchestratorState
+
+
+class ExtractedEntity(BaseModel):
+    """Represents a Salesforce entity found in conversation context"""
+    entity_type: str = Field(description="Type of entity: account, opportunity, contact, case")
+    name: str = Field(description="Human readable name of the entity")
+    salesforce_id: Optional[str] = Field(description="Salesforce ID (15-18 characters starting with 001, 006, etc.)")
+
+
+class InstructionEnhancement(BaseModel):
+    """Enhanced instruction with resolved entity references"""
+    original_instruction: str = Field(description="The original task instruction")
+    enhanced_instruction: str = Field(description="Instruction with vague references replaced by specific entity details")
+    entities_found: List[ExtractedEntity] = Field(description="Entities extracted from conversation context")
+    changes_made: bool = Field(description="Whether any changes were made to the original instruction")
+    reasoning: str = Field(description="Explanation of what changes were made and why")
 
 
 def create_llm_instances(tools: List[Any]):
@@ -27,11 +44,11 @@ def create_llm_instances(tools: List[Any]):
     # Create deterministic LLM for memory extraction
     deterministic_llm = create_deterministic_llm()
     
-    # Configure TrustCall for structured data extraction
+    # Configure TrustCall for structured data extraction with multiple schemas
     trustcall_extractor = create_extractor(
         deterministic_llm,
-        tools=[SimpleMemory],
-        tool_choice="SimpleMemory",
+        tools=[SimpleMemory, InstructionEnhancement],
+        # No fixed tool_choice - will specify per invocation
         enable_inserts=True
     )
     
