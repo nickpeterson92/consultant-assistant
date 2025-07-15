@@ -223,24 +223,55 @@ async def handle_a2a_request(params: dict) -> dict:
         if last_message:
             response_content = last_message.content
             
-            # Log successful completion
+            # Check final tool outcome - agents may retry multiple times before succeeding
+            final_tool_success = None
+            from langchain_core.messages import ToolMessage
+            
+            # Find the LAST ToolMessage result to determine final outcome
+            for msg in reversed(messages):
+                if isinstance(msg, ToolMessage) and hasattr(msg, 'content'):
+                    # Try to parse tool result as JSON to check success field
+                    try:
+                        import json
+                        if isinstance(msg.content, str) and (msg.content.startswith('{') or msg.content.startswith('[')):
+                            tool_result = json.loads(msg.content)
+                            if isinstance(tool_result, dict) and 'success' in tool_result:
+                                final_tool_success = tool_result.get('success')
+                                break
+                    except (json.JSONDecodeError, AttributeError):
+                        # If not valid JSON, continue checking other messages
+                        pass
+            
+            # Determine actual task success based on final tool execution result
+            # If no tool results found, assume success (agent completed without tools)
+            task_success = final_tool_success is not False
+            status = "completed" if task_success else "failed"
+            
+            # Log completion with actual success status
             logger.info("a2a_task_complete",
                 component="servicenow",
                 operation="process_task",
                 task_id=task_id,
                 response_length=len(response_content),
-                tool_calls_made=len(final_state.get("tool_results", [])),
-                success=True
+                tool_calls_made=len([m for m in messages if hasattr(m, 'tool_calls') and m.tool_calls]),
+                success=task_success,
+                final_tool_success=final_tool_success
             )
             
-            # Return in expected format
-            return {
+            # Return with correct status
+            result = {
                 "artifacts": [{
                     "type": "text",
                     "content": response_content
                 }],
-                "status": "completed"
+                "status": status
             }
+            
+            # Include error information if task failed
+            if not task_success:
+                result["error"] = "Task execution encountered tool errors"
+            
+            return result
         else:
             raise ValueError("No response generated")
             

@@ -162,8 +162,68 @@ class OrchestratorA2AHandler:
                     "background_results": {}
                 }
             
+            # Set up progress tracking for A2A mode
+            from .progress_state import set_progress_functions
+            
+            # Create progress tracking functions that update the A2A handler's progress store
+            def update_progressive_step_a2a(step_text, completed_steps=None, failed_steps=None):
+                logger.info("a2a_progressive_step_called",
+                    component="orchestrator",
+                    step_text=step_text,
+                    completed_count=len(completed_steps) if completed_steps else 0,
+                    failed_count=len(failed_steps) if failed_steps else 0
+                )
+                progress_data = {
+                    "current_step": step_text,
+                    "completed_steps": completed_steps or [],
+                    "failed_steps": failed_steps or [],
+                    "total_steps": []  # Will be populated by conversation handler
+                }
+                self.update_progress(thread_id, progress_data)
+            
+            def complete_current_step_a2a(success=True):
+                logger.info("a2a_complete_step_called",
+                    component="orchestrator",
+                    success=success
+                )
+                # Get current progress and update it
+                current_progress = self.active_progress.get(thread_id, {})
+                current_step = current_progress.get("current_step", "")
+                completed_steps = current_progress.get("completed_steps", [])
+                failed_steps = current_progress.get("failed_steps", [])
+                
+                if current_step:
+                    if success:
+                        completed_steps.append(current_step)
+                    else:
+                        failed_steps.append(current_step)
+                
+                progress_data = {
+                    "current_step": None,  # Clear current step
+                    "completed_steps": completed_steps,
+                    "failed_steps": failed_steps,
+                    "total_steps": current_progress.get("total_steps", [])
+                }
+                self.update_progress(thread_id, progress_data)
+            
+            # Create a dummy current_operation for progress state
+            current_operation = {
+                "message": "Processing",
+                "current_step": "",
+                "completed_steps": [],
+                "failed_steps": [],
+                "use_progressive": True
+            }
+            
+            # Set up progress functions for this request
+            set_progress_functions(current_operation, update_progressive_step_a2a, complete_current_step_a2a)
+            
             # Execute graph
             result = await self.graph.ainvoke(initial_state, config)
+            
+            # Clean up progress state after execution
+            from .progress_state import clear_progress_functions
+            clear_progress_functions()
             
             # Debug the result structure
             logger.info(message="graph_invoke_result",

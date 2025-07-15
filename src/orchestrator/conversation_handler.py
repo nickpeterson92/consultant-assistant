@@ -805,16 +805,18 @@ async def _handle_plan_execution(state: OrchestratorState, invoke_llm, config=No
                       complete_func_available=bool(complete_current_step))
         
         # For A2A mode, create enhanced progress tracking functions
-        def a2a_update_progressive_step(step_text, completed_steps=None):
+        def a2a_update_progressive_step(step_text, completed_steps=None, failed_steps=None):
             logger.info("a2a_progressive_step_called", 
                        component="orchestrator",
                        step_text=step_text,
-                       completed_count=len(completed_steps) if completed_steps else 0)
+                       completed_count=len(completed_steps) if completed_steps else 0,
+                       failed_count=len(failed_steps) if failed_steps else 0)
             
             # Store step progress in state for potential streaming/response inclusion
             if config and "configurable" in config:
                 config["configurable"]["current_step"] = step_text
                 config["configurable"]["completed_steps"] = completed_steps or []
+                config["configurable"]["failed_steps"] = failed_steps or []
                 
                 # Also update A2A handler progress if available
                 thread_id = config.get("configurable", {}).get("thread_id")
@@ -827,27 +829,37 @@ async def _handle_plan_execution(state: OrchestratorState, invoke_llm, config=No
                         "progress_percent": int((len(completed_steps or []) / len(current_plan.get("tasks", [1]))) * 100) if current_plan else 0
                     })
         
-        def a2a_complete_current_step():
-            logger.info("a2a_complete_step_called", component="orchestrator")
+        def a2a_complete_current_step(success=True):
+            logger.info("a2a_complete_step_called", component="orchestrator", success=success)
             
-            # Mark step as completed in config
+            # Mark step as completed or failed in config
             if config and "configurable" in config:
                 current_step = config["configurable"].get("current_step")
                 if current_step:
                     completed_steps = config["configurable"].get("completed_steps", [])
-                    completed_steps.append(current_step)
-                    config["configurable"]["completed_steps"] = completed_steps
+                    failed_steps = config["configurable"].get("failed_steps", [])
+                    
+                    if success:
+                        completed_steps.append(current_step)
+                        config["configurable"]["completed_steps"] = completed_steps
+                    else:
+                        failed_steps.append(current_step)
+                        config["configurable"]["failed_steps"] = failed_steps
+                    
                     config["configurable"]["current_step"] = None
                     
                     # Also update A2A handler progress if available
                     thread_id = config.get("configurable", {}).get("thread_id")
                     handler = config.get("configurable", {}).get("_a2a_handler")
                     if thread_id and handler:
+                        total_steps = len(current_plan.get("tasks", [])) if current_plan else 1
+                        total_completed = len(completed_steps) + len(failed_steps)
                         handler.update_progress(thread_id, {
                             "current_step": None,
                             "completed_steps": completed_steps,
+                            "failed_steps": failed_steps,
                             "total_steps": current_plan.get("tasks", []) if current_plan else [],
-                            "progress_percent": int((len(completed_steps) / len(current_plan.get("tasks", [1]))) * 100) if current_plan else 0
+                            "progress_percent": int((total_completed / total_steps) * 100) if total_steps > 0 else 0
                         })
         
         update_progressive_step = a2a_update_progressive_step
@@ -877,15 +889,17 @@ async def _handle_plan_execution(state: OrchestratorState, invoke_llm, config=No
             # Get all tasks and their status for progress tracking
             total_tasks = len(current_plan["tasks"])
             completed_tasks = sum(1 for t in current_plan["tasks"] if t["status"] in ["completed", "failed"])
-            completed_steps = [t["content"] for t in current_plan["tasks"] if t["status"] in ["completed", "failed"]]
+            completed_steps = [t["content"] for t in current_plan["tasks"] if t["status"] == "completed"]
+            failed_steps = [t["content"] for t in current_plan["tasks"] if t["status"] == "failed"]
             
             current_step_text = f"Step {completed_tasks + 1}/{total_tasks}: {next_task['content']}"
             logger.info("updating_progressive_step", 
                        component="orchestrator",
                        step_text=current_step_text,
-                       completed_count=completed_tasks,
+                       completed_count=len(completed_steps),
+                       failed_count=len(failed_steps),
                        total_count=total_tasks)
-            update_progressive_step(current_step_text, completed_steps)
+            update_progressive_step(current_step_text, completed_steps, failed_steps)
         else:
             logger.warning("no_progressive_step_function", 
                           component="orchestrator",
@@ -896,19 +910,42 @@ async def _handle_plan_execution(state: OrchestratorState, invoke_llm, config=No
         plan_manager.mark_task_in_progress(current_plan, next_task["id"])
         
         # Execute the task using existing tools
-        task_result = await _execute_task_with_existing_tools(next_task, state, invoke_llm)  # type: ignore
+        task_result_data = await _execute_task_with_existing_tools(next_task, state, invoke_llm)  # type: ignore
         
-        # Mark task as completed or failed
-        if "error" in task_result.lower() or "failed" in task_result.lower():
-            plan_manager.mark_task_failed(current_plan, next_task["id"], task_result)
-            status_emoji = "✗"
-        else:
+        # Determine success/failure from Command object structure
+        task_success = True
+        task_result = str(task_result_data)
+        
+        # Check if this is an error Command by examining message content for error patterns
+        if hasattr(task_result_data, 'update') and task_result_data.update:
+            messages = task_result_data.update.get('messages', [])
+            logger.info("task_success_debug",
+                component="orchestrator",
+                has_messages=bool(messages),
+                message_count=len(messages) if messages else 0,
+                first_message_type=type(messages[0]).__name__ if messages else "none",
+                first_message_content=messages[0].content[:100] if messages and hasattr(messages[0], 'content') else "no_content"
+            )
+            if messages:
+                first_message = messages[0]
+                if hasattr(first_message, 'content') and first_message.content.startswith('Error:'):
+                    task_success = False
+                    logger.info("task_failure_detected",
+                        component="orchestrator",
+                        error_content=first_message.content[:200]
+                    )
+        
+        # Mark task status based on execution result
+        if task_success:
             plan_manager.mark_task_completed(current_plan, next_task["id"], {"result": task_result})
             status_emoji = "✓"
+        else:
+            plan_manager.mark_task_failed(current_plan, next_task["id"], task_result)
+            status_emoji = "✗"
         
-        # Complete the current step in UI
+        # Complete the current step in UI with success/failure status
         if complete_current_step:
-            complete_current_step()
+            complete_current_step(task_success)
         
         # Get progress for internal logging
         total_tasks = len(current_plan["tasks"])
@@ -997,7 +1034,7 @@ async def _handle_plan_execution(state: OrchestratorState, invoke_llm, config=No
             return await _handle_plan_execution(updated_state, invoke_llm, config)  # type: ignore
 
 
-async def _execute_task_with_existing_tools(task: dict, state: OrchestratorState, invoke_llm) -> str:
+async def _execute_task_with_existing_tools(task: dict, state: OrchestratorState, invoke_llm):
     """Execute a task using existing agent tools."""
     
     task_content = task["content"]
@@ -1024,7 +1061,7 @@ async def _execute_task_with_existing_tools(task: dict, state: OrchestratorState
             logger.info("task_execution_complete", component="orchestrator", 
                        task=task_content[:100], result_length=len(str(result)))
             
-            return str(result)
+            return result
             
         except Exception as e:
             logger.error("task_execution_error", component="orchestrator",

@@ -429,29 +429,63 @@ class SalesforceAgentTool(BaseAgentTool):
                 
                 result = await client.process_task(endpoint=endpoint, task=task)
                 
+                # Check A2A response status to determine actual success/failure
+                task_success = result.get('status') != 'failed'
+                
+                logger.info("salesforce_task_success_debug",
+                    component="orchestrator",
+                    task_id=task_id,
+                    result_status=result.get('status'),
+                    task_success=task_success,
+                    result_keys=list(result.keys()) if result else []
+                )
+                
                 # Process response
                 response_content = self._extract_response_content(result)
                 final_response = self._process_tool_results(result, response_content, task_id)
                 
-                logger.info("a2a_response_success",
-                    component="orchestrator",
-                    agent="salesforce-agent", 
-                    task_id=task_id,
-                    response_length=len(final_response)
-                )
+                # Log with actual success status
+                if task_success:
+                    logger.info("a2a_response_success",
+                        component="orchestrator",
+                        agent="salesforce-agent", 
+                        task_id=task_id,
+                        response_length=len(final_response)
+                    )
+                else:
+                    logger.warning("a2a_response_failure",
+                        component="orchestrator",
+                        agent="salesforce-agent", 
+                        task_id=task_id,
+                        response_length=len(final_response),
+                        error=result.get('error', 'Salesforce agent task failed')
+                    )
                 
-                # Log successful tool completion
+                # Log tool completion with actual success status
                 logger.info("tool_invocation_complete",
                     component="orchestrator",
                     operation="salesforce_agent_tool",
                     tool_name="salesforce_agent",
                     tool_call_id=tool_call_id,
                     response_length=len(final_response),
-                    success=True
+                    success=task_success
                 )
                 
-                # Return Command with processed response
-                # If we have a tool_call_id, return a ToolMessage, otherwise return the content directly
+                # Check A2A response status and return appropriate Command
+                if not task_success:
+                    # Return error Command for failed tasks
+                    error_message = result.get('error', 'Salesforce agent task failed')
+                    logger.info("salesforce_returning_error_command",
+                        component="orchestrator",
+                        task_id=task_id,
+                        error_message=error_message,
+                        task_success=task_success,
+                        result_status=result.get('status'),
+                        result_keys=list(result.keys()) if result else []
+                    )
+                    return self._create_error_command(f"Error: {error_message}", tool_call_id)
+                
+                # Return successful Command for completed tasks
                 if tool_call_id:
                     return Command(
                         update={
@@ -812,29 +846,63 @@ class JiraAgentTool(BaseAgentTool):
                 
                 result = await client.process_task(endpoint=endpoint, task=task)
                 
+                # Check A2A response status to determine actual success/failure
+                task_success = result.get('status') != 'failed'
+                
+                logger.info("jira_task_success_debug",
+                    component="orchestrator",
+                    task_id=task_id,
+                    result_status=result.get('status'),
+                    task_success=task_success,
+                    result_keys=list(result.keys()) if result else []
+                )
+                
                 # Process response
                 response_content = self._extract_response_content(result)
                 final_response = self._process_tool_results(result, response_content, task_id)
                 
-                logger.info("a2a_response_success",
-                    component="orchestrator",
-                    agent="jira-agent", 
-                    task_id=task_id,
-                    response_length=len(final_response)
-                )
+                # Log with actual success status
+                if task_success:
+                    logger.info("a2a_response_success",
+                        component="orchestrator",
+                        agent="jira-agent", 
+                        task_id=task_id,
+                        response_length=len(final_response)
+                    )
+                else:
+                    logger.warning("a2a_response_failure",
+                        component="orchestrator",
+                        agent="jira-agent", 
+                        task_id=task_id,
+                        response_length=len(final_response),
+                        error=result.get('error', 'Jira agent task failed')
+                    )
                 
-                # Log successful tool completion
+                # Log tool completion with actual success status
                 logger.info("tool_invocation_complete",
                     component="orchestrator",
                     operation="jira_agent_tool",
                     tool_name="jira_agent",
                     tool_call_id=tool_call_id,
                     response_length=len(final_response),
-                    success=True
+                    success=task_success
                 )
                 
-                # Return Command with processed response
-                # If we have a tool_call_id, return a ToolMessage, otherwise return the content directly
+                # Check A2A response status and return appropriate Command
+                if not task_success:
+                    # Return error Command for failed tasks
+                    error_message = result.get('error', 'Jira agent task failed')
+                    logger.info("jira_returning_error_command",
+                        component="orchestrator",
+                        task_id=task_id,
+                        error_message=error_message,
+                        task_success=task_success,
+                        result_status=result.get('status'),
+                        result_keys=list(result.keys()) if result else []
+                    )
+                    return self._create_error_command(f"Error: {error_message}", tool_call_id)
+                
+                # Return successful Command for completed tasks
                 if tool_call_id:
                     return Command(
                         update={
@@ -1042,28 +1110,63 @@ class ServiceNowAgentTool(BaseAgentTool):
                 
                 result = await client.process_task(endpoint=endpoint, task=task)
                 
+                # Check A2A response status to determine actual success/failure
+                task_success = result.get('status') != 'failed'
+                
+                logger.info("servicenow_task_success_debug",
+                    component="orchestrator",
+                    task_id=task_id,
+                    result_status=result.get('status'),
+                    task_success=task_success,
+                    result_keys=list(result.keys()) if result else []
+                )
+                
                 # Process response
                 response_content = self._extract_response_content(result)
                 final_response = self._process_tool_results(result, response_content, task_id)
                 
-                logger.info("a2a_response_success",
-                    component="orchestrator",
-                    agent="servicenow-agent", 
-                    task_id=task_id,
-                    response_length=len(final_response)
-                )
+                # Log with actual success status
+                if task_success:
+                    logger.info("a2a_response_success",
+                        component="orchestrator",
+                        agent="servicenow-agent", 
+                        task_id=task_id,
+                        response_length=len(final_response)
+                    )
+                else:
+                    logger.warning("a2a_response_failure",
+                        component="orchestrator",
+                        agent="servicenow-agent", 
+                        task_id=task_id,
+                        response_length=len(final_response),
+                        error=result.get('error', 'Unknown error')
+                    )
                 
-                # Log successful tool completion
+                # Log tool completion with actual success status
                 logger.info("tool_invocation_complete",
                     component="orchestrator",
                     operation="servicenow_agent_tool",
                     tool_name="servicenow_agent",
                     tool_call_id=tool_call_id,
                     response_length=len(final_response),
-                    success=True
+                    success=task_success
                 )
                 
-                # Return Command with processed response
+                # Check A2A response status and return appropriate Command
+                if not task_success:
+                    # Return error Command for failed tasks
+                    error_message = result.get('error', 'ServiceNow agent task failed')
+                    logger.info("servicenow_returning_error_command",
+                        component="orchestrator",
+                        task_id=task_id,
+                        error_message=error_message,
+                        task_success=task_success,
+                        result_status=result.get('status'),
+                        result_keys=list(result.keys()) if result else []
+                    )
+                    return self._create_error_command(f"Error: {error_message}", tool_call_id)
+                
+                # Return successful Command for completed tasks
                 if tool_call_id:
                     return Command(
                         update={

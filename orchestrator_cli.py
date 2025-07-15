@@ -33,88 +33,6 @@ DIM = '\033[2m'
 RESET = '\033[0m'
 
 
-def show_processing_indicator(processing_done, current_operation):
-    """Show animated spinner with tool call context."""
-    spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-    
-    spinner_colors = [
-        '\033[38;5;36m',   # Cyan
-        '\033[38;5;37m',   # Light cyan
-        '\033[38;5;44m',   # Bright cyan
-        '\033[38;5;45m',   # Light bright cyan
-        '\033[38;5;51m',   # Very bright cyan
-    ]
-    
-    i = 0
-    while not processing_done.is_set():
-        color_idx = i % len(spinner_colors)
-        frame_idx = i % len(spinner_frames)
-        
-        operation_msg = current_operation["message"]
-        
-        spinner_part = f"{spinner_colors[color_idx]}{spinner_frames[frame_idx]}{RESET}"
-        display_text = f"{operation_msg}..."
-        
-        print(f"\r{GREEN}│{RESET} {spinner_part} {display_text}", end="", flush=True)
-        time.sleep(0.1)
-        i += 1
-    
-    print(f"\r{GREEN}│{RESET} {' ' * 50}", end="", flush=True)
-    print(f"\r{GREEN}│{RESET} ", end="", flush=True)
-
-
-def show_progressive_processing_indicator(processing_done, current_operation):
-    """Show step-by-step progress with checkmarks and grayed out completed steps."""
-    spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-    
-    spinner_colors = [
-        '\033[38;5;36m',   # Cyan
-        '\033[38;5;37m',   # Light cyan
-        '\033[38;5;44m',   # Bright cyan
-        '\033[38;5;45m',   # Light bright cyan
-        '\033[38;5;51m',   # Very bright cyan
-    ]
-    
-    GRAY = '\033[90m'
-    GREEN_CHECK = '\033[32m✓\033[0m'
-    
-    i = 0
-    displayed_lines = 0
-    
-    while not processing_done.is_set():
-        color_idx = i % len(spinner_colors)
-        frame_idx = i % len(spinner_frames)
-        
-        # Get current steps from operation
-        current_step = current_operation.get("current_step", "Processing...")
-        completed_steps = current_operation.get("completed_steps", [])
-        
-        # Clear previous display
-        if displayed_lines > 0:
-            for _ in range(displayed_lines):
-                print(f"\033[F\033[K", end="")  # Move up and clear line
-        
-        displayed_lines = 0
-        
-        # Show completed steps (grayed out with checkmarks)
-        for step in completed_steps:
-            print(f"{GREEN}│{RESET} {GREEN_CHECK} {GRAY}{step}{RESET}")
-            displayed_lines += 1
-        
-        # Show current step (with spinner)
-        spinner_part = f"{spinner_colors[color_idx]}{spinner_frames[frame_idx]}{RESET}"
-        print(f"{GREEN}│{RESET} {spinner_part} {current_step}...", flush=True)
-        displayed_lines += 1
-        
-        time.sleep(0.1)
-        i += 1
-    
-    # Final cleanup - clear all displayed lines
-    for _ in range(displayed_lines):
-        print(f"\033[F\033[K", end="")
-    print(f"{GREEN}│{RESET} ", end="", flush=True)
-
-
 async def main():
     """Main CLI interface connecting to orchestrator A2A."""
     # Default A2A endpoint
@@ -252,6 +170,7 @@ async def main():
                     "message": "Processing",
                     "current_step": "Processing...",
                     "completed_steps": [],
+                    "failed_steps": [],
                     "use_progressive": False
                 }
                 
@@ -279,6 +198,7 @@ async def main():
                                                 current_operation["use_progressive"] = True
                                                 current_operation["current_step"] = progress_data["current_step"]
                                                 current_operation["completed_steps"] = progress_data.get("completed_steps", [])
+                                                current_operation["failed_steps"] = progress_data.get("failed_steps", [])
                         except Exception:
                             pass  # Ignore polling errors
                         await asyncio.sleep(0.5)  # Poll every 500ms
@@ -323,9 +243,10 @@ async def main():
                         frame_idx = i % len(spinner_frames)
                         
                         if use_progressive:
-                            # Progressive mode: show completed steps + current step
+                            # Progressive mode: show completed + failed steps + current step
                             current_step = current_operation.get("current_step", "Processing...")
                             completed_steps = current_operation.get("completed_steps", [])
+                            failed_steps = current_operation.get("failed_steps", [])
                             
                             # Clear previous display
                             if displayed_lines > 0:
@@ -334,9 +255,14 @@ async def main():
                             
                             displayed_lines = 0
                             
-                            # Show completed steps (grayed out with checkmarks)
+                            # Show completed steps (grayed out with green checkmarks)
                             for step in completed_steps:
                                 print(f"{GREEN}│{RESET} {GREEN_CHECK} {GRAY}{step}{RESET}")
+                                displayed_lines += 1
+                            
+                            # Show failed steps (grayed out with red X)
+                            for step in failed_steps:
+                                print(f"{GREEN}│{RESET} \033[31m✗\033[0m {GRAY}{step}{RESET}")
                                 displayed_lines += 1
                             
                             # Show current step (with spinner)
