@@ -190,7 +190,9 @@ async def memorize_records(state: OrchestratorState, config: Dict[str, Any], mem
             try:
                 msg_extraction_start = time.time()
                 
-                extraction_prompt = f"""{TRUSTCALL_INSTRUCTION}
+                extraction_prompt = f"""Use the SimpleMemory tool to extract Salesforce CRM records from this conversation.
+
+{TRUSTCALL_INSTRUCTION}
 
 Tool Message {idx + 1} of {len(tool_messages)}:
 {str(tool_msg.content)[:2000]}"""
@@ -198,7 +200,7 @@ Tool Message {idx + 1} of {len(tool_messages)}:
                 result = trustcall_extractor.invoke({
                     "messages": [("human", extraction_prompt)],
                     "existing": {"SimpleMemory": current_memory.model_dump()}
-                }, tool_choice="SimpleMemory")
+                })
                 
                 if result and hasattr(result, 'model_dump'):
                     result_data = result.model_dump()

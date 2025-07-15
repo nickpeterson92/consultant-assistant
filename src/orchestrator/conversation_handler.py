@@ -1200,7 +1200,7 @@ def _enhance_task_with_context(task: dict, messages: list, trustcall_extractor) 
     
     # Create extraction prompt
     extraction_prompt = f"""
-TASK: Enhance the following instruction by resolving vague entity references using conversation context.
+TASK: Use the InstructionEnhancement tool to enhance the following instruction by resolving vague entity references using conversation context.
 
 ORIGINAL INSTRUCTION:
 "{task.get('content', '')}"
@@ -1208,7 +1208,7 @@ ORIGINAL INSTRUCTION:
 RECENT CONVERSATION CONTEXT:
 {context_text}
 
-INSTRUCTIONS:
+INSTRUCTIONS FOR INSTRUCTION ENHANCEMENT:
 1. Extract any Salesforce entities (accounts, opportunities, contacts, cases) mentioned in the context
 2. Identify vague references in the instruction like:
    - "the existing account" 
@@ -1217,6 +1217,7 @@ INSTRUCTIONS:
    - "the SLA opportunity"
 3. Replace vague references with specific entity details including names and IDs
 4. Only make changes if vague references can be resolved with certainty
+5. Use the InstructionEnhancement tool to return the enhanced instruction
 
 EXAMPLE:
 Original: "Close the SLA opportunity associated with the existing account"
@@ -1227,29 +1228,43 @@ Enhanced: "Close the SLA opportunity associated with Express Logistics account (
         # Use trustcall extractor with InstructionEnhancement tool
         result = trustcall_extractor.invoke({
             "messages": [
-                ("system", "You are an expert at analyzing conversation context and enhancing task instructions with specific entity references. Be precise and only make changes when you can definitively resolve vague references."),
+                ("system", "You are an expert at analyzing conversation context and enhancing task instructions with specific entity references. You must use the InstructionEnhancement tool to return enhanced instructions. Be precise and only make changes when you can definitively resolve vague references."),
                 ("human", extraction_prompt)
             ]
-        }, tool_choice="InstructionEnhancement")
+        })
         
-        if result.changes_made:
+        # Handle both dictionary and object responses
+        if isinstance(result, dict):
+            changes_made = result.get('changes_made', False)
+            enhanced_instruction = result.get('enhanced_instruction', task.get('content', ''))
+            original_instruction = result.get('original_instruction', task.get('content', ''))
+            entities_found = result.get('entities_found', [])
+            reasoning = result.get('reasoning', 'No reasoning provided')
+        else:
+            changes_made = getattr(result, 'changes_made', False)
+            enhanced_instruction = getattr(result, 'enhanced_instruction', task.get('content', ''))
+            original_instruction = getattr(result, 'original_instruction', task.get('content', ''))
+            entities_found = getattr(result, 'entities_found', [])
+            reasoning = getattr(result, 'reasoning', 'No reasoning provided')
+        
+        if changes_made:
             logger.info("instruction_enhanced_via_trustcall",
                 component="orchestrator",
-                original=result.original_instruction,
-                enhanced=result.enhanced_instruction,
-                entities_found=[f"{e.entity_type}:{e.name}({e.salesforce_id})" for e in result.entities_found],
-                reasoning=result.reasoning
+                original=original_instruction,
+                enhanced=enhanced_instruction,
+                entities_found=[f"{e.get('entity_type', 'unknown')}:{e.get('name', 'unknown')}({e.get('salesforce_id', 'unknown')})" for e in entities_found] if isinstance(entities_found, list) else [],
+                reasoning=reasoning
             )
             
             # Return enhanced task
             enhanced_task = task.copy()
-            enhanced_task['content'] = result.enhanced_instruction
+            enhanced_task['content'] = enhanced_instruction
             return enhanced_task
         else:
             logger.info("instruction_no_enhancement_needed",
                 component="orchestrator",
                 instruction=task.get('content', ''),
-                reasoning=result.reasoning
+                reasoning=reasoning
             )
     
     except Exception as e:
