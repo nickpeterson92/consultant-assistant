@@ -1,7 +1,6 @@
 """Conversation handling logic for the orchestrator."""
 
 import asyncio
-# Remove unused import
 from datetime import datetime
 
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
@@ -25,7 +24,6 @@ from .background_tasks import (
 )
 
 logger = get_logger()
-
 
 
 async def orchestrator(
@@ -194,7 +192,7 @@ async def orchestrator(
                 return await _handle_replanning(latest_input, state, invoke_llm)
             
             # Then check if user wants to execute the current plan
-            if await _should_execute_plan(latest_input, current_plan, invoke_llm):  # type: ignore
+            if await _should_execute_plan(latest_input, current_plan, invoke_llm):
                 logger.info("executing_existing_plan",
                            component="orchestrator",
                            plan_id=current_plan.get("id", "unknown"),
@@ -252,8 +250,8 @@ async def orchestrator(
             response_content=response_content[:500],
             has_tool_calls=bool(hasattr(response, 'tool_calls') and response.tool_calls))
         
-        logger.track_cost("ORCHESTRATOR_LLM", tokens=estimated_tokens, 
-                        message_count=len(messages))
+        logger.track_cost("ORCHESTRATOR_LLM", tokens=estimated_tokens,
+                         message_count=len(messages))
         
         # Preserve all existing state fields and only update specific ones
         updated_state = dict(state)
@@ -436,7 +434,7 @@ Answer with exactly one word: NORMAL or PLAN"""
         return False
 
 
-async def _should_execute_plan(user_input: str, current_plan: dict, invoke_llm) -> bool:
+async def _should_execute_plan(user_input: str, current_plan, invoke_llm) -> bool:
     """Check if user input indicates they want to execute the existing plan."""
     
     # Simple LLM-based decision with safe terminology
@@ -629,7 +627,7 @@ async def _handle_plan_creation(state: OrchestratorState, invoke_llm) -> Orchest
             def __init__(self, invoke_func):
                 self.invoke_func = invoke_func
             
-            async def ainvoke(self, messages, **_kwargs):
+            async def ainvoke(self, messages, **kwargs):
                 return self.invoke_func(messages, use_tools=False)
         
         # Create plan manager with wrapped LLM
@@ -714,7 +712,7 @@ async def _handle_replanning(user_input: str, state: OrchestratorState, invoke_l
             def __init__(self, invoke_func):
                 self.invoke_func = invoke_func
             
-            async def ainvoke(self, messages, **_kwargs):
+            async def ainvoke(self, messages, **kwargs):
                 return self.invoke_func(messages, use_tools=False)
         
         # Create plan manager with wrapped LLM
@@ -872,7 +870,7 @@ async def _handle_plan_execution(state: OrchestratorState, invoke_llm, config=No
             def __init__(self, invoke_func):
                 self.invoke_func = invoke_func
             
-            async def ainvoke(self, messages, **_kwargs):
+            async def ainvoke(self, messages, **kwargs):
                 return self.invoke_func(messages, use_tools=False)
         
         # Create plan manager with wrapped LLM
@@ -921,8 +919,9 @@ async def _handle_plan_execution(state: OrchestratorState, invoke_llm, config=No
         task_result = str(task_result_data)
         
         # Check if this is an error Command by examining message content for error patterns
-        if hasattr(task_result_data, 'update') and task_result_data.update:
-            messages = task_result_data.update.get('messages', [])
+        if hasattr(task_result_data, 'update'):
+            update_data = getattr(task_result_data, 'update', {})
+            messages = update_data.get('messages', []) if isinstance(update_data, dict) else []
             logger.info("task_success_debug",
                 component="orchestrator",
                 has_messages=bool(messages),
@@ -1187,7 +1186,7 @@ def _format_todo_list(tasks: list, show_status: bool = True) -> str:
     return "\n".join(todo_items)
 
 
-def _enhance_task_with_context(task: dict, messages: list, instruction_extractor) -> dict:
+def _enhance_task_with_context(task, messages: list, instruction_extractor):
     """
     Use existing multi-schema trustcall extractor to enhance instructions with context.
     """
@@ -1227,14 +1226,10 @@ INSTRUCTIONS FOR INSTRUCTION ENHANCEMENT:
    - "the existing account" 
    - "the account"
    - "associated with the existing account"
-   - "the SLA opportunity"
+   - "the xyz opportunity"
 3. Replace vague references with specific entity details including names and IDs
 4. Only make changes if vague references can be resolved with certainty
 5. Use the InstructionEnhancement tool to return the enhanced instruction
-
-EXAMPLE:
-Original: "Close the SLA opportunity associated with the existing account"
-Enhanced: "Close the SLA opportunity associated with Express Logistics account (ID: 001bm00000SA8pSAAT)"
 """
     
     try:

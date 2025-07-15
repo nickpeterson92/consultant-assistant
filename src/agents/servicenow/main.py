@@ -1,7 +1,7 @@
 """ServiceNow specialized agent for ITSM operations via A2A protocol."""
 
-import os
 import asyncio
+import json
 from typing import Dict, Any, List, TypedDict, Annotated, Optional
 import operator
 from dotenv import load_dotenv
@@ -119,7 +119,7 @@ def build_servicenow_graph():
                 operation="llm_invoke",
                 task_id=task_id,
                 response_length=len(response.content),
-                has_tool_calls=bool(response.tool_calls) if hasattr(response, 'tool_calls') else False  # pyright: ignore[reportAttributeAccessIssue]
+                has_tool_calls=bool(getattr(response, 'tool_calls', None))
             )
             
             return {"messages": [response]}
@@ -232,7 +232,6 @@ async def handle_a2a_request(params: dict) -> dict:
                 if isinstance(msg, ToolMessage) and hasattr(msg, 'content'):
                     # Try to parse tool result as JSON to check success field
                     try:
-                        import json
                         if isinstance(msg.content, str) and (msg.content.startswith('{') or msg.content.startswith('[')):
                             tool_result = json.loads(msg.content)
                             if isinstance(tool_result, dict) and 'success' in tool_result:
@@ -286,7 +285,7 @@ async def handle_a2a_request(params: dict) -> dict:
         logger.error("a2a_task_error",
             component="servicenow",
             operation="process_task",
-            task_id=task_id if 'task_id' in locals() else 'unknown',
+            task_id=task_id,
             error=str(e),
             error_type=type(e).__name__
         )
@@ -349,6 +348,7 @@ async def main(port: int = 8003):
     server.register_handler("process_task", handle_a2a_request)
     
     async def get_agent_card_handler(params):
+        _ = params  # Unused parameter
         return agent_card.to_dict()
     
     server.register_handler("get_agent_card", get_agent_card_handler)
