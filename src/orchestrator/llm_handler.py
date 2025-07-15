@@ -52,10 +52,17 @@ def create_llm_instances(tools: List[Any]):
         enable_inserts=True
     )
     
+    # Create dedicated instruction enhancement extractor (single tool only)
+    instruction_extractor = create_extractor(
+        deterministic_llm,
+        tools=[InstructionEnhancement],
+        enable_inserts=True
+    )
+    
     # Create flexible invocation function
     invoke_llm = create_flexible_llm(tools)
     
-    return llm_with_tools, deterministic_llm, trustcall_extractor, invoke_llm
+    return llm_with_tools, deterministic_llm, trustcall_extractor, instruction_extractor, invoke_llm
 
 
 def get_orchestrator_system_message(state: OrchestratorState, agent_registry) -> str:

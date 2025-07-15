@@ -58,7 +58,7 @@ def build_orchestrator_graph():
     # tools.extend(WORKFLOW_TOOLS)  # Commenting out for now to avoid confusion
     
     # Create LLM instances and invoke function
-    llm_with_tools, deterministic_llm, trustcall_extractor, invoke_llm = create_llm_instances(tools)
+    llm_with_tools, deterministic_llm, trustcall_extractor, instruction_extractor, invoke_llm = create_llm_instances(tools)
     
     # Create partial function for orchestrator node with dependencies
     orchestrator_with_deps = partial(
@@ -68,7 +68,8 @@ def build_orchestrator_graph():
         invoke_llm=invoke_llm,
         summarize_func=partial(summarize_conversation, invoke_llm=invoke_llm),
         memorize_func=memorize_records,
-        trustcall_extractor=trustcall_extractor
+        trustcall_extractor=trustcall_extractor,
+        instruction_extractor=instruction_extractor
     )
     
     # Build graph with tool integration

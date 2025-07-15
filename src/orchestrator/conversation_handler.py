@@ -36,7 +36,8 @@ async def orchestrator(
     invoke_llm,
     summarize_func,
     memorize_func,
-    trustcall_extractor
+    trustcall_extractor,
+    instruction_extractor
 ):
     """Main conversation handler node."""
     try:
@@ -198,13 +199,13 @@ async def orchestrator(
                            component="orchestrator",
                            plan_id=current_plan.get("id", "unknown"),
                            user_input=latest_input[:100])
-                return await _handle_plan_execution(state, invoke_llm, config, trustcall_extractor)
+                return await _handle_plan_execution(state, invoke_llm, config, trustcall_extractor, instruction_extractor)
             
             # Default: continue executing the plan
             logger.info("continuing_plan_execution",
                        component="orchestrator",
                        plan_id=current_plan.get("id", "unknown"))
-            return await _handle_plan_execution(state, invoke_llm, config, trustcall_extractor)
+            return await _handle_plan_execution(state, invoke_llm, config, trustcall_extractor, instruction_extractor)
         
         # Priority 2: Check if we should create a NEW plan (only if no existing plan)
         if await _should_create_plan(state, invoke_llm):
@@ -779,7 +780,7 @@ Continuing with the updated plan..."""
         return updated_state  # type: ignore
 
 
-async def _handle_plan_execution(state: OrchestratorState, invoke_llm, config=None, trustcall_extractor=None) -> OrchestratorState:
+async def _handle_plan_execution(state: OrchestratorState, invoke_llm, config=None, trustcall_extractor=None, instruction_extractor=None) -> OrchestratorState:
     """Handle execution of the current plan."""
     
     # Import here to avoid circular imports
@@ -910,7 +911,7 @@ async def _handle_plan_execution(state: OrchestratorState, invoke_llm, config=No
         plan_manager.mark_task_in_progress(current_plan, next_task["id"])
         
         # Enhance task instruction with context from recent messages
-        enhanced_task = _enhance_task_with_context(next_task, state.get('messages', []), trustcall_extractor)
+        enhanced_task = _enhance_task_with_context(next_task, state.get('messages', []), instruction_extractor)
         
         # Execute the task using existing tools
         task_result_data = await _execute_task_with_existing_tools(enhanced_task, state, invoke_llm)  # type: ignore
@@ -987,7 +988,7 @@ async def _handle_plan_execution(state: OrchestratorState, invoke_llm, config=No
             })
             
             # Recursively continue execution without user input
-            return await _handle_plan_execution(updated_state, invoke_llm, config, trustcall_extractor)  # type: ignore
+            return await _handle_plan_execution(updated_state, invoke_llm, config, trustcall_extractor, instruction_extractor)  # type: ignore
         
     except Exception as e:
         logger.error("plan_execution_error",
@@ -1016,10 +1017,13 @@ async def _handle_plan_execution(state: OrchestratorState, invoke_llm, config=No
                           error=str(e))
             
             # Mark current task as failed and continue with next task
-            # Variables may not be defined if error occurs early
+            # Only mark as failed if we actually attempted to execute the task
             next_task = locals().get('next_task')
             plan_manager = locals().get('plan_manager')
-            if next_task and plan_manager:
+            task_result_data = locals().get('task_result_data')
+            
+            # Only mark as failed if we got past task setup (not just scope errors)
+            if next_task and plan_manager and 'enhanced_task' in locals():
                 try:
                     plan_manager.mark_task_failed(current_plan, next_task["id"], f"Error: {str(e)}")
                 except Exception:
@@ -1034,7 +1038,7 @@ async def _handle_plan_execution(state: OrchestratorState, invoke_llm, config=No
             })
             
             # Continue with next task
-            return await _handle_plan_execution(updated_state, invoke_llm, config, trustcall_extractor)  # type: ignore
+            return await _handle_plan_execution(updated_state, invoke_llm, config, trustcall_extractor, instruction_extractor)  # type: ignore
 
 
 async def _execute_task_with_existing_tools(task: dict, state: OrchestratorState, invoke_llm):
@@ -1183,7 +1187,7 @@ def _format_todo_list(tasks: list, show_status: bool = True) -> str:
     return "\n".join(todo_items)
 
 
-def _enhance_task_with_context(task: dict, messages: list, trustcall_extractor) -> dict:
+def _enhance_task_with_context(task: dict, messages: list, instruction_extractor) -> dict:
     """
     Use existing multi-schema trustcall extractor to enhance instructions with context.
     """
@@ -1197,6 +1201,15 @@ def _enhance_task_with_context(task: dict, messages: list, trustcall_extractor) 
             context_messages.append(content)
     
     context_text = "\n---\n".join(context_messages)
+    
+    # Debug: Log context preparation
+    logger.info("instruction_enhancement_context_prepared",
+        component="extraction",
+        instruction=task.get('content', ''),
+        context_message_count=len(context_messages),
+        context_preview=context_text[:500] if context_text else "(empty)",
+        context_full_length=len(context_text)
+    )
     
     # Create extraction prompt
     extraction_prompt = f"""
@@ -1225,31 +1238,90 @@ Enhanced: "Close the SLA opportunity associated with Express Logistics account (
 """
     
     try:
-        # Use trustcall extractor with InstructionEnhancement tool
-        result = trustcall_extractor.invoke({
+        # Debug: Log extraction prompt being sent
+        logger.info("instruction_enhancement_prompt_generated",
+            component="extraction",
+            instruction=task.get('content', ''),
+            prompt_length=len(extraction_prompt),
+            prompt_preview=extraction_prompt[:500]
+        )
+        
+        # Use instruction extractor with InstructionEnhancement tool only
+        result = instruction_extractor.invoke({
             "messages": [
                 ("system", "You are an expert at analyzing conversation context and enhancing task instructions with specific entity references. You must use the InstructionEnhancement tool to return enhanced instructions. Be precise and only make changes when you can definitively resolve vague references."),
                 ("human", extraction_prompt)
             ]
         })
         
-        # Handle both dictionary and object responses
-        if isinstance(result, dict):
-            changes_made = result.get('changes_made', False)
-            enhanced_instruction = result.get('enhanced_instruction', task.get('content', ''))
-            original_instruction = result.get('original_instruction', task.get('content', ''))
-            entities_found = result.get('entities_found', [])
-            reasoning = result.get('reasoning', 'No reasoning provided')
+        # Debug: Log raw result from trustcall
+        logger.info("instruction_enhancement_trustcall_result",
+            component="extraction",
+            instruction=task.get('content', ''),
+            result_type=type(result).__name__,
+            result_raw=str(result)[:1000] if result else "(empty)"
+        )
+        
+        # Extract InstructionEnhancement tool call result from LangChain message structure
+        enhancement_result = None
+        
+        # Handle result structure from single-tool trustcall extractor
+        if isinstance(result, dict) and 'messages' in result:
+            messages = result['messages']
+            if messages and len(messages) > 0:
+                message = messages[0]
+                if hasattr(message, 'additional_kwargs') and 'tool_calls' in message.additional_kwargs:
+                    tool_calls = message.additional_kwargs['tool_calls']
+                    # Find the InstructionEnhancement tool call
+                    for tool_call in tool_calls:
+                        if tool_call.get('function', {}).get('name') == 'InstructionEnhancement':
+                            import json
+                            try:
+                                enhancement_result = json.loads(tool_call['function']['arguments'])
+                                break
+                            except (json.JSONDecodeError, KeyError) as e:
+                                logger.warning("failed_to_parse_tool_call_arguments",
+                                    component="extraction",
+                                    error=str(e),
+                                    tool_call=tool_call
+                                )
+        
+        # Parse enhancement result or use defaults
+        if enhancement_result:
+            changes_made = enhancement_result.get('changes_made', False)
+            enhanced_instruction = enhancement_result.get('enhanced_instruction', task.get('content', ''))
+            original_instruction = enhancement_result.get('original_instruction', task.get('content', ''))
+            entities_found = enhancement_result.get('entities_found', [])
+            reasoning = enhancement_result.get('reasoning', 'No reasoning provided')
         else:
-            changes_made = getattr(result, 'changes_made', False)
-            enhanced_instruction = getattr(result, 'enhanced_instruction', task.get('content', ''))
-            original_instruction = getattr(result, 'original_instruction', task.get('content', ''))
-            entities_found = getattr(result, 'entities_found', [])
-            reasoning = getattr(result, 'reasoning', 'No reasoning provided')
+            # Fallback to direct result parsing or defaults
+            if isinstance(result, dict):
+                changes_made = result.get('changes_made', False)
+                enhanced_instruction = result.get('enhanced_instruction', task.get('content', ''))
+                original_instruction = result.get('original_instruction', task.get('content', ''))
+                entities_found = result.get('entities_found', [])
+                reasoning = result.get('reasoning', 'Failed to extract tool call result')
+            else:
+                changes_made = False
+                enhanced_instruction = task.get('content', '')
+                original_instruction = task.get('content', '')
+                entities_found = []
+                reasoning = 'Failed to extract tool call result'
+        
+        # Debug: Log parsed result details
+        logger.info("instruction_enhancement_result_parsed",
+            component="extraction",
+            instruction=task.get('content', ''),
+            changes_made=changes_made,
+            enhanced_instruction=enhanced_instruction,
+            original_instruction=original_instruction,
+            entities_found=entities_found,
+            reasoning=reasoning
+        )
         
         if changes_made:
             logger.info("instruction_enhanced_via_trustcall",
-                component="orchestrator",
+                component="extraction",
                 original=original_instruction,
                 enhanced=enhanced_instruction,
                 entities_found=[f"{e.get('entity_type', 'unknown')}:{e.get('name', 'unknown')}({e.get('salesforce_id', 'unknown')})" for e in entities_found] if isinstance(entities_found, list) else [],
@@ -1262,14 +1334,14 @@ Enhanced: "Close the SLA opportunity associated with Express Logistics account (
             return enhanced_task
         else:
             logger.info("instruction_no_enhancement_needed",
-                component="orchestrator",
+                component="extraction",
                 instruction=task.get('content', ''),
                 reasoning=reasoning
             )
     
     except Exception as e:
         logger.warning("trustcall_enhancement_failed",
-            component="orchestrator",
+            component="extraction",
             instruction=task.get('content', ''),
             error=str(e)
         )
