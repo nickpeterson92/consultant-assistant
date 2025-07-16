@@ -20,7 +20,7 @@ class ExtractedEntity(BaseModel):
     """Represents a Salesforce entity found in conversation context"""
     entity_type: str = Field(description="Type of entity: account, opportunity, contact, case")
     name: str = Field(description="Human readable name of the entity")
-    salesforce_id: Optional[str] = Field(description="Salesforce ID (15-18 characters starting with 001, 006, etc.)")
+    salesforce_id: Optional[str] = Field(description="Salesforce ID if found in conversation context. Leave null if no actual ID is available. Do not generate or make up IDs.")
 
 
 class InstructionEnhancement(BaseModel):
