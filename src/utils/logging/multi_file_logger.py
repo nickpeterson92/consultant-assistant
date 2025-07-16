@@ -23,14 +23,13 @@ class MultiFileLogger(StructuredLogger):
         'salesforce': 'salesforce.log',
         'jira': 'jira.log',
         'servicenow': 'servicenow.log',
-        'workflow': 'workflow.log',
-        'workflow_tools': 'workflow.log',  # Workflow tools go to workflow log
         'a2a': 'a2a_protocol.log',
         'storage': 'storage.log',
         'system': 'system.log',
         'config': 'system.log',  # Config goes to system log
         'async_store_adapter_sync': 'storage.log',  # Storage alias
         'utility': 'orchestrator.log',  # Utility tools go to orchestrator log
+        'extraction': 'extraction.log',  # Trustcall extraction and instruction enhancement
     }
     
     def __init__(self, log_dir: Optional[str] = None, level: Optional[int] = None):

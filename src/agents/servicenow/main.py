@@ -1,7 +1,7 @@
 """ServiceNow specialized agent for ITSM operations via A2A protocol."""
 
-import os
 import asyncio
+import json
 from typing import Dict, Any, List, TypedDict, Annotated, Optional
 import operator
 from dotenv import load_dotenv
@@ -119,7 +119,7 @@ def build_servicenow_graph():
                 operation="llm_invoke",
                 task_id=task_id,
                 response_length=len(response.content),
-                has_tool_calls=bool(response.tool_calls) if hasattr(response, 'tool_calls') else False  # pyright: ignore[reportAttributeAccessIssue]
+                has_tool_calls=bool(getattr(response, 'tool_calls', None))
             )
             
             return {"messages": [response]}
@@ -223,41 +223,81 @@ async def handle_a2a_request(params: dict) -> dict:
         if last_message:
             response_content = last_message.content
             
-            # Log successful completion
+            # Check final tool outcome - agents may retry multiple times before succeeding
+            final_tool_success = None
+            from langchain_core.messages import ToolMessage
+            
+            # Find the LAST ToolMessage result to determine final outcome
+            for msg in reversed(messages):
+                if isinstance(msg, ToolMessage) and hasattr(msg, 'content'):
+                    # Try to parse tool result as JSON to check success field
+                    try:
+                        if isinstance(msg.content, str) and (msg.content.startswith('{') or msg.content.startswith('[')):
+                            tool_result = json.loads(msg.content)
+                            if isinstance(tool_result, dict) and 'success' in tool_result:
+                                final_tool_success = tool_result.get('success')
+                                break
+                    except (json.JSONDecodeError, AttributeError):
+                        # If not valid JSON, continue checking other messages
+                        pass
+            
+            # Determine actual task success based on final tool execution result
+            # If no tool results found, assume success (agent completed without tools)
+            task_success = final_tool_success is not False
+            status = "completed" if task_success else "failed"
+            
+            # Log completion with actual success status
             logger.info("a2a_task_complete",
                 component="servicenow",
                 operation="process_task",
                 task_id=task_id,
                 response_length=len(response_content),
-                tool_calls_made=len(final_state.get("tool_results", [])),
-                success=True
+                tool_calls_made=len([m for m in messages if hasattr(m, 'tool_calls') and m.tool_calls]),
+                success=task_success,
+                final_tool_success=final_tool_success
             )
             
-            # Return in expected format
-            return {
+            # Return with correct status
+            result = {
                 "artifacts": [{
                     "type": "text",
                     "content": response_content
                 }],
-                "status": "completed"
+                "status": status
             }
+            
+            # Include error information if task failed
+            if not task_success:
+                result["error"] = "Task execution encountered tool errors"
+            
+            return result
         else:
             raise ValueError("No response generated")
             
     except Exception as e:
+        error_msg = str(e)
+        # Check for specific error types (align with Salesforce agent)
+        if "GraphRecursionError" in type(e).__name__ or "recursion limit" in error_msg.lower():
+            error_msg = "Query complexity exceeded maximum iterations. Please try a more specific search."
+        elif "GRAPH_RECURSION_LIMIT" in error_msg:
+            error_msg = "Too many tool calls required. Please simplify your request."
+            
         logger.error("a2a_task_error",
             component="servicenow",
             operation="process_task",
-            task_id=task_id if 'task_id' in locals() else 'unknown',
+            task_id=task_id,
             error=str(e),
             error_type=type(e).__name__
         )
         
-        # Return error in expected format
+        # Return error in expected format (align with Salesforce agent)
         return {
-            "artifacts": [],
+            "artifacts": [{
+                "type": "text",
+                "content": f"Error processing ServiceNow request: {error_msg}"
+            }],
             "status": "failed",
-            "error": str(e)
+            "error": error_msg
         }
 
 def create_servicenow_agent_card() -> AgentCard:
@@ -308,6 +348,7 @@ async def main(port: int = 8003):
     server.register_handler("process_task", handle_a2a_request)
     
     async def get_agent_card_handler(params):
+        _ = params  # Unused parameter
         return agent_card.to_dict()
     
     server.register_handler("get_agent_card", get_agent_card_handler)

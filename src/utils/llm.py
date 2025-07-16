@@ -86,22 +86,6 @@ def create_low_temp_llm(**kwargs) -> AzureChatOpenAI:
     return create_azure_openai_chat(**low_temp_kwargs)
 
 
-def create_creative_llm(**kwargs) -> AzureChatOpenAI:
-    """Create Azure OpenAI chat instance with higher temperature for creative tasks.
-    
-    Useful for brainstorming, suggestions, and other creative outputs.
-    
-    Args:
-        **kwargs: Optional overrides for LLM configuration
-        
-    Returns:
-        Configured AzureChatOpenAI instance with temperature=0.7
-    """
-    creative_kwargs: Dict[str, Any] = {"temperature": 0.7}
-    creative_kwargs.update(kwargs)
-    
-    return create_azure_openai_chat(**creative_kwargs)
-
 
 def create_deterministic_llm(**kwargs) -> AzureChatOpenAI:
     """Create Azure OpenAI chat instance for deterministic outputs.
@@ -181,7 +165,6 @@ __all__ = [
     "create_azure_openai_chat",
     "create_streaming_llm",
     "create_low_temp_llm",
-    "create_creative_llm",
     "create_deterministic_llm",
     "create_llm_with_tools",
     "create_flexible_llm"

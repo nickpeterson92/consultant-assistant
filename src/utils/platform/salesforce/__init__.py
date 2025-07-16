@@ -5,9 +5,7 @@ from .soql_helpers import (
     escape_soql,
     format_soql_value,
     validate_field_name,
-    validate_object_name,
-    parse_field_list,
-    build_field_list
+    validate_object_name
 )
 
 __all__ = [
@@ -17,7 +15,5 @@ __all__ = [
     'escape_soql',
     'format_soql_value',
     'validate_field_name',
-    'validate_object_name',
-    'parse_field_list',
-    'build_field_list'
+    'validate_object_name'
 ]

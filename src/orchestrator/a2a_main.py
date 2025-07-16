@@ -32,7 +32,7 @@ async def initialize_orchestrator_a2a():
             "http://localhost:8001",  # Salesforce agent
             "http://localhost:8002",  # Jira agent
             "http://localhost:8003",  # ServiceNow agent
-            "http://localhost:8004",  # Workflow agent
+            # Note: Workflow agent (port 8004) removed - functionality moved to plan-and-execute
         ]
         
         discovered = await agent_registry.discover_agents(discovery_endpoints)
@@ -171,6 +171,7 @@ async def main(host: str, port: int):
     server = A2AServer(agent_card, host, port)
     server.register_handler("process_task", handler.process_task)
     server.register_handler("get_agent_card", handler.get_agent_card)
+    server.register_handler("get_progress", handler.get_progress)
     
     # Start the server
     runner = await server.start()

@@ -7,7 +7,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from src.utils.logging import get_logger
 from src.utils.config import get_conversation_config, get_llm_config
 from src.utils.agents.prompts import orchestrator_a2a_sys_msg
-from .types import A2AResponse, A2AContext, A2AMetadata, WorkflowState
+from .types import A2AResponse, A2AContext, A2AMetadata
 
 logger = get_logger("orchestrator")
 
@@ -18,6 +18,8 @@ class OrchestratorA2AHandler:
     def __init__(self, graph, agent_registry):
         self.graph = graph
         self.agent_registry = agent_registry
+        # Progress tracking for active tasks
+        self.active_progress = {}
         
     async def process_task(self, params: Dict[str, Any]) -> A2AResponse:
         """Process A2A task using the orchestrator graph"""
@@ -63,7 +65,8 @@ class OrchestratorA2AHandler:
             config = {
                 "configurable": {
                     "thread_id": thread_id,
-                    "user_id": context.get("user_id", conv_config.default_user_id)
+                    "user_id": context.get("user_id", conv_config.default_user_id),
+                    "_a2a_handler": self  # Pass handler for progress tracking
                 },
                 "recursion_limit": llm_config.recursion_limit
             }
@@ -88,8 +91,7 @@ class OrchestratorA2AHandler:
                     "last_agent_interaction": {},
                     "background_operations": [],
                     "background_results": {},
-                    "interrupted_workflow": None,
-                    "_workflow_human_response": None,
+                    # Workflow fields removed - functionality moved to plan-and-execute
                     "last_summary_trigger": None,
                     "last_memory_trigger": None,
                     "tool_calls_since_memory": 0,
@@ -141,87 +143,87 @@ class OrchestratorA2AHandler:
                     error_type=type(e).__name__
                 )
             
-            # Check if there's an interrupted workflow in the context (from CLI)
-            context_interrupted_workflow = context.get("interrupted_workflow")
-            
+            # Simplified state management - workflow interruption removed
             if existing_state and existing_state.values and existing_state.values.get("messages"):
-                # Check if there's an interrupted workflow in the existing state
-                has_interrupted_workflow = existing_state.values.get("interrupted_workflow") is not None
-                
-                # Also check if it's passed in the context (for CLI mode)
-                if not has_interrupted_workflow and context_interrupted_workflow:
-                    has_interrupted_workflow = True
-                    # We need to restore the interrupted workflow state
-                    initial_state = {
-                        "messages": [],  # Empty - the workflow will handle the instruction
-                        "background_operations": [],
-                        "background_results": {},
-                        "interrupted_workflow": context_interrupted_workflow,
-                        "_workflow_human_response": instruction  # Pass instruction for workflow consumption
-                    }
-                    logger.info(message="found_interrupted_workflow_in_context",
-                        component="orchestrator",
-                        operation="process_a2a_task",
-                        thread_id=thread_id,
-                        workflow_name=context_interrupted_workflow.get("workflow_name"),
-                        workflow_thread_id=context_interrupted_workflow.get("thread_id"),
-                        instruction_for_workflow=instruction[:50],
-                        source="context"
-                    )
-                elif has_interrupted_workflow:
-                    # This instruction is a response to the interrupted workflow
-                    # We need to update the existing state with the workflow response
-                    # and NOT add it as a new HumanMessage
-                    initial_state = {
-                        "messages": [],  # Don't add a new message - the workflow will consume the response
-                        "_workflow_human_response": instruction  # This will trigger auto-call in conversation_handler
-                    }
-                    logger.info(message="found_interrupted_workflow_in_state",
-                        component="orchestrator",
-                        operation="process_a2a_task",
-                        thread_id=thread_id,
-                        workflow_name=existing_state.values["interrupted_workflow"].get("workflow_name"),
-                        workflow_thread_id=existing_state.values["interrupted_workflow"].get("thread_id"),
-                        instruction_for_workflow=instruction[:50]
-                    )
-                else:
-                    # Continue existing conversation normally
-                    initial_state = {
-                        "messages": [HumanMessage(content=instruction)],
-                        "background_operations": [],
-                        "background_results": {}
-                    }
+                # Continue existing conversation
+                initial_state = {
+                    "messages": [HumanMessage(content=instruction)],
+                    "background_operations": [],
+                    "background_results": {}
+                }
             else:
-                # Check if we have interrupted workflow from context even without existing state
-                if context_interrupted_workflow:
-                    # We have an interrupted workflow but no state - this is a resumed session
-                    initial_state = {
-                        "messages": [SystemMessage(content=system_message_content)],
-                        "background_operations": [],
-                        "background_results": {},
-                        "interrupted_workflow": context_interrupted_workflow,
-                        "_workflow_human_response": instruction
-                    }
-                    logger.info(message="interrupted_workflow_from_context_no_state",
-                        component="orchestrator",
-                        operation="process_a2a_task",
-                        thread_id=thread_id,
-                        workflow_name=context_interrupted_workflow.get("workflow_name"),
-                        instruction_for_workflow=instruction[:50]
-                    )
-                else:
-                    # Start new conversation
-                    initial_state = {
-                        "messages": [
-                            SystemMessage(content=system_message_content),
-                            HumanMessage(content=instruction)
-                        ],
-                        "background_operations": [],
-                        "background_results": {}
-                    }
+                # Start new conversation
+                initial_state = {
+                    "messages": [
+                        SystemMessage(content=system_message_content),
+                        HumanMessage(content=instruction)
+                    ],
+                    "background_operations": [],
+                    "background_results": {}
+                }
+            
+            # Set up progress tracking for A2A mode
+            from .progress_state import set_progress_functions
+            
+            # Create progress tracking functions that update the A2A handler's progress store
+            def update_progressive_step_a2a(step_text, completed_steps=None, failed_steps=None):
+                logger.info("a2a_progressive_step_called",
+                    component="orchestrator",
+                    step_text=step_text,
+                    completed_count=len(completed_steps) if completed_steps else 0,
+                    failed_count=len(failed_steps) if failed_steps else 0
+                )
+                progress_data = {
+                    "current_step": step_text,
+                    "completed_steps": completed_steps or [],
+                    "failed_steps": failed_steps or [],
+                    "total_steps": []  # Will be populated by conversation handler
+                }
+                self.update_progress(thread_id, progress_data)
+            
+            def complete_current_step_a2a(success=True):
+                logger.info("a2a_complete_step_called",
+                    component="orchestrator",
+                    success=success
+                )
+                # Get current progress and update it
+                current_progress = self.active_progress.get(thread_id, {})
+                current_step = current_progress.get("current_step", "")
+                completed_steps = current_progress.get("completed_steps", [])
+                failed_steps = current_progress.get("failed_steps", [])
+                
+                if current_step:
+                    if success:
+                        completed_steps.append(current_step)
+                    else:
+                        failed_steps.append(current_step)
+                
+                progress_data = {
+                    "current_step": None,  # Clear current step
+                    "completed_steps": completed_steps,
+                    "failed_steps": failed_steps,
+                    "total_steps": current_progress.get("total_steps", [])
+                }
+                self.update_progress(thread_id, progress_data)
+            
+            # Create a dummy current_operation for progress state
+            current_operation = {
+                "message": "Processing",
+                "current_step": "",
+                "completed_steps": [],
+                "failed_steps": [],
+                "use_progressive": True
+            }
+            
+            # Set up progress functions for this request
+            set_progress_functions(current_operation, update_progressive_step_a2a, complete_current_step_a2a)
             
             # Execute graph
             result = await self.graph.ainvoke(initial_state, config)
+            
+            # Clean up progress state after execution
+            from .progress_state import clear_progress_functions
+            clear_progress_functions()
             
             # Debug the result structure
             logger.info(message="graph_invoke_result",
@@ -287,13 +289,8 @@ class OrchestratorA2AHandler:
                 response_preview=response_content[:200]
             )
             
-            # Check if we have an interrupted workflow in the result
-            interrupted_workflow = result.get("interrupted_workflow")
-            
             # Build typed response
-            metadata: A2AMetadata = {
-                "interrupted_workflow": cast(Optional[WorkflowState], interrupted_workflow)
-            }
+            metadata: A2AMetadata = {}
             
             response: A2AResponse = {
                 "artifacts": [{
@@ -307,23 +304,13 @@ class OrchestratorA2AHandler:
                 "error": None
             }
             
-            if interrupted_workflow:
-                logger.info(
-                    message="a2a_response_includes_interrupted_workflow",
-                    component="orchestrator",
-                    operation="process_a2a_task",
-                    task_id=task_id,
-                    workflow_name=interrupted_workflow.get("workflow_name"),
-                    workflow_thread_id=interrupted_workflow.get("thread_id")
-                )
-            else:
-                logger.info(
-                    message="a2a_response_workflow_completed",
-                    component="orchestrator",
-                    operation="process_a2a_task",
-                    task_id=task_id,
-                    note="No interrupted workflow - signaling completion to client"
-                )
+            logger.info(
+                message="a2a_response_completed",
+                component="orchestrator",
+                operation="process_a2a_task",
+                task_id=task_id,
+                note="Task completed successfully"
+            )
             
             return response
             
@@ -416,3 +403,41 @@ class OrchestratorA2AHandler:
                 "online_agent_names": online_agent_names
             }
         }
+    
+    async def get_progress(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Get progress updates for an active task"""
+        task_id = params.get("task_id")
+        thread_id = params.get("thread_id")
+        
+        if not task_id and not thread_id:
+            return {
+                "success": False,
+                "data": {},
+                "message": "task_id or thread_id required"
+            }
+        
+        # Look up progress by task_id or thread_id
+        progress_key = task_id or thread_id
+        progress_data = self.active_progress.get(progress_key, {})
+        
+        return {
+            "success": True,
+            "data": progress_data,
+            "message": "Progress data retrieved"
+        }
+    
+    def update_progress(self, task_id: str, progress_data: Dict[str, Any]):
+        """Update progress for a task (called by conversation handler)"""
+        self.active_progress[task_id] = progress_data
+        logger.info("progress_updated", 
+                   component="orchestrator",
+                   task_id=task_id,
+                   progress_data=progress_data)
+    
+    def clear_progress(self, task_id: str):
+        """Clear progress for a completed task"""
+        if task_id in self.active_progress:
+            del self.active_progress[task_id]
+            logger.info("progress_cleared", 
+                       component="orchestrator",
+                       task_id=task_id)

@@ -12,7 +12,7 @@ from src.utils.storage import get_async_store_adapter
 from src.utils.shared import create_tool_node
 
 from .agent_registry import AgentRegistry
-from .agent_caller_tools import SalesforceAgentTool, JiraAgentTool, ServiceNowAgentTool, WorkflowAgentTool, AgentRegistryTool
+from .agent_caller_tools import SalesforceAgentTool, JiraAgentTool, ServiceNowAgentTool, AgentRegistryTool
 from .state import OrchestratorState
 from src.tools.utility import WebSearchTool
 from .llm_handler import create_llm_instances
@@ -50,16 +50,15 @@ def build_orchestrator_graph():
         SalesforceAgentTool(agent_registry),
         JiraAgentTool(agent_registry),
         ServiceNowAgentTool(agent_registry),
-        WorkflowAgentTool(agent_registry),  # Add workflow agent tool
         AgentRegistryTool(agent_registry),
-        WebSearchTool()  # New utility tool for web search
+        WebSearchTool()  # Utility tool for web search
     ]
     
     # Add workflow tools (direct workflow execution tools)
     # tools.extend(WORKFLOW_TOOLS)  # Commenting out for now to avoid confusion
     
     # Create LLM instances and invoke function
-    llm_with_tools, deterministic_llm, trustcall_extractor, invoke_llm = create_llm_instances(tools)
+    llm_with_tools, deterministic_llm, trustcall_extractor, instruction_extractor, invoke_llm = create_llm_instances(tools)
     
     # Create partial function for orchestrator node with dependencies
     orchestrator_with_deps = partial(
@@ -69,7 +68,8 @@ def build_orchestrator_graph():
         invoke_llm=invoke_llm,
         summarize_func=partial(summarize_conversation, invoke_llm=invoke_llm),
         memorize_func=memorize_records,
-        trustcall_extractor=trustcall_extractor
+        trustcall_extractor=trustcall_extractor,
+        instruction_extractor=instruction_extractor
     )
     
     # Build graph with tool integration

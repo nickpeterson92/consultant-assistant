@@ -52,18 +52,6 @@ def format_glide_date(d: date) -> str:
     return d.strftime('%Y-%m-%d')
 
 
-def parse_dot_walk(field_path: str) -> List[str]:
-    """Parse a dot-walked field path.
-    
-    Args:
-        field_path: Dot-walked path like 'caller_id.department.name'
-        
-    Returns:
-        List of field components
-    """
-    return field_path.split('.')
-
-
 def validate_table_name(table: str) -> bool:
     """Validate ServiceNow table name.
     
@@ -78,70 +66,6 @@ def validate_table_name(table: str) -> bool:
     import re
     pattern = r'^[a-z][a-z0-9_]*$|^[ux]_[a-z0-9_]+$'
     return bool(re.match(pattern, table))
-
-
-def build_reference_query(table: str, display_field: str = 'name', search_term: str = '') -> str:
-    """Build a query for reference field lookups.
-    
-    Args:
-        table: Table to query
-        display_field: Field to search in
-        search_term: Search term
-        
-    Returns:
-        Encoded query string
-    """
-    if search_term:
-        return f"{display_field}LIKE{escape_glide_value(search_term)}"
-    return ""
-
-
-def parse_encoded_query(query: str) -> List[Dict[str, Any]]:
-    """Parse an encoded query string into components.
-    
-    Args:
-        query: Encoded query string
-        
-    Returns:
-        List of query components
-    """
-    conditions = []
-    parts = query.split('^')
-    
-    for part in parts:
-        if not part:
-            continue
-            
-        # Handle OR operator
-        if part == 'OR':
-            conditions.append({'type': 'operator', 'value': 'OR'})
-            continue
-        
-        # Parse conditions (field + operator + value)
-        # Common patterns: field=value, fieldLIKEvalue, fieldISEMPTY
-        import re
-        
-        # Try different operator patterns
-        patterns = [
-            (r'(.+?)(ISEMPTY|ISNOTEMPTY|ANYTHING)$', lambda m: (m.group(1), m.group(2), None)),
-            (r'(.+?)(=|!=|>|<|>=|<=)(.+)', lambda m: (m.group(1), m.group(2), m.group(3))),
-            (r'(.+?)(LIKE|NOTLIKE|STARTSWITH|ENDSWITH|IN|NOTIN|ON|NOTON|BEFORE|AFTER)(.+)', 
-             lambda m: (m.group(1), m.group(2), m.group(3)))
-        ]
-        
-        for pattern, extractor in patterns:
-            match = re.match(pattern, part)
-            if match:
-                field, operator, value = extractor(match)
-                conditions.append({
-                    'type': 'condition',
-                    'field': field,
-                    'operator': operator,
-                    'value': value
-                })
-                break
-    
-    return conditions
 
 
 def get_common_fields(table: str) -> List[str]:

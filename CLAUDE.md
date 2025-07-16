@@ -70,7 +70,7 @@ python3 orchestrator_cli.py    # Terminal 2: Chat interface with same look & fee
 python3 salesforce_agent.py --port 8001
 python3 jira_agent.py --port 8002
 python3 servicenow_agent.py --port 8003
-python3 workflow_agent.py --port 8004
+# Workflow functionality now integrated in plan-and-execute system
 python3 orchestrator.py  # Interactive CLI mode (standalone)
 python3 orchestrator.py --a2a --port 8000  # A2A network mode
 python3 orchestrator_cli.py  # CLI client for A2A orchestrator
@@ -104,7 +104,7 @@ LLM_RECURSION_LIMIT=15
 ├── salesforce_agent.py          # SF agent entry
 ├── jira_agent.py               # Jira agent entry
 ├── servicenow_agent.py         # ServiceNow agent entry
-├── workflow_agent.py           # Workflow agent entry
+# Workflow agent removed - functionality moved to plan-and-execute
 ├── start_system.py              # System starter
 ├── src/
 │   ├── orchestrator/
@@ -135,7 +135,7 @@ LLM_RECURSION_LIMIT=15
 │   │   │   └── unified.py      # 6 unified Jira tools
 │   │   ├── servicenow/
 │   │   │   └── unified.py      # 6 unified ServiceNow tools
-│   │   └── workflow_tools.py    # 3 workflow orchestration tools
+# Workflow tools removed - functionality moved to plan-and-execute
 │   └── utils/
 │       ├── config/             # Configuration management
 │       │   ├── config.py       # Main config system
@@ -585,7 +585,7 @@ Result: Shows all matches (Express Logistics SLA, Express Logistics Inc, etc.)
   - Detects `WORKFLOW_HUMAN_INPUT_REQUIRED` in response
   - Sets `interrupted_workflow` state with workflow details
   - When user responds, sets `_workflow_human_response`
-  - Auto-generates workflow_agent tool call to resume
+  - Auto-generates plan execution to resume
 - **Key Files**:
   - `src/agents/workflow/compiler.py:318-370` - Human node implementation
   - `src/orchestrator/conversation_handler.py:142-185` - Auto-resume logic

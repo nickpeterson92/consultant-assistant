@@ -77,29 +77,3 @@ def validate_object_name(object_name: str) -> bool:
     return bool(re.match(pattern, object_name))
 
 
-def parse_field_list(fields: str) -> List[str]:
-    """Parse a comma-separated field list.
-    
-    Args:
-        fields: Comma-separated field names
-        
-    Returns:
-        List of field names
-    """
-    return [f.strip() for f in fields.split(',') if f.strip()]
-
-
-def build_field_list(fields: List[str], validate: bool = True) -> str:
-    """Build a comma-separated field list for SELECT clause.
-    
-    Args:
-        fields: List of field names
-        validate: Whether to validate field names
-        
-    Returns:
-        Comma-separated field list
-    """
-    if validate:
-        fields = [f for f in fields if validate_field_name(f)]
-    
-    return ', '.join(fields) if fields else 'Id'  # Default to Id if no fields

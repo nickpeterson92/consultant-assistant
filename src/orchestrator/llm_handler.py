@@ -1,8 +1,9 @@
 """LLM configuration and invocation handling for the orchestrator."""
 
-from typing import Any, List
+from typing import Any, List, Optional
 
 from trustcall import create_extractor
+from pydantic import BaseModel, Field
 
 from src.utils.llm import (
     create_azure_openai_chat,
@@ -13,6 +14,22 @@ from src.utils.llm import (
 from src.utils.agents.prompts import orchestrator_chatbot_sys_msg
 from src.utils.storage.memory_schemas import SimpleMemory
 from .state import OrchestratorState
+
+
+class ExtractedEntity(BaseModel):
+    """Represents a Salesforce entity found in conversation context"""
+    entity_type: str = Field(description="Type of entity: account, opportunity, contact, case")
+    name: str = Field(description="Human readable name of the entity")
+    salesforce_id: Optional[str] = Field(description="Salesforce ID if found in conversation context. Leave null if no actual ID is available. Do not generate or make up IDs.")
+
+
+class InstructionEnhancement(BaseModel):
+    """Enhanced instruction with resolved entity references"""
+    original_instruction: str = Field(description="The original task instruction")
+    enhanced_instruction: str = Field(description="Instruction with vague references replaced by specific entity details")
+    entities_found: List[ExtractedEntity] = Field(description="Entities extracted from conversation context")
+    changes_made: bool = Field(description="Whether any changes were made to the original instruction")
+    reasoning: str = Field(description="Explanation of what changes were made and why")
 
 
 def create_llm_instances(tools: List[Any]):
@@ -27,18 +44,25 @@ def create_llm_instances(tools: List[Any]):
     # Create deterministic LLM for memory extraction
     deterministic_llm = create_deterministic_llm()
     
-    # Configure TrustCall for structured data extraction
+    # Configure TrustCall for structured data extraction with multiple schemas
     trustcall_extractor = create_extractor(
         deterministic_llm,
-        tools=[SimpleMemory],
-        tool_choice="SimpleMemory",
+        tools=[SimpleMemory, InstructionEnhancement],
+        # No fixed tool_choice - will specify per invocation
+        enable_inserts=True
+    )
+    
+    # Create dedicated instruction enhancement extractor (single tool only)
+    instruction_extractor = create_extractor(
+        deterministic_llm,
+        tools=[InstructionEnhancement],
         enable_inserts=True
     )
     
     # Create flexible invocation function
     invoke_llm = create_flexible_llm(tools)
     
-    return llm_with_tools, deterministic_llm, trustcall_extractor, invoke_llm
+    return llm_with_tools, deterministic_llm, trustcall_extractor, instruction_extractor, invoke_llm
 
 
 def get_orchestrator_system_message(state: OrchestratorState, agent_registry) -> str:
@@ -58,15 +82,10 @@ ORCHESTRATOR TOOLS:
 1. salesforce_agent: For Salesforce CRM operations (leads, accounts, opportunities, contacts, cases, tasks, etc.)
 2. jira_agent: For project management (projects, bugs, epics, stories, etc.)
 3. servicenow_agent: For incident management and IT (change requests, incidents, problems, etc.)
-4. workflow_agent: For complex multi-step workflows (at-risk deals, customer 360, incident resolution, etc.)
-5. manage_agents: To check agent status and capabilities
-6. web_search: Search the web for information about entities, companies, people, or topics
+4. manage_agents: To check agent status and capabilities
+5. web_search: Search the web for information about entities, companies, people, or topics
 
-WORKFLOW CAPABILITIES:
-- Deal Risk Assessment: Use workflow_agent for "check at-risk deals" or "analyze deal risks"
-- Customer 360 Report: Use workflow_agent for comprehensive customer information across all systems
-- Incident to Resolution: Use workflow_agent for end-to-end incident management workflows
-- Account Health Check: Use workflow_agent for analyzing key account health metrics
-- New Customer Onboarding: Use workflow_agent for automated customer setup across systems"""
+COMPLEX WORKFLOWS:
+Complex multi-step workflows (like deal risk assessment, customer 360 reports, incident resolution) are now handled through the orchestrator's built-in plan-and-execute functionality. When users request complex workflows, the system will automatically create execution plans with todo lists that can be modified during execution."""
     
     return orchestrator_chatbot_sys_msg(summary, memory_val, agent_context)

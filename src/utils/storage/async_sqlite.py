@@ -369,20 +369,3 @@ class AsyncSQLiteStore:
     async def close(self):
         """Close the store and all connections"""
         await self.pool.close_all()
-
-# Global async store instance
-_async_store: Optional[AsyncSQLiteStore] = None
-
-def get_async_store(database_path: str = "memory_store.db", pool_size: int = 5) -> AsyncSQLiteStore:
-    """Get the global async SQLite store instance"""
-    global _async_store
-    if _async_store is None:
-        _async_store = AsyncSQLiteStore(database_path, pool_size)
-    return _async_store
-
-async def close_async_store():
-    """Close the global async store"""
-    global _async_store
-    if _async_store is not None:
-        await _async_store.close()
-        _async_store = None

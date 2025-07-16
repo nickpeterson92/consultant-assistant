@@ -21,7 +21,7 @@ from src.utils.config import (
 
 from src.utils.logging import get_logger
 # No input validation needed - trust agent-generated content
-from src.utils.agents.message_processing import serialize_messages, serialize_message
+from src.utils.agents.message_processing.unified_serialization import serialize_messages_for_json, is_already_serialized
 from .circuit_breaker import CircuitBreakerConfig, RetryConfig, resilient_call
 from src.utils.config import get_a2a_config, get_system_config
 
@@ -90,19 +90,21 @@ class A2ATask:
             return result
     
     def _serialize_dict_with_messages(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Helper to serialize dictionaries using centralized message serialization."""
+        """Helper to serialize dictionaries using unified message serialization."""
         if not isinstance(data, dict):
             return data
         
         result = data.copy()
         
-        # Handle recent_messages using centralized utility
+        # Handle recent_messages using unified serialization
         if "recent_messages" in result and isinstance(result["recent_messages"], list):
-            result["recent_messages"] = [serialize_message(msg) for msg in result["recent_messages"]]
+            if not is_already_serialized(result["recent_messages"]):
+                result["recent_messages"] = serialize_messages_for_json(result["recent_messages"])
         
-        # Handle messages field (for state_snapshot) using centralized utility
+        # Handle messages field (for state_snapshot) using unified serialization
         if "messages" in result and isinstance(result["messages"], list):
-            result["messages"] = [serialize_message(msg) for msg in result["messages"]]
+            if not is_already_serialized(result["messages"]):
+                result["messages"] = serialize_messages_for_json(result["messages"])
         
         return result
 
