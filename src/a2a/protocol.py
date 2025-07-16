@@ -917,6 +917,7 @@ class A2AServer:
         """Set up HTTP routes for A2A protocol endpoints."""
         self.app.router.add_post("/a2a", self._handle_request)
         self.app.router.add_get("/a2a/agent-card", self._handle_agent_card)
+        self.app.router.add_post("/a2a/stream", self._handle_streaming_request)
     
     def register_handler(self, method: str, handler):
         """Register a handler for a JSON-RPC method.
@@ -1016,6 +1017,114 @@ class A2AServer:
                     request_id=request_id
                 )
                 return web.json_response(response.to_dict(), status=500)
+        
+        except json.JSONDecodeError:
+            # Malformed JSON gets parse error response
+            return web.json_response(
+                A2AResponse(error={"code": -32700, "message": "Parse error"}).to_dict(),
+                status=400
+            )
+        except Exception as e:
+            # Catch-all for unexpected errors - log but don't leak details
+            logger.error("unexpected_request_error",
+                component="a2a",
+                operation="handle_request",
+                error=str(e),
+                error_type=type(e).__name__,
+                traceback=traceback.format_exc()
+            )
+            return web.json_response(
+                A2AResponse(error={"code": -32603, "message": "Internal error"}).to_dict(),
+                status=500
+            )
+    
+    async def _handle_streaming_request(self, request: web.Request) -> web.StreamResponse:
+        """Handle SSE streaming requests for real-time updates."""
+        try:
+            data = await request.json()
+            
+            # Same validation as regular requests
+            if not isinstance(data, dict):
+                response = web.StreamResponse(status=400)
+                await response.prepare(request)
+                return response
+            
+            if data.get("jsonrpc") != "2.0":
+                response = web.StreamResponse(status=400)
+                await response.prepare(request)
+                return response
+            
+            method = data.get("method")
+            params = data.get("params", {})
+            request_id = data.get("id")
+            
+            # For streaming, we need a special handler
+            streaming_method = f"{method}_streaming"
+            
+            if streaming_method not in self.handlers:
+                response = web.StreamResponse(status=404)
+                await response.prepare(request)
+                return response
+            
+            # Set up SSE response
+            response = web.StreamResponse(
+                status=200,
+                headers={
+                    'Content-Type': 'text/event-stream',
+                    'Cache-Control': 'no-cache',
+                    'Connection': 'keep-alive',
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Headers': 'Content-Type',
+                }
+            )
+            
+            await response.prepare(request)
+            
+            # Send initial connection event
+            await response.write(b"data: {\"event\": \"connected\"}\n\n")
+            
+            try:
+                # Stream the handler results
+                handler = self.handlers[streaming_method]
+                async for event_data in handler(params):
+                    if isinstance(event_data, str):
+                        await response.write(event_data.encode('utf-8'))
+                    else:
+                        await response.write(f"data: {json.dumps(event_data)}\n\n".encode('utf-8'))
+                    await response.drain()
+                    
+                # Send completion event
+                await response.write(b"data: {\"event\": \"completed\"}\n\n")
+                
+            except Exception as e:
+                logger.error("streaming_handler_error",
+                    component="a2a",
+                    operation="handle_streaming_request",
+                    method=streaming_method,
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
+                
+                # Send error event
+                error_data = json.dumps({
+                    "event": "error",
+                    "error": str(e),
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                })
+                await response.write(f"data: {error_data}\n\n".encode('utf-8'))
+            
+            return response
+            
+        except Exception as e:
+            logger.error("streaming_request_error",
+                component="a2a",
+                operation="handle_streaming_request",
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            response = web.StreamResponse(status=500)
+            await response.prepare(request)
+            return response
         
         except json.JSONDecodeError:
             # Malformed JSON gets parse error response

@@ -21,7 +21,7 @@ from src.utils.ui import (
 from src.utils.logging import get_logger
 
 # Initialize logger
-logger = get_logger('orchestrator')
+logger = get_logger()
 
 # ANSI color codes (same as main.py)
 CYAN = '\033[36m'
@@ -31,6 +31,413 @@ YELLOW = '\033[33m'
 BOLD = '\033[1m'
 DIM = '\033[2m'
 RESET = '\033[0m'
+
+
+# Progress Display Manager (Observer Pattern)
+class ProgressDisplayManager:
+    def __init__(self):
+        self.spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        self.spinner_colors = [
+            '\033[38;5;36m',   # Cyan
+            '\033[38;5;37m',   # Light cyan
+            '\033[38;5;44m',   # Bright cyan
+            '\033[38;5;45m',   # Light bright cyan
+            '\033[38;5;51m',   # Very bright cyan
+        ]
+        self.frame_index = 0
+        self.current_display_mode = "simple"  # simple, plan, completed
+        self.plan_tasks = []
+        self.completed_steps = []
+        self.failed_steps = []
+        self.current_step = ""
+        
+    def update_from_sse_event(self, event_type, data):
+        """Observer method - called by SSE events to update display"""
+        if event_type == 'plan_created':
+            plan = data.get('plan', {})
+            self.plan_tasks = plan.get('tasks', [])
+            if len(self.plan_tasks) > 1:
+                self.current_display_mode = "plan"
+                self._display_plan()
+        
+        elif event_type == 'task_started':
+            task = data.get('task', {})
+            self.current_step = task.get('content', '')
+            if self.current_display_mode == "plan":
+                self._display_plan_progress()
+        
+        elif event_type == 'task_completed':
+            content = data.get('content', '')
+            success = data.get('success', False)
+            if success:
+                self.completed_steps.append(content)
+            else:
+                self.failed_steps.append(content)
+            if self.current_display_mode == "plan":
+                self._display_plan_progress()
+        
+        elif event_type == 'task_error':
+            content = data.get('content', '')
+            error = data.get('error', '')
+            self.failed_steps.append(f"{content} (Error: {error})")
+            if self.current_display_mode == "plan":
+                self._display_plan_progress()
+        
+        elif event_type == 'plan_completed':
+            self.current_display_mode = "completed"
+            if len(self.plan_tasks) > 1:
+                self._display_plan_final()
+    
+    def _display_plan(self):
+        """Display initial plan"""
+        print(f"\r{GREEN}│{RESET} {' ' * 50}", end="", flush=True)
+        print(f"\r{GREEN}│{RESET} **EXECUTION PLAN**")
+        print(f"{GREEN}│{RESET} ")
+        for i, task in enumerate(self.plan_tasks, 1):
+            task_content = task.get('content', 'Unknown task')
+            print(f"{GREEN}│{RESET} [ ] {i}. {task_content}")
+        print(f"{GREEN}│{RESET} ")
+        print(f"{GREEN}│{RESET} ", end="", flush=True)
+    
+    def _display_plan_progress(self):
+        """Update the existing plan display with current progress"""
+        # Clear the existing plan display (go back to the start of the plan)
+        num_lines_to_clear = len(self.plan_tasks) + 3  # +3 for header, blank line, and footer
+        for _ in range(num_lines_to_clear):
+            print(f"\033[F\033[K", end="")  # Move up and clear line
+        
+        # Redraw the plan with current progress
+        print(f"\r{GREEN}│{RESET} **PLAN PROGRESS**")
+        print(f"{GREEN}│{RESET} ")
+        for i, task in enumerate(self.plan_tasks, 1):
+            task_content = task.get('content', 'Unknown task')
+            if task_content in self.completed_steps:
+                print(f"{GREEN}│{RESET} [✓] {i}. {task_content}")
+            elif task_content in [fs.split(' (Error:')[0] for fs in self.failed_steps]:
+                print(f"{GREEN}│{RESET} [✗] {i}. {task_content}")
+            elif task_content == self.current_step:
+                print(f"{GREEN}│{RESET} [⟳] {i}. {task_content}")
+            else:
+                print(f"{GREEN}│{RESET} [ ] {i}. {task_content}")
+        print(f"{GREEN}│{RESET} ")
+        print(f"{GREEN}│{RESET} ", end="", flush=True)
+    
+    def _display_plan_final(self):
+        """Update the existing plan display with final status"""
+        # Clear the existing plan display (go back to the start of the plan)
+        num_lines_to_clear = len(self.plan_tasks) + 3  # +3 for header, blank line, and footer
+        for _ in range(num_lines_to_clear):
+            print(f"\033[F\033[K", end="")  # Move up and clear line
+        
+        # Redraw the plan with final status
+        print(f"\r{GREEN}│{RESET} **PLAN COMPLETED**")
+        print(f"{GREEN}│{RESET} ")
+        for i, task in enumerate(self.plan_tasks, 1):
+            task_content = task.get('content', 'Unknown task')
+            if task_content in self.completed_steps:
+                print(f"{GREEN}│{RESET} [✓] {i}. {task_content}")
+            elif task_content in [fs.split(' (Error:')[0] for fs in self.failed_steps]:
+                print(f"{GREEN}│{RESET} [✗] {i}. {task_content}")
+            else:
+                print(f"{GREEN}│{RESET} [ ] {i}. {task_content}")
+        print(f"{GREEN}│{RESET} ")
+        print(f"{GREEN}│{RESET} ", end="", flush=True)
+    
+    def show_simple_spinner(self, message):
+        """Show simple spinner for non-plan tasks"""
+        if self.current_display_mode == "simple":
+            color_idx = self.frame_index % len(self.spinner_colors)
+            frame_idx = self.frame_index % len(self.spinner_frames)
+            spinner_part = f"{self.spinner_colors[color_idx]}{self.spinner_frames[frame_idx]}{RESET}"
+            print(f"\r{GREEN}│{RESET} {spinner_part} {message}...", end="", flush=True)
+            self.frame_index += 1
+    
+    def clear_display(self):
+        """Clear the display area"""
+        if self.current_display_mode == "simple":
+            print(f"\r{GREEN}│{RESET} {' ' * 50}", end="", flush=True)
+            print(f"\r{GREEN}│{RESET} ", end="", flush=True)
+
+
+async def _stream_request(orchestrator_url, task_data, current_operation, processing_done):
+    """Stream request to orchestrator using SSE."""
+    import aiohttp
+    import json
+    
+    # Track the final response
+    final_response = None
+    plan_tasks = []
+    
+    # Get display manager from current operation (passed by main function)
+    display_manager = current_operation.get('display_manager')
+    
+    try:
+        logger.info("sse_stream_request_start",
+                   component="client",
+                   orchestrator_url=orchestrator_url,
+                   task_id=task_data.get("task", {}).get("id", "unknown"))
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{orchestrator_url}/a2a/stream",
+                json={
+                    "jsonrpc": "2.0",
+                    "method": "process_task",
+                    "params": task_data,
+                    "id": "stream_request"
+                },
+                headers={'Accept': 'text/event-stream'}
+            ) as response:
+                logger.info("sse_stream_response_received",
+                           component="client",
+                           status_code=response.status,
+                           content_type=response.headers.get('content-type'))
+                
+                if response.status != 200:
+                    error_text = await response.text()
+                    logger.error("sse_stream_request_failed",
+                                component="client",
+                                status_code=response.status,
+                                error_text=error_text)
+                    raise Exception(f"HTTP {response.status}: {error_text}")
+                
+                logger.info("sse_stream_processing_start", component="client")
+                
+                async for line in response.content:
+                    if not line:
+                        continue
+                    
+                    line = line.decode('utf-8').strip()
+                    
+                    # Parse SSE format
+                    if line.startswith('data: '):
+                        try:
+                            data_json = line[6:]  # Remove 'data: ' prefix
+                            event_data = json.loads(data_json)
+                            
+                            event_type = event_data.get('event')
+                            data = event_data.get('data', {})
+                            
+                            # Log all received events
+                            logger.info("sse_event_received",
+                                       component="client",
+                                       event_type=event_type,
+                                       data_keys=list(data.keys()) if data else [],
+                                       raw_line=line[:100])  # First 100 chars for debugging
+                            
+                            if event_type == 'connected':
+                                logger.info("sse_connection_established", component="client")
+                                
+                            elif event_type == 'plan_created':
+                                plan = data.get('plan', {})
+                                plan_tasks = plan.get('tasks', [])
+                                
+                                # Update current operation to show plan
+                                current_operation['use_progressive'] = True
+                                current_operation['current_step'] = "Plan created"
+                                current_operation['plan_tasks'] = plan_tasks
+                                
+                                # Use display manager (Observer pattern)
+                                if display_manager:
+                                    logger.info("display_manager_update_plan_created",
+                                               component="client",
+                                               plan_task_count=len(plan_tasks),
+                                               display_mode=display_manager.current_display_mode)
+                                    display_manager.update_from_sse_event(event_type, data)
+                                else:
+                                    logger.error("display_manager_is_none",
+                                                component="client",
+                                                event_type=event_type)
+                                
+                                logger.info("plan_created_processed",
+                                           component="client",
+                                           task_count=len(plan_tasks))
+                                
+                            elif event_type == 'task_started':
+                                task = data.get('task', {})
+                                task_content = task.get('content', '')
+                                
+                                # Update current operation
+                                current_operation['current_step'] = f"Executing: {task_content}"
+                                
+                                # Use display manager (Observer pattern)
+                                if display_manager:
+                                    display_manager.update_from_sse_event(event_type, data)
+                                else:
+                                    logger.error("Display manager is None in task_started event")
+                                
+                                logger.info("task_started_event_processed",
+                                           component="client",
+                                           task_content=task_content)
+                                
+                            elif event_type == 'task_completed':
+                                task_id = data.get('task_id')
+                                success = data.get('success', False)
+                                content = data.get('content', '')
+                                
+                                # Update completed steps
+                                if success:
+                                    current_operation.setdefault('completed_steps', []).append(content)
+                                else:
+                                    current_operation.setdefault('failed_steps', []).append(content)
+                                
+                                # Use display manager (Observer pattern)
+                                display_manager.update_from_sse_event(event_type, data)
+                                
+                                logger.info("task_completed_event_processed",
+                                           component="client",
+                                           task_content=content,
+                                           success=success)
+                                
+                            elif event_type == 'task_error':
+                                task_id = data.get('task_id')
+                                error = data.get('error', '')
+                                content = data.get('content', '')
+                                
+                                # Update failed steps
+                                current_operation.setdefault('failed_steps', []).append(f"{content} (Error: {error})")
+                                
+                                # Use display manager (Observer pattern)
+                                display_manager.update_from_sse_event(event_type, data)
+                                
+                                logger.error("task_error_received",
+                                            component="client",
+                                            task_content=content,
+                                            error=error)
+                                
+                            elif event_type == 'agent_response':
+                                # This is the actual response content
+                                response_content = data.get('content', '')
+                                logger.info("agent_response_received",
+                                           component="client",
+                                           response_length=len(response_content),
+                                           response_preview=response_content[:100])
+                                
+                                final_response = {
+                                    'status': 'completed',
+                                    'artifacts': [{
+                                        'content': response_content,
+                                        'content_type': 'text/plain'
+                                    }],
+                                    'metadata': {}
+                                }
+                                
+                                logger.info("final_response_set",
+                                           component="client",
+                                           response_status=final_response['status'])
+                                
+                                # Clear spinner immediately when response is received
+                                processing_done.set()
+                                # Clear the spinner display area
+                                if display_manager:
+                                    display_manager.clear_display()
+                                
+                            elif event_type == 'plan_completed':
+                                current_operation['current_step'] = "All tasks completed"
+                                
+                                # Extract response from the completed plan
+                                plan = data.get('plan', {})
+                                tasks = plan.get('tasks', [])
+                                
+                                # Look for the response in completed tasks
+                                for task in tasks:
+                                    if (task.get('status') == 'completed' and 
+                                        task.get('result', {}).get('success') and
+                                        'result' in task.get('result', {}) and
+                                        'response' in task.get('result', {}).get('result', {})):
+                                        
+                                        response_content = task['result']['result']['response']
+                                        logger.info("response_extracted_from_plan_completed",
+                                                   component="client",
+                                                   response_content=response_content[:200])
+                                        
+                                        final_response = {
+                                            'status': 'completed',
+                                            'artifacts': [{
+                                                'content': response_content,
+                                                'content_type': 'text/plain'
+                                            }],
+                                            'metadata': {}
+                                        }
+                                        
+                                        logger.info("final_response_set_from_plan_completed",
+                                                   component="client",
+                                                   response_status=final_response['status'])
+                                        
+                                        # Clear spinner immediately when response is received
+                                        processing_done.set()
+                                        # Clear the spinner display area
+                                        if display_manager:
+                                            display_manager.clear_display()
+                                        break
+                                
+                                # Use display manager (Observer pattern)
+                                display_manager.update_from_sse_event(event_type, data)
+                                
+                                logger.info("plan_execution_completed",
+                                           component="client")
+                                
+                            elif event_type == 'completed' or event_type == 'task_completed':
+                                current_operation['current_step'] = "Processing completed"
+                                logger.info("task_processing_completed",
+                                           component="client")
+                                
+                            elif event_type == 'error':
+                                error_msg = data.get('error', 'Unknown error')
+                                final_response = {
+                                    'status': 'failed',
+                                    'error': error_msg,
+                                    'artifacts': [],
+                                    'metadata': {}
+                                }
+                                logger.error("sse_error_received",
+                                            component="client",
+                                            error_msg=error_msg)
+                                
+                        except json.JSONDecodeError as e:
+                            logger.warning("failed_to_parse_sse_data",
+                                          component="client",
+                                          line=line[:100],
+                                          error=str(e))
+                            continue
+                            
+                        except Exception as e:
+                            logger.error("error_processing_sse_event",
+                                        component="client",
+                                        error=str(e),
+                                        error_type=type(e).__name__)
+                            continue
+    
+    except Exception as e:
+        logger.error("sse_streaming_error",
+                    component="client",
+                    error=str(e),
+                    error_type=type(e).__name__)
+        final_response = {
+            'status': 'failed',
+            'error': str(e),
+            'artifacts': [],
+            'metadata': {}
+        }
+    
+    # Return the final response in A2A format
+    fallback_response = {
+        'status': 'completed',
+        'artifacts': [{
+            'content': 'Task completed successfully',
+            'content_type': 'text/plain'
+        }],
+        'metadata': {}
+    }
+    
+    result = final_response or fallback_response
+    logger.info("sse_stream_request_complete",
+               component="client",
+               using_fallback=final_response is None,
+               result_status=result['status'],
+               result_content_preview=result['artifacts'][0]['content'][:100] if result['artifacts'] else "NO_CONTENT")
+    
+    return result
 
 
 async def main():
@@ -166,12 +573,17 @@ async def main():
                 # Show processing indicator with progress polling
                 import threading
                 processing_done = threading.Event()
+                # Create display manager
+                display_manager = ProgressDisplayManager()
+                
                 current_operation = {
                     "message": "Processing",
                     "current_step": "Processing...",
                     "completed_steps": [],
                     "failed_steps": [],
-                    "use_progressive": False
+                    "plan_tasks": [],
+                    "use_progressive": False,
+                    "display_manager": display_manager
                 }
                 
                 def update_processing_context(message):
@@ -206,99 +618,18 @@ async def main():
                 # Start polling task
                 polling_task = asyncio.create_task(poll_progress())
                 
-                def indicator_worker():
-                    """Dynamic indicator that switches based on mode."""
-                    spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-                    spinner_colors = [
-                        '\033[38;5;36m',   # Cyan
-                        '\033[38;5;37m',   # Light cyan
-                        '\033[38;5;44m',   # Bright cyan
-                        '\033[38;5;45m',   # Light bright cyan
-                        '\033[38;5;51m',   # Very bright cyan
-                    ]
-                    GRAY = '\033[90m'
-                    GREEN_CHECK = '\033[32m✓\033[0m'
-                    
-                    i = 0
-                    displayed_lines = 0
-                    current_mode = None
-                    
-                    while not processing_done.is_set():
-                        use_progressive = current_operation.get("use_progressive", False)
-                        
-                        # Check if we need to switch modes
-                        if current_mode != use_progressive:
-                            # Clear any existing display
-                            if displayed_lines > 0:
-                                for _ in range(displayed_lines):
-                                    print(f"\033[F\033[K", end="")  # Move up and clear line
-                            else:
-                                print(f"\r{GREEN}│{RESET} {' ' * 50}", end="", flush=True)
-                                print(f"\r{GREEN}│{RESET} ", end="", flush=True)
-                            
-                            displayed_lines = 0
-                            current_mode = use_progressive
-                        
-                        color_idx = i % len(spinner_colors)
-                        frame_idx = i % len(spinner_frames)
-                        
-                        if use_progressive:
-                            # Progressive mode: show completed + failed steps + current step
-                            current_step = current_operation.get("current_step", "Processing...")
-                            completed_steps = current_operation.get("completed_steps", [])
-                            failed_steps = current_operation.get("failed_steps", [])
-                            
-                            # Clear previous display
-                            if displayed_lines > 0:
-                                for _ in range(displayed_lines):
-                                    print(f"\033[F\033[K", end="")  # Move up and clear line
-                            
-                            displayed_lines = 0
-                            
-                            # Show completed steps (grayed out with green checkmarks)
-                            for step in completed_steps:
-                                print(f"{GREEN}│{RESET} {GREEN_CHECK} {GRAY}{step}{RESET}")
-                                displayed_lines += 1
-                            
-                            # Show failed steps (grayed out with red X)
-                            for step in failed_steps:
-                                print(f"{GREEN}│{RESET} \033[31m✗\033[0m {GRAY}{step}{RESET}")
-                                displayed_lines += 1
-                            
-                            # Show current step (with spinner)
-                            spinner_part = f"{spinner_colors[color_idx]}{spinner_frames[frame_idx]}{RESET}"
-                            print(f"{GREEN}│{RESET} {spinner_part} {current_step}...", flush=True)
-                            displayed_lines += 1
-                        else:
-                            # Regular mode: simple spinner
-                            operation_msg = current_operation["message"]
-                            spinner_part = f"{spinner_colors[color_idx]}{spinner_frames[frame_idx]}{RESET}"
-                            display_text = f"{operation_msg}..."
-                            print(f"\r{GREEN}│{RESET} {spinner_part} {display_text}", end="", flush=True)
-                        
-                        time.sleep(0.1)
-                        i += 1
-                    
-                    # Final cleanup when processing is done
-                    if use_progressive and current_operation.get("current_step") and current_operation["current_step"] != "Processing...":
-                        # Clear the spinner line but keep completed steps visible
-                        if displayed_lines > 0:
-                            print(f"\033[F\033[K", end="")  # Clear current spinner line
-                        # Show final completed step
-                        print(f"{GREEN}│{RESET} {GREEN_CHECK} {GRAY}{current_operation['current_step']}{RESET}")
-                        print(f"{GREEN}│{RESET}")  # Add spacing line before response
-                        print(f"{GREEN}│{RESET} ", end="", flush=True)
-                    else:
-                        # Regular cleanup for non-progressive mode
-                        if displayed_lines > 0:
-                            for _ in range(displayed_lines):
-                                print(f"\033[F\033[K", end="")
-                        print(f"\r{GREEN}│{RESET} {' ' * 50}", end="", flush=True)
-                        print(f"\r{GREEN}│{RESET} ", end="", flush=True)
                 
-                indicator_thread = threading.Thread(target=indicator_worker)
-                indicator_thread.daemon = True
-                indicator_thread.start()
+                # Simple spinner for non-streaming mode
+                def simple_spinner():
+                    while not processing_done.is_set():
+                        display_manager.show_simple_spinner(current_operation["message"])
+                        time.sleep(0.1)
+                    display_manager.clear_display()
+                
+                # Start simple spinner thread (will be controlled by SSE events)
+                spinner_thread = threading.Thread(target=simple_spinner)
+                spinner_thread.daemon = True
+                spinner_thread.start()
                 
                 # Initialize context outside try block
                 context = {
@@ -306,7 +637,7 @@ async def main():
                     "source": "cli_client"
                 }
                 
-                # Send request to orchestrator via A2A
+                # Send request to orchestrator via SSE streaming
                 try:
                     start_time = time.time()
                     
@@ -314,16 +645,18 @@ async def main():
                     if interrupted_workflow:
                         context["interrupted_workflow"] = interrupted_workflow
                     
-                    result = await client.call_agent(
-                        f"{orchestrator_url}/a2a",
-                        "process_task",
+                    # Use SSE streaming for real-time updates
+                    result = await _stream_request(
+                        orchestrator_url,
                         {
                             "task": {
                                 "id": f"{current_thread_id}-{int(time.time())}",
                                 "instruction": user_input,
                                 "context": context
                             }
-                        }
+                        },
+                        current_operation,
+                        processing_done
                     )
                     
                     elapsed = time.time() - start_time
@@ -331,7 +664,11 @@ async def main():
                     # Stop processing indicator and polling
                     processing_done.set()
                     polling_task.cancel()
-                    indicator_thread.join(timeout=1.0)
+                    spinner_thread.join(timeout=1.0)
+                    
+                    # Clear any remaining spinner display
+                    print(f"\r{GREEN}│{RESET} {' ' * 50}", end="", flush=True)
+                    print(f"\r{GREEN}│{RESET} ", end="", flush=True)
                     
                     # Extract and display response
                     if result.get('status') == 'completed':
@@ -347,12 +684,15 @@ async def main():
                             # Workflow is interrupted
                             context['interrupted_workflow'] = server_workflow_state
                             interrupted_workflow = server_workflow_state
-                            logger.debug(f"Workflow interrupted: {server_workflow_state}")
+                            logger.info("workflow_interrupted",
+                                       component="client",
+                                       workflow_name=server_workflow_state.get("workflow_name"))
                         else:
                             # Workflow completed or not present - clear from context
                             context.pop('interrupted_workflow', None)
                             interrupted_workflow = None
-                            logger.debug("Workflow state cleared - no interrupted workflow")
+                            logger.info("workflow_state_cleared",
+                                       component="client")
                         
                         artifacts = result.get('artifacts', [])
                         if artifacts:  # Empty list is falsy
@@ -383,13 +723,16 @@ async def main():
                     print(f"\n{GREEN}╰{'─' * (box_width - 2)}╯{RESET}")
                     
                     # Log response time
-                    logger.debug(f"Response time: {elapsed:.2f}s")
+                    elapsed = time.time() - start_time
+                    logger.info("response_time_recorded",
+                               component="client",
+                               response_time=f"{elapsed:.2f}s")
                     
                 except Exception as e:
                     # Stop processing indicator and polling
                     processing_done.set()
                     polling_task.cancel()
-                    indicator_thread.join(timeout=1.0)
+                    spinner_thread.join(timeout=1.0)
                     
                     # Check if this is a timeout error (from A2A client)
                     is_timeout = isinstance(e, asyncio.TimeoutError) or "timed out" in str(e).lower()

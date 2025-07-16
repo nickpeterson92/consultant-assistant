@@ -30,6 +30,7 @@ class MultiFileLogger(StructuredLogger):
         'async_store_adapter_sync': 'storage.log',  # Storage alias
         'utility': 'orchestrator.log',  # Utility tools go to orchestrator log
         'extraction': 'extraction.log',  # Trustcall extraction and instruction enhancement
+        'client': 'client.log',  # CLI client SSE streaming and display
     }
     
     def __init__(self, log_dir: Optional[str] = None, level: Optional[int] = None):

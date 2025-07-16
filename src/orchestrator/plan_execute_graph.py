@@ -133,6 +133,12 @@ class PlanExecuteGraph:
                                success=True,
                                plan_created=bool(result.get("plan")),
                                task_count=len(result["plan"]["tasks"]) if result.get("plan") else 0)
+                    
+                    # Stream plan creation event (handled by A2A streaming)
+                    logger.info("plan_created_event", component="orchestrator", 
+                               plan_id=result.get("plan", {}).get("id"),
+                               task_count=len(result.get("plan", {}).get("tasks", [])))
+                    
                     return result
                 else:
                     # Plan is not complete, continue with existing plan
@@ -153,6 +159,12 @@ class PlanExecuteGraph:
                            success=True,
                            plan_created=bool(result.get("plan")),
                            task_count=len(result["plan"]["tasks"]) if result.get("plan") else 0)
+                
+                # Stream plan creation event (handled by A2A streaming)
+                logger.info("plan_created_event", component="orchestrator", 
+                           plan_id=result.get("plan", {}).get("id"),
+                           task_count=len(result.get("plan", {}).get("tasks", [])))
+                
                 return result
                 
         except Exception as e:
@@ -181,17 +193,31 @@ class PlanExecuteGraph:
         from src.utils.agents.prompts import get_planning_system_message
         system_msg = get_planning_system_message()
         
-        # Create user prompt for the specific request
-        user_prompt = f'Create an execution plan for: "{state["original_request"]}"'
-        
-        # Build the complete planning prompt using LangChain message format
+        # Build the complete planning prompt using conversation history from graph state
         from langchain_core.messages import SystemMessage, HumanMessage
-        planning_prompt = [
-            SystemMessage(content=system_msg),
-            HumanMessage(content=user_prompt)
-        ]
+        planning_prompt = [SystemMessage(content=system_msg)]
         
-        logger.info("invoking_planning_llm", component="orchestrator", prompt_length=len(str(planning_prompt)))
+        # Add conversation history from state for context
+        conversation_messages = state.get("messages", [])
+        if conversation_messages:
+            # Include the conversation history so planner understands context
+            planning_prompt.extend(conversation_messages)
+            logger.info("planning_with_context", component="orchestrator", 
+                       message_count=len(conversation_messages),
+                       context_available=True)
+        else:
+            # Fallback if no conversation history
+            planning_prompt.append(HumanMessage(content=f'Create an execution plan for: "{state["original_request"]}"'))
+            logger.info("planning_without_context", component="orchestrator", 
+                       request=state["original_request"],
+                       context_available=False)
+        
+        # Add final planning instruction
+        planning_prompt.append(HumanMessage(content=f'Based on the conversation above, create an execution plan for: "{state["original_request"]}"'))
+        
+        logger.info("invoking_planning_llm", component="orchestrator", 
+                   prompt_length=len(str(planning_prompt)),
+                   message_count=len(planning_prompt))
         
         # Generate plan using LLM factory pattern
         if self._invoke_llm:
@@ -214,10 +240,7 @@ class PlanExecuteGraph:
         
         return {
             **state,
-            "plan": plan,
-            "messages": state["messages"] + [
-                AIMessage(content=f"📋 **Execution Plan Created**\n\n{self._format_plan_display(plan)}")
-            ]
+            "plan": plan
         }
     
     async def _handle_replanning(self, state: PlanExecuteState) -> PlanExecuteState:
@@ -279,10 +302,7 @@ class PlanExecuteGraph:
         return {
             **state,
             "plan": updated_plan,
-            "plan_history": state["plan_history"] + [current_plan],
-            "messages": state["messages"] + [
-                AIMessage(content=f"📋 **Plan Updated** (v{updated_plan['version']})\n\n{self._format_plan_display(updated_plan)}")
-            ]
+            "plan_history": state["plan_history"] + [current_plan]
         }
     
     async def _agent_node(self, state: PlanExecuteState) -> PlanExecuteState:
@@ -303,6 +323,12 @@ class PlanExecuteGraph:
             return state
         
         logger.info("agent_executing_task", component="orchestrator", task_id=next_task["id"], content=next_task["content"][:100])
+        
+        # Stream task start event (handled by A2A streaming)
+        logger.info("task_started_event", component="orchestrator", 
+                   task_id=next_task["id"], 
+                   task_content=next_task["content"][:100])
+        
         
         try:
             # Execute the task
@@ -334,6 +360,12 @@ class PlanExecuteGraph:
                        task_id=next_task["id"], 
                        success=result.get("success", False))
             
+            # Stream task completion event (handled by A2A streaming)
+            logger.info("task_completed_event", component="orchestrator", 
+                       task_id=next_task["id"], 
+                       success=result.get("success", False),
+                       task_content=next_task["content"][:100])
+            
             # Create appropriate message based on success/failure
             if result.get("success"):
                 # Extract the actual response from the result structure
@@ -356,13 +388,13 @@ class PlanExecuteGraph:
                     logger.info("using_direct_orchestrator_response", component="orchestrator", 
                                task_id=next_task["id"], response_preview=message_content[:100])
                 else:
-                    message_content = f"✅ Completed: {next_task['content']}"
+                    message_content = f"[COMPLETED] {next_task['content']}"
                     logger.info("using_fallback_message", component="orchestrator", 
                                task_id=next_task["id"], message=message_content)
             else:
                 # For failed tasks, show the error
                 error_msg = result.get("error", "Task failed")
-                message_content = f"❌ Failed: {next_task['content']} - {error_msg}"
+                message_content = f"[FAILED] {next_task['content']} - {error_msg}"
             
             # Debug: Log the final message content before creating AIMessage
             logger.info("final_message_content", component="orchestrator", 
@@ -381,6 +413,12 @@ class PlanExecuteGraph:
         except Exception as e:
             logger.error("agent_task_execution_error", component="orchestrator", task_id=next_task["id"], error=str(e))
             
+            # Stream task error event (handled by A2A streaming)
+            logger.error("task_error_event", component="orchestrator", 
+                        task_id=next_task["id"], 
+                        error=str(e),
+                        task_content=next_task["content"][:100])
+            
             # Mark task as failed
             updated_tasks = []
             for task in state["plan"]["tasks"]:
@@ -397,7 +435,7 @@ class PlanExecuteGraph:
                 **state,
                 "plan": {**state["plan"], "tasks": updated_tasks},
                 "messages": state["messages"] + [
-                    AIMessage(content=f"❌ Failed: {next_task['content']} - {str(e)}")
+                    AIMessage(content=f"[FAILED] {next_task['content']} - {str(e)}")
                 ]
             }
     
@@ -458,12 +496,12 @@ class PlanExecuteGraph:
         # Simple replan: if all tasks complete, we're done
         if state["plan"] and is_plan_complete(state):
             logger.info("replan_complete", component="orchestrator", reason="all_tasks_complete")
-            return {
-                **state,
-                "messages": state["messages"] + [
-                    AIMessage(content="✅ All tasks completed successfully!")
-                ]
-            }
+            
+            # Stream plan completion event (handled by A2A streaming)
+            logger.info("plan_completed_event", component="orchestrator", 
+                       plan_id=state["plan"].get("id"))
+            
+            return state
         
         # Otherwise, continue with existing plan
         logger.info("replan_continue", component="orchestrator", reason="tasks_remaining")
@@ -507,21 +545,6 @@ class PlanExecuteGraph:
         
         return agent_state
     
-    def _format_plan_display(self, plan: ExecutionPlan) -> str:
-        """Format plan for display with checkboxes."""
-        if not plan or not plan["tasks"]:
-            return "No tasks in plan"
-        
-        lines = []
-        for i, task in enumerate(plan["tasks"], 1):
-            if task["status"] == TaskStatus.COMPLETED.value:
-                lines.append(f"✓ {i}. {task['content']}")
-            elif task["status"] == TaskStatus.FAILED.value:
-                lines.append(f"✗ {i}. {task['content']}")
-            else:
-                lines.append(f"□ {i}. {task['content']}")
-        
-        return "\n".join(lines)
     
     
     async def _parse_plan_from_text(self, plan_text: str, original_request: str, base_plan: Optional[ExecutionPlan] = None) -> ExecutionPlan:

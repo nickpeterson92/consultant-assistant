@@ -138,6 +138,7 @@ async def main(host: str, port: int):
         capabilities=list(set(all_capabilities)),  # Deduplicate
         endpoints={
             "process_task": f"http://{host}:{port}/a2a",
+            "process_task_streaming": f"http://{host}:{port}/a2a/stream",
             "agent_card": f"http://{host}:{port}/a2a/agent-card"
         },
         communication_modes=["sync", "streaming"],
@@ -185,6 +186,7 @@ async def main(host: str, port: int):
     # Create and configure A2A server
     server = A2AServer(agent_card, host, port)
     server.register_handler("process_task", handler.process_task)
+    server.register_handler("process_task_streaming", handler.process_task_with_streaming)
     server.register_handler("get_agent_card", handler.get_agent_card)
     server.register_handler("get_progress", handler.get_progress)
     
