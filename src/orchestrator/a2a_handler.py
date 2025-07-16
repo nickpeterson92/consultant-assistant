@@ -25,6 +25,7 @@ class CleanOrchestratorA2AHandler:
         self.agent_registry = agent_registry
         self.active_tasks = {}  # Track active tasks for progress
         self.streaming_clients = {}  # Track SSE clients by task_id
+        self.task_status_cache = {}  # Cache task statuses to detect changes
         
     async def process_task(self, params: Dict[str, Any]) -> A2AResponse:
         """Process A2A task using pure plan-execute graph."""
@@ -282,6 +283,8 @@ class CleanOrchestratorA2AHandler:
             del self.active_tasks[task_id]
         if task_id in self.streaming_clients:
             del self.streaming_clients[task_id]
+        if task_id in self.task_status_cache:
+            del self.task_status_cache[task_id]
     
     async def process_task_with_streaming(self, params: Dict[str, Any]) -> AsyncGenerator[str, None]:
         """Process A2A task with SSE streaming support."""
@@ -466,39 +469,60 @@ class CleanOrchestratorA2AHandler:
                         plan = node_output["plan"]
                         tasks = plan.get("tasks", [])
                         
-                        # Check if all tasks are completed/failed (plan is done)
+                        # Get cached task statuses for this task_id to detect changes
+                        cached_statuses = self.task_status_cache.get(task_id, {})
+                        
+                        # Check each task for status changes FIRST
+                        for task in tasks:
+                            task_internal_id = task.get("id", "")
+                            current_status = task.get("status", "")
+                            previous_status = cached_statuses.get(task_internal_id, "")
+                            
+                            # Update cache
+                            cached_statuses[task_internal_id] = current_status
+                            
+                            # Only emit events for newly changed statuses
+                            if current_status != previous_status:
+                                if current_status == "in_progress":
+                                    self.task_status_cache[task_id] = cached_statuses
+                                    return self._format_sse_event("task_started", {
+                                        "task_id": task_id,
+                                        "task": task,
+                                        "timestamp": datetime.now().isoformat()
+                                    })
+                                elif current_status == "completed":
+                                    self.task_status_cache[task_id] = cached_statuses
+                                    return self._format_sse_event("task_completed", {
+                                        "task_id": task_id,
+                                        "task": task,
+                                        "success": True,
+                                        "content": task.get("content", ""),
+                                        "timestamp": datetime.now().isoformat()
+                                    })
+                                elif current_status == "failed":
+                                    self.task_status_cache[task_id] = cached_statuses
+                                    return self._format_sse_event("task_error", {
+                                        "task_id": task_id,
+                                        "task": task,
+                                        "content": task.get("content", ""),
+                                        "error": task.get("error", "Task failed"),
+                                        "timestamp": datetime.now().isoformat()
+                                    })
+                        
+                        # Update cache even if no events were emitted
+                        self.task_status_cache[task_id] = cached_statuses
+                        
+                        # Check if all tasks are completed/failed (plan is done) AFTER processing individual tasks
                         all_done = all(task.get("status") in ["completed", "failed"] for task in tasks)
                         if all_done and tasks:
+                            # Include the LLM-generated summary in the plan completion event
+                            plan_summary = plan.get("summary", "")
                             return self._format_sse_event("plan_completed", {
                                 "task_id": task_id,
                                 "plan": plan,
+                                "summary": plan_summary,
                                 "timestamp": datetime.now().isoformat()
                             })
-                        
-                        # Find the most recently updated task
-                        for task in tasks:
-                            if task.get("status") == "in_progress":
-                                return self._format_sse_event("task_started", {
-                                    "task_id": task_id,
-                                    "task": task,
-                                    "timestamp": datetime.now().isoformat()
-                                })
-                            elif task.get("status") == "completed":
-                                return self._format_sse_event("task_completed", {
-                                    "task_id": task_id,
-                                    "task": task,
-                                    "success": True,
-                                    "content": task.get("content", ""),
-                                    "timestamp": datetime.now().isoformat()
-                                })
-                            elif task.get("status") == "failed":
-                                return self._format_sse_event("task_error", {
-                                    "task_id": task_id,
-                                    "task": task,
-                                    "content": task.get("content", ""),
-                                    "error": task.get("error", "Task failed"),
-                                    "timestamp": datetime.now().isoformat()
-                                })
                     
                     # Check for completed task results with response content
                     if "task_results" in node_output:
@@ -543,6 +567,20 @@ class CleanOrchestratorA2AHandler:
                         "task_id": task_id,
                         "timestamp": datetime.now().isoformat()
                     })
+                    
+                elif node_name == "plan_summary":
+                    # Summary generation occurred
+                    if "plan" in node_output and node_output["plan"].get("summary"):
+                        return self._format_sse_event("summary_generated", {
+                            "task_id": task_id,
+                            "summary": node_output["plan"]["summary"],
+                            "timestamp": datetime.now().isoformat()
+                        })
+                    else:
+                        return self._format_sse_event("summary_started", {
+                            "task_id": task_id,
+                            "timestamp": datetime.now().isoformat()
+                        })
             
             # Generic node update
             return self._format_sse_event("node_update", {

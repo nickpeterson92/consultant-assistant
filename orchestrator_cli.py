@@ -67,12 +67,17 @@ class ProgressDisplayManager:
                 self._display_plan_progress()
         
         elif event_type == 'task_completed':
-            content = data.get('content', '')
+            # Handle individual task completion within the plan
+            task = data.get('task', {})
+            task_content = task.get('content', data.get('content', ''))
             success = data.get('success', False)
+            
             if success:
-                self.completed_steps.append(content)
+                self.completed_steps.append(task_content)
             else:
-                self.failed_steps.append(content)
+                self.failed_steps.append(task_content)
+            
+            # Update the plan display if we're in plan mode
             if self.current_display_mode == "plan":
                 self._display_plan_progress()
         
@@ -107,7 +112,7 @@ class ProgressDisplayManager:
             print(f"\033[F\033[K", end="")  # Move up and clear line
         
         # Redraw the plan with current progress
-        print(f"\r{GREEN}│{RESET} **PLAN PROGRESS**")
+        print(f"\r{GREEN}│{RESET} **EXECUTION PLAN**")
         print(f"{GREEN}│{RESET} ")
         for i, task in enumerate(self.plan_tasks, 1):
             task_content = task.get('content', 'Unknown task')
@@ -116,7 +121,7 @@ class ProgressDisplayManager:
             elif task_content in [fs.split(' (Error:')[0] for fs in self.failed_steps]:
                 print(f"{GREEN}│{RESET} [✗] {i}. {task_content}")
             elif task_content == self.current_step:
-                print(f"{GREEN}│{RESET} [⟳] {i}. {task_content}")
+                print(f"{GREEN}│{RESET} [→] {i}. {task_content}")
             else:
                 print(f"{GREEN}│{RESET} [ ] {i}. {task_content}")
         print(f"{GREEN}│{RESET} ")
@@ -332,44 +337,83 @@ async def _stream_request(orchestrator_url, task_data, current_operation, proces
                                 if display_manager:
                                     display_manager.clear_display()
                                 
+                            elif event_type == 'summary_generated':
+                                # LLM-generated summary is ready
+                                summary_content = data.get('summary', '')
+                                
+                                if summary_content:
+                                    logger.info("llm_summary_received",
+                                               component="client",
+                                               summary_length=len(summary_content),
+                                               response_content=summary_content[:200])
+                                    
+                                    final_response = {
+                                        'status': 'completed',
+                                        'artifacts': [{
+                                            'content': summary_content,
+                                            'content_type': 'text/plain'
+                                        }],
+                                        'metadata': {}
+                                    }
+                                    
+                                    logger.info("final_response_set_from_summary",
+                                               component="client",
+                                               response_status=final_response['status'])
+                                    
+                                    # Clear spinner immediately when summary is received
+                                    processing_done.set()
+                                    # Clear the spinner display area
+                                    if display_manager:
+                                        display_manager.clear_display()
+                                
                             elif event_type == 'plan_completed':
                                 current_operation['current_step'] = "All tasks completed"
                                 
-                                # Extract response from the completed plan
+                                # Extract LLM-generated summary from the completed plan
                                 plan = data.get('plan', {})
-                                tasks = plan.get('tasks', [])
+                                plan_summary = data.get('summary', '')
                                 
-                                # Look for the response in completed tasks
-                                for task in tasks:
-                                    if (task.get('status') == 'completed' and 
-                                        task.get('result', {}).get('success') and
-                                        'result' in task.get('result', {}) and
-                                        'response' in task.get('result', {}).get('result', {})):
-                                        
-                                        response_content = task['result']['result']['response']
-                                        logger.info("response_extracted_from_plan_completed",
-                                                   component="client",
-                                                   response_content=response_content[:200])
-                                        
-                                        final_response = {
-                                            'status': 'completed',
-                                            'artifacts': [{
-                                                'content': response_content,
-                                                'content_type': 'text/plain'
-                                            }],
-                                            'metadata': {}
-                                        }
-                                        
-                                        logger.info("final_response_set_from_plan_completed",
-                                                   component="client",
-                                                   response_status=final_response['status'])
-                                        
-                                        # Clear spinner immediately when response is received
-                                        processing_done.set()
-                                        # Clear the spinner display area
-                                        if display_manager:
-                                            display_manager.clear_display()
-                                        break
+                                # Use the LLM-generated summary if available, otherwise extract from first task
+                                if plan_summary:
+                                    response_content = plan_summary
+                                    logger.info("llm_summary_extracted_from_plan_completed",
+                                               component="client",
+                                               response_content=response_content[:200])
+                                else:
+                                    # Fallback to first task response if no summary
+                                    tasks = plan.get('tasks', [])
+                                    response_content = "Plan execution completed"
+                                    
+                                    for task in tasks:
+                                        if (task.get('status') == 'completed' and 
+                                            task.get('result', {}).get('success') and
+                                            'result' in task.get('result', {}) and
+                                            'response' in task.get('result', {}).get('result', {})):
+                                            response_content = task['result']['result']['response']
+                                            break
+                                    
+                                    logger.info("fallback_response_extracted_from_plan_completed",
+                                               component="client",
+                                               response_content=response_content[:200])
+                                
+                                final_response = {
+                                    'status': 'completed',
+                                    'artifacts': [{
+                                        'content': response_content,
+                                        'content_type': 'text/plain'
+                                    }],
+                                    'metadata': {}
+                                }
+                                
+                                logger.info("final_response_set_from_plan_completed",
+                                           component="client",
+                                           response_status=final_response['status'])
+                                
+                                # Clear spinner immediately when response is received
+                                processing_done.set()
+                                # Clear the spinner display area
+                                if display_manager:
+                                    display_manager.clear_display()
                                 
                                 # Use display manager (Observer pattern)
                                 display_manager.update_from_sse_event(event_type, data)

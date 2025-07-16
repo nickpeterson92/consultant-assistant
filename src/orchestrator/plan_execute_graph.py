@@ -47,6 +47,7 @@ class PlanExecuteGraph:
         builder.add_node("planner", self._planner_node)
         builder.add_node("agent", self._agent_node)  
         builder.add_node("replan", self._replan_node)
+        builder.add_node("plan_summary", self._summary_node)
         
         # Entry point
         logger.info("adding_edges", component="orchestrator")
@@ -76,6 +77,15 @@ class PlanExecuteGraph:
             self._route_after_replan,
             {
                 "execute": "agent",
+                "plan_summary": "plan_summary",
+                "end": END
+            }
+        )
+        
+        builder.add_conditional_edges(
+            "plan_summary",
+            self._route_after_summary,
+            {
                 "end": END
             }
         )
@@ -460,11 +470,9 @@ class PlanExecuteGraph:
         return route
     
     def _route_after_execution(self, state: PlanExecuteState) -> str:
-        """Route after agent execution - replan if more tasks needed, otherwise end."""
-        if state["plan"] and not is_plan_complete(state):
-            route = "replan"
-        else:
-            route = "end"
+        """Route after agent execution - always go to replan to decide next step."""
+        # Always route to replan - let replan decide if we need summary or end
+        route = "replan"
             
         logger.info("route_after_agent_execution",
                    component="orchestrator",
@@ -473,15 +481,18 @@ class PlanExecuteGraph:
         return route
     
     def _route_after_replan(self, state: PlanExecuteState) -> str:
-        """Route after replanning - execute new tasks or end."""
-        if state["plan"] and state["plan"]["tasks"]:
+        """Route after replanning - execute new tasks or summarize if complete."""
+        if state["plan"] and is_plan_complete(state):
+            route = "plan_summary"
+        elif state["plan"] and state["plan"]["tasks"]:
             route = "execute"
         else:
-            route = "end"
+            route = "end"  # Fallback for empty plans
             
-        logger.info("route_after_replan_to_agent",
+        logger.info("route_after_replan",
                    component="orchestrator",
                    has_plan=bool(state["plan"]),
+                   plan_complete=is_plan_complete(state) if state.get("plan") else False,
                    task_count=len(state["plan"]["tasks"]) if state["plan"] else 0,
                    route=route)
         return route
@@ -506,6 +517,143 @@ class PlanExecuteGraph:
         # Otherwise, continue with existing plan
         logger.info("replan_continue", component="orchestrator", reason="tasks_remaining")
         return state
+    
+    def _summary_node(self, state: PlanExecuteState) -> PlanExecuteState:
+        """Summary node - generates LLM summary for multi-task plans only."""
+        plan = state.get("plan", {})
+        tasks = plan.get("tasks", [])
+        task_count = len(tasks)
+        
+        logger.info("summary_node_start",
+                   component="orchestrator",
+                   plan_id=plan.get("id") if plan else "none",
+                   task_count=task_count)
+        
+        # Only generate LLM summary for multi-task plans (>1 task)
+        if task_count > 1:
+            logger.info("generating_llm_summary_for_multi_task_plan",
+                       component="orchestrator",
+                       task_count=task_count)
+            
+            summary = self._generate_plan_completion_summary(state)
+            
+            # Add the summary to the state
+            if state.get("plan"):
+                state["plan"]["summary"] = summary
+        else:
+            # For single-task plans, extract the direct task response
+            logger.info("extracting_direct_response_for_single_task_plan",
+                       component="orchestrator",
+                       task_count=task_count)
+            
+            summary = ""
+            if tasks:
+                task = tasks[0]
+                if (task.get("result", {}).get("success") and 
+                    "result" in task.get("result", {}) and 
+                    "response" in task.get("result", {}).get("result", {})):
+                    summary = task["result"]["result"]["response"]
+            
+            # Use direct response for single-task plans
+            if state.get("plan"):
+                state["plan"]["summary"] = summary
+        
+        logger.info("summary_node_complete",
+                   component="orchestrator",
+                   plan_id=plan.get("id") if plan else "none",
+                   task_count=task_count,
+                   is_multi_task=task_count > 1,
+                   summary_generated=bool(summary),
+                   summary_length=len(summary) if summary else 0)
+        
+        return state
+    
+    def _route_after_summary(self, state: PlanExecuteState) -> str:
+        """Route after summary generation - always go to end."""
+        logger.info("route_after_summary", component="orchestrator", route="end")
+        return "end"
+    
+    def _generate_plan_completion_summary(self, state: PlanExecuteState) -> str:
+        """Generate an LLM summary of the completed plan execution."""
+        try:
+            plan = state.get("plan", {})
+            tasks = plan.get("tasks", [])
+            original_request = state.get("original_request", "")
+            
+            # Collect task results
+            completed_tasks = []
+            failed_tasks = []
+            
+            for task in tasks:
+                task_content = task.get("content", "Unknown task")
+                task_status = task.get("status", "unknown")
+                
+                if task_status == "completed":
+                    # Extract task response if available
+                    task_response = "Completed successfully"
+                    if (task.get("result", {}).get("success") and 
+                        "result" in task.get("result", {}) and 
+                        "response" in task.get("result", {}).get("result", {})):
+                        task_response = task["result"]["result"]["response"]
+                    
+                    completed_tasks.append({
+                        "task": task_content,
+                        "response": task_response
+                    })
+                elif task_status == "failed":
+                    error_msg = task.get("error", "Unknown error")
+                    failed_tasks.append({
+                        "task": task_content,
+                        "error": error_msg
+                    })
+            
+            # Create summary prompt
+            summary_prompt = f"""Please provide a concise executive summary of the following plan execution:
+
+**Original Request:** {original_request}
+
+**Completed Tasks ({len(completed_tasks)}):**
+"""
+            
+            for i, task_info in enumerate(completed_tasks, 1):
+                summary_prompt += f"{i}. {task_info['task']}\n   Result: {task_info['response']}\n\n"
+            
+            if failed_tasks:
+                summary_prompt += f"**Failed Tasks ({len(failed_tasks)}):**\n"
+                for i, task_info in enumerate(failed_tasks, 1):
+                    summary_prompt += f"{i}. {task_info['task']}\n   Error: {task_info['error']}\n\n"
+            
+            summary_prompt += """
+Please provide a brief, professional summary that:
+1. Acknowledges what was requested
+2. Summarizes what was accomplished
+3. Highlights any key results or outcomes
+4. Notes any issues if applicable
+
+Keep the summary concise but informative."""
+            
+            # Generate summary using the LLM
+            from langchain_core.messages import HumanMessage
+            logger.info("generating_plan_summary", 
+                       component="orchestrator",
+                       completed_count=len(completed_tasks),
+                       failed_count=len(failed_tasks))
+            
+            summary_response = self._invoke_llm([HumanMessage(content=summary_prompt)])
+            summary = summary_response.content if hasattr(summary_response, 'content') else str(summary_response)
+            
+            logger.info("plan_summary_generated", 
+                       component="orchestrator",
+                       summary_length=len(summary),
+                       summary_preview=summary[:200])
+            
+            return summary
+            
+        except Exception as e:
+            logger.error("plan_summary_generation_error",
+                        component="orchestrator",
+                        error=str(e))
+            return f"Plan execution completed with {len([t for t in tasks if t.get('status') == 'completed'])} tasks completed successfully."
     
     # ================================
     # Helper Methods
