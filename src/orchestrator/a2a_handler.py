@@ -1,443 +1,278 @@
-"""A2A handler for the orchestrator agent."""
+"""Clean A2A handler for pure plan-execute orchestrator."""
 
 import uuid
-from typing import Dict, Any, Optional, cast
-from langchain_core.messages import HumanMessage, SystemMessage
+from typing import Dict, Any
+
+from langchain_core.messages import HumanMessage
+# Command will be imported when needed
 
 from src.utils.logging import get_logger
-from src.utils.config import get_conversation_config, get_llm_config
-from src.utils.agents.prompts import orchestrator_a2a_sys_msg
-from .types import A2AResponse, A2AContext, A2AMetadata
+from src.utils.config import get_conversation_config
+from .types import A2AResponse, A2AMetadata
 
 logger = get_logger("orchestrator")
 
 
-class OrchestratorA2AHandler:
-    """Handles A2A protocol requests for the Orchestrator agent"""
+class CleanOrchestratorA2AHandler:
+    """Clean A2A handler that delegates to pure plan-execute graph."""
     
-    def __init__(self, graph, agent_registry):
-        self.graph = graph
+    def __init__(self, plan_execute_graph, agent_registry):
+        """Initialize with plan-execute graph and agent registry."""
+        self.graph = plan_execute_graph
         self.agent_registry = agent_registry
-        # Progress tracking for active tasks
-        self.active_progress = {}
+        self.active_tasks = {}  # Track active tasks for progress
         
     async def process_task(self, params: Dict[str, Any]) -> A2AResponse:
-        """Process A2A task using the orchestrator graph"""
-        # Initialize task_id outside try block for error handling
+        """Process A2A task using pure plan-execute graph."""
         task_id = "unknown"
         
         try:
-            # A2A protocol wraps task in "task" key
-            task_data = params.get("task", params)  # Support both wrapped and unwrapped
-            task_id = task_data.get("id", task_data.get("task_id", "unknown"))
+            # Extract task data
+            task_data = params.get("task", params)
+            task_id = task_data.get("id", task_data.get("task_id", str(uuid.uuid4())[:8]))
             instruction = task_data.get("instruction", "")
             context = task_data.get("context", {})
             
-            # Log task start
-            logger.info(message="orchestrator_a2a_task_start",
-                component="orchestrator",
-                operation="process_a2a_task",
-                task_id=task_id,
-                instruction_preview=instruction[:100] if instruction else "",
-                instruction_length=len(instruction) if instruction else 0,
-                context_keys=list(context.keys()) if context else [],
-                context_size=len(str(context)) if context else 0,
-                source=context.get("source", "unknown")
-            )
+            logger.info("a2a_task_start", 
+                       component="orchestrator",
+                       task_id=task_id,
+                       instruction=instruction)
             
-            # Get configuration
-            conv_config = get_conversation_config()
-            llm_config = get_llm_config()
-            
-            # Create thread ID for this task - use from context if provided
+            # Create thread ID
             thread_id = context.get("thread_id", f"a2a-{task_id}-{str(uuid.uuid4())[:8]}")
-            
-            # Debug logging
-            logger.info(message="thread_id_debug",
-                component="orchestrator",
-                operation="process_a2a_task",
-                context_thread_id=context.get("thread_id"),
-                final_thread_id=thread_id,
-                task_id=task_id
-            )
             
             # Configuration for the graph
             config = {
                 "configurable": {
                     "thread_id": thread_id,
-                    "user_id": context.get("user_id", conv_config.default_user_id),
-                    "_a2a_handler": self  # Pass handler for progress tracking
-                },
-                "recursion_limit": llm_config.recursion_limit
+                    "user_id": context.get("user_id", "a2a_user")
+                }
             }
             
-            # Get agent registry stats for context
-            stats = self.agent_registry.get_registry_stats()
-            
-            # Check if this is an interactive CLI session or a true A2A task
-            is_interactive_cli = context.get("source") == "cli_client"
-            
-            if is_interactive_cli:
-                # Use the regular orchestrator system message for interactive sessions
-                from src.orchestrator.llm_handler import get_orchestrator_system_message
-                
-                # Create a minimal state for system message generation
-                from src.orchestrator.state import OrchestratorState
-                minimal_state = cast(OrchestratorState, {
-                    "messages": [],
-                    "summary": "No summary available",
-                    "memory": {},
-                    "active_agents": [],
-                    "last_agent_interaction": {},
-                    "background_operations": [],
-                    "background_results": {},
-                    # Workflow fields removed - functionality moved to plan-and-execute
-                    "last_summary_trigger": None,
-                    "last_memory_trigger": None,
-                    "tool_calls_since_memory": 0,
-                    "agent_calls_since_memory": 0
-                })
-                
-                system_message_content = get_orchestrator_system_message(minimal_state, self.agent_registry)
-                
-                logger.info(message="using_interactive_system_message",
-                    component="orchestrator",
-                    operation="process_a2a_task",
-                    task_id=task_id,
-                    mode="interactive_cli"
-                )
-            else:
-                # Use A2A-specific message for true A2A tasks
-                system_message_content = orchestrator_a2a_sys_msg(
-                    task_context={"task_id": task_id, "instruction": instruction},
-                    external_context=context,
-                    agent_stats=stats
-                )
-                
-                logger.info(message="using_a2a_system_message",
-                    component="orchestrator",
-                    operation="process_a2a_task",
-                    task_id=task_id,
-                    mode="single_task"
-                )
-            
-            # Check if we have existing state for this thread
-            existing_state = None
-            try:
-                # Get the current state snapshot
-                existing_state = await self.graph.aget_state(config)
-                if existing_state and existing_state.values:
-                    logger.info(message="existing_state_found",
-                        component="orchestrator",
-                        operation="process_a2a_task",
-                        thread_id=thread_id,
-                        message_count=len(existing_state.values.get("messages", [])),
-                        has_memory=bool(existing_state.values.get("memory"))
-                    )
-            except Exception as e:
-                logger.info(message="get_state_error",
-                    component="orchestrator",
-                    operation="process_a2a_task",
-                    thread_id=thread_id,
-                    error=str(e),
-                    error_type=type(e).__name__
-                )
-            
-            # Simplified state management - workflow interruption removed
-            if existing_state and existing_state.values and existing_state.values.get("messages"):
-                # Continue existing conversation
-                initial_state = {
-                    "messages": [HumanMessage(content=instruction)],
-                    "background_operations": [],
-                    "background_results": {}
-                }
-            else:
-                # Start new conversation
-                initial_state = {
-                    "messages": [
-                        SystemMessage(content=system_message_content),
-                        HumanMessage(content=instruction)
-                    ],
-                    "background_operations": [],
-                    "background_results": {}
-                }
-            
-            # Set up progress tracking for A2A mode
-            from .progress_state import set_progress_functions
-            
-            # Create progress tracking functions that update the A2A handler's progress store
-            def update_progressive_step_a2a(step_text, completed_steps=None, failed_steps=None):
-                logger.info("a2a_progressive_step_called",
-                    component="orchestrator",
-                    step_text=step_text,
-                    completed_count=len(completed_steps) if completed_steps else 0,
-                    failed_count=len(failed_steps) if failed_steps else 0
-                )
-                progress_data = {
-                    "current_step": step_text,
-                    "completed_steps": completed_steps or [],
-                    "failed_steps": failed_steps or [],
-                    "total_steps": []  # Will be populated by conversation handler
-                }
-                self.update_progress(thread_id, progress_data)
-            
-            def complete_current_step_a2a(success=True):
-                logger.info("a2a_complete_step_called",
-                    component="orchestrator",
-                    success=success
-                )
-                # Get current progress and update it
-                current_progress = self.active_progress.get(thread_id, {})
-                current_step = current_progress.get("current_step", "")
-                completed_steps = current_progress.get("completed_steps", [])
-                failed_steps = current_progress.get("failed_steps", [])
-                
-                if current_step:
-                    if success:
-                        completed_steps.append(current_step)
-                    else:
-                        failed_steps.append(current_step)
-                
-                progress_data = {
-                    "current_step": None,  # Clear current step
-                    "completed_steps": completed_steps,
-                    "failed_steps": failed_steps,
-                    "total_steps": current_progress.get("total_steps", [])
-                }
-                self.update_progress(thread_id, progress_data)
-            
-            # Create a dummy current_operation for progress state
-            current_operation = {
-                "message": "Processing",
-                "current_step": "",
-                "completed_steps": [],
-                "failed_steps": [],
-                "use_progressive": True
+            # Track this task
+            self.active_tasks[task_id] = {
+                "thread_id": thread_id,
+                "instruction": instruction,
+                "status": "processing"
             }
             
-            # Set up progress functions for this request
-            set_progress_functions(current_operation, update_progressive_step_a2a, complete_current_step_a2a)
-            
-            # Execute graph
-            result = await self.graph.ainvoke(initial_state, config)
-            
-            # Clean up progress state after execution
-            from .progress_state import clear_progress_functions
-            clear_progress_functions()
-            
-            # Debug the result structure
-            logger.info(message="graph_invoke_result",
-                component="orchestrator",
-                operation="process_a2a_task",
-                task_id=task_id,
-                result_keys=list(result.keys()) if isinstance(result, dict) else "not_dict",
-                message_count=len(result.get("messages", [])) if isinstance(result, dict) else 0,
-                has_memory="memory" in result if isinstance(result, dict) else False
-            )
-            
-            # Extract response content
-            messages = result.get("messages", [])
-            response_content = "Task completed successfully"
-            
-            # Workflow interrupts are now handled by LangGraph's native interrupt functionality
-            
-            if messages:
-                # Check for any tool response messages first (most recent)
-                for msg in reversed(messages):
-                    if hasattr(msg, 'name') and hasattr(msg, 'content') and msg.content:
-                        # This is a tool response message
-                        logger.info(message="found_tool_response_message",
-                            component="orchestrator",
-                            operation="process_a2a_task",
-                            tool_name=msg.name,
-                            content_preview=msg.content[:100]
-                        )
-                        response_content = msg.content
-                        break
-                else:
-                    # If no tool response message, find the last AI message
-                    for msg in reversed(messages):
-                        if hasattr(msg, 'content') and msg.content and not hasattr(msg, 'tool_calls'):
-                            response_content = msg.content
-                            break
-            
-            # Log tool calls found in messages
-            for msg in messages:
-                if hasattr(msg, 'tool_calls') and msg.tool_calls:
-                    for tool_call in msg.tool_calls:
-                        # Handle both dict and object access patterns
-                        if isinstance(tool_call, dict):
-                            tool_name = tool_call.get("name", "unknown")
-                            tool_args = tool_call.get("args", {})
-                        else:
-                            tool_name = getattr(tool_call, "name", "unknown")
-                            tool_args = getattr(tool_call, "args", {})
+            # Check if we're resuming from an interrupt
+            if context.get("resume_data"):
+                # Resume from interrupt
+                from langgraph.pregel import Command #type: ignore[import]
+                result = await self.graph.graph.ainvoke(
+                    Command(resume=context["resume_data"]),
+                    config
+                )
+            else:
+                # Load existing state or create fresh state
+                try:
+                    # Try to get existing state from the graph checkpointer
+                    existing_state = self.graph.graph.get_state(config)
+                    
+                    if existing_state and existing_state.values:
+                        # Continue existing conversation
+                        logger.info("continuing_conversation", 
+                                   component="orchestrator",
+                                   task_id=task_id,
+                                   thread_id=thread_id,
+                                   existing_messages=len(existing_state.values.get("messages", [])),
+                                   existing_plan=bool(existing_state.values.get("plan")))
                         
-                        logger.info(message="tool_call",
-                            component="orchestrator",
-                            task_id=task_id,
-                            tool_name=tool_name,
-                            tool_args=tool_args
-                        )
+                        # Add new message to existing state
+                        new_message = HumanMessage(content=instruction)
+                        updated_state = existing_state.values.copy()
+                        updated_state["messages"] = updated_state.get("messages", []) + [new_message]
+                        updated_state["original_request"] = instruction  # Update with latest request
+                        
+                        result = await self.graph.graph.ainvoke(updated_state, config)
+                        
+                    else:
+                        # Start new conversation with fresh state
+                        logger.info("starting_new_conversation", 
+                                   component="orchestrator",
+                                   task_id=task_id,
+                                   thread_id=thread_id,
+                                   instruction=instruction)
+                        
+                        from .plan_execute_state import create_initial_state
+                        initial_state = create_initial_state(instruction)
+                        initial_state["messages"] = [HumanMessage(content=instruction)]
+                        
+                        result = await self.graph.graph.ainvoke(initial_state, config)
+                        
+                except Exception as state_error:
+                    logger.warning("state_loading_error", 
+                                 component="orchestrator",
+                                 task_id=task_id,
+                                 error=str(state_error),
+                                 fallback_to_fresh_state=True)
+                    
+                    # Fallback to fresh state if state loading fails
+                    from .plan_execute_state import create_initial_state
+                    initial_state = create_initial_state(instruction)
+                    initial_state["messages"] = [HumanMessage(content=instruction)]
+                    
+                    result = await self.graph.graph.ainvoke(initial_state, config)
+                
+                logger.info("graph_invoke_start", 
+                           component="orchestrator",
+                           task_id=task_id,
+                           instruction=instruction)
+                
+                print("🚀 DEBUG: About to invoke graph - this should appear in console")
+                logger.info("about_to_invoke_graph", result_plan=result.get("plan"))
+                print("✅ DEBUG: Graph invocation returned - this should appear in console")
+                logger.info("graph_invocation_returned", result_plan=result.get("plan"))
+                
+                logger.info("graph_invoke_complete", 
+                           component="orchestrator",
+                           task_id=task_id,
+                           plan_status=result.get("plan", {}).get("status", "no_plan"))
             
-            # Log task completion
-            logger.info(message="orchestrator_a2a_task_complete",
-                component="orchestrator",
-                operation="process_a2a_task",
-                task_id=task_id,
-                success=True,
-                response_preview=response_content[:200]
-            )
+            # Extract response
+            response_content = self._extract_response_content(result)
             
-            # Build typed response
-            metadata: A2AMetadata = {}
+            # Mark task as complete
+            self.active_tasks[task_id]["status"] = "completed"
             
-            response: A2AResponse = {
+            logger.info("a2a_task_complete",
+                       component="orchestrator", 
+                       task_id=task_id,
+                       success=True)
+            
+            return {
                 "artifacts": [{
-                    "id": f"orchestrator-response-{task_id}",
+                    "id": f"orchestrator-{task_id}",
                     "task_id": task_id,
                     "content": response_content,
                     "content_type": "text/plain"
                 }],
                 "status": "completed",
-                "metadata": metadata,
+                "metadata": {},
                 "error": None
             }
             
-            logger.info(
-                message="a2a_response_completed",
-                component="orchestrator",
-                operation="process_a2a_task",
-                task_id=task_id,
-                note="Task completed successfully"
-            )
-            
-            return response
-            
         except Exception as e:
-            error_msg = str(e)
-            # Check for specific error types
-            if "GraphRecursionError" in type(e).__name__ or "recursion limit" in error_msg.lower():
-                error_msg = "Task complexity exceeded maximum iterations. Please try breaking down the request into smaller tasks."
-            elif "GRAPH_RECURSION_LIMIT" in error_msg:
-                error_msg = "Too many tool calls required. Please simplify your request."
-                
-            logger.error("orchestrator_a2a_task_error",
-                component="orchestrator",
-                operation="process_a2a_task",
-                task_id=task_id,
-                error=str(e),
-                error_type=type(e).__name__
-            )
+            logger.error("a2a_task_error",
+                        component="orchestrator",
+                        task_id=task_id,
+                        error=str(e))
             
-            error_response: A2AResponse = {
+            # Mark task as failed
+            if task_id in self.active_tasks:
+                self.active_tasks[task_id]["status"] = "failed"
+            
+            return {
                 "artifacts": [{
                     "id": f"orchestrator-error-{task_id}",
                     "task_id": task_id,
-                    "content": f"Error processing orchestrator request: {error_msg}",
+                    "content": f"Error: {str(e)}",
                     "content_type": "text/plain"
                 }],
                 "status": "failed",
-                "metadata": {},  # Empty metadata on error
-                "error": error_msg
+                "metadata": {},
+                "error": str(e)
             }
-            return error_response
+    
+    def _extract_response_content(self, result: Dict[str, Any]) -> str:
+        """Extract meaningful response content from graph result."""
+        if not isinstance(result, dict):
+            return "Task completed"
+        
+        messages = result.get("messages", [])
+        if not messages:
+            return "Task completed"
+        
+        # Debug: Log all messages to understand the structure
+        logger.info("extracting_response_content", 
+                   component="orchestrator",
+                   message_count=len(messages),
+                   message_types=[type(msg).__name__ for msg in messages])
+        
+        # Find the last AI message (should be the final result)
+        for msg in reversed(messages):
+            logger.info("examining_message", 
+                       component="orchestrator",
+                       message_type=type(msg).__name__,
+                       has_content=hasattr(msg, 'content'),
+                       content_preview=msg.content[:100] if hasattr(msg, 'content') and msg.content else "NO_CONTENT")
+            
+            if hasattr(msg, 'content') and msg.content:
+                # Check if this is an AI message
+                is_ai_message = type(msg).__name__ == "AIMessage"
+                has_tool_calls = hasattr(msg, 'tool_calls') and msg.tool_calls
+                is_system_message = msg.content.startswith("You are")
+                
+                logger.info("message_analysis",
+                           component="orchestrator",
+                           message_type=type(msg).__name__,
+                           is_ai_message=is_ai_message,
+                           has_tool_calls=has_tool_calls,
+                           is_system_message=is_system_message)
+                
+                # Skip system messages and tool calls, but focus on AI messages
+                if (not has_tool_calls and 
+                    not is_system_message and
+                    is_ai_message):
+                    logger.info("selected_response_message", 
+                               component="orchestrator",
+                               message_type=type(msg).__name__,
+                               content=msg.content)
+                    return msg.content
+        
+        logger.warning("no_ai_message_found", component="orchestrator")
+        return "Task completed"
     
     async def get_agent_card(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Return the Orchestrator agent card with current agent status"""
-        # Get fresh stats to ensure we have the latest state
+        """Return orchestrator agent card."""
         stats = self.agent_registry.get_registry_stats()
         
-        # Get capabilities from all registered agents
-        all_capabilities = []
-        capabilities_by_agent = {}
-        online_agent_names = []
+        # Get online agent capabilities
+        all_capabilities = ["orchestration", "task_routing", "multi_agent_coordination"]
+        online_agents = []
         
-        # Get detailed agent info for better metadata
         for agent in self.agent_registry.list_agents():
-            logger.debug(f"Checking agent {agent.name}: status={agent.status}, has_card={agent.agent_card is not None}")
-            if agent.status == "online":
-                agent_caps = agent.agent_card.capabilities
-                capabilities_by_agent[agent.name] = agent_caps
-                all_capabilities.extend(agent_caps)
-                online_agent_names.append(agent.name)
-        
-        # Add orchestrator-specific capabilities
-        orchestrator_capabilities = [
-            "orchestration",
-            "task_routing", 
-            "multi_agent_coordination",
-            "context_management",
-            "conversation_memory",
-            "web_search"
-        ]
-        all_capabilities.extend(orchestrator_capabilities)
-        capabilities_by_agent["orchestrator"] = orchestrator_capabilities
-        
-        # Log the current state for debugging
-        logger.info(message="agent_card_requested",
-            component="orchestrator",
-            operation="get_agent_card",
-            total_agents=stats['total_agents'],
-            online_agents=stats['online_agents'],
-            online_agent_names=online_agent_names
-        )
+            if agent.status == "online" and agent.agent_card:
+                online_agents.append(agent.name)
+                all_capabilities.extend(agent.agent_card.capabilities)
         
         return {
             "name": "orchestrator",
-            "version": "1.0.0",
-            "description": "Multi-agent orchestrator that coordinates between specialized agents for complex tasks",
-            "capabilities": list(set(all_capabilities)),  # Deduplicate
+            "version": "2.0.0",
+            "description": "Pure plan-and-execute orchestrator for multi-agent coordination",
+            "capabilities": list(set(all_capabilities)),
             "endpoints": {
                 "process_task": "/a2a",
                 "agent_card": "/a2a/agent-card"
             },
-            "communication_modes": ["sync", "streaming"],
+            "communication_modes": ["sync"],
             "metadata": {
-                "framework": "langgraph",
-                "registered_agents": stats['total_agents'],
-                "online_agents": stats['online_agents'],
-                "offline_agents": stats['offline_agents'],
-                "memory_type": "sqlite_with_background_tasks",
-                "capabilities_by_agent": capabilities_by_agent,
-                "online_agent_names": online_agent_names
+                "framework": "langgraph-pure-plan-execute",
+                "registered_agents": stats["total_agents"],
+                "online_agents": stats["online_agents"],
+                "online_agent_names": online_agents
             }
         }
     
     async def get_progress(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Get progress updates for an active task"""
+        """Get progress for active task."""
         task_id = params.get("task_id")
-        thread_id = params.get("thread_id")
         
-        if not task_id and not thread_id:
+        if not task_id or task_id not in self.active_tasks:
             return {
                 "success": False,
                 "data": {},
-                "message": "task_id or thread_id required"
+                "message": "Task not found"
             }
-        
-        # Look up progress by task_id or thread_id
-        progress_key = task_id or thread_id
-        progress_data = self.active_progress.get(progress_key, {})
         
         return {
             "success": True,
-            "data": progress_data,
-            "message": "Progress data retrieved"
+            "data": self.active_tasks[task_id],
+            "message": "Progress retrieved"
         }
     
-    def update_progress(self, task_id: str, progress_data: Dict[str, Any]):
-        """Update progress for a task (called by conversation handler)"""
-        self.active_progress[task_id] = progress_data
-        logger.info("progress_updated", 
-                   component="orchestrator",
-                   task_id=task_id,
-                   progress_data=progress_data)
-    
-    def clear_progress(self, task_id: str):
-        """Clear progress for a completed task"""
-        if task_id in self.active_progress:
-            del self.active_progress[task_id]
-            logger.info("progress_cleared", 
-                       component="orchestrator",
-                       task_id=task_id)
+    def cleanup_task(self, task_id: str):
+        """Clean up completed task."""
+        if task_id in self.active_tasks:
+            del self.active_tasks[task_id]

@@ -13,48 +13,6 @@ from src.utils.logging import get_logger
 logger = get_logger()
 
 
-class TaskStatus(Enum):
-    """Status of a task in the plan-and-execute system."""
-    PENDING = "pending"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-
-
-class TaskPriority(Enum):
-    """Priority levels for tasks."""
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    URGENT = "urgent"
-
-
-class ExecutionTask(TypedDict):
-    """Individual task in the plan-and-execute system."""
-    id: str
-    content: str
-    status: Literal["pending", "in_progress", "completed", "failed", "cancelled"]
-    priority: Literal["low", "medium", "high", "urgent"]
-    agent: Optional[str]  # Which agent should handle this task
-    depends_on: List[str]  # Task IDs this task depends on
-    created_at: str  # ISO timestamp
-    started_at: Optional[str]  # ISO timestamp
-    completed_at: Optional[str]  # ISO timestamp
-    result: Optional[Dict[str, Any]]  # Task execution result
-    error: Optional[str]  # Error message if task failed
-
-
-class ExecutionPlan(TypedDict):
-    """Overall execution plan state."""
-    id: str
-    original_instruction: str
-    tasks: List[ExecutionTask]
-    current_task_id: Optional[str]
-    status: Literal["pending", "in_progress", "completed", "failed", "cancelled"]
-    created_at: str
-    completed_at: Optional[str]
-    metadata: Dict[str, Any]
 
 
 class SimpleTriggerState(TypedDict):
@@ -78,11 +36,6 @@ class OrchestratorState(TypedDict):
     last_agent_interaction: Dict[str, Any]
     background_operations: Annotated[List[str], operator.add]
     background_results: Annotated[Dict[str, Any], lambda x, y: {**x, **y}]
-    # Note: Old workflow fields removed - using plan-and-execute system instead
-    # Plan-and-execute fields
-    current_plan: Optional[ExecutionPlan]  # Current execution plan
-    execution_mode: str  # "normal" or "planning" or "executing"
-    plan_interrupt_data: Optional[Dict[str, Any]]  # Data for plan interruption/modification
 
 
 def should_trigger_summary(state: Dict[str, Any], 

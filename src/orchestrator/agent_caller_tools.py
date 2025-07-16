@@ -218,9 +218,6 @@ class SalesforceAgentTool(BaseAgentTool):
                 if key == "messages" and isinstance(value, list):
                     # Serialize messages using centralized utility
                     serialized_state[key] = serialize_messages_for_json(value)
-                elif key == "current_plan" and isinstance(value, dict):
-                    # Current plan is already storing strings, so just copy it
-                    serialized_state[key] = value
                 else:
                     # Keep other state as-is
                     serialized_state[key] = value
@@ -635,9 +632,6 @@ class JiraAgentTool(BaseAgentTool):
                 if key == "messages" and isinstance(value, list):
                     # Serialize messages using centralized utility
                     serialized_state[key] = serialize_messages_for_json(value)
-                elif key == "current_plan" and isinstance(value, dict):
-                    # Current plan is already storing strings, so just copy it
-                    serialized_state[key] = value
                 else:
                     # Keep other state as-is
                     serialized_state[key] = value
@@ -1292,9 +1286,6 @@ class ServiceNowAgentTool(BaseAgentTool):
                 if key == "messages" and isinstance(value, list):
                     # Serialize messages using centralized utility
                     serialized_state[key] = serialize_messages_for_json(value)
-                elif key == "current_plan" and isinstance(value, dict):
-                    # Current plan is already storing strings, so just copy it
-                    serialized_state[key] = value
                 else:
                     # Keep other state as-is
                     serialized_state[key] = value

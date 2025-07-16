@@ -2,14 +2,12 @@
 
 import asyncio
 import logging
-from typing import Dict, Any
-from langchain_core.messages import HumanMessage
 
 from src.a2a import A2AServer, AgentCard
 from src.utils.logging import get_logger, init_session_tracking
-from src.utils.config import get_conversation_config, get_llm_config
-from .graph_builder import get_orchestrator_graph, get_agent_registry
-from .a2a_handler import OrchestratorA2AHandler
+from .agent_registry import AgentRegistry
+from .plan_execute_graph import create_plan_execute_graph
+from .a2a_handler import CleanOrchestratorA2AHandler
 
 # Initialize logger
 logger = get_logger("orchestrator")
@@ -23,7 +21,8 @@ async def initialize_orchestrator_a2a():
         mode="a2a"
     )
     
-    agent_registry = get_agent_registry()
+    # Create agent registry instance
+    agent_registry = AgentRegistry()
     
     # Attempt auto-discovery if no agents registered
     if not agent_registry.list_agents():
@@ -150,13 +149,29 @@ async def main(host: str, port: int):
         }
     )
     
-    # Build the graph
+    # Build the graph with LLM support
     logger.info("graph_building",
         component="system",
         agent="orchestrator",
         operation="build_graph"
     )
-    local_graph = get_orchestrator_graph()
+    
+    # Set up agent tools for task execution
+    from .agent_caller_tools import SalesforceAgentTool, JiraAgentTool, ServiceNowAgentTool
+    agent_tools = {
+        "salesforce_agent": SalesforceAgentTool(agent_registry),
+        "jira_agent": JiraAgentTool(agent_registry),
+        "servicenow_agent": ServiceNowAgentTool(agent_registry),
+    }
+    
+    # Create LLM instances using existing infrastructure
+    from .llm_handler import create_llm_instances
+    tools = list(agent_tools.values())  # Use agent tools as LLM tools
+    llm_with_tools, deterministic_llm, trustcall_extractor, instruction_extractor, invoke_llm = create_llm_instances(tools)
+    
+    # Create pure plan-execute graph with LLM support
+    local_graph = create_plan_execute_graph(invoke_llm=invoke_llm)
+    local_graph.set_agent_tools(agent_tools)
     logger.info("graph_built",
         component="system",
         agent="orchestrator",
@@ -165,7 +180,7 @@ async def main(host: str, port: int):
     )
     
     # Create A2A handler
-    handler = OrchestratorA2AHandler(local_graph, agent_registry)
+    handler = CleanOrchestratorA2AHandler(local_graph, agent_registry)
     
     # Create and configure A2A server
     server = A2AServer(agent_card, host, port)

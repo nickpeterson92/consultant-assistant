@@ -15,13 +15,15 @@ Are often wrong! If you have an assumption - challenge and try to confirm it bef
 Multi-agent orchestrator using LangGraph with specialized agents communicating via A2A protocol.
 
 ```
-USER INTERFACE (orchestrator.py)
+CLI CLIENT (orchestrator_cli.py)
         │
-ORCHESTRATOR AGENT (LangGraph + State Management)
+A2A PROTOCOL (JSON-RPC 2.0)
+        │  
+ORCHESTRATOR SERVER (Pure Plan-and-Execute LangGraph)
         │
 A2A Protocol Layer (JSON-RPC 2.0)
         │
-SALESFORCE AGENT + JIRA AGENT + SERVICE NOW AGENT + WORKFLOW AGENT
+SALESFORCE AGENT + JIRA AGENT + SERVICE NOW AGENT
 ```
 
 ## 🎯 State Management Changes (January 2025)
@@ -59,21 +61,17 @@ We've replaced the complex event system with a simple counter-based approach:
 ## 🚀 Quick Start
 
 ```bash
-# Complete system startup (traditional CLI mode)
-python3 start_system.py
-
-# Complete system with A2A orchestrator + CLI client (RECOMMENDED for workflows)
-python3 start_system.py --a2a  # Terminal 1: Start all agents + orchestrator in A2A mode
-python3 orchestrator_cli.py    # Terminal 2: Chat interface with same look & feel
+# Complete system startup (A2A mode - the only mode)
+python3 start_system.py        # Terminal 1: Start all agents + orchestrator A2A server
+python3 orchestrator_cli.py    # Terminal 2: Chat interface with beautiful UX
 
 # Individual components (dev only)
 python3 salesforce_agent.py --port 8001
 python3 jira_agent.py --port 8002
 python3 servicenow_agent.py --port 8003
 # Workflow functionality now integrated in plan-and-execute system
-python3 orchestrator.py  # Interactive CLI mode (standalone)
-python3 orchestrator.py --a2a --port 8000  # A2A network mode
-python3 orchestrator_cli.py  # CLI client for A2A orchestrator
+python3 orchestrator.py --port 8000  # A2A server mode (only mode)
+python3 orchestrator_cli.py          # CLI client for A2A orchestrator
 ```
 
 ### Environment Setup (.env)
@@ -550,7 +548,7 @@ Result: Shows all matches (Express Logistics SLA, Express Logistics Inc, etc.)
 - **Location**: `src/agents/servicenow/main.py:137`
 
 ### Orchestrator A2A Mode vs Interactive Mode
-**Problem**: Using A2A protocol for interactive CLI but getting single-task behavior
+**Problem**: Using A2A protocol for CLI client but getting single-task behavior
 - **Root Cause**: A2A system message was designed for single-task operations, not conversations
 - **Solution**: A2A handler checks `context.source == "cli_client"` to determine mode
 - **Interactive CLI**: Uses regular orchestrator system message for full conversational features

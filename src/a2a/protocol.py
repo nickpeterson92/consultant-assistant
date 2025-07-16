@@ -74,37 +74,51 @@ class A2ATask:
         
         Uses centralized message serialization utility for LangChain objects.
         """
-        try:
-            # Try standard asdict first - should work if all objects are serialized
-            return asdict(self)
-        except (TypeError, ValueError):
-            # Fallback: manually serialize any LangChain objects using centralized utility
-            result = {
-                "id": self.id,
-                "instruction": self.instruction,
-                "status": self.status,
-                "created_at": self.created_at,
-                "context": self._serialize_dict_with_messages(self.context),
-                "state_snapshot": self._serialize_dict_with_messages(self.state_snapshot)
-            }
-            return result
+        # Always use manual serialization to ensure LangChain objects are properly handled
+        # asdict() doesn't fail with LangChain objects - it just includes them as-is
+        result = {
+            "id": self.id,
+            "instruction": self.instruction,
+            "status": self.status,
+            "created_at": self.created_at,
+            "context": self._serialize_dict_with_messages(self.context),
+            "state_snapshot": self._serialize_dict_with_messages(self.state_snapshot)
+        }
+        return result
     
     def _serialize_dict_with_messages(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Helper to serialize dictionaries using unified message serialization."""
         if not isinstance(data, dict):
             return data
         
-        result = data.copy()
+        result = {}
         
-        # Handle recent_messages using unified serialization
-        if "recent_messages" in result and isinstance(result["recent_messages"], list):
-            if not is_already_serialized(result["recent_messages"]):
-                result["recent_messages"] = serialize_messages_for_json(result["recent_messages"])
-        
-        # Handle messages field (for state_snapshot) using unified serialization
-        if "messages" in result and isinstance(result["messages"], list):
-            if not is_already_serialized(result["messages"]):
-                result["messages"] = serialize_messages_for_json(result["messages"])
+        # Recursively serialize all dictionary values
+        for key, value in data.items():
+            if key == "recent_messages" and isinstance(value, list):
+                # Handle recent_messages using unified serialization
+                if not is_already_serialized(value):
+                    result[key] = serialize_messages_for_json(value)
+                else:
+                    result[key] = value
+            elif key == "messages" and isinstance(value, list):
+                # Handle messages field (for state_snapshot) using unified serialization
+                if not is_already_serialized(value):
+                    result[key] = serialize_messages_for_json(value)
+                else:
+                    result[key] = value
+            elif isinstance(value, dict):
+                # Recursively serialize nested dictionaries
+                result[key] = self._serialize_dict_with_messages(value)
+            elif isinstance(value, list):
+                # Recursively serialize lists that might contain dictionaries
+                result[key] = [
+                    self._serialize_dict_with_messages(item) if isinstance(item, dict) else item
+                    for item in value
+                ]
+            else:
+                # Keep other values as-is
+                result[key] = value
         
         return result
 
@@ -619,6 +633,31 @@ class A2AClient:
             # Make HTTP POST request
             # Note: Timeout is already configured at the session level
             # Avoid duplicate timeout parameter to prevent Python 3.13 compatibility issues
+            
+            # Debug: Log request_dict structure before JSON serialization
+            task_data = request_dict.get("params", {}).get("task", {})
+            state_snapshot = task_data.get("state_snapshot", {})
+            
+            logger.info("a2a_request_dict_debug",
+                component="a2a",
+                operation="make_raw_call",
+                endpoint=endpoint,
+                method=method,
+                request_dict_keys=list(request_dict.keys()),
+                params_keys=list(request_dict.get("params", {}).keys()),
+                has_task="task" in request_dict.get("params", {}),
+                task_keys=list(task_data.keys()) if task_data else [],
+                context_keys=list(task_data.get("context", {}).keys()) if task_data and "context" in task_data else [],
+                recent_messages_type=type(task_data.get("context", {}).get("recent_messages", [])).__name__ if task_data and "context" in task_data and "recent_messages" in task_data.get("context", {}) else "none",
+                recent_messages_count=len(task_data.get("context", {}).get("recent_messages", [])) if task_data and "context" in task_data and "recent_messages" in task_data.get("context", {}) else 0,
+                first_message_type=type(task_data.get("context", {}).get("recent_messages", [None])[0]).__name__ if task_data and "context" in task_data and "recent_messages" in task_data.get("context", {}) and task_data.get("context", {}).get("recent_messages", []) else "none",
+                state_snapshot_keys=list(state_snapshot.keys()) if state_snapshot else [],
+                state_snapshot_has_messages="messages" in state_snapshot,
+                state_snapshot_messages_type=type(state_snapshot.get("messages", [])).__name__ if state_snapshot and "messages" in state_snapshot else "none",
+                state_snapshot_messages_count=len(state_snapshot.get("messages", [])) if state_snapshot and "messages" in state_snapshot else 0,
+                state_snapshot_first_message_type=type(state_snapshot.get("messages", [None])[0]).__name__ if state_snapshot and "messages" in state_snapshot and state_snapshot.get("messages", []) else "none"
+            )
+            
             async with session.post(
                 endpoint,
                 json=request_dict,

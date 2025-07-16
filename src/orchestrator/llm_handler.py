@@ -38,6 +38,10 @@ def create_llm_instances(tools: List[Any]):
     Returns:
         tuple: (llm_with_tools, deterministic_llm, trustcall_extractor, invoke_llm_func)
     """
+    # Load environment variables
+    from dotenv import load_dotenv
+    load_dotenv()
+    
     # Create main LLM with tools
     llm_with_tools = create_llm_with_tools(tools)
     
