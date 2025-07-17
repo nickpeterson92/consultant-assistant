@@ -6,9 +6,9 @@ Screen {
 }
 
 .header {
-    height: 3;
+    height: 8;
     background: #21262d;
-    color: #f0f6fc;
+    color: #7dd3fc;
     content-align: center middle;
     text-style: bold;
     border: round #30363d;
@@ -49,6 +49,7 @@ Screen {
     padding: 1;
     border: round #30363d;
     background: #0d1117;
+    color: #94a3b8;
 }
 
 .status-bar {

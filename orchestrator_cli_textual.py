@@ -28,8 +28,9 @@ from textual import on, work
 
 from src.a2a import A2AClient
 from src.utils.config import (
-    get_conversation_config, ENTERPRISE_ASSISTANT_BANNER
+    get_conversation_config, ENTERPRISE_ASSISTANT_BANNER, ENTERPRISE_ASSISTANT_COMPACT_LOGO
 )
+from src.utils.ui.animations import animated_banner_display, format_compact_logo_for_textual
 from src.utils.logging import get_logger
 
 # Initialize logger
@@ -322,29 +323,29 @@ class PlanStatusWidget(Static):
             return
         
         content = []
-        content.append("[bold blue]Plan Status[/bold blue]")
+        content.append("[bold #7dd3fc]Plan Status[/bold #7dd3fc]")
         content.append("")
-        content.append("[cyan]Execution Plan[/cyan]")
+        content.append("[#94a3b8]Execution Plan[/#94a3b8]")
         
         for i, task in enumerate(self.plan_tasks, 1):
             task_content = task.get('content', 'Unknown task')
             
-            # Determine status
+            # Determine status with softer, more modern colors
             if task_content in self.completed_steps:
-                icon = "[green]✓[/green]"
-                style = "green"
+                icon = "[#22c55e]✓[/#22c55e]"
+                style = "#22c55e"
             elif task_content in [fs.split(' (Error:')[0] for fs in self.failed_steps]:
-                icon = "[red]✗[/red]"
-                style = "red"
+                icon = "[#ef4444]✗[/#ef4444]"
+                style = "#ef4444"
             elif task_content in self.skipped_steps:
-                icon = "[yellow]−[/yellow]"
-                style = "yellow"
+                icon = "[#f59e0b]−[/#f59e0b]"
+                style = "#f59e0b"
             elif task_content == self.current_step:
-                icon = "[blue]→[/blue]"
-                style = "blue bold"
+                icon = "[#3b82f6]→[/#3b82f6]"
+                style = "#3b82f6 bold"
             else:
-                icon = "[white]□[/white]"
-                style = "white"
+                icon = "[#64748b]□[/#64748b]"
+                style = "#64748b"
             
             content.append(f"{icon} {i}. [{style}]{task_content}[/{style}]")
         
@@ -445,6 +446,11 @@ class OrchestatorApp(App):
         self.processing_done = None
         self.escape_monitor_thread = None
         
+        # Animation state
+        self.startup_animation_complete = False
+        conv_config = get_conversation_config()
+        self.show_startup_animation = conv_config.animated_banner_enabled
+        
         # Debug logging
         logger.info("textual_app_initialized", thread_id=self.thread_id)
     
@@ -458,11 +464,13 @@ class OrchestatorApp(App):
         """Compose the UI layout."""
         yield Header()
         
-        # Main banner
+        # Main banner with compact ASCII logo
+        compact_logo = format_compact_logo_for_textual(ENTERPRISE_ASSISTANT_COMPACT_LOGO)
         yield Static(
-            "[bold cyan]Enterprise Assistant[/bold cyan]\n"
-            "[dim]Powered by Multi-Agent Orchestration[/dim]",
-            classes="header"
+            f"{compact_logo}\n"
+            "[dim #94a3b8]Powered by Multi-Agent Orchestration[/dim #94a3b8]",
+            classes="header",
+            id="main-banner"
         )
         
         # Main container
@@ -498,9 +506,12 @@ class OrchestatorApp(App):
         self.query_one("#message-input", Input).focus()
         logger.info("input_focused", thread_id=self.thread_id)
         
+        # Animation happens before Textual starts, so we're always ready
+        
         # Start background tasks using Textual's work decorator
         self.initialize_connection()
         self.initialize_websocket_controller()
+    
     
     @work(exclusive=True)
     async def initialize_connection(self):
@@ -969,10 +980,43 @@ class OrchestatorApp(App):
             logger.error("cleanup_error", error=str(e))
 
 
+async def run_startup_animation():
+    """Run the impressive banner animation before starting Textual interface."""
+    try:
+        conv_config = get_conversation_config()
+        if conv_config.animated_banner_enabled:
+            # Clear screen and run the actual banner animation
+            print("\033[2J\033[H", end='')  # Clear screen
+            await animated_banner_display(ENTERPRISE_ASSISTANT_BANNER)
+            
+            # Brief pause to appreciate the banner
+            await asyncio.sleep(1.5)
+            
+            # Clear screen before starting Textual
+            print("\033[2J\033[H", end='')
+            
+            logger.info("banner_animation_complete", component="client")
+        else:
+            # Just clear screen if animation is disabled
+            print("\033[2J\033[H", end='')
+            
+    except Exception as e:
+        logger.error("banner_animation_error", error=str(e), component="client")
+        # Clear screen and continue even if animation fails
+        print("\033[2J\033[H", end='')
+
+
 def main():
     """Main entry point."""
     import signal
     
+    # Run the startup animation first
+    try:
+        asyncio.run(run_startup_animation())
+    except Exception as e:
+        logger.error("startup_animation_failed", error=str(e), component="client")
+    
+    # Now start the Textual app
     app = OrchestatorApp()
     
     # Signal handlers for clean shutdown

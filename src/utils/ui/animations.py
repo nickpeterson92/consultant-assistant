@@ -244,6 +244,47 @@ def safe_string_width(s: str) -> int:
     return visible_length(s)
 
 
+def format_compact_logo_for_textual(logo_text: str) -> str:
+    """Format the compact logo with the same gradient styling as the main banner for Textual.
+    
+    Args:
+        logo_text: The ASCII art logo text
+        
+    Returns:
+        Formatted logo with Textual-compatible markup
+    """
+    lines = logo_text.strip().split('\n')
+    if not lines:
+        return ""
+    
+    formatted_lines = []
+    for y, line in enumerate(lines):
+        formatted_line = ""
+        for x, char in enumerate(line):
+            if char != ' ':
+                # Apply the same gradient as the main banner
+                gradient_factor = (y / len(lines) + x / len(line)) / 2
+                
+                # Map to modern colors similar to the banner animation
+                if gradient_factor < 0.2:
+                    color = "#3b82f6"  # Blue
+                elif gradient_factor < 0.4:
+                    color = "#60a5fa"  # Light blue
+                elif gradient_factor < 0.6:
+                    color = "#7dd3fc"  # Cyan
+                elif gradient_factor < 0.8:
+                    color = "#a5f3fc"  # Light cyan
+                else:
+                    color = "#bfdbfe"  # Very light cyan
+                
+                formatted_line += f"[bold {color}]{char}[/bold {color}]"
+            else:
+                formatted_line += char
+        formatted_lines.append(formatted_line)
+    
+    return "\n".join(formatted_lines)
+
+
 def format_capability_item(capability: str, width: int, is_highlighted: bool = False) -> str:
     """Format a capability item to fit within given width."""
     if is_highlighted:

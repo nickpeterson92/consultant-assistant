@@ -23,6 +23,16 @@ ENTERPRISE_ASSISTANT_BANNER = """
 ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝   
 """
 
+# Compact logo for UI header - same style as main banner
+ENTERPRISE_ASSISTANT_COMPACT_LOGO = """
+███████╗ █████╗ 
+██╔════╝██╔══██╗
+█████╗  ███████║
+██╔══╝  ██╔══██║
+███████╗██║  ██║
+╚══════╝╚═╝  ╚═╝
+"""
+
 # Memory and storage keys
 MEMORY_NAMESPACE_PREFIX = "memory"
 SIMPLE_MEMORY_KEY = "SimpleMemory"
