@@ -20,7 +20,7 @@ from src.orchestrator.plan_execute_state import (
     is_plan_complete, get_plan_summary
 )
 from src.utils.logging import get_logger
-from src.utils.config import get_llm_config, get_conversation_config
+from src.utils.config.unified_config import config as app_config
 from src.utils.agents.message_processing import trim_messages_for_context, smart_preserve_messages
 
 logger = get_logger("orchestrator")
@@ -1216,12 +1216,11 @@ Keep the summary concise but informative."""
     
     def _should_trigger_summary(self, messages: List) -> bool:
         """Check if conversation should be summarized."""
-        conv_config = get_conversation_config()
         current_time = time.time()
         message_count = len(messages)
         
         # Check message count threshold
-        if message_count - self._last_summary_message_count >= 5:
+        if message_count - self._last_summary_message_count >= app_config.conversation_summary_threshold:
             return True
         
         # Check time threshold (5 minutes = 300 seconds)
@@ -1350,7 +1349,7 @@ Keep the summary concise but informative."""
         """Run conversation summarization in background using simplified working pattern."""
         try:
             from src.utils.storage import get_async_store_adapter
-            from src.utils.config import get_database_config, get_conversation_config, STATE_KEY_PREFIX
+            from src.utils.config import STATE_KEY_PREFIX
             
             # Get thread_id from passed config
             thread_id = config.get("configurable", {}).get("thread_id")
@@ -1362,8 +1361,7 @@ Keep the summary concise but informative."""
                 return
             
             # Get user_id 
-            conv_config = get_conversation_config()
-            user_id = config.get("configurable", {}).get("user_id", conv_config.default_user_id)
+            user_id = config.get("configurable", {}).get("user_id", app_config.default_user_id)
             
             # Extract current state
             messages = state.get("messages", [])
@@ -1371,8 +1369,8 @@ Keep the summary concise but informative."""
             
             # Load existing summary from storage if available
             try:
-                memory_store = get_async_store_adapter(db_path=get_database_config().path)
-                namespace = (conv_config.memory_namespace_prefix, user_id)
+                memory_store = get_async_store_adapter(db_path=app_config.db_path)
+                namespace = (app_config.memory_namespace_prefix, user_id)
                 key = f"{STATE_KEY_PREFIX}{thread_id}"
                 
                 stored_data = await memory_store.get(namespace, key)
@@ -1415,8 +1413,8 @@ Keep the summary concise but informative."""
                                summary_preview=new_summary[:200])
                     
                     # Save to external storage (simplified - only summary)
-                    memory_store = get_async_store_adapter(db_path=get_database_config().path)
-                    namespace = (conv_config.memory_namespace_prefix, user_id)
+                    memory_store = get_async_store_adapter(db_path=app_config.db_path)
+                    namespace = (app_config.memory_namespace_prefix, user_id)
                     key = f"{STATE_KEY_PREFIX}{thread_id}"
                     
                     await memory_store.put(namespace, key, {

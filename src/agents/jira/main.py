@@ -12,14 +12,13 @@ load_dotenv()
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import AzureChatOpenAI
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.memory import MemorySaver
 
 from src.tools.jira import UNIFIED_JIRA_TOOLS
 from src.a2a import A2AServer, A2AArtifact, AgentCard
-from src.utils.config import get_llm_config
+from src.utils.config.unified_config import config as app_config
 from src.utils.logging import get_logger
 from src.utils.agents.prompts import jira_agent_sys_msg
 
@@ -67,17 +66,9 @@ def build_jira_agent():
         - Binds all 15 Jira tools to the LLM for function calling
     """
     
-    # Initialize LLM with Azure OpenAI configuration
-    llm_config = get_llm_config()
-    llm = AzureChatOpenAI(
-        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-        azure_deployment=llm_config.azure_deployment,
-        api_version=llm_config.api_version,
-        api_key=os.environ["AZURE_OPENAI_API_KEY"],  # pyright: ignore[reportArgumentType]
-        temperature=llm_config.temperature,
-        max_tokens=llm_config.max_tokens,
-        timeout=llm_config.timeout,
-    )
+    # Initialize LLM with Azure OpenAI configuration using centralized function
+    from src.utils.llm import create_azure_openai_chat
+    llm = create_azure_openai_chat()
     
     # Bind tools to LLM
     llm_with_tools = llm.bind_tools(jira_tools)
@@ -198,8 +189,8 @@ def build_jira_agent():
     memory = MemorySaver()
     return graph_builder.compile(checkpointer=memory)
 
-# Global agent instance
-jira_agent = build_jira_agent()
+# Global agent instance - initialized lazily
+jira_agent = None
 
 async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
     """Handle incoming A2A protocol requests for Jira operations.
@@ -222,6 +213,11 @@ async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
     """
     # Initialize task_id for use in except block
     task_id = "unknown"
+    
+    # Lazy initialization of Jira agent
+    global jira_agent
+    if jira_agent is None:
+        jira_agent = build_jira_agent()
     
     try:
         # Extract task data from params (following Salesforce pattern)
@@ -271,10 +267,9 @@ async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
         )
         
         # Run the agent
-        llm_config = get_llm_config()
         config = RunnableConfig(
             configurable={"thread_id": task_id},
-            recursion_limit=llm_config.recursion_limit
+            recursion_limit=app_config.llm_recursion_limit
         )
         result = await jira_agent.ainvoke(initial_state, config)
         

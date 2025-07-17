@@ -27,9 +27,8 @@ from textual.events import Key
 from textual import on, work
 
 from src.a2a import A2AClient
-from src.utils.config import (
-    get_conversation_config, ENTERPRISE_ASSISTANT_BANNER, ENTERPRISE_ASSISTANT_COMPACT_LOGO
-)
+from src.utils.config import ENTERPRISE_ASSISTANT_BANNER, ENTERPRISE_ASSISTANT_COMPACT_LOGO
+from src.utils.config.unified_config import config as app_config
 from src.utils.ui.animations import animated_banner_display, format_compact_logo_for_textual
 from src.utils.logging import get_logger
 
@@ -448,8 +447,7 @@ class OrchestatorApp(App):
         
         # Animation state
         self.startup_animation_complete = False
-        conv_config = get_conversation_config()
-        self.show_startup_animation = conv_config.animated_banner_enabled
+        self.show_startup_animation = app_config.get('conversation.animated_banner_enabled', True)
         
         # Debug logging
         logger.info("textual_app_initialized", thread_id=self.thread_id)
@@ -983,8 +981,7 @@ class OrchestatorApp(App):
 async def run_startup_animation():
     """Run the impressive banner animation before starting Textual interface."""
     try:
-        conv_config = get_conversation_config()
-        if conv_config.animated_banner_enabled:
+        if app_config.get('conversation.animated_banner_enabled', True):
             # Clear screen and run the actual banner animation
             print("\033[2J\033[H", end='')  # Clear screen
             await animated_banner_display(ENTERPRISE_ASSISTANT_BANNER)

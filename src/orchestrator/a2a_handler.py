@@ -12,7 +12,7 @@ from langchain_core.messages import HumanMessage
 # Command will be imported when needed
 
 from src.utils.logging import get_logger
-from src.utils.config import get_conversation_config
+from src.utils.config.unified_config import config as app_config
 from .types import A2AResponse, A2AMetadata
 
 logger = get_logger("orchestrator")
@@ -1486,12 +1486,11 @@ class CleanOrchestratorA2AHandler:
         """Load existing summary from storage if available (YAGNI: only summary)."""
         try:
             from src.utils.storage import get_async_store_adapter
-            from src.utils.config import get_database_config, get_conversation_config, STATE_KEY_PREFIX
+            from src.utils.config import STATE_KEY_PREFIX
             
-            memory_store = get_async_store_adapter(db_path=get_database_config().path)
-            conv_config = get_conversation_config()
+            memory_store = get_async_store_adapter(db_path=app_config.db_path)
             
-            namespace = (conv_config.memory_namespace_prefix, user_id)
+            namespace = (app_config.memory_namespace_prefix, user_id)
             key = f"{STATE_KEY_PREFIX}{thread_id}"
             
             stored_data = await memory_store.get(namespace, key)

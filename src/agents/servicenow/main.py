@@ -17,7 +17,7 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from src.tools.servicenow import UNIFIED_SERVICENOW_TOOLS
 from src.a2a import A2AServer, AgentCard
-from src.utils.config import get_llm_config
+from src.utils.config.unified_config import config as app_config
 from src.utils.logging import get_logger
 from src.utils.llm import create_azure_openai_chat
 from src.utils.agents.prompts import servicenow_agent_sys_msg
@@ -113,13 +113,35 @@ def build_servicenow_graph():
             # Call LLM with tools
             response = llm_with_tools.invoke(messages)
             
-            # Log successful response
-            logger.info("servicenow_agent_response",
+            # Log LLM response with full content for debugging (following Salesforce pattern)
+            has_tool_calls = bool(hasattr(response, 'tool_calls') and response.tool_calls)
+            response_content = str(response.content) if hasattr(response, 'content') else ""
+            
+            # Include tool call details in the debug log
+            tool_call_details = []
+            if has_tool_calls and hasattr(response, 'tool_calls'):
+                for tc in response.tool_calls:
+                    # Handle both dict and object access patterns
+                    if isinstance(tc, dict):
+                        tool_name = tc.get('name', 'unknown')
+                        tool_args = tc.get('args', {})
+                    else:
+                        tool_name = getattr(tc, 'name', 'unknown')
+                        tool_args = getattr(tc, 'args', {})
+                    
+                    tool_call_details.append({
+                        'name': tool_name,
+                        'args': tool_args
+                    })
+            
+            logger.info("servicenow_llm_invocation_complete",
                 component="servicenow",
-                operation="llm_invoke",
+                operation="invoke_llm",
                 task_id=task_id,
-                response_length=len(response.content),
-                has_tool_calls=bool(getattr(response, 'tool_calls', None))
+                has_tool_calls=has_tool_calls,
+                response_length=len(response_content),
+                response_content_full=response_content if not has_tool_calls else "TOOL_CALLS_PRESENT",
+                tool_calls=tool_call_details if has_tool_calls else None
             )
             
             return {"messages": [response]}
@@ -205,12 +227,11 @@ async def handle_a2a_request(params: dict) -> dict:
         }
         
         # Configure thread
-        llm_config = get_llm_config()
         config = RunnableConfig(
             configurable={
                 "thread_id": f"servicenow_{task_id}"
             },
-            recursion_limit=llm_config.recursion_limit
+            recursion_limit=app_config.llm_recursion_limit
         )
         
         # Run the graph

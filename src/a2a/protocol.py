@@ -18,12 +18,12 @@ from src.utils.config import (
     A2A_STATUS_PENDING,
     DEFAULT_A2A_PORT, DEFAULT_HOST
 )
+from src.utils.config.unified_config import config as app_config
 
 from src.utils.logging import get_logger
 # No input validation needed - trust agent-generated content
 from src.utils.agents.message_processing.unified_serialization import serialize_messages_for_json, is_already_serialized
 from .circuit_breaker import CircuitBreakerConfig, RetryConfig, resilient_call
-from src.utils.config import get_a2a_config, get_system_config
 
 # Initialize structured logger
 logger = get_logger()
@@ -308,8 +308,7 @@ class A2AConnectionPool:
             self._pools = {}  # endpoint -> session
             self._pool_locks = {}  # endpoint -> lock
             self._last_used = {}  # endpoint -> timestamp
-            a2a_config = get_a2a_config()
-            self._max_idle_time = a2a_config.connection_pool_max_idle
+            self._max_idle_time = app_config.get('a2a.connection_pool_max_idle', 300)
             logger.info("connection_pool_initialized",
                 component="a2a",
                 operation="init",
@@ -332,9 +331,8 @@ class A2AConnectionPool:
         Returns:
             aiohttp.ClientSession configured for the endpoint
         """
-        a2a_config = get_a2a_config()
         if timeout is None:
-            timeout = a2a_config.timeout
+            timeout = app_config.a2a_timeout
         
         # Extract base URL to pool connections by host
         from urllib.parse import urlparse
@@ -377,9 +375,9 @@ class A2AConnectionPool:
             # - sock_read/connect: Lower-level socket timeouts
             timeout_config = aiohttp.ClientTimeout(
                 total=timeout,
-                connect=a2a_config.connect_timeout,
-                sock_read=a2a_config.sock_read_timeout,
-                sock_connect=a2a_config.sock_connect_timeout
+                connect=app_config.get('a2a.connect_timeout', 30),
+                sock_read=app_config.get('a2a.sock_read_timeout', 120),
+                sock_connect=app_config.get('a2a.sock_connect_timeout', 30)
             )
             
             # Log the actual timeout values for debugging
@@ -387,9 +385,9 @@ class A2AConnectionPool:
                 component="a2a",
                 operation="get_session",
                 total_timeout=timeout,
-                connect_timeout=a2a_config.connect_timeout,
-                sock_read_timeout=a2a_config.sock_read_timeout,
-                sock_connect_timeout=a2a_config.sock_connect_timeout
+                connect_timeout=app_config.get('a2a.connect_timeout', 30),
+                sock_read_timeout=app_config.get('a2a.sock_read_timeout', 120),
+                sock_connect_timeout=app_config.get('a2a.sock_connect_timeout', 30)
             )
             
             # Connection pooling configuration optimized for agent workloads:
@@ -398,12 +396,12 @@ class A2AConnectionPool:
             # - Keepalive maintains persistent connections for low latency
             # - Cleanup removes stale connections automatically
             connector = aiohttp.TCPConnector(
-                limit=a2a_config.connection_pool_size,
-                limit_per_host=max(a2a_config.min_connections_per_host, a2a_config.connection_pool_size),
-                ttl_dns_cache=a2a_config.connection_pool_ttl,
+                limit=app_config.get('a2a.connection_pool_size', 20),
+                limit_per_host=max(app_config.get('a2a.min_connections_per_host', 20), app_config.get('a2a.connection_pool_size', 20)),
+                ttl_dns_cache=app_config.get('a2a.connection_pool_ttl', 300),
                 enable_cleanup_closed=True,
                 force_close=False,
-                keepalive_timeout=min(30, a2a_config.connection_pool_max_idle)
+                keepalive_timeout=min(30, app_config.get('a2a.connection_pool_max_idle', 30))
             )
             
             session = aiohttp.ClientSession(
@@ -504,10 +502,7 @@ class A2AClient:
             timeout: Request timeout in seconds (uses config default if None)
             use_pool: Whether to use connection pooling (True for production)
         """
-        a2a_config = get_a2a_config()
-        system_config = get_system_config()
-        
-        self.timeout = timeout if timeout is not None else a2a_config.timeout
+        self.timeout = timeout if timeout is not None else app_config.a2a_timeout
         self.use_pool = use_pool
         self.session = None
         self._closed = False
@@ -522,18 +517,17 @@ class A2AClient:
     async def __aenter__(self):
         if not self.use_pool:
             # Get config settings
-            a2a_config = get_a2a_config()
             # Create dedicated session if not using pool
             timeout_config = aiohttp.ClientTimeout(
                 total=self.timeout,
-                connect=a2a_config.connect_timeout,
-                sock_read=a2a_config.sock_read_timeout,
-                sock_connect=a2a_config.sock_connect_timeout
+                connect=app_config.get('a2a.connect_timeout', 30),
+                sock_read=app_config.get('a2a.sock_read_timeout', 120),
+                sock_connect=app_config.get('a2a.sock_connect_timeout', 30)
             )
             connector = aiohttp.TCPConnector(
-                limit=a2a_config.connection_pool_size,
-                limit_per_host=max(a2a_config.min_connections_per_host, a2a_config.connection_pool_size),  # Allow many concurrent connections per host (support 8+ tools)
-                ttl_dns_cache=a2a_config.connection_pool_ttl
+                limit=app_config.get('a2a.connection_pool_size', 20),
+                limit_per_host=max(app_config.get('a2a.min_connections_per_host', 20), app_config.get('a2a.connection_pool_size', 20)),  # Allow many concurrent connections per host (support 8+ tools)
+                ttl_dns_cache=app_config.get('a2a.connection_pool_ttl', 300)
             )
             self.session = aiohttp.ClientSession(
                 timeout=timeout_config,
@@ -794,19 +788,17 @@ class A2AClient:
         Raises:
             A2AException: After all retry attempts are exhausted
         """
-        a2a_config = get_a2a_config()
-        
         # Configure circuit breaker for fast failure detection
         circuit_config = CircuitBreakerConfig(
-            failure_threshold=a2a_config.circuit_breaker_threshold,
-            timeout=a2a_config.circuit_breaker_timeout,
+            failure_threshold=app_config.get('a2a.circuit_breaker_threshold', 5),
+            timeout=app_config.get('a2a.circuit_breaker_timeout', 30),
             half_open_max_calls=3
         )
         
         # Configure retry for transient failure recovery
         retry_config = RetryConfig(
-            max_attempts=a2a_config.retry_attempts,
-            base_delay=a2a_config.retry_delay,
+            max_attempts=app_config.get('a2a.retry_attempts', 3),
+            base_delay=app_config.get('a2a.retry_delay', 1.0),
             max_delay=30.0
         )
         
