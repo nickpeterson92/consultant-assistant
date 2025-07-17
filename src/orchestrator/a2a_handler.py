@@ -98,7 +98,7 @@ class CleanOrchestratorA2AHandler:
                         result = await self.graph.graph.ainvoke(updated_state, config)
                         
                     else:
-                        # Start new conversation with fresh state
+                        # Start new conversation - check for existing summary
                         logger.info("starting_new_conversation", 
                                    component="orchestrator",
                                    task_id=task_id,
@@ -107,6 +107,13 @@ class CleanOrchestratorA2AHandler:
                         
                         from .plan_execute_state import create_initial_state
                         initial_state = create_initial_state(instruction)
+                        
+                        # Add config to state so background tasks can access thread_id
+                        initial_state["config"] = config
+                        
+                        # Load existing summary if available (YAGNI: only summary, not full state)
+                        await self._load_summary_if_exists(initial_state, thread_id, user_id)
+                        
                         initial_state["messages"] = [HumanMessage(content=instruction)]
                         
                         result = await self.graph.graph.ainvoke(initial_state, config)
@@ -121,6 +128,13 @@ class CleanOrchestratorA2AHandler:
                     # Fallback to fresh state if state loading fails
                     from .plan_execute_state import create_initial_state
                     initial_state = create_initial_state(instruction)
+                    
+                    # Add config to state so background tasks can access thread_id
+                    initial_state["config"] = config
+                    
+                    # Load existing summary if available (YAGNI: only summary, not full state)
+                    await self._load_summary_if_exists(initial_state, thread_id, user_id)
+                    
                     initial_state["messages"] = [HumanMessage(content=instruction)]
                     
                     result = await self.graph.graph.ainvoke(initial_state, config)
@@ -1467,6 +1481,35 @@ class CleanOrchestratorA2AHandler:
                         thread_id=thread_id,
                         error=str(e))
             raise
+    
+    async def _load_summary_if_exists(self, state: dict, thread_id: str, user_id: str):
+        """Load existing summary from storage if available (YAGNI: only summary)."""
+        try:
+            from src.utils.storage import get_async_store_adapter
+            from src.utils.config import get_database_config, get_conversation_config, STATE_KEY_PREFIX
+            
+            memory_store = get_async_store_adapter(db_path=get_database_config().path)
+            conv_config = get_conversation_config()
+            
+            namespace = (conv_config.memory_namespace_prefix, user_id)
+            key = f"{STATE_KEY_PREFIX}{thread_id}"
+            
+            stored_data = await memory_store.get(namespace, key)
+            if stored_data and "summary" in stored_data:
+                state["summary"] = stored_data["summary"]
+                logger.info("summary_loaded_from_storage",
+                           component="storage",
+                           thread_id=thread_id,
+                           summary_length=len(stored_data["summary"]))
+            else:
+                logger.info("no_stored_summary_found",
+                           component="storage", 
+                           thread_id=thread_id)
+        except Exception as e:
+            logger.warning("summary_load_error",
+                          component="storage",
+                          thread_id=thread_id,
+                          error=str(e))
     
     def _create_plan_state_update(self, plan_modification) -> Dict[str, Any]:
         """Create state update dictionary based on plan modification."""

@@ -305,7 +305,7 @@ async def _run_background_summary_async(messages, summary, memory, user_id, thre
         if result and "summary" in result:
             new_summary = result["summary"]
             logger.info("background_summary_save", 
-                component="orchestrator", 
+                component="storage", 
                 operation="saving_summary_to_store",
                 summary_preview=new_summary[:200] if new_summary else "NO_SUMMARY"
             )
@@ -316,17 +316,9 @@ async def _run_background_summary_async(messages, summary, memory, user_id, thre
             
             mock_state["summary"] = new_summary
             
-            # Serialize messages before saving
-            from src.utils.agents.message_processing.unified_serialization import serialize_messages_for_json
-            
-            serialized_state = {
-                "messages": serialize_messages_for_json(mock_state["messages"]),
-                "summary": mock_state["summary"],
-                "memory": mock_state["memory"]
-            }
-            
+            # YAGNI: Store only the summary - we never load the full state
             await memory_store.put(namespace, key, {
-                "state": serialized_state,
+                "summary": new_summary,
                 "thread_id": thread_id,
                 "timestamp": time.time()
             })

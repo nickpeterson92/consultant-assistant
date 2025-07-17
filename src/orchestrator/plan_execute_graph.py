@@ -10,6 +10,7 @@ from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import interrupt
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+import time
 
 from src.orchestrator.plan_execute_state import (
     PlanExecuteState, ExecutionPlan, ExecutionTask, InterruptData,
@@ -109,7 +110,7 @@ class PlanExecuteGraph:
     # Node Implementations
     # ================================
     
-    async def _planner_node(self, state: PlanExecuteState) -> PlanExecuteState:
+    async def _planner_node(self, state: PlanExecuteState, config: dict = None) -> PlanExecuteState:
         """Plan generation node - creates todo-style execution plans."""
         print("🧠 DEBUG: Planner node called - this should appear in console")
         logger.info("planner_node_start", 
@@ -122,7 +123,7 @@ class PlanExecuteGraph:
         state = self._trim_messages_if_needed(state)
         
         # Trigger background summarization if needed
-        await self._trigger_background_summary(state)
+        await self._trigger_background_summary(state, config)
         
         try:
             # Check if there's an existing plan
@@ -325,7 +326,7 @@ class PlanExecuteGraph:
             "plan_history": state["plan_history"] + [current_plan]
         }
     
-    async def _agent_node(self, state: PlanExecuteState) -> PlanExecuteState:
+    async def _agent_node(self, state: PlanExecuteState, config: dict = None) -> PlanExecuteState:
         """Execute tasks one by one - canonical agent pattern."""
         logger.info("agent_node_start",
                    component="orchestrator",
@@ -336,7 +337,7 @@ class PlanExecuteGraph:
         state = self._trim_messages_if_needed(state)
         
         # Trigger background summarization if needed
-        await self._trigger_background_summary(state)
+        await self._trigger_background_summary(state, config)
         
         if not state["plan"]:
             logger.warning("agent_no_plan", component="orchestrator")
@@ -1262,7 +1263,7 @@ Keep the summary concise but informative."""
             "messages": trimmed_messages
         }
     
-    async def _trigger_background_summary(self, state: PlanExecuteState) -> None:
+    async def _trigger_background_summary(self, state: PlanExecuteState, config: dict = None) -> None:
         """Trigger background conversation summarization."""
         messages = state.get("messages", [])
         
@@ -1270,7 +1271,7 @@ Keep the summary concise but informative."""
             return
         
         logger.info("triggering_background_summary",
-                   component="orchestrator",
+                   component="storage",
                    message_count=len(messages),
                    last_summary_count=self._last_summary_message_count)
         
@@ -1278,8 +1279,18 @@ Keep the summary concise but informative."""
         self._last_summary_time = time.time()
         self._last_summary_message_count = len(messages)
         
-        # Run summarization in background without blocking
-        asyncio.create_task(self._run_background_summary(state))
+        # Run summarization in background without blocking using the working pattern
+        # Use passed config or try to get from state
+        if config is None:
+            config = state.get("config", {})
+        
+        logger.info("background_summary_config_check",
+                   component="storage", 
+                   config_available=bool(config),
+                   config_keys=list(config.keys()) if config else [],
+                   has_configurable=bool(config.get("configurable")) if config else False)
+        
+        asyncio.create_task(self._run_background_summary_with_storage(state, config))
     
     async def _run_background_summary(self, state: PlanExecuteState) -> None:
         """Run conversation summarization in background."""
@@ -1288,12 +1299,20 @@ Keep the summary concise but informative."""
             current_summary = state.get("summary", "No summary available")
             
             logger.info("background_summary_start",
-                       component="orchestrator",
+                       component="storage",
                        message_count=len(messages),
-                       has_existing_summary=bool(current_summary))
+                       has_existing_summary=bool(current_summary),
+                       existing_summary_length=len(current_summary) if current_summary != "No summary available" else 0,
+                       existing_summary_preview=current_summary[:200] if current_summary != "No summary available" else "NO_EXISTING_SUMMARY")
             
             # Create summary prompt similar to old system
             summary_prompt = self._create_summary_prompt(messages, current_summary)
+            
+            logger.info("background_summary_prompt_created",
+                       component="storage",
+                       prompt_length=len(summary_prompt),
+                       recent_messages_used=len(smart_preserve_messages(messages, keep_count=10)),
+                       current_summary_in_prompt=current_summary != "No summary available")
             
             # Generate summary using LLM
             if self._invoke_llm:
@@ -1303,21 +1322,121 @@ Keep the summary concise but informative."""
                 # Validate summary format (simplified version of old validation)
                 if self._is_valid_summary_format(new_summary):
                     logger.info("background_summary_complete",
-                               component="orchestrator",
+                               component="storage",
                                summary_length=len(new_summary),
-                               summary_preview=new_summary[:200])
+                               summary_preview=new_summary[:200],
+                               previous_summary_length=len(current_summary) if current_summary != "No summary available" else 0,
+                               summary_growth=len(new_summary) - (len(current_summary) if current_summary != "No summary available" else 0))
                     
-                    # Note: In the old system, this would be saved to storage
-                    # For now, we just log the summary. Memory agent will handle persistence later
+                    # Update state with new summary
+                    state["summary"] = new_summary
+                    logger.info("background_summary_state_updated",
+                               component="storage",
+                               state_summary_length=len(state.get("summary", "")),
+                               state_updated=True)
                     
                 else:
                     logger.warning("background_summary_invalid_format",
-                                 component="orchestrator",
+                                 component="storage",
                                  summary_preview=new_summary[:200])
             
         except Exception as e:
             logger.error("background_summary_error",
-                        component="orchestrator",
+                        component="storage",
+                        error=str(e),
+                        exception_type=type(e).__name__)
+    
+    async def _run_background_summary_with_storage(self, state: PlanExecuteState, config: dict) -> None:
+        """Run conversation summarization in background using simplified working pattern."""
+        try:
+            from src.utils.storage import get_async_store_adapter
+            from src.utils.config import get_database_config, get_conversation_config, STATE_KEY_PREFIX
+            
+            # Get thread_id from passed config
+            thread_id = config.get("configurable", {}).get("thread_id")
+            if not thread_id:
+                logger.error("background_summary_no_thread_id", 
+                           component="storage",
+                           config_keys=list(config.keys()),
+                           configurable_keys=list(config.get("configurable", {}).keys()))
+                return
+            
+            # Get user_id 
+            conv_config = get_conversation_config()
+            user_id = config.get("configurable", {}).get("user_id", conv_config.default_user_id)
+            
+            # Extract current state
+            messages = state.get("messages", [])
+            current_summary = state.get("summary", "")
+            
+            # Load existing summary from storage if available
+            try:
+                memory_store = get_async_store_adapter(db_path=get_database_config().path)
+                namespace = (conv_config.memory_namespace_prefix, user_id)
+                key = f"{STATE_KEY_PREFIX}{thread_id}"
+                
+                stored_data = await memory_store.get(namespace, key)
+                if stored_data and "summary" in stored_data:
+                    current_summary = stored_data["summary"]
+                    logger.info("summary_loaded_from_storage_for_background",
+                               component="storage",
+                               thread_id=thread_id,
+                               loaded_summary_length=len(current_summary),
+                               state_summary_length=len(state.get("summary", "")))
+                else:
+                    logger.info("no_stored_summary_found_for_background",
+                               component="storage",
+                               thread_id=thread_id)
+            except Exception as e:
+                logger.warning("summary_load_error_for_background",
+                              component="storage",
+                              thread_id=thread_id,
+                              error=str(e))
+            
+            logger.info("background_summary_using_working_pattern",
+                       component="storage",
+                       thread_id=thread_id,
+                       user_id=user_id,
+                       message_count=len(messages),
+                       existing_summary_length=len(current_summary),
+                       loaded_from_storage=len(current_summary) > 0)
+            
+            # Generate new summary using existing method
+            summary_prompt = self._create_summary_prompt(messages, current_summary)
+            
+            if self._invoke_llm:
+                summary_response = self._invoke_llm([HumanMessage(content=summary_prompt)])
+                new_summary = summary_response.content if hasattr(summary_response, 'content') else str(summary_response)
+                
+                if self._is_valid_summary_format(new_summary):
+                    logger.info("background_summary_generated",
+                               component="storage",
+                               summary_length=len(new_summary),
+                               summary_preview=new_summary[:200])
+                    
+                    # Save to external storage (simplified - only summary)
+                    memory_store = get_async_store_adapter(db_path=get_database_config().path)
+                    namespace = (conv_config.memory_namespace_prefix, user_id)
+                    key = f"{STATE_KEY_PREFIX}{thread_id}"
+                    
+                    await memory_store.put(namespace, key, {
+                        "summary": new_summary,
+                        "thread_id": thread_id,
+                        "timestamp": time.time()
+                    })
+                    
+                    logger.info("background_summary_saved_to_storage",
+                               component="storage",
+                               thread_id=thread_id,
+                               summary_length=len(new_summary))
+                else:
+                    logger.warning("background_summary_invalid_format",
+                                 component="storage",
+                                 summary_preview=new_summary[:200])
+            
+        except Exception as e:
+            logger.error("background_summary_with_storage_error",
+                        component="storage",
                         error=str(e),
                         exception_type=type(e).__name__)
     
@@ -1325,6 +1444,13 @@ Keep the summary concise but informative."""
         """Create summary prompt similar to old system."""
         # Preserve recent messages for context
         recent_messages = smart_preserve_messages(messages, keep_count=10)
+        
+        logger.info("summary_prompt_building",
+                   component="storage", 
+                   total_messages=len(messages),
+                   recent_messages_kept=len(recent_messages),
+                   current_summary_chars=len(current_summary),
+                   has_valid_current_summary=current_summary != "No summary available")
         
         # Format messages for summary
         formatted_messages = []
