@@ -4,7 +4,7 @@ import asyncio
 import logging
 
 from src.a2a import A2AServer, AgentCard
-from src.utils.logging import get_logger, init_session_tracking
+from src.utils.logging import get_logger
 from .agent_registry import AgentRegistry
 from .plan_execute_graph import create_plan_execute_graph
 from .a2a_handler import CleanOrchestratorA2AHandler
@@ -81,8 +81,6 @@ async def initialize_orchestrator_a2a():
 async def main(host: str, port: int):
     """Main function to run the orchestrator in A2A mode."""
     # Setup logging
-    init_session_tracking()
-    
     log_level = logging.WARNING
     logging.basicConfig(level=log_level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     

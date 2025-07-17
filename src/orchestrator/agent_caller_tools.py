@@ -83,7 +83,7 @@ class BaseAgentTool(BaseTool):
         Returns:
             Minimal state snapshot
         """
-        default_keys = ["summary", "events", "memory"]
+        default_keys = ["summary", "events", "memory", "messages"]
         keys_to_include = include_keys or default_keys
         
         return {

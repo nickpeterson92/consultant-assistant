@@ -508,6 +508,54 @@ tail -f logs/errors.log | grep -E "(web_search|TAVILY)"
 - **Web search errors**: Look for `web_search_error` or `tavily_` in orchestrator.log
 - **All critical errors**: Always check errors.log first!
 
+## 🔄 Current Session Context (Updated 2025-07-17)
+
+### Active Work: Textual UI Fixes
+**Problem**: User reported textual CLI interface issues:
+- Can't see typed input until hitting enter
+- Assistant responses not displaying in conversation area
+- Getting A2AClient errors about missing 'send_message' method
+- **NEW**: Plan display goes from 5 steps to 2 when interrupts happen, instead of showing original plan with skipped steps marked
+
+**Root Causes Identified**:
+1. **A2AClient Missing Method**: `orchestrator_cli_textual.py` was calling non-existent `send_message()` method
+2. **Missing Event Handler**: Textual client wasn't handling `summary_generated` events (how orchestrator sends final responses)
+3. **Input Visibility**: CSS styling made input field hard to see
+4. **Terminal Corruption**: App didn't properly restore terminal settings on exit
+5. **Plan Display Bug**: `plan_updated` events from replan node only contained `task_id` and `timestamp` - no plan data. Textual client had no handler for these events.
+
+**Fixes Applied**:
+- ✅ **Fixed A2AClient**: Replaced `send_message()` with proper SSE streaming like Rich version
+- ✅ **Added Event Handler**: Added `summary_generated` event handler in `process_sse_event()` method
+- ✅ **Enhanced CSS**: Updated `textual_styles.tcss` with better input field visibility
+- ✅ **Added Terminal Cleanup**: Added signal handlers and proper cleanup in `main()` function
+- ✅ **Comprehensive Logging**: Added debug logging for input changes, message processing, SSE events
+- ✅ **Fixed Plan Display**: Enhanced `plan_updated` events to include plan data and added handler in textual client
+
+**Files Modified**:
+- `orchestrator_cli_textual.py`: Main fixes for SSE streaming, event handling, terminal cleanup, plan_updated handler
+- `textual_styles.tcss`: Enhanced CSS for input visibility
+- `src/orchestrator/a2a_handler.py`: Enhanced plan_updated events to include plan data
+
+**Current Status**: 
+- All fixes implemented and saved
+- Plan display bug fixed - now includes plan data in plan_updated events
+- Ready for comprehensive testing
+
+**Next Steps**:
+1. Test `python3 orchestrator_cli_textual.py` 
+2. Verify input is visible while typing
+3. Confirm assistant responses appear in conversation area
+4. **Test interrupt functionality**: Create plan, interrupt, continue - verify plan shows original tasks with skipped steps marked
+5. Check terminal doesn't break on exit
+
+**Key Technical Details**:
+- Orchestrator sends responses via `summary_generated` events, not `response` events
+- SSE streaming endpoint: `http://localhost:8000/a2a/stream`
+- Debug logs show textual_client receiving events but weren't being processed
+- Terminal issues caused by Textual's raw mode not being properly restored
+- **Plan Display**: `plan_updated` events now include full plan data like `plan_modified` events do
+
 ## 🚨 Common Gotchas & Troubleshooting
 
 ### Salesforce Name Searches
@@ -589,6 +637,16 @@ Result: Shows all matches (Express Logistics SLA, Express Logistics Inc, etc.)
   - `src/orchestrator/conversation_handler.py:142-185` - Auto-resume logic
   - `src/orchestrator/agent_caller_tools.py:1347-1417` - Interrupt handling
 - **Testing**: Use `test_workflow_human_loop.py` to verify end-to-end flow
+
+### Plan Display During Interrupts (FIXED)
+**Problem**: Plan display goes from 5 steps to 2 when interrupts happen, instead of showing original plan with skipped steps marked
+- **Root Cause**: `plan_updated` events from replan node only contained `task_id` and `timestamp` - no plan data
+- **Impact**: Textual client had no handler for `plan_updated` events, so plan display wasn't updated after interrupts
+- **Solution**: Enhanced `plan_updated` events to include full plan data (plan, current_task_index, skipped_task_indices)
+- **Files Fixed**: 
+  - `src/orchestrator/a2a_handler.py:1053-1069` - Enhanced plan_updated event data
+  - `orchestrator_cli_textual.py:536-566` - Added plan_updated event handler
+- **Testing**: Create plan, interrupt with Ctrl+C, continue - verify plan shows original tasks with skipped steps marked
 
 ## 🎯 Quick Task Reference
 

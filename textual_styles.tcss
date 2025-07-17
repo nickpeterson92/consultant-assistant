@@ -81,3 +81,30 @@ Screen {
     color: white;
     border: solid yellow;
 }
+
+/* Modal dialog styles */
+.modal-container {
+    layout: vertical;
+    width: 80%;
+    height: 80%;
+    border: solid red;
+    background: #1e1e1e;
+    padding: 2;
+    margin: 2;
+    color: white;
+}
+
+#modification-input {
+    height: 3;
+    margin: 1;
+    padding: 0 1;
+    background: #444444;
+    color: white;
+    border: solid cyan;
+}
+
+#modification-input:focus {
+    background: #333333;
+    color: white;
+    border: solid yellow;
+}

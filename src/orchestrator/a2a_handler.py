@@ -1051,11 +1051,22 @@ class CleanOrchestratorA2AHandler:
                                         })
                             
                 elif node_name == "replan":
-                    # Replanning occurred
-                    return self._format_sse_event("plan_updated", {
+                    # Replanning occurred - include plan data for UI updates
+                    event_data = {
                         "task_id": task_id,
                         "timestamp": datetime.now().isoformat()
-                    })
+                    }
+                    
+                    # Include plan data if available for UI updates
+                    if isinstance(node_output, dict) and "plan" in node_output:
+                        event_data["plan"] = node_output["plan"]
+                        # Include execution state for proper display
+                        if "current_task_index" in node_output:
+                            event_data["current_task_index"] = node_output["current_task_index"]
+                        if "skipped_task_indices" in node_output:
+                            event_data["skipped_task_indices"] = node_output["skipped_task_indices"]
+                    
+                    return self._format_sse_event("plan_updated", event_data)
                     
                 elif node_name == "plan_summary":
                     # Summary generation occurred
