@@ -857,7 +857,15 @@ class CleanOrchestratorA2AHandler:
                             config,
                             stream_mode="updates"
                         ):
-                            yield self._process_graph_event(event, task_id, thread_id)
+                            sse_event = self._process_graph_event(event, task_id, thread_id)
+                            if sse_event:  # Only yield non-empty events
+                                logger.info("yielding_sse_event",
+                                           component="orchestrator",
+                                           task_id=task_id,
+                                           thread_id=thread_id,
+                                           event_type=sse_event.split('\n')[0].replace('event: ', '') if sse_event.startswith('event: ') else "unknown",
+                                           event_preview=sse_event[:100])
+                                yield sse_event
                             
                     else:
                         # Start new conversation with fresh state
@@ -877,7 +885,15 @@ class CleanOrchestratorA2AHandler:
                             config,
                             stream_mode="updates"
                         ):
-                            yield self._process_graph_event(event, task_id, thread_id)
+                            sse_event = self._process_graph_event(event, task_id, thread_id)
+                            if sse_event:  # Only yield non-empty events
+                                logger.info("yielding_sse_event",
+                                           component="orchestrator",
+                                           task_id=task_id,
+                                           thread_id=thread_id,
+                                           event_type=sse_event.split('\n')[0].replace('event: ', '') if sse_event.startswith('event: ') else "unknown",
+                                           event_preview=sse_event[:100])
+                                yield sse_event
                             
                 except Exception as state_error:
                     logger.warning("state_loading_error_streaming", 
@@ -950,7 +966,15 @@ class CleanOrchestratorA2AHandler:
                            output_keys=list(node_output.keys()) if isinstance(node_output, dict) else "not_dict")
                 
                 if node_name == "planner" and "plan" in node_output:
-                    # Plan was created
+                    # Plan was created - clear task status cache for new plan
+                    cache_key = thread_id if thread_id else task_id
+                    self.task_status_cache[cache_key] = {}
+                    logger.info("cleared_task_status_cache_for_new_plan",
+                               component="orchestrator",
+                               task_id=task_id,
+                               thread_id=thread_id,
+                               cache_key=cache_key)
+                    
                     plan = node_output["plan"]
                     return self._format_sse_event("plan_created", {
                         "task_id": task_id,
@@ -960,9 +984,20 @@ class CleanOrchestratorA2AHandler:
                     
                 elif node_name == "agent":
                     # Agent node execution - check for task progress and plan updates
+                    logger.info("agent_node_event_detected",
+                               component="orchestrator",
+                               task_id=task_id,
+                               thread_id=thread_id,
+                               has_plan="plan" in node_output)
                     if "plan" in node_output:
                         plan = node_output["plan"]
                         tasks = plan.get("tasks", [])
+                        
+                        logger.info("agent_node_plan_processing",
+                                   component="orchestrator",
+                                   task_id=task_id,
+                                   thread_id=thread_id,
+                                   task_count=len(tasks))
                         
                         # Get cached task statuses for this thread_id to detect changes
                         cache_key = thread_id if thread_id else task_id  # Fallback to task_id if thread_id not available
@@ -973,6 +1008,15 @@ class CleanOrchestratorA2AHandler:
                             task_internal_id = task.get("id", "")
                             current_status = task.get("status", "")
                             previous_status = cached_statuses.get(task_internal_id, "")
+                            
+                            # Debug logging for task status detection
+                            logger.info("task_status_detection",
+                                       component="orchestrator",
+                                       task_id=task_id,
+                                       task_internal_id=task_internal_id,
+                                       current_status=current_status,
+                                       previous_status=previous_status,
+                                       status_changed=current_status != previous_status)
                             
                             # Update cache
                             cached_statuses[task_internal_id] = current_status
@@ -988,6 +1032,11 @@ class CleanOrchestratorA2AHandler:
                                     })
                                 elif current_status == "completed":
                                     self.task_status_cache[cache_key] = cached_statuses
+                                    logger.info("sending_task_completed_event",
+                                               component="orchestrator",
+                                               task_id=task_id,
+                                               task_internal_id=task_internal_id,
+                                               task_content=task.get("content", ""))
                                     return self._format_sse_event("task_completed", {
                                         "task_id": task_id,
                                         "task": task,

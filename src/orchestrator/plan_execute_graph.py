@@ -3,6 +3,7 @@
 from typing import Dict, Any, List, Optional, Literal
 from datetime import datetime
 import asyncio
+import time
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
@@ -18,7 +19,8 @@ from src.orchestrator.plan_execute_state import (
     is_plan_complete, get_plan_summary
 )
 from src.utils.logging import get_logger
-from src.utils.config import get_llm_config
+from src.utils.config import get_llm_config, get_conversation_config
+from src.utils.agents.message_processing import trim_messages_for_context, smart_preserve_messages
 
 logger = get_logger("orchestrator")
 print(f"🔧 DEBUG: Logger level: {logger.logger.level if hasattr(logger, 'logger') else 'unknown'}")
@@ -34,6 +36,8 @@ class PlanExecuteGraph:
         self.graph = self._build_graph()
         self._agent_tools = {}  # Will be populated with agent caller tools
         self._invoke_llm = invoke_llm  # LLM function for orchestrator tasks and planning
+        self._last_summary_time = 0
+        self._last_summary_message_count = 0
     
     def _build_graph(self) -> StateGraph:
         """Build the baseline plan-and-execute graph."""
@@ -113,6 +117,12 @@ class PlanExecuteGraph:
                    request=state.get("original_request", "NO_REQUEST"),
                    existing_plan=bool(state.get("plan")),
                    messages_count=len(state.get("messages", [])))
+        
+        # Trim messages if needed before planning
+        state = self._trim_messages_if_needed(state)
+        
+        # Trigger background summarization if needed
+        await self._trigger_background_summary(state)
         
         try:
             # Check if there's an existing plan
@@ -321,6 +331,12 @@ class PlanExecuteGraph:
                    component="orchestrator",
                    has_plan=bool(state.get("plan")),
                    task_count=len(state["plan"]["tasks"]) if state.get("plan") else 0)
+        
+        # Trim messages if needed before execution
+        state = self._trim_messages_if_needed(state)
+        
+        # Trigger background summarization if needed
+        await self._trigger_background_summary(state)
         
         if not state["plan"]:
             logger.warning("agent_no_plan", component="orchestrator")
@@ -1091,6 +1107,177 @@ Keep the summary concise but informative."""
         
         # This is handled in the approver node, so we just clear the interrupt
         return {**state, "interrupted": False, "interrupt_data": None}
+    
+    # ================================
+    # Message Processing and Summarization
+    # ================================
+    
+    def _should_trim_messages(self, messages: List) -> bool:
+        """Check if messages should be trimmed based on length."""
+        if not messages:
+            return False
+        
+        # Simple heuristic from old system: trim if more than 20 messages
+        return len(messages) > 20
+    
+    def _should_trigger_summary(self, messages: List) -> bool:
+        """Check if conversation should be summarized."""
+        conv_config = get_conversation_config()
+        current_time = time.time()
+        message_count = len(messages)
+        
+        # Check message count threshold
+        if message_count - self._last_summary_message_count >= 5:
+            return True
+        
+        # Check time threshold (5 minutes = 300 seconds)
+        if current_time - self._last_summary_time >= 300 and message_count > self._last_summary_message_count:
+            return True
+        
+        return False
+    
+    def _trim_messages_if_needed(self, state: PlanExecuteState) -> PlanExecuteState:
+        """Trim messages if context is getting too large."""
+        messages = state.get("messages", [])
+        
+        if not self._should_trim_messages(messages):
+            return state
+        
+        logger.info("trimming_messages_for_context",
+                   component="orchestrator",
+                   original_count=len(messages),
+                   triggering_trim=True)
+        
+        # Use 80k token limit matching old system orchestrator settings
+        trimmed_messages = trim_messages_for_context(
+            messages,
+            max_tokens=80000,
+            keep_system=True,
+            keep_first_n=2,
+            keep_last_n=15,
+            use_smart_trimming=True
+        )
+        
+        logger.info("message_trimming_complete",
+                   component="orchestrator",
+                   original_count=len(messages),
+                   trimmed_count=len(trimmed_messages),
+                   tokens_saved=len(messages) - len(trimmed_messages))
+        
+        return {
+            **state,
+            "messages": trimmed_messages
+        }
+    
+    async def _trigger_background_summary(self, state: PlanExecuteState) -> None:
+        """Trigger background conversation summarization."""
+        messages = state.get("messages", [])
+        
+        if not self._should_trigger_summary(messages):
+            return
+        
+        logger.info("triggering_background_summary",
+                   component="orchestrator",
+                   message_count=len(messages),
+                   last_summary_count=self._last_summary_message_count)
+        
+        # Update tracking
+        self._last_summary_time = time.time()
+        self._last_summary_message_count = len(messages)
+        
+        # Run summarization in background without blocking
+        asyncio.create_task(self._run_background_summary(state))
+    
+    async def _run_background_summary(self, state: PlanExecuteState) -> None:
+        """Run conversation summarization in background."""
+        try:
+            messages = state.get("messages", [])
+            current_summary = state.get("summary", "No summary available")
+            
+            logger.info("background_summary_start",
+                       component="orchestrator",
+                       message_count=len(messages),
+                       has_existing_summary=bool(current_summary))
+            
+            # Create summary prompt similar to old system
+            summary_prompt = self._create_summary_prompt(messages, current_summary)
+            
+            # Generate summary using LLM
+            if self._invoke_llm:
+                summary_response = self._invoke_llm([HumanMessage(content=summary_prompt)])
+                new_summary = summary_response.content if hasattr(summary_response, 'content') else str(summary_response)
+                
+                # Validate summary format (simplified version of old validation)
+                if self._is_valid_summary_format(new_summary):
+                    logger.info("background_summary_complete",
+                               component="orchestrator",
+                               summary_length=len(new_summary),
+                               summary_preview=new_summary[:200])
+                    
+                    # Note: In the old system, this would be saved to storage
+                    # For now, we just log the summary. Memory agent will handle persistence later
+                    
+                else:
+                    logger.warning("background_summary_invalid_format",
+                                 component="orchestrator",
+                                 summary_preview=new_summary[:200])
+            
+        except Exception as e:
+            logger.error("background_summary_error",
+                        component="orchestrator",
+                        error=str(e),
+                        exception_type=type(e).__name__)
+    
+    def _create_summary_prompt(self, messages: List, current_summary: str) -> str:
+        """Create summary prompt similar to old system."""
+        # Preserve recent messages for context
+        recent_messages = smart_preserve_messages(messages, keep_count=10)
+        
+        # Format messages for summary
+        formatted_messages = []
+        for msg in recent_messages:
+            role = "User" if isinstance(msg, HumanMessage) else "Assistant"
+            content = str(msg.content)[:500]  # Truncate long messages
+            formatted_messages.append(f"{role}: {content}")
+        
+        prompt = f"""Please provide a structured summary of this conversation.
+
+CURRENT SUMMARY:
+{current_summary}
+
+RECENT MESSAGES:
+{chr(10).join(formatted_messages)}
+
+Please update the summary to include the recent conversation while maintaining the following format:
+
+TECHNICAL/SYSTEM INFORMATION:
+- Key system operations, tool calls, data retrieved
+- Agent interactions and coordination
+- Technical outcomes and results
+
+USER INTERACTION:
+- User requests and intentions
+- Questions asked and answered
+- Task completion status
+
+AGENT COORDINATION CONTEXT:
+- Which agents were involved
+- What operations were performed
+- Current system state and context
+
+Keep the summary concise but comprehensive."""
+        
+        return prompt
+    
+    def _is_valid_summary_format(self, summary: str) -> bool:
+        """Simple validation of summary format."""
+        required_sections = [
+            "TECHNICAL/SYSTEM INFORMATION:",
+            "USER INTERACTION:",
+            "AGENT COORDINATION CONTEXT:"
+        ]
+        
+        return all(section in summary for section in required_sections)
 
 
 def create_plan_execute_graph(checkpointer=None, invoke_llm=None) -> PlanExecuteGraph:
