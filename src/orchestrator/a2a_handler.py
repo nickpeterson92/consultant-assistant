@@ -21,10 +21,11 @@ logger = get_logger("orchestrator")
 class CleanOrchestratorA2AHandler:
     """Clean A2A handler that delegates to pure plan-execute graph."""
     
-    def __init__(self, plan_execute_graph, agent_registry):
+    def __init__(self, plan_execute_graph, agent_registry, plan_modification_extractor=None):
         """Initialize with plan-execute graph and agent registry."""
         self.graph = plan_execute_graph
         self.agent_registry = agent_registry
+        self.plan_modification_extractor = plan_modification_extractor
         self.active_tasks = {}  # Track active tasks for progress
         self.streaming_clients = {}  # Track SSE clients by task_id
         self.task_status_cache = {}  # Cache task statuses to detect changes
@@ -68,7 +69,7 @@ class CleanOrchestratorA2AHandler:
             # Check if we're resuming from an interrupt
             if context.get("resume_data"):
                 # Resume from interrupt
-                from langgraph.pregel import Command #type: ignore[import]
+                from langgraph.types import Command
                 result = await self.graph.graph.ainvoke(
                     Command(resume=context["resume_data"]),
                     config
@@ -323,6 +324,9 @@ class CleanOrchestratorA2AHandler:
                 }
             )
             
+            # Broadcast interrupt to all connected agents via WebSocket
+            await self._broadcast_agent_interrupt(thread_id, reason)
+            
             logger.info("interrupt_task_success",
                        component="orchestrator", 
                        thread_id=thread_id)
@@ -341,6 +345,98 @@ class CleanOrchestratorA2AHandler:
                 "message": f"Error interrupting task: {str(e)}"
             }
     
+    async def _broadcast_agent_interrupt(self, thread_id: str, reason: str):
+        """Broadcast interrupt to all registered agents via WebSocket.
+        
+        Args:
+            thread_id: The orchestrator thread ID
+            reason: Reason for the interrupt
+        """
+        try:
+            from src.orchestrator.agent_registry import get_agent_registry
+            registry = get_agent_registry()
+            
+            if not registry:
+                logger.warning("agent_interrupt_broadcast_no_registry",
+                              component="orchestrator",
+                              thread_id=thread_id)
+                return
+            
+            # Get all registered agents
+            agents = registry.get_all_agents()
+            logger.info("agent_interrupt_broadcast_start",
+                       component="orchestrator",
+                       thread_id=thread_id,
+                       reason=reason,
+                       agent_count=len(agents))
+            
+            # Broadcast to each agent's interrupt WebSocket
+            import asyncio
+            import aiohttp
+            import json
+            
+            async def send_interrupt_to_agent(agent):
+                """Send interrupt to a single agent."""
+                try:
+                    # Parse agent endpoint to get WebSocket URL
+                    endpoint = agent.endpoints.get("process_task", "")
+                    if not endpoint:
+                        return
+                    
+                    # Convert HTTP endpoint to WebSocket interrupt endpoint
+                    ws_url = endpoint.replace("http://", "ws://").replace("/a2a", "/a2a/interrupt")
+                    
+                    # Connect to agent's interrupt WebSocket
+                    session = aiohttp.ClientSession()
+                    try:
+                        async with session.ws_connect(ws_url, timeout=aiohttp.ClientTimeout(total=5)) as ws:
+                            # Send interrupt message
+                            await ws.send_str(json.dumps({
+                                "jsonrpc": "2.0",
+                                "method": "interrupt_task", 
+                                "params": {
+                                    "task_id": thread_id,  # Use thread_id as task_id
+                                    "reason": reason
+                                }
+                            }))
+                            
+                            # Wait for acknowledgment
+                            async for msg in ws:
+                                if msg.type == aiohttp.WSMsgType.TEXT:
+                                    data = json.loads(msg.data)
+                                    if data.get("method") == "interrupt_ack":
+                                        logger.info("agent_interrupt_ack",
+                                                   component="orchestrator",
+                                                   agent_id=agent.id,
+                                                   thread_id=thread_id)
+                                        break
+                                elif msg.type == aiohttp.WSMsgType.ERROR:
+                                    break
+                    finally:
+                        await session.close()
+                        
+                except Exception as e:
+                    logger.warning("agent_interrupt_send_failed",
+                                  component="orchestrator",
+                                  agent_id=agent.id,
+                                  error=str(e))
+            
+            # Send interrupts to all agents concurrently
+            if agents:
+                await asyncio.gather(*[send_interrupt_to_agent(agent) for agent in agents], 
+                                   return_exceptions=True)
+            
+            logger.info("agent_interrupt_broadcast_complete",
+                       component="orchestrator",
+                       thread_id=thread_id,
+                       agents_notified=len(agents))
+                       
+        except Exception as e:
+            logger.error("agent_interrupt_broadcast_error",
+                        component="orchestrator",
+                        thread_id=thread_id,
+                        error=str(e))
+    
     async def resume_task(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Resume an interrupted task with user input."""
         try:
@@ -358,25 +454,26 @@ class CleanOrchestratorA2AHandler:
                        thread_id=thread_id,
                        user_input_length=len(user_input))
             
-            # Use LangGraph's Command(resume=...) pattern
-            from langgraph.pregel import Command #type: ignore[import]
+            # Store the resume data for the next streaming request
+            # This allows the client to pick up where it left off
+            if not hasattr(self, 'resume_data'):
+                self.resume_data = {}
             
-            config = {"configurable": {"thread_id": thread_id}}
+            import time
+            self.resume_data[thread_id] = {
+                "user_input": user_input,
+                "timestamp": time.time()
+            }
             
-            # Resume the graph with user input
-            result = await self.graph.graph.ainvoke(
-                Command(resume=user_input),
-                config
-            )
-            
-            logger.info("resume_task_success",
+            logger.info("resume_task_stored",
                        component="orchestrator",
-                       thread_id=thread_id)
+                       thread_id=thread_id,
+                       status="Resume data stored for next streaming request")
             
             return {
                 "success": True,
-                "message": "Task resumed successfully",
-                "result": result
+                "message": "Resume request stored. Client should reinitiate streaming to continue.",
+                "resume_stored": True
             }
             
         except Exception as e:
@@ -592,14 +689,116 @@ class CleanOrchestratorA2AHandler:
                 "timestamp": datetime.now().isoformat()
             })
             
-            # Check if we're resuming from an interrupt
-            if context.get("resume_data"):
-                # Resume from interrupt
-                from langgraph.pregel import Command #type: ignore[import]
+            # Check if we're resuming from an interrupt (either from context or stored resume data)
+            resume_data = context.get("resume_data")
+            plan_modification = None
+            
+            if not resume_data and hasattr(self, 'resume_data') and thread_id in self.resume_data:
+                # Use stored resume data from WebSocket
+                stored_resume = self.resume_data[thread_id]
+                resume_data = stored_resume["user_input"]
+                # Clear the stored resume data after using it
+                del self.resume_data[thread_id]
+                logger.info("using_stored_resume_data", 
+                           component="orchestrator",
+                           thread_id=thread_id,
+                           resume_data_preview=resume_data[:100])
+                
+                # Use LLM to parse user modification intent
+                if self.plan_modification_extractor:
+                    logger.info("plan_modification_extractor_available", 
+                               component="orchestrator",
+                               thread_id=thread_id,
+                               resume_data=resume_data)
+                    try:
+                        plan_modification = await self._parse_plan_modification(resume_data, thread_id)
+                        if plan_modification:
+                            logger.info("plan_modification_parsed", 
+                                       component="orchestrator",
+                                       thread_id=thread_id,
+                                       modification_type=plan_modification.modification_type,
+                                       target_step=plan_modification.target_step_number,
+                                       confidence=plan_modification.confidence)
+                        else:
+                            logger.warning("plan_modification_returned_none",
+                                         component="orchestrator",
+                                         thread_id=thread_id,
+                                         resume_data=resume_data)
+                    except Exception as e:
+                        logger.error("plan_modification_parse_error",
+                                   component="orchestrator", 
+                                   thread_id=thread_id,
+                                   error=str(e),
+                                   resume_data=resume_data)
+                        # Fallback to original instruction
+                        resume_data = None
+                        plan_modification = None
+                else:
+                    logger.error("plan_modification_extractor_not_available",
+                               component="orchestrator",
+                               thread_id=thread_id)
+            
+            if plan_modification:
+                # Handle intelligent plan modification
+                from langgraph.types import Command
+                
+                logger.info("applying_plan_modification",
+                           component="orchestrator",
+                           thread_id=thread_id,
+                           modification_type=plan_modification.modification_type,
+                           target_step=plan_modification.target_step_number)
+                
+                if plan_modification.modification_type == "cancel_and_new":
+                    # Start completely new plan
+                    instruction = plan_modification.new_plan_description or "continue"
+                    logger.info("plan_cancelled_starting_new",
+                               component="orchestrator",
+                               thread_id=thread_id,
+                               new_instruction=instruction)
+                    # Start fresh - fall through to normal execution
+                    
+                elif plan_modification.modification_type == "replace_plan":
+                    # Replace current plan with new approach
+                    instruction = plan_modification.new_plan_description or "continue" 
+                    logger.info("plan_replaced",
+                               component="orchestrator", 
+                               thread_id=thread_id,
+                               new_instruction=instruction)
+                    # Start fresh - fall through to normal execution
+                    
+                elif plan_modification.modification_type == "conversation_only":
+                    # Just respond, don't modify plan
+                    logger.info("conversation_only_no_plan_change",
+                               component="orchestrator",
+                               thread_id=thread_id)
+                    # Continue with original instruction - fall through
+                    
+                else:
+                    # Step-based modifications - use Command with proper state updates
+                    command_update = self._create_plan_state_update(plan_modification)
+                    logger.info("plan_state_update_created",
+                               component="orchestrator",
+                               thread_id=thread_id,
+                               update_keys=list(command_update.keys()) if command_update else [],
+                               current_task_index=command_update.get("current_task_index"),
+                               skipped_task_indices=command_update.get("skipped_task_indices"))
+                    
+                    # Stream the execution with state updates
+                    async for event in self.graph.graph.astream(
+                        Command(update=command_update, resume=resume_data),
+                        config,
+                        stream_mode="updates"
+                    ):
+                        yield self._process_graph_event(event, task_id)
+                    return
+                        
+            elif resume_data:
+                # Fallback: old resume behavior if LLM parsing failed
+                from langgraph.types import Command
                 
                 # Stream the execution
                 async for event in self.graph.graph.astream(
-                    Command(resume=context["resume_data"]),
+                    Command(resume=resume_data),
                     config,
                     stream_mode="updates"
                 ):
@@ -900,3 +1099,160 @@ class CleanOrchestratorA2AHandler:
                         error=str(e),
                         data_keys=list(data.keys()))
             return f"data: {json.dumps({'event': event_type, 'data': {'error': 'serialization_failed'}})}\n\n"
+    
+    async def _parse_plan_modification(self, user_input: str, thread_id: str):
+        """Parse user input into structured plan modification using LLM."""
+        try:
+            # Get current plan context if available
+            current_state = self.graph.graph.get_state({"configurable": {"thread_id": thread_id}})
+            current_plan_info = ""
+            if current_state and current_state.values:
+                plan = current_state.values.get("plan", {})
+                if plan and plan.get("tasks"):
+                    current_plan_info = f"Current plan has {len(plan['tasks'])} steps: " + \
+                                      ", ".join([f"{i+1}. {task.get('content', 'Unknown')}" 
+                                               for i, task in enumerate(plan["tasks"])])
+            
+            # Create extraction prompt
+            extraction_prompt = f"""
+            The user is modifying an active plan execution. Here's the context:
+            
+            {current_plan_info}
+            
+            User input: "{user_input}"
+            
+            Parse the user's intent and determine what plan modification they want.
+            """
+            
+            # Extract structured plan modification
+            result = self.plan_modification_extractor.invoke({
+                "messages": [("human", extraction_prompt)],
+                "user_input": user_input
+            })
+            
+            # Log to extraction.log for detailed TrustCall debugging
+            from src.utils.logging.multi_file_logger import StructuredLogger
+            extraction_logger = StructuredLogger()
+            
+            extraction_logger.info("trustcall_plan_modification_invoked",
+                                 component="extraction",
+                                 thread_id=thread_id,
+                                 user_input=user_input,
+                                 extraction_prompt_preview=extraction_prompt[:300],
+                                 result_type=type(result).__name__)
+            
+            # Extract PlanModification tool call result from LangChain message structure (same pattern as instruction extractor)
+            plan_modification_result = None
+            
+            if isinstance(result, dict) and 'messages' in result:
+                messages = result['messages']
+                extraction_logger.info("trustcall_result_structure",
+                                     component="extraction",
+                                     thread_id=thread_id,
+                                     has_messages=True,
+                                     message_count=len(messages))
+                
+                if messages and len(messages) > 0:
+                    message = messages[0]
+                    extraction_logger.info("trustcall_first_message",
+                                         component="extraction",
+                                         thread_id=thread_id,
+                                         message_type=type(message).__name__,
+                                         has_additional_kwargs=hasattr(message, 'additional_kwargs'),
+                                         additional_kwargs_keys=list(message.additional_kwargs.keys()) if hasattr(message, 'additional_kwargs') else [])
+                    
+                    if hasattr(message, 'additional_kwargs') and 'tool_calls' in message.additional_kwargs:
+                        tool_calls = message.additional_kwargs['tool_calls']
+                        extraction_logger.info("trustcall_tool_calls_found",
+                                             component="extraction",
+                                             thread_id=thread_id,
+                                             tool_call_count=len(tool_calls),
+                                             tool_names=[tc.get('function', {}).get('name', 'unknown') for tc in tool_calls])
+                        
+                        # Find the PlanModification tool call
+                        for i, tool_call in enumerate(tool_calls):
+                            tool_name = tool_call.get('function', {}).get('name')
+                            extraction_logger.info("trustcall_examining_tool_call",
+                                                 component="extraction",
+                                                 thread_id=thread_id,
+                                                 tool_call_index=i,
+                                                 tool_name=tool_name,
+                                                 has_arguments=bool(tool_call.get('function', {}).get('arguments')))
+                            
+                            if tool_name == 'PlanModification':
+                                import json
+                                try:
+                                    args_str = tool_call['function']['arguments']
+                                    plan_modification_result = json.loads(args_str)
+                                    extraction_logger.info("trustcall_plan_modification_extracted",
+                                                         component="extraction",
+                                                         thread_id=thread_id,
+                                                         extracted_data=plan_modification_result)
+                                    break
+                                except json.JSONDecodeError as e:
+                                    extraction_logger.error("trustcall_json_parse_error",
+                                                           component="extraction",
+                                                           thread_id=thread_id,
+                                                           error=str(e),
+                                                           raw_arguments=args_str)
+                                    continue
+                    else:
+                        extraction_logger.warning("trustcall_no_tool_calls",
+                                                component="extraction",
+                                                thread_id=thread_id,
+                                                message_content=message.content if hasattr(message, 'content') else 'no_content')
+            else:
+                extraction_logger.warning("trustcall_unexpected_result_format",
+                                        component="extraction",
+                                        thread_id=thread_id,
+                                        result_structure=str(result)[:500])
+            
+            if plan_modification_result:
+                from .llm_handler import PlanModification
+                modification_obj = PlanModification(**plan_modification_result)
+                extraction_logger.info("trustcall_plan_modification_created",
+                                     component="extraction",
+                                     thread_id=thread_id,
+                                     modification_type=modification_obj.modification_type,
+                                     target_step=modification_obj.target_step_number,
+                                     confidence=modification_obj.confidence)
+                return modification_obj
+            
+            extraction_logger.error("trustcall_plan_modification_extraction_failed",
+                                   component="extraction",
+                                   thread_id=thread_id,
+                                   result_type=type(result).__name__,
+                                   result_preview=str(result)[:500])
+            return None
+            
+        except Exception as e:
+            logger.error("plan_modification_extraction_error",
+                        component="orchestrator",
+                        thread_id=thread_id,
+                        error=str(e))
+            raise
+    
+    def _create_plan_state_update(self, plan_modification) -> Dict[str, Any]:
+        """Create state update dictionary based on plan modification."""
+        update = {}
+        
+        if plan_modification.modification_type == "skip_to_step" and plan_modification.target_step_number:
+            # Skip to specific step
+            update["current_task_index"] = plan_modification.target_step_number - 1
+            # Mark skipped steps as completed
+            skipped_steps = list(range(0, plan_modification.target_step_number - 1))
+            update["skipped_task_indices"] = skipped_steps
+            
+        elif plan_modification.modification_type == "skip_steps" and plan_modification.steps_to_skip:
+            # Skip specific steps
+            update["skipped_task_indices"] = [i - 1 for i in plan_modification.steps_to_skip]  # Convert to 0-indexed
+            
+        # Add modification metadata
+        update["plan_modification_applied"] = {
+            "type": plan_modification.modification_type,
+            "reasoning": plan_modification.reasoning,
+            "confidence": plan_modification.confidence,
+            "applied_at": datetime.now().isoformat()
+        }
+        
+        return update

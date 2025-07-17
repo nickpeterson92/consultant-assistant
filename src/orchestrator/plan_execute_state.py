@@ -114,6 +114,7 @@ class PlanExecuteState(TypedDict):
     # Plan management
     plan: Optional[ExecutionPlan]
     current_task_index: int
+    skipped_task_indices: List[int]  # 0-indexed task positions to skip
     plan_history: List[ExecutionPlan]  # For versioning/rollback
     
     # Task execution
@@ -125,6 +126,7 @@ class PlanExecuteState(TypedDict):
     interrupted: bool
     interrupt_data: Optional[InterruptData]
     approval_pending: bool
+    plan_modification_applied: Optional[Dict[str, Any]]  # Last modification for debugging
     
     # Real-time UI coordination (replaces progress_state.py)
     progress_state: ProgressState
@@ -197,6 +199,7 @@ def create_initial_state(original_request: str) -> PlanExecuteState:
         original_request=original_request,
         plan=None,
         current_task_index=0,
+        skipped_task_indices=[],
         plan_history=[],
         task_results={},
         execution_context={},
@@ -204,6 +207,7 @@ def create_initial_state(original_request: str) -> PlanExecuteState:
         interrupted=False,
         interrupt_data=None,
         approval_pending=False,
+        plan_modification_applied=None,
         progress_state=ProgressState(
             current_step=None,
             completed_steps=[],
@@ -238,24 +242,91 @@ def get_current_task(state: PlanExecuteState) -> Optional[ExecutionTask]:
 
 
 def get_next_executable_task(state: PlanExecuteState) -> Optional[ExecutionTask]:
-    """Get the next task that can be executed (dependencies satisfied)."""
+    """Get the next task that can be executed (dependencies satisfied).
+    
+    Respects plan modifications:
+    - current_task_index: starts search from this position
+    - skipped_task_indices: marks these tasks as skipped
+    """
+    print("🚨 DEBUG: get_next_executable_task called!")  # Simple debug print
+    
     if not state["plan"] or not state["plan"]["tasks"]:
         return None
     
-    # Get completed task IDs
-    completed_task_ids = {
-        task["id"] for task in state["plan"]["tasks"]
-        if task["status"] == TaskStatus.COMPLETED.value
+    tasks = state["plan"]["tasks"]
+    
+    # Log plan modification state for debugging
+    from src.utils.logging.multi_file_logger import StructuredLogger
+    logger = StructuredLogger()
+    
+    current_task_index = state.get("current_task_index", 0)
+    skipped_indices = state.get("skipped_task_indices", [])
+    
+    print(f"🔍 DEBUG: current_task_index={current_task_index}, skipped_indices={skipped_indices}")
+    print(f"🔍 DEBUG: total_tasks={len(tasks)}, task_statuses={[t['status'] for t in tasks]}")
+    print(f"🔍 DEBUG: plan_modification_applied={state.get('plan_modification_applied')}")
+    
+    logger.info("get_next_executable_task_called",
+               component="orchestrator",
+               current_task_index=current_task_index,
+               skipped_indices=skipped_indices,
+               total_tasks=len(tasks),
+               task_statuses=[t["status"] for t in tasks])
+    
+    # Handle skipped tasks - mark them as skipped if they're still pending
+    for i in skipped_indices:
+        if i < len(tasks) and tasks[i]["status"] == TaskStatus.PENDING.value:
+            tasks[i]["status"] = TaskStatus.SKIPPED.value
+            logger.info("task_marked_as_skipped",
+                       component="orchestrator",
+                       task_index=i,
+                       task_id=tasks[i]["id"],
+                       task_content=tasks[i]["content"][:100])
+    
+    # Get completed and skipped task IDs (both satisfy dependencies)
+    satisfied_task_ids = {
+        task["id"] for task in tasks
+        if task["status"] in [TaskStatus.COMPLETED.value, TaskStatus.SKIPPED.value]
     }
     
-    # Find pending tasks with satisfied dependencies
-    for task in state["plan"]["tasks"]:
+    # Find the next executable task starting from current_task_index
+    for i in range(current_task_index, len(tasks)):
+        task = tasks[i]
         if task["status"] == TaskStatus.PENDING.value:
             # Check if all dependencies are satisfied
-            unmet_deps = [dep for dep in task["depends_on"] if dep not in completed_task_ids]
+            unmet_deps = [dep for dep in task["depends_on"] if dep not in satisfied_task_ids]
             if not unmet_deps:
+                # Update current_task_index to this position
+                state["current_task_index"] = i
+                logger.info("next_executable_task_selected",
+                           component="orchestrator",
+                           selected_task_index=i,
+                           task_id=task["id"],
+                           task_content=task["content"][:100],
+                           started_from_index=current_task_index)
                 return task
     
+    # If no tasks found from current_task_index onwards, check earlier tasks
+    # (in case of dependency issues or complex modification scenarios)
+    for i in range(0, current_task_index):
+        task = tasks[i]
+        if task["status"] == TaskStatus.PENDING.value:
+            # Check if all dependencies are satisfied
+            unmet_deps = [dep for dep in task["depends_on"] if dep not in satisfied_task_ids]
+            if not unmet_deps:
+                state["current_task_index"] = i
+                logger.info("next_executable_task_selected_fallback",
+                           component="orchestrator",
+                           selected_task_index=i,
+                           task_id=task["id"],
+                           task_content=task["content"][:100],
+                           original_start_index=current_task_index)
+                return task
+    
+    logger.info("no_executable_task_found",
+               component="orchestrator",
+               current_task_index=current_task_index,
+               total_tasks=len(tasks))
     return None
 
 

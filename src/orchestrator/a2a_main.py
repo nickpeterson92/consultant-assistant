@@ -170,7 +170,7 @@ async def main(host: str, port: int):
     # Create LLM instances using existing infrastructure
     from .llm_handler import create_llm_instances
     tools = list(agent_tools.values())  # Use agent tools as LLM tools
-    llm_with_tools, deterministic_llm, trustcall_extractor, instruction_extractor, invoke_llm = create_llm_instances(tools)
+    llm_with_tools, deterministic_llm, trustcall_extractor, plan_modification_extractor, invoke_llm = create_llm_instances(tools)
     
     # Create pure plan-execute graph with LLM support
     local_graph = create_plan_execute_graph(invoke_llm=invoke_llm)
@@ -183,7 +183,7 @@ async def main(host: str, port: int):
     )
     
     # Create A2A handler
-    handler = CleanOrchestratorA2AHandler(local_graph, agent_registry)
+    handler = CleanOrchestratorA2AHandler(local_graph, agent_registry, plan_modification_extractor)
     
     # Create and configure A2A server
     server = A2AServer(agent_card, host, port)

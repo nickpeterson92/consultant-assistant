@@ -203,8 +203,9 @@ salesforce_graph = None  # Will be created when needed
 class SalesforceA2AHandler:
     """Handles A2A protocol requests for the Salesforce agent"""
     
-    def __init__(self, graph):
+    def __init__(self, graph, server=None):
         self.graph = graph
+        self.server = server
     async def process_task(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Process A2A task using modern LangGraph pattern"""
         # Initialize task_id for use in except block
@@ -214,6 +215,20 @@ class SalesforceA2AHandler:
             # A2A protocol wraps task in "task" key
             task_data = params.get("task", params)  # Support both wrapped and unwrapped
             task_id = task_data.get("id", task_data.get("task_id", "unknown"))
+            
+            # Check for immediate interrupt before processing
+            if self.server and self.server.is_task_interrupted(task_id):
+                logger.info("salesforce_task_interrupted",
+                           component="salesforce",
+                           operation="process_a2a_task",
+                           task_id=task_id,
+                           status="interrupted_before_start")
+                self.server.clear_task_interrupt(task_id)
+                return {
+                    "success": False,
+                    "error": "Task was interrupted",
+                    "error_type": "TaskInterrupted"
+                }
             instruction = task_data.get("instruction", "")
             context = task_data.get("context", {})
             state_snapshot = task_data.get("state_snapshot", {})
@@ -449,13 +464,16 @@ async def main():
         success=True
     )
     
-    # Create A2A handler
-    handler = SalesforceA2AHandler(local_graph)
-    
     # Create and configure A2A server
     server = A2AServer(agent_card, args.host, args.port)
+    
+    # Create A2A handler with server reference for interrupt checking
+    handler = SalesforceA2AHandler(local_graph, server)
     server.register_handler("process_task", handler.process_task)
     server.register_handler("get_agent_card", handler.get_agent_card)
+    
+    # Set up interrupt WebSocket endpoint
+    await server.setup_interrupt_websocket()
     
     # Start the server
     runner = await server.start()

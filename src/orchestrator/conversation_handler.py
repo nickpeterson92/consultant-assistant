@@ -73,7 +73,7 @@ class CleanConversationHandler:
         self.current_config = config or {"configurable": {"thread_id": thread_id}}
         
         try:
-            from langgraph.pregel import Command #type: ignore[import]
+            from langgraph.types import Command
             
             # Resume with user input
             response_messages = []

@@ -321,7 +321,7 @@ class WebSocketController:
                         logger.info("websocket_resume_ack",
                                    component="client",
                                    success=success,
-                                   message=message)
+                                   ack_message=message)
                         return success
                 
                 if timeout_task.done():
@@ -965,16 +965,19 @@ async def main():
                     if interrupted_workflow:
                         context["interrupted_workflow"] = interrupted_workflow
                     
+                    # Create task data for the request
+                    task_data = {
+                        "task": {
+                            "id": f"{current_thread_id}-{int(time.time())}",
+                            "instruction": user_input,
+                            "context": context
+                        }
+                    }
+                    
                     # Use SSE streaming for real-time updates
                     result = await _stream_request(
                         orchestrator_url,
-                        {
-                            "task": {
-                                "id": f"{current_thread_id}-{int(time.time())}",
-                                "instruction": user_input,
-                                "context": context
-                            }
-                        },
+                        task_data,
                         current_operation,
                         processing_done
                     )
@@ -1003,16 +1006,16 @@ async def main():
                                     # Send resume with modifications
                                     resume_success = await ws_ctrl.send_resume(modification_input)
                                     if resume_success:
-                                        print(f"{GREEN}│{RESET} ▶ Resuming with modifications...")
+                                        print(f"{GREEN}│{RESET} ▶ Resume request sent successfully")
+                                        print(f"{GREEN}│{RESET} 💡 Your modifications have been stored.")
+                                        print(f"{GREEN}│{RESET} 🎯 Type any message to continue with your modifications.")
                                         
-                                        # Reset display manager for new plan
+                                        # Reset display manager 
                                         display_manager.interrupt_requested.clear()
                                         display_manager.plan_displayed = False
                                         display_manager.current_display_mode = "simple"
                                         display_manager.completed_steps = []
                                         display_manager.failed_steps = []
-                                        
-                                        print(f"{GREEN}│{RESET} Plan will be updated via streaming...")
                                     else:
                                         print(f"{GREEN}│{RESET} Error resuming execution via WebSocket.")
                                 else:

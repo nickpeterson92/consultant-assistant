@@ -964,6 +964,96 @@ class A2AServer:
         # Add WebSocket route to the app
         self.app.router.add_get(path, handler)
     
+    async def setup_interrupt_websocket(self):
+        """Set up the standard interrupt WebSocket endpoint."""
+        async def handle_interrupt_websocket(request):
+            """Handle WebSocket connections for interrupt messages."""
+            ws = web.WebSocketResponse()
+            await ws.prepare(request)
+            
+            logger.info("websocket_interrupt_connection", 
+                       component="a2a", 
+                       operation="interrupt_ws",
+                       status="connected")
+            
+            try:
+                async for msg in ws:
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        try:
+                            data = json.loads(msg.data)
+                            if data.get("jsonrpc") == "2.0" and data.get("method") == "interrupt_task":
+                                # Handle interrupt
+                                task_id = data.get("params", {}).get("task_id")
+                                reason = data.get("params", {}).get("reason", "unknown")
+                                
+                                logger.info("websocket_interrupt_received",
+                                           component="a2a",
+                                           operation="interrupt_ws", 
+                                           task_id=task_id,
+                                           reason=reason)
+                                
+                                # Set interrupt flag (agents will check this)
+                                if not hasattr(self, '_interrupted_tasks'):
+                                    self._interrupted_tasks = set()
+                                self._interrupted_tasks.add(task_id)
+                                
+                                # Send acknowledgment
+                                await ws.send_str(json.dumps({
+                                    "jsonrpc": "2.0",
+                                    "method": "interrupt_ack",
+                                    "params": {
+                                        "task_id": task_id,
+                                        "status": "received"
+                                    }
+                                }))
+                                
+                        except json.JSONDecodeError:
+                            logger.warning("websocket_interrupt_invalid_json", 
+                                         component="a2a",
+                                         operation="interrupt_ws")
+                    elif msg.type == aiohttp.WSMsgType.ERROR:
+                        logger.warning("websocket_interrupt_error",
+                                     component="a2a", 
+                                     operation="interrupt_ws",
+                                     error=str(ws.exception()))
+                        break
+                        
+            except Exception as e:
+                logger.error("websocket_interrupt_handler_error",
+                           component="a2a",
+                           operation="interrupt_ws", 
+                           error=str(e))
+            finally:
+                logger.info("websocket_interrupt_disconnected",
+                           component="a2a",
+                           operation="interrupt_ws")
+                return ws
+        
+        # Register the interrupt WebSocket handler
+        self.register_websocket_handler("/a2a/interrupt", handle_interrupt_websocket)
+    
+    def is_task_interrupted(self, task_id: str) -> bool:
+        """Check if a task has been interrupted via WebSocket.
+        
+        Args:
+            task_id: ID of the task to check
+            
+        Returns:
+            True if the task should be interrupted
+        """
+        if not hasattr(self, '_interrupted_tasks'):
+            return False
+        return task_id in self._interrupted_tasks
+    
+    def clear_task_interrupt(self, task_id: str):
+        """Clear interrupt flag for a completed task.
+        
+        Args:
+            task_id: ID of the task to clear
+        """
+        if hasattr(self, '_interrupted_tasks'):
+            self._interrupted_tasks.discard(task_id)
+    
     async def _handle_agent_card(self, request: web.Request) -> web.Response:
         """Return agent card for capability discovery.
         
