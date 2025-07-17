@@ -566,6 +566,28 @@ class A2AClient:
                 self._closed = True
                 self.session = None
     
+    def _get_first_message_type(self, recent_messages: Any) -> str:
+        """Safely get the type of the first message, handling both dict and list cases.
+        
+        Args:
+            recent_messages: Could be a list of dicts, single dict, or None
+            
+        Returns:
+            Type name of first message or "none"
+        """
+        if not recent_messages:
+            return "none"
+            
+        # Handle single dict case (when serialize_messages_for_json returns single message)
+        if isinstance(recent_messages, dict):
+            return type(recent_messages).__name__
+            
+        # Handle list case
+        if isinstance(recent_messages, list) and len(recent_messages) > 0:
+            return type(recent_messages[0]).__name__
+            
+        return "none"
+
     async def _make_raw_call(self, endpoint: str, method: str, params: Dict[str, Any], request_id: Optional[str] = None) -> Dict[str, Any]:
         """Make a raw JSON-RPC call without resilience patterns.
         
@@ -650,12 +672,12 @@ class A2AClient:
                 context_keys=list(task_data.get("context", {}).keys()) if task_data and "context" in task_data else [],
                 recent_messages_type=type(task_data.get("context", {}).get("recent_messages", [])).__name__ if task_data and "context" in task_data and "recent_messages" in task_data.get("context", {}) else "none",
                 recent_messages_count=len(task_data.get("context", {}).get("recent_messages", [])) if task_data and "context" in task_data and "recent_messages" in task_data.get("context", {}) else 0,
-                first_message_type=type(task_data.get("context", {}).get("recent_messages", [None])[0]).__name__ if task_data and "context" in task_data and "recent_messages" in task_data.get("context", {}) and task_data.get("context", {}).get("recent_messages", []) else "none",
+                first_message_type=self._get_first_message_type(task_data.get("context", {}).get("recent_messages")) if task_data and "context" in task_data and "recent_messages" in task_data.get("context", {}) else "none",
                 state_snapshot_keys=list(state_snapshot.keys()) if state_snapshot else [],
                 state_snapshot_has_messages="messages" in state_snapshot,
                 state_snapshot_messages_type=type(state_snapshot.get("messages", [])).__name__ if state_snapshot and "messages" in state_snapshot else "none",
                 state_snapshot_messages_count=len(state_snapshot.get("messages", [])) if state_snapshot and "messages" in state_snapshot else 0,
-                state_snapshot_first_message_type=type(state_snapshot.get("messages", [None])[0]).__name__ if state_snapshot and "messages" in state_snapshot and state_snapshot.get("messages", []) else "none"
+                state_snapshot_first_message_type=self._get_first_message_type(state_snapshot.get("messages")) if state_snapshot and "messages" in state_snapshot else "none"
             )
             
             async with session.post(
@@ -746,12 +768,14 @@ class A2AClient:
             else:
                 raise A2AException(f"Network error: {str(e)}")
         except Exception as e:
-            # Log unexpected error
+            # Log unexpected error with more detail
+            import traceback
             logger.error("a2a_unexpected_error",
                 component="a2a",
                 operation="make_raw_call",
                 error_type=type(e).__name__,
-                error=str(e)
+                error=str(e),
+                traceback=traceback.format_exc()
             )
             raise
     
@@ -911,6 +935,7 @@ class A2AServer:
         self.port = port
         self.app = web.Application()
         self.handlers: Dict[str, Any] = {}
+        self.websocket_handlers: Dict[str, Any] = {}
         self._setup_routes()
     
     def _setup_routes(self):
@@ -927,6 +952,17 @@ class A2AServer:
             handler: Async function that processes the method
         """
         self.handlers[method] = handler
+    
+    def register_websocket_handler(self, path: str, handler):
+        """Register a WebSocket handler for a specific path.
+        
+        Args:
+            path: WebSocket path (e.g., "/a2a/ws")
+            handler: Async function that handles WebSocket connections
+        """
+        self.websocket_handlers[path] = handler
+        # Add WebSocket route to the app
+        self.app.router.add_get(path, handler)
     
     async def _handle_agent_card(self, request: web.Request) -> web.Response:
         """Return agent card for capability discovery.
@@ -1087,14 +1123,39 @@ class A2AServer:
                 # Stream the handler results
                 handler = self.handlers[streaming_method]
                 async for event_data in handler(params):
-                    if isinstance(event_data, str):
-                        await response.write(event_data.encode('utf-8'))
-                    else:
-                        await response.write(f"data: {json.dumps(event_data)}\n\n".encode('utf-8'))
-                    await response.drain()
+                    try:
+                        if isinstance(event_data, str):
+                            await response.write(event_data.encode('utf-8'))
+                        else:
+                            await response.write(f"data: {json.dumps(event_data)}\n\n".encode('utf-8'))
+                        await response.drain()
+                    except (ConnectionResetError, ConnectionAbortedError) as conn_err:
+                        # Client disconnected - this is normal for interrupts
+                        logger.info("client_disconnected_during_stream",
+                                   component="a2a",
+                                   operation="handle_streaming_request",
+                                   reason="client_interrupt",
+                                   error=str(conn_err))
+                        return response
+                    except Exception as write_err:
+                        from aiohttp.client_exceptions import ClientConnectionResetError
+                        if isinstance(write_err, ClientConnectionResetError):
+                            # Client disconnected - this is normal for interrupts
+                            logger.info("client_connection_reset",
+                                       component="a2a",
+                                       operation="handle_streaming_request",
+                                       reason="client_interrupt")
+                            return response
+                        else:
+                            raise write_err
                     
                 # Send completion event
-                await response.write(b"data: {\"event\": \"completed\"}\n\n")
+                try:
+                    await response.write(b"data: {\"event\": \"completed\"}\n\n")
+                except (ConnectionResetError, ConnectionAbortedError):
+                    # Client already disconnected
+                    logger.info("completion_event_skipped_client_disconnected", component="a2a")
+                    return response
                 
             except Exception as e:
                 logger.error("streaming_handler_error",
@@ -1106,12 +1167,22 @@ class A2AServer:
                 )
                 
                 # Send error event
-                error_data = json.dumps({
-                    "event": "error",
-                    "error": str(e),
-                    "timestamp": datetime.now(timezone.utc).isoformat()
-                })
-                await response.write(f"data: {error_data}\n\n".encode('utf-8'))
+                try:
+                    error_data = json.dumps({
+                        "event": "error",
+                        "error": str(e),
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    })
+                    await response.write(f"data: {error_data}\n\n".encode('utf-8'))
+                except (ConnectionResetError, ConnectionAbortedError):
+                    # Client already disconnected
+                    logger.info("error_event_skipped_client_disconnected", component="a2a")
+                except Exception as error_write_err:
+                    from aiohttp.client_exceptions import ClientConnectionResetError
+                    if isinstance(error_write_err, ClientConnectionResetError):
+                        logger.info("error_event_skipped_connection_reset", component="a2a")
+                    else:
+                        logger.error("error_writing_error_event", component="a2a", error=str(error_write_err))
             
             return response
             

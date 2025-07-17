@@ -139,7 +139,9 @@ async def main(host: str, port: int):
         endpoints={
             "process_task": f"http://{host}:{port}/a2a",
             "process_task_streaming": f"http://{host}:{port}/a2a/stream",
-            "agent_card": f"http://{host}:{port}/a2a/agent-card"
+            "agent_card": f"http://{host}:{port}/a2a/agent-card",
+            "interrupt_task": f"http://{host}:{port}/a2a",
+            "resume_task": f"http://{host}:{port}/a2a"
         },
         communication_modes=["sync", "streaming"],
         metadata={
@@ -189,6 +191,11 @@ async def main(host: str, port: int):
     server.register_handler("process_task_streaming", handler.process_task_with_streaming)
     server.register_handler("get_agent_card", handler.get_agent_card)
     server.register_handler("get_progress", handler.get_progress)
+    server.register_handler("interrupt_task", handler.interrupt_task)
+    server.register_handler("resume_task", handler.resume_task)
+    
+    # Register WebSocket endpoint for control messages
+    server.register_websocket_handler("/a2a/ws", handler.handle_websocket)
     
     # Start the server
     runner = await server.start()

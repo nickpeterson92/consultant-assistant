@@ -6,6 +6,12 @@ import os
 import asyncio
 import time
 import uuid
+import threading
+import termios
+import tty
+import select
+import aiohttp
+import json
 
 # Add the project root to Python path for src imports
 sys.path.insert(0, os.path.dirname(__file__))
@@ -50,6 +56,9 @@ class ProgressDisplayManager:
         self.completed_steps = []
         self.failed_steps = []
         self.current_step = ""
+        self._display_lock = threading.Lock()
+        self.plan_displayed = False
+        self.interrupt_requested = threading.Event()
         
     def update_from_sse_event(self, event_type, data):
         """Observer method - called by SSE events to update display"""
@@ -58,13 +67,16 @@ class ProgressDisplayManager:
             self.plan_tasks = plan.get('tasks', [])
             if len(self.plan_tasks) > 1:
                 self.current_display_mode = "plan"
-                self._display_plan()
+                with self._display_lock:
+                    self._display_plan()
+                    self.plan_displayed = True
         
         elif event_type == 'task_started':
             task = data.get('task', {})
             self.current_step = task.get('content', '')
             if self.current_display_mode == "plan":
-                self._display_plan_progress()
+                with self._display_lock:
+                    self._display_plan_progress()
         
         elif event_type == 'task_completed':
             # Handle individual task completion within the plan
@@ -79,22 +91,25 @@ class ProgressDisplayManager:
             
             # Update the plan display if we're in plan mode
             if self.current_display_mode == "plan":
-                self._display_plan_progress()
+                with self._display_lock:
+                    self._display_plan_progress()
         
         elif event_type == 'task_error':
             content = data.get('content', '')
             error = data.get('error', '')
             self.failed_steps.append(f"{content} (Error: {error})")
             if self.current_display_mode == "plan":
-                self._display_plan_progress()
+                with self._display_lock:
+                    self._display_plan_progress()
         
         elif event_type == 'plan_completed':
             self.current_display_mode = "completed"
             if len(self.plan_tasks) > 1:
-                self._display_plan_final()
+                with self._display_lock:
+                    self._display_plan_final()
     
     def _display_plan(self):
-        """Display initial plan"""
+        """Display initial plan - MUST be called within display lock"""
         print(f"\r{GREEN}│{RESET} {' ' * 50}", end="", flush=True)
         print(f"\r{GREEN}│{RESET} **EXECUTION PLAN**")
         print(f"{GREEN}│{RESET} ")
@@ -105,7 +120,7 @@ class ProgressDisplayManager:
         print(f"{GREEN}│{RESET} ", end="", flush=True)
     
     def _display_plan_progress(self):
-        """Update the existing plan display with current progress"""
+        """Update the existing plan display with current progress - MUST be called within display lock"""
         # Clear the existing plan display (go back to the start of the plan)
         num_lines_to_clear = len(self.plan_tasks) + 3  # +3 for header, blank line, and footer
         for _ in range(num_lines_to_clear):
@@ -128,7 +143,7 @@ class ProgressDisplayManager:
         print(f"{GREEN}│{RESET} ", end="", flush=True)
     
     def _display_plan_final(self):
-        """Update the existing plan display with final status"""
+        """Update the existing plan display with final status - MUST be called within display lock"""
         # Clear the existing plan display (go back to the start of the plan)
         num_lines_to_clear = len(self.plan_tasks) + 3  # +3 for header, blank line, and footer
         for _ in range(num_lines_to_clear):
@@ -162,6 +177,211 @@ class ProgressDisplayManager:
         if self.current_display_mode == "simple":
             print(f"\r{GREEN}│{RESET} {' ' * 50}", end="", flush=True)
             print(f"\r{GREEN}│{RESET} ", end="", flush=True)
+    
+    def show_interrupt_message(self):
+        """Show interrupt message when ESC is pressed"""
+        with self._display_lock:
+            # Clear current display
+            if self.current_display_mode == "plan":
+                # Go to the end of the plan display
+                num_lines = len(self.plan_tasks) + 3
+                for _ in range(num_lines):
+                    print()
+            
+            print(f"\r{YELLOW}│{RESET} ⏸ Plan execution interrupted. Press Enter to suggest modifications...", end="", flush=True)
+
+
+class WebSocketController:
+    """WebSocket client for sending control messages to orchestrator."""
+    
+    def __init__(self, orchestrator_url, thread_id):
+        self.orchestrator_url = orchestrator_url
+        self.thread_id = thread_id
+        self.ws = None
+        self.connected = False
+        self.client_id = None
+        self._response_futures = {}  # Track pending responses
+        
+    async def connect(self):
+        """Connect to orchestrator WebSocket."""
+        try:
+            # Convert HTTP URL to WebSocket URL
+            ws_url = self.orchestrator_url.replace("http://", "ws://").replace("https://", "wss://")
+            ws_url = f"{ws_url}/a2a/ws"
+            
+            session = aiohttp.ClientSession()
+            self.ws = await session.ws_connect(ws_url)
+            
+            # Register with the thread ID
+            await self.ws.send_str(json.dumps({
+                "type": "register",
+                "payload": {"thread_id": self.thread_id}
+            }))
+            
+            # Wait for registration acknowledgment
+            async for msg in self.ws:
+                if msg.type == aiohttp.WSMsgType.TEXT:
+                    data = json.loads(msg.data)
+                    if data.get("type") == "registration_ack":
+                        self.connected = True
+                        self.client_id = data.get("payload", {}).get("client_id")
+                        logger.info("websocket_connected",
+                                   component="client",
+                                   client_id=self.client_id,
+                                   thread_id=self.thread_id)
+                        break
+                elif msg.type == aiohttp.WSMsgType.ERROR:
+                    logger.error("websocket_connection_error",
+                               component="client",
+                               error=str(self.ws.exception()))
+                    break
+            
+            return self.connected
+            
+        except Exception as e:
+            logger.error("websocket_connect_error",
+                        component="client",
+                        error=str(e))
+            return False
+    
+    async def send_interrupt(self, reason="user_escape"):
+        """Send interrupt command via WebSocket."""
+        if not self.connected or not self.ws:
+            logger.warning("websocket_not_connected_for_interrupt", component="client")
+            return False
+        
+        try:
+            message_id = str(uuid.uuid4())[:8]
+            await self.ws.send_str(json.dumps({
+                "type": "interrupt",
+                "payload": {
+                    "thread_id": self.thread_id,
+                    "reason": reason
+                },
+                "id": message_id
+            }))
+            
+            # Wait for acknowledgment
+            timeout_task = asyncio.create_task(asyncio.sleep(5.0))  # 5 second timeout
+            
+            async for msg in self.ws:
+                if msg.type == aiohttp.WSMsgType.TEXT:
+                    data = json.loads(msg.data)
+                    if data.get("type") == "interrupt_ack":
+                        timeout_task.cancel()
+                        success = data.get("payload", {}).get("success", False)
+                        message = data.get("payload", {}).get("message", "")
+                        
+                        logger.info("websocket_interrupt_ack",
+                                   component="client",
+                                   success=success,
+                                   ack_message=message)
+                        return success
+                
+                if timeout_task.done():
+                    logger.warning("websocket_interrupt_timeout", component="client")
+                    return False
+            
+            return False
+            
+        except Exception as e:
+            logger.error("websocket_interrupt_error",
+                        component="client",
+                        error=str(e))
+            return False
+    
+    async def send_resume(self, user_input):
+        """Send resume command with user modifications via WebSocket."""
+        if not self.connected or not self.ws:
+            logger.warning("websocket_not_connected_for_resume", component="client")
+            return False
+        
+        try:
+            message_id = str(uuid.uuid4())[:8]
+            await self.ws.send_str(json.dumps({
+                "type": "resume",
+                "payload": {
+                    "thread_id": self.thread_id,
+                    "user_input": user_input
+                },
+                "id": message_id
+            }))
+            
+            # Wait for acknowledgment
+            timeout_task = asyncio.create_task(asyncio.sleep(10.0))  # 10 second timeout for resume
+            
+            async for msg in self.ws:
+                if msg.type == aiohttp.WSMsgType.TEXT:
+                    data = json.loads(msg.data)
+                    if data.get("type") == "resume_ack":
+                        timeout_task.cancel()
+                        success = data.get("payload", {}).get("success", False)
+                        message = data.get("payload", {}).get("message", "")
+                        
+                        logger.info("websocket_resume_ack",
+                                   component="client",
+                                   success=success,
+                                   message=message)
+                        return success
+                
+                if timeout_task.done():
+                    logger.warning("websocket_resume_timeout", component="client")
+                    return False
+            
+            return False
+            
+        except Exception as e:
+            logger.error("websocket_resume_error",
+                        component="client",
+                        error=str(e))
+            return False
+    
+    async def close(self):
+        """Close WebSocket connection."""
+        if self.ws:
+            await self.ws.close()
+            self.connected = False
+            logger.info("websocket_disconnected",
+                       component="client",
+                       client_id=self.client_id)
+
+
+def escape_key_monitor(display_manager, processing_done, ws_controller):
+    """Monitor for escape key presses during plan execution"""
+    if not sys.stdin.isatty():
+        return
+    
+    old_settings = None
+    try:
+        # Save current terminal settings
+        old_settings = termios.tcgetattr(sys.stdin)
+        tty.setraw(sys.stdin.fileno())
+        
+        while not processing_done.is_set() and not display_manager.interrupt_requested.is_set():
+            # Wait for input with timeout
+            if sys.stdin in select.select([sys.stdin], [], [], 0.1)[0]:
+                char = sys.stdin.read(1)
+                if char and ord(char) == 27:  # ESC key
+                    # Only interrupt if a plan is displayed and execution is ongoing
+                    if display_manager.plan_displayed and display_manager.current_display_mode == "plan":
+                        display_manager.interrupt_requested.set()
+                        # Store reference to WebSocket controller for async handling
+                        display_manager.ws_controller = ws_controller
+                        break
+                        
+    except Exception as e:
+        logger.error("escape_key_monitor_error", 
+                    component="client", 
+                    error=str(e))
+    finally:
+        # Restore terminal settings
+        if old_settings:
+            try:
+                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+            except Exception as e:
+                logger.error("terminal_restore_error",
+                            component="client", 
+                            error=str(e))
 
 
 async def _stream_request(orchestrator_url, task_data, current_operation, processing_done):
@@ -182,9 +402,16 @@ async def _stream_request(orchestrator_url, task_data, current_operation, proces
                    orchestrator_url=orchestrator_url,
                    task_id=task_data.get("task", {}).get("id", "unknown"))
         
-        async with aiohttp.ClientSession() as session:
+        # Add connection timeout and better error handling
+        timeout = aiohttp.ClientTimeout(total=120, connect=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            stream_url = f"{orchestrator_url}/a2a/stream"
+            logger.info("attempting_sse_connection",
+                       component="client",
+                       stream_url=stream_url)
+            
             async with session.post(
-                f"{orchestrator_url}/a2a/stream",
+                stream_url,
                 json={
                     "jsonrpc": "2.0",
                     "method": "process_task",
@@ -211,6 +438,11 @@ async def _stream_request(orchestrator_url, task_data, current_operation, proces
                 async for line in response.content:
                     if not line:
                         continue
+                    
+                    # Check for interrupt during streaming
+                    if display_manager and display_manager.interrupt_requested.is_set():
+                        logger.info("interrupt_detected_during_stream", component="client")
+                        break
                     
                     line = line.decode('utf-8').strip()
                     
@@ -456,10 +688,21 @@ async def _stream_request(orchestrator_url, task_data, current_operation, proces
         logger.error("sse_streaming_error",
                     component="client",
                     error=str(e),
-                    error_type=type(e).__name__)
+                    error_type=type(e).__name__,
+                    orchestrator_url=orchestrator_url)
+        
+        # More specific error messages for common issues
+        error_msg = str(e)
+        if "Connection refused" in error_msg or "ConnectError" in error_msg:
+            error_msg = f"Cannot connect to orchestrator at {orchestrator_url}. Is it running?"
+        elif "TimeoutError" in error_msg or "timeout" in error_msg.lower():
+            error_msg = "Request timed out. The orchestrator may be overloaded."
+        elif not error_msg or error_msg.isdigit():
+            error_msg = f"Network error connecting to {orchestrator_url}"
+        
         final_response = {
             'status': 'failed',
-            'error': str(e),
+            'error': error_msg,
             'artifacts': [],
             'metadata': {}
         }
@@ -563,6 +806,23 @@ async def main():
         
         # Track interrupted workflow state
         interrupted_workflow = None
+        
+        # Initialize WebSocket controller for this conversation (optional)
+        ws_controller = WebSocketController(orchestrator_url, current_thread_id)
+        ws_connected = False
+        
+        try:
+            ws_connected = await ws_controller.connect()
+            if ws_connected:
+                logger.info("websocket_control_ready", component="client", thread_id=current_thread_id)
+            else:
+                logger.info("websocket_control_unavailable_fallback_to_sse", component="client", thread_id=current_thread_id)
+        except Exception as ws_error:
+            logger.warning("websocket_connection_failed_fallback_to_sse", 
+                          component="client", 
+                          thread_id=current_thread_id,
+                          error=str(ws_error))
+            ws_controller = None  # Disable WebSocket functionality
         
         # Main conversation loop (identical to main.py)
         while True:
@@ -675,6 +935,16 @@ async def main():
                 spinner_thread.daemon = True
                 spinner_thread.start()
                 
+                # Start escape key monitor thread (only if WebSocket is available)
+                escape_monitor_thread = None
+                if ws_controller:
+                    escape_monitor_thread = threading.Thread(
+                        target=escape_key_monitor, 
+                        args=(display_manager, processing_done, ws_controller)
+                    )
+                    escape_monitor_thread.daemon = True
+                    escape_monitor_thread.start()
+                
                 # Initialize context outside try block
                 context = {
                     "thread_id": current_thread_id,
@@ -684,6 +954,12 @@ async def main():
                 # Send request to orchestrator via SSE streaming
                 try:
                     start_time = time.time()
+                    
+                    logger.info("starting_request_processing",
+                               component="client",
+                               thread_id=current_thread_id,
+                               user_input=user_input,
+                               context=context)
                     
                     # Important: Pass interrupted_workflow in the context
                     if interrupted_workflow:
@@ -705,14 +981,70 @@ async def main():
                     
                     elapsed = time.time() - start_time
                     
+                    # Check if we were interrupted (only if WebSocket is available)
+                    if display_manager.interrupt_requested.is_set() and ws_controller:
+                        # Handle interrupt - show message and collect user input
+                        display_manager.show_interrupt_message()
+                        print()  # Move to next line
+                        
+                        # Get user's modification request
+                        modification_input = input(f"{CYAN}│{RESET} Enter your modifications: ")
+                        
+                        if modification_input.strip():
+                            # Send interrupt and resume via WebSocket
+                            try:
+                                ws_ctrl = getattr(display_manager, 'ws_controller', ws_controller)
+                                
+                                # Send interrupt first
+                                interrupt_success = await ws_ctrl.send_interrupt("user_escape")
+                                if interrupt_success:
+                                    print(f"{GREEN}│{RESET} ⏸ Execution interrupted successfully")
+                                    
+                                    # Send resume with modifications
+                                    resume_success = await ws_ctrl.send_resume(modification_input)
+                                    if resume_success:
+                                        print(f"{GREEN}│{RESET} ▶ Resuming with modifications...")
+                                        
+                                        # Reset display manager for new plan
+                                        display_manager.interrupt_requested.clear()
+                                        display_manager.plan_displayed = False
+                                        display_manager.current_display_mode = "simple"
+                                        display_manager.completed_steps = []
+                                        display_manager.failed_steps = []
+                                        
+                                        print(f"{GREEN}│{RESET} Plan will be updated via streaming...")
+                                    else:
+                                        print(f"{GREEN}│{RESET} Error resuming execution via WebSocket.")
+                                else:
+                                    print(f"{GREEN}│{RESET} Error sending interrupt via WebSocket.")
+                                    
+                            except Exception as interrupt_error:
+                                logger.error("websocket_interrupt_handling_error", 
+                                           component="client", 
+                                           error=str(interrupt_error))
+                                print(f"{GREEN}│{RESET} Error handling interrupt: {interrupt_error}")
+                        else:
+                            print(f"{GREEN}│{RESET} ▶ Continuing without modifications...")
+                            # Clear interrupt flag and continue
+                            display_manager.interrupt_requested.clear()
+                    
                     # Stop processing indicator and polling
                     processing_done.set()
                     polling_task.cancel()
                     spinner_thread.join(timeout=1.0)
+                    if escape_monitor_thread:
+                        escape_monitor_thread.join(timeout=1.0)
                     
                     # Clear any remaining spinner display
                     print(f"\r{GREEN}│{RESET} {' ' * 50}", end="", flush=True)
                     print(f"\r{GREEN}│{RESET} ", end="", flush=True)
+                    
+                    # Log the raw result for debugging
+                    logger.info("request_result_received",
+                               component="client",
+                               result_status=result.get('status'),
+                               result_keys=list(result.keys()) if isinstance(result, dict) else "not_dict",
+                               result_preview=str(result)[:200])
                     
                     # Extract and display response
                     if result.get('status') == 'completed':
@@ -777,6 +1109,15 @@ async def main():
                     processing_done.set()
                     polling_task.cancel()
                     spinner_thread.join(timeout=1.0)
+                    if escape_monitor_thread:
+                        escape_monitor_thread.join(timeout=1.0)
+                    
+                    # Log detailed error information
+                    logger.error("request_execution_error",
+                               component="client",
+                               error=str(e),
+                               error_type=type(e).__name__,
+                               thread_id=current_thread_id)
                     
                     # Check if this is a timeout error (from A2A client)
                     is_timeout = isinstance(e, asyncio.TimeoutError) or "timed out" in str(e).lower()
@@ -796,7 +1137,12 @@ async def main():
                     elif is_timeout:
                         print(f"\r{GREEN}│{RESET} Request timed out. Please try again.")
                     else:
-                        print(f"\r{GREEN}│{RESET} Error: {str(e)}")
+                        # Add more specific error message
+                        error_msg = str(e)
+                        if "Unexpected error - 0" in error_msg or not error_msg:
+                            print(f"\r{GREEN}│{RESET} Connection error. Please check if orchestrator is running.")
+                        else:
+                            print(f"\r{GREEN}│{RESET} Error: {error_msg}")
                     
                     print(f"\n{GREEN}╰{'─' * (box_width - 2)}╯{RESET}")
                     
@@ -809,6 +1155,13 @@ async def main():
             except Exception as e:
                 print(f"\nError: {str(e)}")
                 print("Please try again or type 'quit' to exit.\n")
+        
+        # Clean up WebSocket connection
+        if ws_controller:
+            try:
+                await ws_controller.close()
+            except Exception as e:
+                logger.error("websocket_cleanup_error", component="client", error=str(e))
 
 
 if __name__ == "__main__":

@@ -3,8 +3,10 @@
 import uuid
 import json
 import asyncio
+import weakref
 from typing import Dict, Any, AsyncGenerator
 from datetime import datetime
+from aiohttp import web, WSMsgType
 
 from langchain_core.messages import HumanMessage
 # Command will be imported when needed
@@ -26,6 +28,8 @@ class CleanOrchestratorA2AHandler:
         self.active_tasks = {}  # Track active tasks for progress
         self.streaming_clients = {}  # Track SSE clients by task_id
         self.task_status_cache = {}  # Cache task statuses to detect changes
+        self.websocket_clients = {}  # Track WebSocket clients by thread_id
+        self.client_threads = {}  # Track thread_id by client_id for cleanup
         
     async def process_task(self, params: Dict[str, Any]) -> A2AResponse:
         """Process A2A task using pure plan-execute graph."""
@@ -285,6 +289,266 @@ class CleanOrchestratorA2AHandler:
             del self.streaming_clients[task_id]
         if task_id in self.task_status_cache:
             del self.task_status_cache[task_id]
+    
+    async def interrupt_task(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Interrupt a running task thread."""
+        try:
+            thread_id = params.get("thread_id")
+            reason = params.get("reason", "user_interrupt")
+            
+            if not thread_id:
+                return {
+                    "success": False,
+                    "message": "thread_id is required"
+                }
+            
+            logger.info("interrupt_task_request",
+                       component="orchestrator",
+                       thread_id=thread_id,
+                       reason=reason)
+            
+            # Use LangGraph's interrupt mechanism
+            config = {"configurable": {"thread_id": thread_id}}
+            
+            # Update the thread state to set an interrupt flag
+            self.graph.graph.update_state(
+                config,
+                {
+                    "interrupted": True,
+                    "interrupt_data": {
+                        "interrupt_type": "user_escape",
+                        "reason": reason,
+                        "created_at": datetime.now().isoformat()
+                    }
+                }
+            )
+            
+            logger.info("interrupt_task_success",
+                       component="orchestrator", 
+                       thread_id=thread_id)
+            
+            return {
+                "success": True,
+                "message": "Task interrupted successfully"
+            }
+            
+        except Exception as e:
+            logger.error("interrupt_task_error",
+                        component="orchestrator",
+                        error=str(e))
+            return {
+                "success": False,
+                "message": f"Error interrupting task: {str(e)}"
+            }
+    
+    async def resume_task(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Resume an interrupted task with user input."""
+        try:
+            thread_id = params.get("thread_id")
+            user_input = params.get("user_input", "")
+            
+            if not thread_id:
+                return {
+                    "success": False,
+                    "message": "thread_id is required"
+                }
+            
+            logger.info("resume_task_request",
+                       component="orchestrator",
+                       thread_id=thread_id,
+                       user_input_length=len(user_input))
+            
+            # Use LangGraph's Command(resume=...) pattern
+            from langgraph.pregel import Command #type: ignore[import]
+            
+            config = {"configurable": {"thread_id": thread_id}}
+            
+            # Resume the graph with user input
+            result = await self.graph.graph.ainvoke(
+                Command(resume=user_input),
+                config
+            )
+            
+            logger.info("resume_task_success",
+                       component="orchestrator",
+                       thread_id=thread_id)
+            
+            return {
+                "success": True,
+                "message": "Task resumed successfully",
+                "result": result
+            }
+            
+        except Exception as e:
+            logger.error("resume_task_error",
+                        component="orchestrator",
+                        error=str(e))
+            return {
+                "success": False,
+                "message": f"Error resuming task: {str(e)}"
+            }
+    
+    async def handle_websocket(self, request):
+        """Handle WebSocket connections for control messages."""
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        
+        client_id = str(uuid.uuid4())[:8]
+        thread_id = None
+        
+        logger.info("websocket_client_connected",
+                   component="orchestrator",
+                   client_id=client_id)
+        
+        try:
+            async for msg in ws:
+                if msg.type == WSMsgType.TEXT:
+                    try:
+                        data = json.loads(msg.data)
+                        message_type = data.get("type")
+                        payload = data.get("payload", {})
+                        
+                        logger.info("websocket_message_received",
+                                   component="orchestrator",
+                                   client_id=client_id,
+                                   message_type=message_type)
+                        
+                        if message_type == "register":
+                            # Register client for a specific thread
+                            thread_id = payload.get("thread_id")
+                            if thread_id:
+                                self.websocket_clients[thread_id] = ws
+                                self.client_threads[client_id] = thread_id
+                                
+                                await ws.send_str(json.dumps({
+                                    "type": "registration_ack",
+                                    "payload": {
+                                        "client_id": client_id,
+                                        "thread_id": thread_id,
+                                        "status": "registered"
+                                    }
+                                }))
+                                
+                                logger.info("websocket_client_registered",
+                                           component="orchestrator",
+                                           client_id=client_id,
+                                           thread_id=thread_id)
+                        
+                        elif message_type == "interrupt":
+                            # Handle interrupt request
+                            thread_id = payload.get("thread_id")
+                            reason = payload.get("reason", "user_interrupt")
+                            
+                            if thread_id:
+                                # Use existing interrupt logic
+                                result = await self.interrupt_task({
+                                    "thread_id": thread_id,
+                                    "reason": reason
+                                })
+                                
+                                await ws.send_str(json.dumps({
+                                    "type": "interrupt_ack",
+                                    "payload": {
+                                        "thread_id": thread_id,
+                                        "success": result["success"],
+                                        "message": result["message"]
+                                    }
+                                }))
+                                
+                                logger.info("websocket_interrupt_processed",
+                                           component="orchestrator",
+                                           client_id=client_id,
+                                           thread_id=thread_id,
+                                           success=result["success"])
+                        
+                        elif message_type == "resume":
+                            # Handle resume request
+                            thread_id = payload.get("thread_id")
+                            user_input = payload.get("user_input", "")
+                            
+                            if thread_id:
+                                # Use existing resume logic
+                                result = await self.resume_task({
+                                    "thread_id": thread_id,
+                                    "user_input": user_input
+                                })
+                                
+                                await ws.send_str(json.dumps({
+                                    "type": "resume_ack", 
+                                    "payload": {
+                                        "thread_id": thread_id,
+                                        "success": result["success"],
+                                        "message": result["message"]
+                                    }
+                                }))
+                                
+                                logger.info("websocket_resume_processed",
+                                           component="orchestrator",
+                                           client_id=client_id,
+                                           thread_id=thread_id,
+                                           success=result["success"])
+                        
+                        elif message_type == "ping":
+                            # Handle keepalive ping
+                            await ws.send_str(json.dumps({
+                                "type": "pong",
+                                "payload": {"timestamp": datetime.now().isoformat()}
+                            }))
+                        
+                        else:
+                            logger.warning("websocket_unknown_message_type",
+                                         component="orchestrator",
+                                         client_id=client_id,
+                                         message_type=message_type)
+                    
+                    except json.JSONDecodeError as e:
+                        logger.error("websocket_json_decode_error",
+                                   component="orchestrator",
+                                   client_id=client_id,
+                                   error=str(e))
+                        
+                        await ws.send_str(json.dumps({
+                            "type": "error",
+                            "payload": {"message": "Invalid JSON format"}
+                        }))
+                    
+                    except Exception as e:
+                        logger.error("websocket_message_handling_error",
+                                   component="orchestrator",
+                                   client_id=client_id,
+                                   error=str(e))
+                        
+                        await ws.send_str(json.dumps({
+                            "type": "error",
+                            "payload": {"message": f"Error processing message: {str(e)}"}
+                        }))
+                
+                elif msg.type == WSMsgType.ERROR:
+                    logger.error("websocket_error_received",
+                               component="orchestrator",
+                               client_id=client_id,
+                               error=str(ws.exception()))
+                
+        except Exception as e:
+            logger.error("websocket_connection_error",
+                        component="orchestrator",
+                        client_id=client_id,
+                        error=str(e))
+        
+        finally:
+            # Clean up client registration
+            if client_id in self.client_threads:
+                thread_id = self.client_threads[client_id]
+                if thread_id in self.websocket_clients:
+                    del self.websocket_clients[thread_id]
+                del self.client_threads[client_id]
+            
+            logger.info("websocket_client_disconnected",
+                       component="orchestrator",
+                       client_id=client_id,
+                       thread_id=thread_id)
+        
+        return ws
     
     async def process_task_with_streaming(self, params: Dict[str, Any]) -> AsyncGenerator[str, None]:
         """Process A2A task with SSE streaming support."""
