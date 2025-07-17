@@ -1,0 +1,83 @@
+/* Textual CSS for orchestrator CLI */
+
+Screen {
+    layout: vertical;
+}
+
+.header {
+    height: 3;
+    background: blue;
+    color: white;
+    content-align: center middle;
+    text-style: bold;
+}
+
+.main-container {
+    height: 1fr;
+    layout: horizontal;
+}
+
+.left-panel {
+    width: 1fr;
+    layout: vertical;
+    border: solid blue;
+    margin: 1;
+}
+
+.right-panel {
+    width: 30%;
+    layout: vertical;
+    border: solid cyan;
+    margin: 1;
+}
+
+.conversation {
+    height: 1fr;
+    overflow-y: auto;
+    padding: 1;
+    border: solid blue;
+}
+
+.plan-status {
+    height: 1fr;
+    overflow-y: auto;
+    padding: 1;
+    border: solid cyan;
+}
+
+.status-bar {
+    height: 3;
+    padding: 1;
+    background: #1e1e1e;
+    border: solid gray;
+}
+
+.input-field {
+    height: 3;
+    margin: 1;
+    padding: 0 1;
+    background: #444444;
+    color: white;
+    border: solid cyan;
+}
+
+.input-field:focus {
+    border: solid yellow;
+    background: #333333;
+    color: white;
+}
+
+#message-input {
+    height: 3;
+    margin: 1;
+    padding: 0 1;
+    background: #444444;
+    color: white;
+    border: solid cyan;
+}
+
+#message-input:focus {
+    background: #333333;
+    color: white;
+    border: solid yellow;
+}
