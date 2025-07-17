@@ -3,6 +3,7 @@
 import os
 import asyncio
 import argparse
+import json
 from typing import Annotated, Dict, Any
 from typing_extensions import TypedDict
 
@@ -286,6 +287,36 @@ class SalesforceA2AHandler:
             else:
                 response_content = "Task completed successfully"
             
+            # Check if this is an error message from agent (follows standard Error: prefix pattern)
+            is_error_response = False
+            if isinstance(response_content, str) and response_content.startswith("Error:"):
+                is_error_response = True
+            
+            # Check final tool outcome - agents may retry multiple times before succeeding
+            final_tool_success = None
+            from langchain_core.messages import ToolMessage
+            
+            # Find the LAST ToolMessage result to determine final outcome
+            for msg in reversed(messages):
+                if isinstance(msg, ToolMessage) and hasattr(msg, 'content'):
+                    # Try to parse tool result as JSON to check success field
+                    try:
+                        if isinstance(msg.content, str) and (msg.content.startswith('{') or msg.content.startswith('[')):
+                            tool_result = json.loads(msg.content)
+                            if isinstance(tool_result, dict) and 'success' in tool_result:
+                                final_tool_success = tool_result.get('success')
+                                break
+                    except (json.JSONDecodeError, AttributeError):
+                        # If not valid JSON, continue checking other messages
+                        pass
+            
+            # Determine actual task success based on multiple factors:
+            # 1. If final response starts with "Error:", it's a failure
+            # 2. If tool execution failed (final_tool_success is False), it's a failure
+            # 3. If no tool results found and no error response, assume success
+            task_success = not is_error_response and final_tool_success is not False
+            status = "completed" if task_success else "failed"
+            
             # Log tool calls found in messages
             for msg in messages:
                 if hasattr(msg, 'tool_calls') and msg.tool_calls:  # pyright: ignore[reportAttributeAccessIssue]
@@ -303,24 +334,32 @@ class SalesforceA2AHandler:
                                                tool_name=tool_name,
                                                tool_args=tool_args)
             
-            # Log task completion
+            # Log task completion with actual success status
             logger.info("salesforce_a2a_task_complete",
                 component="salesforce",
                 operation="process_a2a_task",
                 task_id=task_id,
-                success=True,
-                                   response_preview=response_content[:200])
+                success=task_success,
+                final_tool_success=final_tool_success,
+                is_error_response=is_error_response,
+                response_preview=response_content[:200])
             
-            # Modern simplified response
-            return {
+            # Create result with computed status
+            result_dict = {
                 "artifacts": [{
                     "id": f"sf-response-{task_id}",
                     "task_id": task_id,
                     "content": response_content,
                     "content_type": "text/plain"
                 }],
-                "status": "completed"
+                "status": status
             }
+            
+            # Include error information if task failed
+            if not task_success:
+                result_dict["error"] = "Task execution encountered errors"
+                
+            return result_dict
             
         except Exception as e:
             error_msg = str(e)

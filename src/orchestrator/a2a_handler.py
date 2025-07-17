@@ -815,7 +815,7 @@ class CleanOrchestratorA2AHandler:
                         config,
                         stream_mode="updates"
                     ):
-                        yield self._process_graph_event(event, task_id)
+                        yield self._process_graph_event(event, task_id, thread_id)
                     return
                         
             elif resume_data:
@@ -857,7 +857,7 @@ class CleanOrchestratorA2AHandler:
                             config,
                             stream_mode="updates"
                         ):
-                            yield self._process_graph_event(event, task_id)
+                            yield self._process_graph_event(event, task_id, thread_id)
                             
                     else:
                         # Start new conversation with fresh state
@@ -877,7 +877,7 @@ class CleanOrchestratorA2AHandler:
                             config,
                             stream_mode="updates"
                         ):
-                            yield self._process_graph_event(event, task_id)
+                            yield self._process_graph_event(event, task_id, thread_id)
                             
                 except Exception as state_error:
                     logger.warning("state_loading_error_streaming", 
@@ -897,7 +897,7 @@ class CleanOrchestratorA2AHandler:
                         config,
                         stream_mode="updates"
                     ):
-                        yield self._process_graph_event(event, task_id)
+                        yield self._process_graph_event(event, task_id, thread_id)
             
             # Mark task as complete
             self.active_tasks[task_id]["status"] = "completed"
@@ -913,6 +913,12 @@ class CleanOrchestratorA2AHandler:
                        component="orchestrator", 
                        task_id=task_id,
                        success=True)
+            
+            # Final SSE event check for any remaining task completions
+            # This ensures the final task completion events are sent before streaming ends
+            final_event = self._check_task_status_and_emit_events(task_id, thread_id)
+            if final_event:
+                yield final_event
                        
         except Exception as e:
             logger.error("a2a_streaming_task_error",
@@ -931,7 +937,7 @@ class CleanOrchestratorA2AHandler:
                 "timestamp": datetime.now().isoformat()
             })
     
-    def _process_graph_event(self, event: Dict[str, Any], task_id: str) -> str:
+    def _process_graph_event(self, event: Dict[str, Any], task_id: str, thread_id: str = None) -> str:
         """Process a graph streaming event and convert to SSE format."""
         try:
             # LangGraph streaming events come as {node_name: node_output}
@@ -958,8 +964,9 @@ class CleanOrchestratorA2AHandler:
                         plan = node_output["plan"]
                         tasks = plan.get("tasks", [])
                         
-                        # Get cached task statuses for this task_id to detect changes
-                        cached_statuses = self.task_status_cache.get(task_id, {})
+                        # Get cached task statuses for this thread_id to detect changes
+                        cache_key = thread_id if thread_id else task_id  # Fallback to task_id if thread_id not available
+                        cached_statuses = self.task_status_cache.get(cache_key, {})
                         
                         # Check each task for status changes FIRST
                         for task in tasks:
@@ -973,14 +980,14 @@ class CleanOrchestratorA2AHandler:
                             # Only emit events for newly changed statuses
                             if current_status != previous_status:
                                 if current_status == "in_progress":
-                                    self.task_status_cache[task_id] = cached_statuses
+                                    self.task_status_cache[cache_key] = cached_statuses
                                     return self._format_sse_event("task_started", {
                                         "task_id": task_id,
                                         "task": task,
                                         "timestamp": datetime.now().isoformat()
                                     })
                                 elif current_status == "completed":
-                                    self.task_status_cache[task_id] = cached_statuses
+                                    self.task_status_cache[cache_key] = cached_statuses
                                     return self._format_sse_event("task_completed", {
                                         "task_id": task_id,
                                         "task": task,
@@ -989,7 +996,7 @@ class CleanOrchestratorA2AHandler:
                                         "timestamp": datetime.now().isoformat()
                                     })
                                 elif current_status == "failed":
-                                    self.task_status_cache[task_id] = cached_statuses
+                                    self.task_status_cache[cache_key] = cached_statuses
                                     return self._format_sse_event("task_error", {
                                         "task_id": task_id,
                                         "task": task,
@@ -999,7 +1006,7 @@ class CleanOrchestratorA2AHandler:
                                     })
                         
                         # Update cache even if no events were emitted
-                        self.task_status_cache[task_id] = cached_statuses
+                        self.task_status_cache[cache_key] = cached_statuses
                         
                         # Check if all tasks are completed/failed (plan is done) AFTER processing individual tasks
                         all_done = all(task.get("status") in ["completed", "failed"] for task in tasks)
@@ -1136,6 +1143,88 @@ class CleanOrchestratorA2AHandler:
                         error=str(e),
                         data_keys=list(data.keys()))
             return f"data: {json.dumps({'event': event_type, 'data': {'error': 'serialization_failed'}})}\n\n"
+    
+    def _check_task_status_and_emit_events(self, task_id: str, thread_id: str) -> str:
+        """Check task status and emit any pending SSE events for final task completions."""
+        logger.info("final_sse_event_check_start", 
+                   component="orchestrator", 
+                   task_id=task_id,
+                   thread_id=thread_id)
+        try:
+            # Get current plan state using the correct thread_id
+            current_state = self.graph.graph.get_state({"configurable": {"thread_id": thread_id}})
+            if not current_state or not current_state.values:
+                return ""
+            
+            plan = current_state.values.get("plan", {})
+            tasks = plan.get("tasks", [])
+            
+            logger.info("final_sse_event_check_plan_found", 
+                       component="orchestrator", 
+                       task_id=task_id,
+                       thread_id=thread_id,
+                       plan_id=plan.get("id"),
+                       task_count=len(tasks))
+            
+            # Check each task for status changes
+            for task in tasks:
+                task_internal_id = task.get("id")
+                if not task_internal_id:
+                    continue
+                
+                current_status = task.get("status", "pending")
+                
+                logger.info("final_sse_event_check_task_status", 
+                           component="orchestrator", 
+                           task_id=task_id,
+                           thread_id=thread_id,
+                           task_internal_id=task_internal_id,
+                           current_status=current_status,
+                           task_content=task.get("content", ""))
+                
+                # Get previous status from cache - use thread_id as cache key
+                cached_statuses = self.task_status_cache.get(thread_id, {})
+                previous_status = cached_statuses.get(task_internal_id, "pending")
+                
+                # Only emit events for newly changed statuses
+                if current_status != previous_status:
+                    logger.info("final_sse_event_check_status_changed", 
+                               component="orchestrator", 
+                               task_id=task_id,
+                               thread_id=thread_id,
+                               task_internal_id=task_internal_id,
+                               previous_status=previous_status,
+                               current_status=current_status)
+                    
+                    # Update cache - use thread_id as cache key
+                    cached_statuses[task_internal_id] = current_status
+                    self.task_status_cache[thread_id] = cached_statuses
+                    
+                    if current_status == "completed":
+                        return self._format_sse_event("task_completed", {
+                            "task_id": task_id,
+                            "task": task,
+                            "success": True,
+                            "content": task.get("content", ""),
+                            "timestamp": datetime.now().isoformat()
+                        })
+                    elif current_status == "failed":
+                        return self._format_sse_event("task_error", {
+                            "task_id": task_id,
+                            "task": task,
+                            "content": task.get("content", ""),
+                            "error": task.get("error", "Task failed"),
+                            "timestamp": datetime.now().isoformat()
+                        })
+            
+            return ""
+            
+        except Exception as e:
+            logger.error("check_task_status_and_emit_events_error",
+                        component="orchestrator",
+                        task_id=task_id,
+                        error=str(e))
+            return ""
     
     async def _parse_plan_modification(self, user_input: str, thread_id: str):
         """Parse user input into structured plan modification using LLM."""

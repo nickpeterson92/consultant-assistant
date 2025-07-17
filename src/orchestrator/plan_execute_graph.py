@@ -380,6 +380,20 @@ class PlanExecuteGraph:
                        success=result.get("success", False),
                        task_content=next_task["content"][:100])
             
+            # Debug: Log the actual task status that was set in the plan
+            actual_task_status = None
+            for task in updated_tasks:
+                if task["id"] == next_task["id"]:
+                    actual_task_status = task.get("status")
+                    break
+            
+            logger.info("plan_task_status_updated", component="orchestrator", 
+                       task_id=next_task["id"], 
+                       actual_task_status=actual_task_status,
+                       result_success=result.get("success"),
+                       result_status=result.get("status"),
+                       result_result_status=result.get("result", {}).get("status"))
+            
             # Create appropriate message based on success/failure
             if result.get("success"):
                 # Extract the actual response from the result structure
