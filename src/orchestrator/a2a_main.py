@@ -2,14 +2,12 @@
 
 import asyncio
 import logging
-from typing import Dict, Any
-from langchain_core.messages import HumanMessage
 
 from src.a2a import A2AServer, AgentCard
-from src.utils.logging import get_logger, init_session_tracking
-from src.utils.config import get_conversation_config, get_llm_config
-from .graph_builder import get_orchestrator_graph, get_agent_registry
-from .a2a_handler import OrchestratorA2AHandler
+from src.utils.logging import get_logger
+from .agent_registry import AgentRegistry
+from .plan_execute_graph import create_plan_execute_graph
+from .a2a_handler import CleanOrchestratorA2AHandler
 
 # Initialize logger
 logger = get_logger("orchestrator")
@@ -23,7 +21,8 @@ async def initialize_orchestrator_a2a():
         mode="a2a"
     )
     
-    agent_registry = get_agent_registry()
+    # Create agent registry instance
+    agent_registry = AgentRegistry()
     
     # Attempt auto-discovery if no agents registered
     if not agent_registry.list_agents():
@@ -82,8 +81,6 @@ async def initialize_orchestrator_a2a():
 async def main(host: str, port: int):
     """Main function to run the orchestrator in A2A mode."""
     # Setup logging
-    init_session_tracking()
-    
     log_level = logging.WARNING
     logging.basicConfig(level=log_level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
@@ -139,7 +136,10 @@ async def main(host: str, port: int):
         capabilities=list(set(all_capabilities)),  # Deduplicate
         endpoints={
             "process_task": f"http://{host}:{port}/a2a",
-            "agent_card": f"http://{host}:{port}/a2a/agent-card"
+            "process_task_streaming": f"http://{host}:{port}/a2a/stream",
+            "agent_card": f"http://{host}:{port}/a2a/agent-card",
+            "interrupt_task": f"http://{host}:{port}/a2a",
+            "resume_task": f"http://{host}:{port}/a2a"
         },
         communication_modes=["sync", "streaming"],
         metadata={
@@ -150,13 +150,29 @@ async def main(host: str, port: int):
         }
     )
     
-    # Build the graph
+    # Build the graph with LLM support
     logger.info("graph_building",
         component="system",
         agent="orchestrator",
         operation="build_graph"
     )
-    local_graph = get_orchestrator_graph()
+    
+    # Set up agent tools for task execution
+    from .agent_caller_tools import SalesforceAgentTool, JiraAgentTool, ServiceNowAgentTool
+    agent_tools = {
+        "salesforce_agent": SalesforceAgentTool(agent_registry),
+        "jira_agent": JiraAgentTool(agent_registry),
+        "servicenow_agent": ServiceNowAgentTool(agent_registry),
+    }
+    
+    # Create LLM instances using existing infrastructure
+    from .llm_handler import create_llm_instances
+    tools = list(agent_tools.values())  # Use agent tools as LLM tools
+    llm_with_tools, deterministic_llm, trustcall_extractor, plan_modification_extractor, invoke_llm = create_llm_instances(tools)
+    
+    # Create pure plan-execute graph with LLM support
+    local_graph = create_plan_execute_graph(invoke_llm=invoke_llm)
+    local_graph.set_agent_tools(agent_tools)
     logger.info("graph_built",
         component="system",
         agent="orchestrator",
@@ -165,13 +181,19 @@ async def main(host: str, port: int):
     )
     
     # Create A2A handler
-    handler = OrchestratorA2AHandler(local_graph, agent_registry)
+    handler = CleanOrchestratorA2AHandler(local_graph, agent_registry, plan_modification_extractor)
     
     # Create and configure A2A server
     server = A2AServer(agent_card, host, port)
     server.register_handler("process_task", handler.process_task)
+    server.register_handler("process_task_streaming", handler.process_task_with_streaming)
     server.register_handler("get_agent_card", handler.get_agent_card)
     server.register_handler("get_progress", handler.get_progress)
+    server.register_handler("interrupt_task", handler.interrupt_task)
+    server.register_handler("resume_task", handler.resume_task)
+    
+    # Register WebSocket endpoint for control messages
+    server.register_websocket_handler("/a2a/ws", handler.handle_websocket)
     
     # Start the server
     runner = await server.start()

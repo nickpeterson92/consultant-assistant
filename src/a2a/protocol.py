@@ -74,37 +74,51 @@ class A2ATask:
         
         Uses centralized message serialization utility for LangChain objects.
         """
-        try:
-            # Try standard asdict first - should work if all objects are serialized
-            return asdict(self)
-        except (TypeError, ValueError):
-            # Fallback: manually serialize any LangChain objects using centralized utility
-            result = {
-                "id": self.id,
-                "instruction": self.instruction,
-                "status": self.status,
-                "created_at": self.created_at,
-                "context": self._serialize_dict_with_messages(self.context),
-                "state_snapshot": self._serialize_dict_with_messages(self.state_snapshot)
-            }
-            return result
+        # Always use manual serialization to ensure LangChain objects are properly handled
+        # asdict() doesn't fail with LangChain objects - it just includes them as-is
+        result = {
+            "id": self.id,
+            "instruction": self.instruction,
+            "status": self.status,
+            "created_at": self.created_at,
+            "context": self._serialize_dict_with_messages(self.context),
+            "state_snapshot": self._serialize_dict_with_messages(self.state_snapshot)
+        }
+        return result
     
     def _serialize_dict_with_messages(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Helper to serialize dictionaries using unified message serialization."""
         if not isinstance(data, dict):
             return data
         
-        result = data.copy()
+        result = {}
         
-        # Handle recent_messages using unified serialization
-        if "recent_messages" in result and isinstance(result["recent_messages"], list):
-            if not is_already_serialized(result["recent_messages"]):
-                result["recent_messages"] = serialize_messages_for_json(result["recent_messages"])
-        
-        # Handle messages field (for state_snapshot) using unified serialization
-        if "messages" in result and isinstance(result["messages"], list):
-            if not is_already_serialized(result["messages"]):
-                result["messages"] = serialize_messages_for_json(result["messages"])
+        # Recursively serialize all dictionary values
+        for key, value in data.items():
+            if key == "recent_messages" and isinstance(value, list):
+                # Handle recent_messages using unified serialization
+                if not is_already_serialized(value):
+                    result[key] = serialize_messages_for_json(value)
+                else:
+                    result[key] = value
+            elif key == "messages" and isinstance(value, list):
+                # Handle messages field (for state_snapshot) using unified serialization
+                if not is_already_serialized(value):
+                    result[key] = serialize_messages_for_json(value)
+                else:
+                    result[key] = value
+            elif isinstance(value, dict):
+                # Recursively serialize nested dictionaries
+                result[key] = self._serialize_dict_with_messages(value)
+            elif isinstance(value, list):
+                # Recursively serialize lists that might contain dictionaries
+                result[key] = [
+                    self._serialize_dict_with_messages(item) if isinstance(item, dict) else item
+                    for item in value
+                ]
+            else:
+                # Keep other values as-is
+                result[key] = value
         
         return result
 
@@ -552,6 +566,28 @@ class A2AClient:
                 self._closed = True
                 self.session = None
     
+    def _get_first_message_type(self, recent_messages: Any) -> str:
+        """Safely get the type of the first message, handling both dict and list cases.
+        
+        Args:
+            recent_messages: Could be a list of dicts, single dict, or None
+            
+        Returns:
+            Type name of first message or "none"
+        """
+        if not recent_messages:
+            return "none"
+            
+        # Handle single dict case (when serialize_messages_for_json returns single message)
+        if isinstance(recent_messages, dict):
+            return type(recent_messages).__name__
+            
+        # Handle list case
+        if isinstance(recent_messages, list) and len(recent_messages) > 0:
+            return type(recent_messages[0]).__name__
+            
+        return "none"
+
     async def _make_raw_call(self, endpoint: str, method: str, params: Dict[str, Any], request_id: Optional[str] = None) -> Dict[str, Any]:
         """Make a raw JSON-RPC call without resilience patterns.
         
@@ -619,6 +655,31 @@ class A2AClient:
             # Make HTTP POST request
             # Note: Timeout is already configured at the session level
             # Avoid duplicate timeout parameter to prevent Python 3.13 compatibility issues
+            
+            # Debug: Log request_dict structure before JSON serialization
+            task_data = request_dict.get("params", {}).get("task", {})
+            state_snapshot = task_data.get("state_snapshot", {})
+            
+            logger.info("a2a_request_dict_debug",
+                component="a2a",
+                operation="make_raw_call",
+                endpoint=endpoint,
+                method=method,
+                request_dict_keys=list(request_dict.keys()),
+                params_keys=list(request_dict.get("params", {}).keys()),
+                has_task="task" in request_dict.get("params", {}),
+                task_keys=list(task_data.keys()) if task_data else [],
+                context_keys=list(task_data.get("context", {}).keys()) if task_data and "context" in task_data else [],
+                recent_messages_type=type(task_data.get("context", {}).get("recent_messages", [])).__name__ if task_data and "context" in task_data and "recent_messages" in task_data.get("context", {}) else "none",
+                recent_messages_count=len(task_data.get("context", {}).get("recent_messages", [])) if task_data and "context" in task_data and "recent_messages" in task_data.get("context", {}) else 0,
+                first_message_type=self._get_first_message_type(task_data.get("context", {}).get("recent_messages")) if task_data and "context" in task_data and "recent_messages" in task_data.get("context", {}) else "none",
+                state_snapshot_keys=list(state_snapshot.keys()) if state_snapshot else [],
+                state_snapshot_has_messages="messages" in state_snapshot,
+                state_snapshot_messages_type=type(state_snapshot.get("messages", [])).__name__ if state_snapshot and "messages" in state_snapshot else "none",
+                state_snapshot_messages_count=len(state_snapshot.get("messages", [])) if state_snapshot and "messages" in state_snapshot else 0,
+                state_snapshot_first_message_type=self._get_first_message_type(state_snapshot.get("messages")) if state_snapshot and "messages" in state_snapshot else "none"
+            )
+            
             async with session.post(
                 endpoint,
                 json=request_dict,
@@ -707,12 +768,14 @@ class A2AClient:
             else:
                 raise A2AException(f"Network error: {str(e)}")
         except Exception as e:
-            # Log unexpected error
+            # Log unexpected error with more detail
+            import traceback
             logger.error("a2a_unexpected_error",
                 component="a2a",
                 operation="make_raw_call",
                 error_type=type(e).__name__,
-                error=str(e)
+                error=str(e),
+                traceback=traceback.format_exc()
             )
             raise
     
@@ -872,12 +935,14 @@ class A2AServer:
         self.port = port
         self.app = web.Application()
         self.handlers: Dict[str, Any] = {}
+        self.websocket_handlers: Dict[str, Any] = {}
         self._setup_routes()
     
     def _setup_routes(self):
         """Set up HTTP routes for A2A protocol endpoints."""
         self.app.router.add_post("/a2a", self._handle_request)
         self.app.router.add_get("/a2a/agent-card", self._handle_agent_card)
+        self.app.router.add_post("/a2a/stream", self._handle_streaming_request)
     
     def register_handler(self, method: str, handler):
         """Register a handler for a JSON-RPC method.
@@ -887,6 +952,107 @@ class A2AServer:
             handler: Async function that processes the method
         """
         self.handlers[method] = handler
+    
+    def register_websocket_handler(self, path: str, handler):
+        """Register a WebSocket handler for a specific path.
+        
+        Args:
+            path: WebSocket path (e.g., "/a2a/ws")
+            handler: Async function that handles WebSocket connections
+        """
+        self.websocket_handlers[path] = handler
+        # Add WebSocket route to the app
+        self.app.router.add_get(path, handler)
+    
+    async def setup_interrupt_websocket(self):
+        """Set up the standard interrupt WebSocket endpoint."""
+        async def handle_interrupt_websocket(request):
+            """Handle WebSocket connections for interrupt messages."""
+            ws = web.WebSocketResponse()
+            await ws.prepare(request)
+            
+            logger.info("websocket_interrupt_connection", 
+                       component="a2a", 
+                       operation="interrupt_ws",
+                       status="connected")
+            
+            try:
+                async for msg in ws:
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        try:
+                            data = json.loads(msg.data)
+                            if data.get("jsonrpc") == "2.0" and data.get("method") == "interrupt_task":
+                                # Handle interrupt
+                                task_id = data.get("params", {}).get("task_id")
+                                reason = data.get("params", {}).get("reason", "unknown")
+                                
+                                logger.info("websocket_interrupt_received",
+                                           component="a2a",
+                                           operation="interrupt_ws", 
+                                           task_id=task_id,
+                                           reason=reason)
+                                
+                                # Set interrupt flag (agents will check this)
+                                if not hasattr(self, '_interrupted_tasks'):
+                                    self._interrupted_tasks = set()
+                                self._interrupted_tasks.add(task_id)
+                                
+                                # Send acknowledgment
+                                await ws.send_str(json.dumps({
+                                    "jsonrpc": "2.0",
+                                    "method": "interrupt_ack",
+                                    "params": {
+                                        "task_id": task_id,
+                                        "status": "received"
+                                    }
+                                }))
+                                
+                        except json.JSONDecodeError:
+                            logger.warning("websocket_interrupt_invalid_json", 
+                                         component="a2a",
+                                         operation="interrupt_ws")
+                    elif msg.type == aiohttp.WSMsgType.ERROR:
+                        logger.warning("websocket_interrupt_error",
+                                     component="a2a", 
+                                     operation="interrupt_ws",
+                                     error=str(ws.exception()))
+                        break
+                        
+            except Exception as e:
+                logger.error("websocket_interrupt_handler_error",
+                           component="a2a",
+                           operation="interrupt_ws", 
+                           error=str(e))
+            finally:
+                logger.info("websocket_interrupt_disconnected",
+                           component="a2a",
+                           operation="interrupt_ws")
+                return ws
+        
+        # Register the interrupt WebSocket handler
+        self.register_websocket_handler("/a2a/interrupt", handle_interrupt_websocket)
+    
+    def is_task_interrupted(self, task_id: str) -> bool:
+        """Check if a task has been interrupted via WebSocket.
+        
+        Args:
+            task_id: ID of the task to check
+            
+        Returns:
+            True if the task should be interrupted
+        """
+        if not hasattr(self, '_interrupted_tasks'):
+            return False
+        return task_id in self._interrupted_tasks
+    
+    def clear_task_interrupt(self, task_id: str):
+        """Clear interrupt flag for a completed task.
+        
+        Args:
+            task_id: ID of the task to clear
+        """
+        if hasattr(self, '_interrupted_tasks'):
+            self._interrupted_tasks.discard(task_id)
     
     async def _handle_agent_card(self, request: web.Request) -> web.Response:
         """Return agent card for capability discovery.
@@ -977,6 +1143,149 @@ class A2AServer:
                     request_id=request_id
                 )
                 return web.json_response(response.to_dict(), status=500)
+        
+        except json.JSONDecodeError:
+            # Malformed JSON gets parse error response
+            return web.json_response(
+                A2AResponse(error={"code": -32700, "message": "Parse error"}).to_dict(),
+                status=400
+            )
+        except Exception as e:
+            # Catch-all for unexpected errors - log but don't leak details
+            logger.error("unexpected_request_error",
+                component="a2a",
+                operation="handle_request",
+                error=str(e),
+                error_type=type(e).__name__,
+                traceback=traceback.format_exc()
+            )
+            return web.json_response(
+                A2AResponse(error={"code": -32603, "message": "Internal error"}).to_dict(),
+                status=500
+            )
+    
+    async def _handle_streaming_request(self, request: web.Request) -> web.StreamResponse:
+        """Handle SSE streaming requests for real-time updates."""
+        try:
+            data = await request.json()
+            
+            # Same validation as regular requests
+            if not isinstance(data, dict):
+                response = web.StreamResponse(status=400)
+                await response.prepare(request)
+                return response
+            
+            if data.get("jsonrpc") != "2.0":
+                response = web.StreamResponse(status=400)
+                await response.prepare(request)
+                return response
+            
+            method = data.get("method")
+            params = data.get("params", {})
+            request_id = data.get("id")
+            
+            # For streaming, we need a special handler
+            streaming_method = f"{method}_streaming"
+            
+            if streaming_method not in self.handlers:
+                response = web.StreamResponse(status=404)
+                await response.prepare(request)
+                return response
+            
+            # Set up SSE response
+            response = web.StreamResponse(
+                status=200,
+                headers={
+                    'Content-Type': 'text/event-stream',
+                    'Cache-Control': 'no-cache',
+                    'Connection': 'keep-alive',
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Headers': 'Content-Type',
+                }
+            )
+            
+            await response.prepare(request)
+            
+            # Send initial connection event
+            await response.write(b"data: {\"event\": \"connected\"}\n\n")
+            
+            try:
+                # Stream the handler results
+                handler = self.handlers[streaming_method]
+                async for event_data in handler(params):
+                    try:
+                        if isinstance(event_data, str):
+                            await response.write(event_data.encode('utf-8'))
+                        else:
+                            await response.write(f"data: {json.dumps(event_data)}\n\n".encode('utf-8'))
+                        await response.drain()
+                    except (ConnectionResetError, ConnectionAbortedError) as conn_err:
+                        # Client disconnected - this is normal for interrupts
+                        logger.info("client_disconnected_during_stream",
+                                   component="a2a",
+                                   operation="handle_streaming_request",
+                                   reason="client_interrupt",
+                                   error=str(conn_err))
+                        return response
+                    except Exception as write_err:
+                        from aiohttp.client_exceptions import ClientConnectionResetError
+                        if isinstance(write_err, ClientConnectionResetError):
+                            # Client disconnected - this is normal for interrupts
+                            logger.info("client_connection_reset",
+                                       component="a2a",
+                                       operation="handle_streaming_request",
+                                       reason="client_interrupt")
+                            return response
+                        else:
+                            raise write_err
+                    
+                # Send completion event
+                try:
+                    await response.write(b"data: {\"event\": \"completed\"}\n\n")
+                except (ConnectionResetError, ConnectionAbortedError):
+                    # Client already disconnected
+                    logger.info("completion_event_skipped_client_disconnected", component="a2a")
+                    return response
+                
+            except Exception as e:
+                logger.error("streaming_handler_error",
+                    component="a2a",
+                    operation="handle_streaming_request",
+                    method=streaming_method,
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
+                
+                # Send error event
+                try:
+                    error_data = json.dumps({
+                        "event": "error",
+                        "error": str(e),
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    })
+                    await response.write(f"data: {error_data}\n\n".encode('utf-8'))
+                except (ConnectionResetError, ConnectionAbortedError):
+                    # Client already disconnected
+                    logger.info("error_event_skipped_client_disconnected", component="a2a")
+                except Exception as error_write_err:
+                    from aiohttp.client_exceptions import ClientConnectionResetError
+                    if isinstance(error_write_err, ClientConnectionResetError):
+                        logger.info("error_event_skipped_connection_reset", component="a2a")
+                    else:
+                        logger.error("error_writing_error_event", component="a2a", error=str(error_write_err))
+            
+            return response
+            
+        except Exception as e:
+            logger.error("streaming_request_error",
+                component="a2a",
+                operation="handle_streaming_request",
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            response = web.StreamResponse(status=500)
+            await response.prepare(request)
+            return response
         
         except json.JSONDecodeError:
             # Malformed JSON gets parse error response

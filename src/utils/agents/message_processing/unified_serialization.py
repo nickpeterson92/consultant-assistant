@@ -39,10 +39,8 @@ def serialize_messages_for_json(
     serialized_bytes = _saver.serde.dumps(messages)
     result = json.loads(serialized_bytes.decode('utf-8'))
     
-    # Return single dict if input was single message
-    if len(result) == 1 and isinstance(messages, list) and len(messages) == 1:
-        return result[0]
-    
+    # Always return list for consistency - prevents KeyError when consumers expect list format
+    # This ensures all downstream code can safely use list operations like len(), [0], iteration
     return result
 
 def is_already_serialized(data: Any) -> bool:

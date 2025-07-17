@@ -27,7 +27,6 @@ def main():
     """Start all components of the multi-agent system"""
     # Setup command-line argument parsing
     parser = argparse.ArgumentParser(description="Multi-Agent Orchestrator System")
-    parser.add_argument("--a2a", action="store_true", help="Run orchestrator in A2A mode")
     parser.add_argument("--orchestrator-port", type=int, default=8000, help="Port for orchestrator A2A server (default: 8000)")
     args = parser.parse_args()
     
@@ -79,11 +78,9 @@ def main():
         print("Waiting for agents to initialize...")
         time.sleep(5)
         
-        print(f"Starting Orchestrator{' in A2A mode' if args.a2a else ''}...")
-        # Start orchestrator in main thread so we can interact with it
-        orchestrator_cmd = "python3 orchestrator.py"
-        if args.a2a:
-            orchestrator_cmd += f" --a2a --port {args.orchestrator_port}"
+        print("Starting Orchestrator in A2A mode...")
+        # Start orchestrator A2A server
+        orchestrator_cmd = f"python3 orchestrator.py --port {args.orchestrator_port}"
         
         orchestrator_process = subprocess.Popen(
             orchestrator_cmd,

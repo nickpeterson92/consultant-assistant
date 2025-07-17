@@ -83,7 +83,7 @@ class BaseAgentTool(BaseTool):
         Returns:
             Minimal state snapshot
         """
-        default_keys = ["summary", "events", "memory"]
+        default_keys = ["summary", "events", "memory", "messages"]
         keys_to_include = include_keys or default_keys
         
         return {
@@ -203,28 +203,29 @@ class SalesforceAgentTool(BaseAgentTool):
         
         return extracted_context
     
-    def _serialize_state_snapshot(self, state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    def _serialize_state_snapshot(self, state: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         """Serialize LangGraph state for A2A transmission.
         
         Args:
             state: Raw LangGraph state that may contain LangChain objects
             
         Returns:
-            JSON-serializable state snapshot
+            JSON-serializable state snapshot or None if no meaningful state
         """
+        if not state:
+            return None
+            
         serialized_state = {}
-        if state:
-            for key, value in state.items():
-                if key == "messages" and isinstance(value, list):
-                    # Serialize messages using centralized utility
-                    serialized_state[key] = serialize_messages_for_json(value)
-                elif key == "current_plan" and isinstance(value, dict):
-                    # Current plan is already storing strings, so just copy it
-                    serialized_state[key] = value
-                else:
-                    # Keep other state as-is
-                    serialized_state[key] = value
-        return serialized_state
+        for key, value in state.items():
+            if key == "messages" and isinstance(value, list):
+                # Serialize messages using centralized utility
+                serialized_state[key] = serialize_messages_for_json(value)
+            else:
+                # Keep other state as-is
+                serialized_state[key] = value
+        
+        # Return None if we ended up with an empty dict
+        return serialized_state if serialized_state else None
     
     def _find_salesforce_agent(self):
         """Locate the Salesforce agent in the registry.
@@ -620,28 +621,29 @@ class JiraAgentTool(BaseAgentTool):
         
         return extracted_context
     
-    def _serialize_state_snapshot(self, state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    def _serialize_state_snapshot(self, state: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         """Serialize LangGraph state for A2A transmission.
         
         Args:
             state: Raw LangGraph state that may contain LangChain objects
             
         Returns:
-            JSON-serializable state snapshot
+            JSON-serializable state snapshot or None if no meaningful state
         """
+        if not state:
+            return None
+            
         serialized_state = {}
-        if state:
-            for key, value in state.items():
-                if key == "messages" and isinstance(value, list):
-                    # Serialize messages using centralized utility
-                    serialized_state[key] = serialize_messages_for_json(value)
-                elif key == "current_plan" and isinstance(value, dict):
-                    # Current plan is already storing strings, so just copy it
-                    serialized_state[key] = value
-                else:
-                    # Keep other state as-is
-                    serialized_state[key] = value
-        return serialized_state
+        for key, value in state.items():
+            if key == "messages" and isinstance(value, list):
+                # Serialize messages using centralized utility
+                serialized_state[key] = serialize_messages_for_json(value)
+            else:
+                # Keep other state as-is
+                serialized_state[key] = value
+        
+        # Return None if we ended up with an empty dict
+        return serialized_state if serialized_state else None
     
     def _find_jira_agent(self):
         """Locate the Jira agent in the registry.
@@ -1292,9 +1294,6 @@ class ServiceNowAgentTool(BaseAgentTool):
                 if key == "messages" and isinstance(value, list):
                     # Serialize messages using centralized utility
                     serialized_state[key] = serialize_messages_for_json(value)
-                elif key == "current_plan" and isinstance(value, dict):
-                    # Current plan is already storing strings, so just copy it
-                    serialized_state[key] = value
                 else:
                     # Keep other state as-is
                     serialized_state[key] = value

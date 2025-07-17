@@ -1,6 +1,7 @@
 """Jira specialized agent for issue tracking and agile management via A2A protocol."""
 
 import os
+import json
 import logging
 from typing import Dict, Any, List, TypedDict, Annotated, Optional
 import operator
@@ -291,6 +292,43 @@ async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
         final_message = result["messages"][-1]
         response_content = final_message.content
         
+        # Check if this is an error message from agent (follows standard Error: prefix pattern)
+        is_error_response = False
+        if isinstance(response_content, str) and response_content.startswith("Error:"):
+            is_error_response = True
+        
+        # Check final tool outcome - agents may retry multiple times before succeeding
+        final_tool_success = None
+        from langchain_core.messages import ToolMessage
+        
+        # Find the LAST ToolMessage result to determine final outcome
+        for msg in reversed(result["messages"]):
+            if isinstance(msg, ToolMessage) and hasattr(msg, 'content'):
+                # Try to parse tool result as JSON to check success field
+                try:
+                    if isinstance(msg.content, str) and (msg.content.startswith('{') or msg.content.startswith('[')):
+                        tool_result = json.loads(msg.content)
+                        if isinstance(tool_result, dict) and 'success' in tool_result:
+                            # Check for nested success structure (Jira tools have this pattern)
+                            if 'data' in tool_result and isinstance(tool_result['data'], dict) and 'success' in tool_result['data']:
+                                # Use the inner business logic success, not the outer API success
+                                final_tool_success = tool_result['data'].get('success')
+                                break
+                            else:
+                                # Use the direct success field
+                                final_tool_success = tool_result.get('success')
+                                break
+                except (json.JSONDecodeError, AttributeError):
+                    # If not valid JSON, continue checking other messages
+                    pass
+        
+        # Determine actual task success based on multiple factors:
+        # 1. If final response starts with "Error:", it's a failure
+        # 2. If tool execution failed (final_tool_success is False), it's a failure
+        # 3. If no tool results found and no error response, assume success
+        task_success = not is_error_response and final_tool_success is not False
+        status = "completed" if task_success else "failed"
+        
         # Check for tool results to include
         tool_data = None
         if result.get("tool_results"):
@@ -305,22 +343,29 @@ async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
             metadata={"agent": "jira-agent"}
         )
         
-        # Log successful task completion
+        # Log task completion with actual success status
         logger.info("jira_a2a_task_complete",
             component="jira",
             operation="process_a2a_task",
             task_id=task_id,
-            success=True,
+            success=task_success,
             response_length=len(response_content),
             tool_results_count=len(result.get("tool_results", [])),
-            issue_keys=extract_issue_keys(response_content)
+            issue_keys=extract_issue_keys(response_content),
+            final_tool_success=final_tool_success
         )
         
-        # Create successful response in JSON-RPC format
-        return {
+        # Create response with computed status
+        result_dict = {
             "artifacts": [artifact.to_dict()],
-            "status": "completed"
+            "status": status
         }
+        
+        # Include error information if task failed
+        if not task_success:
+            result_dict["error"] = "Task execution encountered tool errors"
+            
+        return result_dict
         
     except Exception as e:
         # Log task failure

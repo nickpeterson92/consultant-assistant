@@ -223,6 +223,11 @@ async def handle_a2a_request(params: dict) -> dict:
         if last_message:
             response_content = last_message.content
             
+            # Check if this is an error message from agent (follows standard Error: prefix pattern)
+            is_error_response = False
+            if isinstance(response_content, str) and response_content.startswith("Error:"):
+                is_error_response = True
+            
             # Check final tool outcome - agents may retry multiple times before succeeding
             final_tool_success = None
             from langchain_core.messages import ToolMessage
@@ -241,9 +246,11 @@ async def handle_a2a_request(params: dict) -> dict:
                         # If not valid JSON, continue checking other messages
                         pass
             
-            # Determine actual task success based on final tool execution result
-            # If no tool results found, assume success (agent completed without tools)
-            task_success = final_tool_success is not False
+            # Determine actual task success based on multiple factors:
+            # 1. If final response starts with "Error:", it's a failure
+            # 2. If tool execution failed (final_tool_success is False), it's a failure
+            # 3. If no tool results found and no error response, assume success
+            task_success = not is_error_response and final_tool_success is not False
             status = "completed" if task_success else "failed"
             
             # Log completion with actual success status

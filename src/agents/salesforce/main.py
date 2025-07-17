@@ -3,6 +3,7 @@
 import os
 import asyncio
 import argparse
+import json
 from typing import Annotated, Dict, Any
 from typing_extensions import TypedDict
 
@@ -203,8 +204,9 @@ salesforce_graph = None  # Will be created when needed
 class SalesforceA2AHandler:
     """Handles A2A protocol requests for the Salesforce agent"""
     
-    def __init__(self, graph):
+    def __init__(self, graph, server=None):
         self.graph = graph
+        self.server = server
     async def process_task(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Process A2A task using modern LangGraph pattern"""
         # Initialize task_id for use in except block
@@ -214,6 +216,26 @@ class SalesforceA2AHandler:
             # A2A protocol wraps task in "task" key
             task_data = params.get("task", params)  # Support both wrapped and unwrapped
             task_id = task_data.get("id", task_data.get("task_id", "unknown"))
+            
+            # Check for immediate interrupt before processing
+            if self.server and self.server.is_task_interrupted(task_id):
+                logger.info("salesforce_task_interrupted",
+                           component="salesforce",
+                           operation="process_a2a_task",
+                           task_id=task_id,
+                           status="interrupted_before_start")
+                self.server.clear_task_interrupt(task_id)
+                return {
+                    "artifacts": [{
+                        "id": f"sf-interrupt-{task_id}",
+                        "task_id": task_id,
+                        "content": "Task was interrupted before execution started",
+                        "content_type": "text/plain"
+                    }],
+                    "status": "failed",
+                    "error": "Task was interrupted",
+                    "error_type": "TaskInterrupted"
+                }
             instruction = task_data.get("instruction", "")
             context = task_data.get("context", {})
             state_snapshot = task_data.get("state_snapshot", {})
@@ -265,6 +287,36 @@ class SalesforceA2AHandler:
             else:
                 response_content = "Task completed successfully"
             
+            # Check if this is an error message from agent (follows standard Error: prefix pattern)
+            is_error_response = False
+            if isinstance(response_content, str) and response_content.startswith("Error:"):
+                is_error_response = True
+            
+            # Check final tool outcome - agents may retry multiple times before succeeding
+            final_tool_success = None
+            from langchain_core.messages import ToolMessage
+            
+            # Find the LAST ToolMessage result to determine final outcome
+            for msg in reversed(messages):
+                if isinstance(msg, ToolMessage) and hasattr(msg, 'content'):
+                    # Try to parse tool result as JSON to check success field
+                    try:
+                        if isinstance(msg.content, str) and (msg.content.startswith('{') or msg.content.startswith('[')):
+                            tool_result = json.loads(msg.content)
+                            if isinstance(tool_result, dict) and 'success' in tool_result:
+                                final_tool_success = tool_result.get('success')
+                                break
+                    except (json.JSONDecodeError, AttributeError):
+                        # If not valid JSON, continue checking other messages
+                        pass
+            
+            # Determine actual task success based on multiple factors:
+            # 1. If final response starts with "Error:", it's a failure
+            # 2. If tool execution failed (final_tool_success is False), it's a failure
+            # 3. If no tool results found and no error response, assume success
+            task_success = not is_error_response and final_tool_success is not False
+            status = "completed" if task_success else "failed"
+            
             # Log tool calls found in messages
             for msg in messages:
                 if hasattr(msg, 'tool_calls') and msg.tool_calls:  # pyright: ignore[reportAttributeAccessIssue]
@@ -282,24 +334,32 @@ class SalesforceA2AHandler:
                                                tool_name=tool_name,
                                                tool_args=tool_args)
             
-            # Log task completion
+            # Log task completion with actual success status
             logger.info("salesforce_a2a_task_complete",
                 component="salesforce",
                 operation="process_a2a_task",
                 task_id=task_id,
-                success=True,
-                                   response_preview=response_content[:200])
+                success=task_success,
+                final_tool_success=final_tool_success,
+                is_error_response=is_error_response,
+                response_preview=response_content[:200])
             
-            # Modern simplified response
-            return {
+            # Create result with computed status
+            result_dict = {
                 "artifacts": [{
                     "id": f"sf-response-{task_id}",
                     "task_id": task_id,
                     "content": response_content,
                     "content_type": "text/plain"
                 }],
-                "status": "completed"
+                "status": status
             }
+            
+            # Include error information if task failed
+            if not task_success:
+                result_dict["error"] = "Task execution encountered errors"
+                
+            return result_dict
             
         except Exception as e:
             error_msg = str(e)
@@ -449,13 +509,16 @@ async def main():
         success=True
     )
     
-    # Create A2A handler
-    handler = SalesforceA2AHandler(local_graph)
-    
     # Create and configure A2A server
     server = A2AServer(agent_card, args.host, args.port)
+    
+    # Create A2A handler with server reference for interrupt checking
+    handler = SalesforceA2AHandler(local_graph, server)
     server.register_handler("process_task", handler.process_task)
     server.register_handler("get_agent_card", handler.get_agent_card)
+    
+    # Set up interrupt WebSocket endpoint
+    await server.setup_interrupt_websocket()
     
     # Start the server
     runner = await server.start()
