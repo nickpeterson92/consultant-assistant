@@ -532,11 +532,104 @@ class PlanExecuteGraph:
         return route
     
     async def _replan_node(self, state: PlanExecuteState) -> PlanExecuteState:
-        """Replan node - decides if more tasks are needed."""
+        """Replan node - decides if more tasks are needed or plan needs replacement."""
         logger.info("replan_node_start",
                    component="orchestrator",
                    has_plan=bool(state.get("plan")),
                    task_count=len(state["plan"]["tasks"]) if state.get("plan") else 0)
+        
+        # Check for plan replacement requests
+        if state.get("replace_plan_requested"):
+            logger.info("replan_replacement_requested", component="orchestrator", 
+                       replace_plan=state.get("replace_plan_requested", False))
+            
+            # Get the new plan description
+            new_plan_description = state.get("new_plan_description", "")
+            
+            if new_plan_description:
+                # Create a new plan to replace the current one
+                logger.info("generating_replacement_plan", component="orchestrator",
+                           new_plan_description=new_plan_description[:100])
+                
+                # Create new plan with the replacement description
+                replacement_state = {
+                    **state,
+                    "original_request": new_plan_description,
+                    "messages": state.get("messages", []),
+                    "plan": None,  # Clear existing plan
+                    "replace_plan_requested": False,  # Clear flag
+                    "new_plan_description": None  # Clear description
+                }
+                
+                # Generate new plan
+                result = await self._handle_initial_planning(replacement_state)
+                
+                logger.info("replacement_plan_created", component="orchestrator",
+                           plan_id=result.get("plan", {}).get("id"),
+                           task_count=len(result.get("plan", {}).get("tasks", [])))
+                
+                # Stream plan creation event (handled by A2A streaming)
+                logger.info("plan_created_event", component="orchestrator", 
+                           plan_id=result.get("plan", {}).get("id"),
+                           task_count=len(result.get("plan", {}).get("tasks", [])))
+                
+                return result
+            else:
+                logger.warning("replacement_plan_missing_description", component="orchestrator")
+        
+        # Check for add to plan requests
+        elif state.get("add_to_plan_requested"):
+            logger.info("replan_add_to_plan_requested", component="orchestrator")
+            
+            additional_steps = state.get("additional_steps", [])
+            insert_after_step = state.get("insert_after_step", None)
+            
+            if additional_steps:
+                # Add new steps to existing plan
+                current_plan = state.get("plan", {})
+                current_tasks = current_plan.get("tasks", [])
+                
+                # Create new tasks from additional steps
+                new_tasks = []
+                for i, step_description in enumerate(additional_steps):
+                    new_task = {
+                        "id": f"added_task_{len(current_tasks) + i + 1}",
+                        "content": step_description,
+                        "agent": "orchestrator",  # Will be determined during execution
+                        "status": TaskStatus.PENDING.value,
+                        "created_at": datetime.now().isoformat()
+                    }
+                    new_tasks.append(new_task)
+                
+                # Insert new tasks at the right position
+                if insert_after_step and insert_after_step <= len(current_tasks):
+                    # Insert after specific step
+                    insert_index = insert_after_step
+                    updated_tasks = current_tasks[:insert_index] + new_tasks + current_tasks[insert_index:]
+                else:
+                    # Append to end
+                    updated_tasks = current_tasks + new_tasks
+                
+                # Update plan with new tasks
+                updated_plan = {
+                    **current_plan,
+                    "tasks": updated_tasks,
+                    "version": current_plan.get("version", 1) + 1
+                }
+                
+                logger.info("plan_extended", component="orchestrator",
+                           plan_id=updated_plan.get("id"),
+                           original_task_count=len(current_tasks),
+                           new_task_count=len(new_tasks),
+                           total_task_count=len(updated_tasks))
+                
+                return {
+                    **state,
+                    "plan": updated_plan,
+                    "add_to_plan_requested": False,  # Clear flag
+                    "additional_steps": None,  # Clear steps
+                    "insert_after_step": None  # Clear position
+                }
         
         # Simple replan: if all tasks complete, we're done
         if state["plan"] and is_plan_complete(state):

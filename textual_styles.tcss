@@ -1,15 +1,17 @@
-/* Textual CSS for orchestrator CLI */
+/* Textual CSS for orchestrator CLI - Modern terminal aesthetic */
 
 Screen {
     layout: vertical;
+    background: #0d1117;
 }
 
 .header {
     height: 3;
-    background: blue;
-    color: white;
+    background: #21262d;
+    color: #f0f6fc;
     content-align: center middle;
     text-style: bold;
+    border: round #30363d;
 }
 
 .main-container {
@@ -20,66 +22,71 @@ Screen {
 .left-panel {
     width: 1fr;
     layout: vertical;
-    border: solid blue;
+    border: round #30363d;
     margin: 1;
+    background: #0d1117;
 }
 
 .right-panel {
     width: 30%;
     layout: vertical;
-    border: solid cyan;
+    border: round #30363d;
     margin: 1;
+    background: #0d1117;
 }
 
 .conversation {
     height: 1fr;
     overflow-y: auto;
     padding: 1;
-    border: solid blue;
+    border: round #30363d;
+    background: #0d1117;
 }
 
 .plan-status {
     height: 1fr;
     overflow-y: auto;
     padding: 1;
-    border: solid cyan;
+    border: round #30363d;
+    background: #0d1117;
 }
 
 .status-bar {
     height: 3;
     padding: 1;
-    background: #1e1e1e;
-    border: solid gray;
+    background: #21262d;
+    border: round #30363d;
+    color: #8b949e;
 }
 
 .input-field {
     height: 3;
     margin: 1;
     padding: 0 1;
-    background: #444444;
-    color: white;
-    border: solid cyan;
+    background: #21262d;
+    color: #f0f6fc;
+    border: round #30363d;
 }
 
 .input-field:focus {
-    border: solid yellow;
-    background: #333333;
-    color: white;
+    border: round #58a6ff;
+    background: #21262d;
+    color: #f0f6fc;
 }
 
 #message-input {
     height: 3;
     margin: 1;
     padding: 0 1;
-    background: #444444;
-    color: white;
-    border: solid cyan;
+    background: #21262d;
+    color: #f0f6fc;
+    border: round #30363d;
 }
 
 #message-input:focus {
-    background: #333333;
-    color: white;
-    border: solid yellow;
+    background: #21262d;
+    color: #f0f6fc;
+    border: round #58a6ff;
 }
 
 /* Modal dialog styles */
@@ -87,26 +94,26 @@ Screen {
     layout: vertical;
     width: 80%;
     height: 80%;
-    border: solid red;
-    background: #1e1e1e;
+    border: round #f85149;
+    background: #21262d;
     padding: 2;
     margin: 2;
-    color: white;
+    color: #f0f6fc;
 }
 
 #modification-input {
     height: 3;
     margin: 1;
     padding: 0 1;
-    background: #444444;
-    color: white;
-    border: solid cyan;
+    background: #21262d;
+    color: #f0f6fc;
+    border: round #30363d;
 }
 
 #modification-input:focus {
-    background: #333333;
-    color: white;
-    border: solid yellow;
+    background: #21262d;
+    color: #f0f6fc;
+    border: round #58a6ff;
 }
 
 /* Message styling for conversation - separate label and content widgets */
@@ -126,11 +133,11 @@ Screen {
 .user-message {
     margin: 1 0;
     padding: 1;
-    color: cyan;
+    color: #58a6ff;
 }
 
 .assistant-message {
     margin: 1 0;
     padding: 1;
-    color: green;
+    color: #7ee787;
 }
