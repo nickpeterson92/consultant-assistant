@@ -783,6 +783,32 @@ class CleanOrchestratorA2AHandler:
                                current_task_index=command_update.get("current_task_index"),
                                skipped_task_indices=command_update.get("skipped_task_indices"))
                     
+                    # Get current state to include plan data
+                    try:
+                        current_state = self.graph.graph.get_state(config)
+                        current_plan = current_state.values.get("plan") if current_state and current_state.values else None
+                    except Exception as e:
+                        logger.warning("failed_to_get_current_state_for_plan_modified",
+                                     component="orchestrator",
+                                     thread_id=thread_id,
+                                     error=str(e))
+                        current_plan = None
+                    
+                    # Send plan modification event to client with plan data
+                    event_data = {
+                        "task_id": task_id,
+                        "modification_type": plan_modification.modification_type,
+                        "current_task_index": command_update.get("current_task_index"),
+                        "skipped_task_indices": command_update.get("skipped_task_indices", []),
+                        "timestamp": datetime.now().isoformat()
+                    }
+                    
+                    # Include plan data if available
+                    if current_plan:
+                        event_data["plan"] = current_plan
+                    
+                    yield self._format_sse_event("plan_modified", event_data)
+                    
                     # Stream the execution with state updates
                     async for event in self.graph.graph.astream(
                         Command(update=command_update, resume=resume_data),

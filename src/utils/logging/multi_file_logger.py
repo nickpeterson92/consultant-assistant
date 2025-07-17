@@ -129,15 +129,9 @@ class MultiFileLogger(StructuredLogger):
     
     def _get_handler(self, component: Optional[str]) -> logging.Handler:
         """Get the appropriate handler for a component."""
+        # Direct component match
         if component and component in self.handlers:
             return self.handlers[component]
-        
-        # Check aliases
-        if component and component in self.COMPONENT_FILES:
-            mapped_component = self.COMPONENT_FILES[component]
-            for comp, filename in self.COMPONENT_FILES.items():
-                if filename == mapped_component and comp in self.handlers:
-                    return self.handlers[comp]
         
         # Default to system log
         return self.handlers.get('system', self.handlers['orchestrator'])

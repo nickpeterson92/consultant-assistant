@@ -55,6 +55,7 @@ class ProgressDisplayManager:
         self.plan_tasks = []
         self.completed_steps = []
         self.failed_steps = []
+        self.skipped_steps = []
         self.current_step = ""
         self._display_lock = threading.Lock()
         self.plan_displayed = False
@@ -135,6 +136,8 @@ class ProgressDisplayManager:
                 print(f"{GREEN}│{RESET} [✓] {i}. {task_content}")
             elif task_content in [fs.split(' (Error:')[0] for fs in self.failed_steps]:
                 print(f"{GREEN}│{RESET} [✗] {i}. {task_content}")
+            elif hasattr(self, 'skipped_steps') and task_content in self.skipped_steps:
+                print(f"{GREEN}│{RESET} [-] {i}. {task_content}")
             elif task_content == self.current_step:
                 print(f"{GREEN}│{RESET} [→] {i}. {task_content}")
             else:
@@ -489,6 +492,63 @@ async def _stream_request(orchestrator_url, task_data, current_operation, proces
                                 logger.info("plan_created_processed",
                                            component="client",
                                            task_count=len(plan_tasks))
+                                
+                            elif event_type == 'plan_modified':
+                                # Handle plan modification events (skip to step, etc.)
+                                modification_type = data.get('modification_type', 'unknown')
+                                current_task_index = data.get('current_task_index', 0)
+                                skipped_indices = data.get('skipped_task_indices', [])
+                                plan_data = data.get('plan')
+                                
+                                # Update display manager with skipped tasks
+                                if display_manager:
+                                    logger.info("plan_modified_display_check",
+                                               component="client",
+                                               has_display_manager=True,
+                                               has_plan_tasks=bool(display_manager.plan_tasks),
+                                               plan_task_count=len(display_manager.plan_tasks) if display_manager.plan_tasks else 0,
+                                               has_plan_data=bool(plan_data))
+                                    
+                                    # If we don't have plan tasks but we have plan data, restore them
+                                    if not display_manager.plan_tasks and plan_data:
+                                        plan_tasks = plan_data.get('tasks', [])
+                                        if plan_tasks:
+                                            display_manager.plan_tasks = plan_tasks
+                                            display_manager.current_display_mode = "plan"
+                                            display_manager.plan_displayed = True
+                                            logger.info("plan_tasks_restored_from_plan_modified",
+                                                       component="client",
+                                                       restored_task_count=len(plan_tasks))
+                                    
+                                    if display_manager.plan_tasks:
+                                        # Convert skipped indices to task content for display
+                                        skipped_task_contents = []
+                                        for i in skipped_indices:
+                                            if i < len(display_manager.plan_tasks):
+                                                task_content = display_manager.plan_tasks[i].get('content', 'Unknown task')
+                                                skipped_task_contents.append(task_content)
+                                        
+                                        display_manager.skipped_steps = skipped_task_contents
+                                        
+                                        logger.info("plan_modified_redisplaying",
+                                                   component="client",
+                                                   skipped_task_count=len(skipped_task_contents))
+                                        
+                                        # Redisplay the plan with modifications
+                                        with display_manager._display_lock:
+                                            display_manager._display_plan_progress()
+                                    else:
+                                        logger.warning("plan_modified_no_plan_tasks",
+                                                      component="client")
+                                else:
+                                    logger.warning("plan_modified_no_display_manager",
+                                                  component="client")
+                                
+                                logger.info("plan_modified_processed",
+                                           component="client",
+                                           modification_type=modification_type,
+                                           current_task_index=current_task_index,
+                                           skipped_count=len(skipped_indices))
                                 
                             elif event_type == 'task_started':
                                 task = data.get('task', {})
@@ -1016,6 +1076,7 @@ async def main():
                                         display_manager.current_display_mode = "simple"
                                         display_manager.completed_steps = []
                                         display_manager.failed_steps = []
+                                        display_manager.skipped_steps = []
                                     else:
                                         print(f"{GREEN}│{RESET} Error resuming execution via WebSocket.")
                                 else:
