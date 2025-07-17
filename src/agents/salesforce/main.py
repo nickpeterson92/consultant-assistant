@@ -225,7 +225,13 @@ class SalesforceA2AHandler:
                            status="interrupted_before_start")
                 self.server.clear_task_interrupt(task_id)
                 return {
-                    "success": False,
+                    "artifacts": [{
+                        "id": f"sf-interrupt-{task_id}",
+                        "task_id": task_id,
+                        "content": "Task was interrupted before execution started",
+                        "content_type": "text/plain"
+                    }],
+                    "status": "failed",
                     "error": "Task was interrupted",
                     "error_type": "TaskInterrupted"
                 }

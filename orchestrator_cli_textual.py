@@ -17,9 +17,9 @@ sys.path.insert(0, os.path.dirname(__file__))
 from textual.app import App, ComposeResult
 from textual.widgets import (
     Header, Footer, Input, Static, DataTable, 
-    LoadingIndicator, ProgressBar, Label, Button
+    LoadingIndicator, ProgressBar, Label, Button, Markdown
 )
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
 from textual.message import Message
 from textual.reactive import reactive
 from textual.screen import Screen, ModalScreen
@@ -355,12 +355,12 @@ class PlanStatusWidget(Static):
         self._refresh_display()
 
 
-class ConversationWidget(Static):
-    """Widget for displaying conversation history."""
+class ConversationWidget(ScrollableContainer):
+    """Widget for displaying conversation history with proper markdown rendering."""
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.messages: List[str] = []
+        self.message_count = 0
     
     def add_message(self, role: str, content: str):
         """Add a message to the conversation."""
@@ -369,22 +369,33 @@ class ConversationWidget(Static):
                    content_length=len(content),
                    content_preview=content[:100])
         
+        # Create separate widgets for label and content
         if role == "user":
-            self.messages.append(f"[bold cyan]USER:[/bold cyan] {content}")
+            label_widget = Static("[bold cyan]USER:[/bold cyan]", classes="message-label")
+            content_widget = Markdown(content, classes="message-content")
         else:
-            self.messages.append(f"[bold green]ASSISTANT:[/bold green] {content}")
+            label_widget = Static("[bold green]ASSISTANT:[/bold green]", classes="message-label") 
+            content_widget = Markdown(content, classes="message-content")
+        
+        # Mount both widgets
+        self.mount(label_widget)
+        self.mount(content_widget)
+        
+        self.message_count += 1
         
         # Keep only last 20 messages to prevent memory issues
-        if len(self.messages) > 20:
-            self.messages = self.messages[-20:]
+        if self.message_count > 20:
+            # Remove the oldest child widget
+            children = list(self.children)
+            if children:
+                children[0].remove()
         
-        # Update display
-        display_content = "\n".join(self.messages)
-        self.update(display_content)
+        # Auto-scroll to bottom
+        self.scroll_end(animate=False)
         
         logger.info("conversation_display_updated", 
-                   total_messages=len(self.messages),
-                   display_length=len(display_content))
+                   total_messages=self.message_count,
+                   content_length=len(content))
 
 
 class StatusWidget(Static):

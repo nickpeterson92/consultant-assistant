@@ -350,7 +350,11 @@ class PlanExecuteGraph:
                 if task["id"] == next_task["id"]:
                     task = {
                         **task,
-                        "status": TaskStatus.COMPLETED.value if result.get("success") else TaskStatus.FAILED.value,
+                        "status": TaskStatus.COMPLETED.value if (
+                            result.get("status") == "completed" or  # External agents
+                            result.get("success") == True or        # Internal tasks  
+                            result.get("result", {}).get("status") == "completed"  # Internal tasks nested
+                        ) else TaskStatus.FAILED.value,
                         "completed_at": datetime.now().isoformat(),
                         "result": result
                     }
@@ -842,15 +846,30 @@ Keep the summary concise but informative."""
                 
                 # Extract the response from messages if available
                 response_content = "Task completed successfully"
+                is_error = False
+                
                 if "messages" in result.update:
                     messages = result.update["messages"]
                     if messages and hasattr(messages[-1], 'content'):
                         response_content = messages[-1].content
+                        # Check if this is an error message from agent tools
+                        if response_content.startswith("Error:"):
+                            is_error = True
+                
+                # Determine success based on whether this is an error message
+                task_success = not is_error
+                task_status = "failed" if is_error else "completed"
+                
+                logger.info("agent_command_result_analysis", component="orchestrator",
+                           task_id=task["id"], 
+                           is_error=is_error,
+                           task_success=task_success,
+                           response_preview=response_content[:100])
                 
                 return {
-                    "success": True,
+                    "success": task_success,
                     "result": {
-                        "status": "completed",
+                        "status": task_status,
                         "type": "agent_command",
                         "response": response_content,
                         "state_updates": result.update

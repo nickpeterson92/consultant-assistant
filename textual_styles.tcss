@@ -108,3 +108,29 @@ Screen {
     color: white;
     border: solid yellow;
 }
+
+/* Message styling for conversation - separate label and content widgets */
+.message-label {
+    margin: 0;
+    padding: 0;
+    height: auto;
+}
+
+.message-content {
+    margin: 0 0 1 0;
+    padding: 0 0 0 1;
+    height: auto;
+}
+
+/* Legacy message styles for backwards compatibility */
+.user-message {
+    margin: 1 0;
+    padding: 1;
+    color: cyan;
+}
+
+.assistant-message {
+    margin: 1 0;
+    padding: 1;
+    color: green;
+}
