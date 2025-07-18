@@ -752,13 +752,23 @@ class PlanExecuteGraph:
                     summary_prompt += f"{i}. {task_info['task']}\n   Error: {task_info['error']}\n\n"
             
             summary_prompt += """
-Please provide a brief, professional summary that:
-1. Acknowledges what was requested
-2. Summarizes what was accomplished
-3. Highlights any key results or outcomes
-4. Notes any issues if applicable
+Please provide a brief, professional summary using proper markdown formatting:
 
-Keep the summary concise but informative."""
+**Executive Summary:**
+
+Create a well-structured summary with:
+1. A clear opening statement acknowledging what was requested
+2. Numbered list of what was accomplished with specific details
+3. Bullet points for key results or outcomes  
+4. Notes on any issues if applicable
+
+Use proper markdown formatting with:
+- **Bold headers** for sections
+- Numbered lists (1. 2. 3.) for main accomplishments
+- Bullet points (- or *) for details and sub-items
+- Clear line breaks between sections
+
+Keep the summary concise but informative and well-formatted."""
             
             # Generate summary using the LLM
             from langchain_core.messages import HumanMessage

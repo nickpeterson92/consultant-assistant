@@ -270,8 +270,12 @@ async def handle_a2a_request(params: dict) -> dict:
             # Determine actual task success based on multiple factors:
             # 1. If final response starts with "Error:", it's a failure
             # 2. If tool execution failed (final_tool_success is False), it's a failure
-            # 3. If no tool results found and no error response, assume success
-            task_success = not is_error_response and final_tool_success is not False
+            # 3. If tool calls were made but no results found (final_tool_success is None), it's a failure
+            # 4. If no tool calls and no error response, assume success
+            tool_calls_made = len([m for m in messages if hasattr(m, 'tool_calls') and m.tool_calls])
+            task_success = (not is_error_response and 
+                          final_tool_success is not False and 
+                          (final_tool_success is not None or tool_calls_made == 0))
             status = "completed" if task_success else "failed"
             
             # Log completion with actual success status
