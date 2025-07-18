@@ -15,7 +15,7 @@ from langgraph.prebuilt import InjectedState
 from typing import Annotated
 
 from .base import BaseUtilityTool
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger
 
 # Import Tavily after checking for package
 try:
@@ -25,7 +25,7 @@ except ImportError:
     TAVILY_AVAILABLE = False
     TavilySearch = None
 
-logger = get_logger("utility")
+logger = SmartLogger("utility")
 
 
 class WebSearchInput(BaseModel):
@@ -102,8 +102,7 @@ class WebSearchTool(BaseUtilityTool):
         
         if not TAVILY_AVAILABLE:
             logger.warning("langchain-tavily package not installed. Install with: pip install langchain-tavily",
-                component="utility",
-                tool_name="web_search",
+                                tool_name="web_search",
                 operation="tavily_not_installed"
             )
         
@@ -145,8 +144,7 @@ class WebSearchTool(BaseUtilityTool):
         
         if enhanced_query != query:
             logger.info("Query enhanced with context",
-                component="utility",
-                tool_name="web_search",
+                                tool_name="web_search",
                 operation="query_enhanced",
                 original_query=query,
                 enhanced_query=enhanced_query,
@@ -244,8 +242,7 @@ class WebSearchTool(BaseUtilityTool):
         api_key = os.environ.get("TAVILY_API_KEY")
         if not api_key:
             logger.warning("TAVILY_API_KEY environment variable not set",
-                component="utility",
-                tool_name="web_search",
+                                tool_name="web_search",
                 operation="tavily_api_key_missing"
             )
             return {
@@ -273,8 +270,7 @@ class WebSearchTool(BaseUtilityTool):
         )
         
         logger.info("Web search request",
-            component="utility",
-            tool_name="web_search",
+                        tool_name="web_search",
             operation="web_search_request",
             query=search_query,
             original_query=query if query != search_query else None,
@@ -313,8 +309,7 @@ class WebSearchTool(BaseUtilityTool):
             formatted_results["enhanced_query"] = search_query if query != search_query else None
             
             logger.info("Web search completed successfully",
-                component="utility",
-                tool_name="web_search",
+                                tool_name="web_search",
                 operation="web_search_success",
                 query=search_query,
                 result_count=len(formatted_results["results"]),
@@ -325,8 +320,7 @@ class WebSearchTool(BaseUtilityTool):
             
         except Exception as e:
             logger.error(f"Web search failed: {str(e)}",
-                component="utility",
-                tool_name="web_search",
+                                tool_name="web_search",
                 operation="web_search_error",
                 query=search_query,
                 error=str(e),

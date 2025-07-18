@@ -12,7 +12,10 @@ from src.utils.platform.salesforce import (
     SOQLQueryBuilder,
     SOQLOperator
 )
-from src.utils.logging import logger, log_execution
+from src.utils.logging.framework import SmartLogger, log_execution
+
+# Initialize SmartLogger
+logger = SmartLogger("salesforce")
 
 
 class SalesforceGet(SalesforceReadTool):

@@ -14,9 +14,9 @@ import requests
 from requests.auth import HTTPBasicAuth
 
 from langchain.tools import BaseTool
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger
 
-logger = get_logger("jira")
+logger = SmartLogger("jira")
 
 
 class JiraConnectionManager:
@@ -39,8 +39,7 @@ class JiraConnectionManager:
     def _create_connection(self) -> Dict[str, Any]:
         """Create Jira connection configuration."""
         logger.info("jira_connection_created",
-            component="jira",
-            operation="connection_manager",
+                        operation="connection_manager",
             base_url=os.environ.get('JIRA_BASE_URL', 'not_set'),
             has_auth=bool(os.environ.get('JIRA_USER') and os.environ.get('JIRA_API_TOKEN'))
         )
@@ -73,16 +72,14 @@ class BaseJiraTool(BaseTool, ABC):
     def _log_call(self, **kwargs):
         """Log tool call with consistent format."""
         logger.info("tool_call",
-            component="jira",
-            tool_name=self.name,
+                        tool_name=self.name,
             tool_args=kwargs
         )
     
     def _log_result(self, result: Any):
         """Log tool result with consistent format."""
         logger.info("tool_result",
-            component="jira",
-            tool_name=self.name,
+                        tool_name=self.name,
             result_type=type(result).__name__,
             result_preview=str(result)[:200] if result else "None"
         )
@@ -90,8 +87,7 @@ class BaseJiraTool(BaseTool, ABC):
     def _handle_error(self, error: Exception) -> Dict[str, Any]:
         """Handle errors with consistent format and structured guidance."""
         logger.error("tool_error",
-            component="jira",
-            tool_name=self.name,
+                        tool_name=self.name,
             error=str(error),
             error_type=type(error).__name__
         )
@@ -207,8 +203,7 @@ class BaseJiraTool(BaseTool, ABC):
             
             # Log the full error details
             logger.error("jira_api_error",
-                component="jira",
-                tool_name=self.name if hasattr(self, 'name') else 'unknown',
+                                tool_name=self.name if hasattr(self, 'name') else 'unknown',
                 status_code=response.status_code,
                 url=url,
                 error_message=error_message
@@ -229,8 +224,7 @@ class BaseJiraTool(BaseTool, ABC):
     def _log_jql(self, query: str, operation: str = "query_built"):
         """Log JQL query for debugging."""
         logger.info("jql_query",
-            component="jira",
-            tool_name=self.name,
+                        tool_name=self.name,
             operation=operation,
             query=query,
             query_length=len(query)

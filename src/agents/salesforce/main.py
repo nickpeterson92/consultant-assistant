@@ -29,14 +29,14 @@ import logging
 # Disable LangSmith tracing to avoid circular reference errors
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
-# Import unified logger
-from src.utils.logging import get_logger
+# Import SmartLogger framework
+from src.utils.logging.framework import SmartLogger
 from src.utils.config.unified_config import config as app_config
 from src.utils.llm import create_azure_openai_chat
 from src.utils.agents.prompts import salesforce_agent_sys_msg
 
-# Initialize structured logger
-logger = get_logger("salesforce")
+# Initialize SmartLogger
+logger = SmartLogger("salesforce")
 
 # Suppress verbose HTTP debug logs
 logging.getLogger('openai._base_client').setLevel(logging.WARNING)

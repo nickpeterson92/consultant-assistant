@@ -18,7 +18,7 @@ from .plan_execute_state import (
     create_agent_plan,
     update_agent_execution_state
 )
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger
 
 
 class BaseAgentPlanExecute(ABC):
@@ -37,14 +37,13 @@ class BaseAgentPlanExecute(ABC):
         self.tool_map = {tool.name: tool for tool in tools}
         self.invoke_llm = invoke_llm
         self.checkpointer = checkpointer or MemorySaver()
-        self.logger = get_logger(agent_name.lower())
+        self.logger = SmartLogger(agent_name.lower())
         self.graph = self._build_graph()
     
     def _build_graph(self) -> StateGraph:
         """Build the simplified plan-execute graph."""
         self.logger.info("building_agent_plan_execute_graph",
-                        component=self.agent_name.lower(),
-                        operation="build_graph")
+                                                operation="build_graph")
         
         builder = StateGraph(AgentPlanExecuteState)
         
@@ -96,8 +95,7 @@ class BaseAgentPlanExecute(ABC):
     def _planner_node(self, state: AgentPlanExecuteState) -> AgentPlanExecuteState:
         """Generate execution plan for the agent's task."""
         self.logger.info("planner_node_start",
-                        component=self.agent_name.lower(),
-                        operation="planning",
+                                                operation="planning",
                         original_request=state["original_request"][:100])
         
         try:
@@ -105,8 +103,7 @@ class BaseAgentPlanExecute(ABC):
             plan = self._generate_plan(state)
             
             self.logger.info("plan_generated",
-                           component=self.agent_name.lower(),
-                           plan_id=plan.id,
+                                                      plan_id=plan.id,
                            task_count=len(plan.tasks),
                            plan_description=plan.description)
             
@@ -121,8 +118,7 @@ class BaseAgentPlanExecute(ABC):
             
         except Exception as e:
             self.logger.error("planning_error",
-                            component=self.agent_name.lower(),
-                            error=str(e))
+                                                        error=str(e))
             return update_agent_execution_state(
                 state,
                 last_error=str(e),
@@ -146,8 +142,7 @@ class BaseAgentPlanExecute(ABC):
             )
         
         self.logger.info("executor_node_start",
-                        component=self.agent_name.lower(),
-                        task_id=current_task.id,
+                                                task_id=current_task.id,
                         tool_name=current_task.tool_name,
                         task_description=current_task.description)
         
@@ -162,8 +157,7 @@ class BaseAgentPlanExecute(ABC):
             has_more = plan.advance_to_next_task()
             
             self.logger.info("task_executed_successfully",
-                           component=self.agent_name.lower(),
-                           task_id=current_task.id,
+                                                      task_id=current_task.id,
                            has_more_tasks=has_more)
             
             return update_agent_execution_state(
@@ -179,8 +173,7 @@ class BaseAgentPlanExecute(ABC):
             current_task.mark_failed(str(e))
             
             self.logger.error("task_execution_failed",
-                            component=self.agent_name.lower(),
-                            task_id=current_task.id,
+                                                        task_id=current_task.id,
                             error=str(e),
                             can_retry=current_task.can_retry())
             
@@ -205,8 +198,7 @@ class BaseAgentPlanExecute(ABC):
             )
         
         self.logger.info("replanner_node_start",
-                        component=self.agent_name.lower(),
-                        replan_reason=state.get("replan_reason", "Unknown"),
+                                                replan_reason=state.get("replan_reason", "Unknown"),
                         replan_count=plan.replan_count)
         
         try:
@@ -214,8 +206,7 @@ class BaseAgentPlanExecute(ABC):
             new_plan = self._replan(state)
             
             self.logger.info("replan_generated",
-                           component=self.agent_name.lower(),
-                           new_plan_id=new_plan.id,
+                                                      new_plan_id=new_plan.id,
                            new_task_count=len(new_plan.tasks))
             
             return update_agent_execution_state(
@@ -230,8 +221,7 @@ class BaseAgentPlanExecute(ABC):
             
         except Exception as e:
             self.logger.error("replanning_error",
-                            component=self.agent_name.lower(),
-                            error=str(e))
+                                                        error=str(e))
             return update_agent_execution_state(
                 state,
                 last_error=str(e),
@@ -243,16 +233,14 @@ class BaseAgentPlanExecute(ABC):
         plan = state["plan"]
         
         self.logger.info("finalizer_node_start",
-                        component=self.agent_name.lower(),
-                        has_plan=bool(plan))
+                                                has_plan=bool(plan))
         
         try:
             # Generate final response
             final_response = self._generate_final_response(state)
             
             self.logger.info("final_response_generated",
-                           component=self.agent_name.lower(),
-                           response_length=len(final_response))
+                                                      response_length=len(final_response))
             
             return update_agent_execution_state(
                 state,
@@ -265,8 +253,7 @@ class BaseAgentPlanExecute(ABC):
             
         except Exception as e:
             self.logger.error("finalization_error",
-                            component=self.agent_name.lower(),
-                            error=str(e))
+                                                        error=str(e))
             return update_agent_execution_state(
                 state,
                 final_response=f"Task completed with errors: {str(e)}"

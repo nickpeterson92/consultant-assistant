@@ -14,9 +14,9 @@ from dataclasses import dataclass
 import weakref
 import time
 
-from ..logging import get_logger
+from ..logging.framework import SmartLogger
 
-logger = get_logger()
+logger = SmartLogger("storage")
 
 @dataclass
 class ConnectionConfig:
@@ -57,8 +57,7 @@ class AsyncSQLitePool:
             
             self._initialized = True
             logger.info("sqlite_pool_initialized",
-                component="storage",
-                operation="init"
+                                operation="init"
             )
     
     async def _create_connection(self) -> aiosqlite.Connection:
@@ -123,8 +122,7 @@ class AsyncSQLitePool:
                 await conn.close()
             except Exception as e:
                 logger.warning("connection_close_error",
-                    component="storage",
-                    operation="close",
+                                        operation="close",
                     error=str(e),
                     error_type=type(e).__name__
                 )

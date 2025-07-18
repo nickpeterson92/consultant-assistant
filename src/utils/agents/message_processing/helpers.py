@@ -50,11 +50,10 @@ def trim_messages_for_context(
             )
             
             # Log trimming info
-            from src.utils.logging import get_logger
-            logger = get_logger("message_processing")
+            from src.utils.logging.framework import SmartLogger
+            logger = SmartLogger("message_processing")
             logger.info("smart_message_trimming",
-                component="message_processing",
-                original_count=len(messages),
+                    original_count=len(messages),
                 trimmed_count=len(trimmed),
                 estimated_tokens=estimate_message_tokens(trimmed),
                 max_tokens=max_tokens
@@ -108,10 +107,9 @@ def trim_messages_for_context(
                 break
     
     # Log manual trimming info
-    from src.utils.logging import get_logger
-    logger = get_logger("message_processing")
+    from src.utils.logging.framework import SmartLogger
+    logger = SmartLogger("message_processing")
     logger.info("manual_message_trimming",
-        component="message_processing",
         original_count=len(messages),
         trimmed_count=len(result),
         estimated_tokens=current_tokens,

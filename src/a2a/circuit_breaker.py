@@ -5,9 +5,9 @@ import time
 from typing import Dict, Any, Optional, Callable
 from enum import Enum
 from dataclasses import dataclass
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger
 
-logger = get_logger('circuit_breaker')
+logger = SmartLogger('a2a')
 
 class CircuitBreakerState(Enum):
     """Circuit breaker states"""
@@ -52,8 +52,7 @@ class CircuitBreaker:
                 self.state = CircuitBreakerState.HALF_OPEN
                 self.half_open_calls = 0
                 logger.info("circuit_breaker_state_change",
-                    component="a2a",
-                    operation="state_transition",
+                                        operation="state_transition",
                     circuit_name=self.name,
                     from_state="OPEN",
                     to_state="HALF_OPEN",
@@ -66,8 +65,7 @@ class CircuitBreaker:
             if self.state == CircuitBreakerState.OPEN:
                 time_since_failure = current_time - self.last_failure_time
                 logger.warning("circuit_breaker_open",
-                    component="a2a",
-                    operation="fast_fail",
+                                        operation="fast_fail",
                     circuit_name=self.name,
                     state="OPEN",
                     failure_count=self.failure_count,
@@ -79,8 +77,7 @@ class CircuitBreaker:
             if (self.state == CircuitBreakerState.HALF_OPEN and 
                 self.half_open_calls >= self.config.half_open_max_calls):
                 logger.warning("circuit_breaker_half_open_limit",
-                    component="a2a",
-                    operation="call",
+                                        operation="call",
                     circuit_name=self.name,
                     half_open_calls=self.half_open_calls,
                     limit=self.config.half_open_max_calls
@@ -116,8 +113,7 @@ class CircuitBreaker:
                 self.failure_count = 0
                 self.success_count = 0
                 logger.info("circuit_breaker_state_change",
-                    component="a2a",
-                    operation="state_transition",
+                                        operation="state_transition",
                     circuit_name=self.name,
                     from_state="HALF_OPEN",
                     to_state="CLOSED",
@@ -137,8 +133,7 @@ class CircuitBreaker:
             if self.failure_count >= self.config.failure_threshold:
                 self.state = CircuitBreakerState.OPEN
                 logger.warning("circuit_breaker_state_change",
-                    component="a2a",
-                    operation="state_transition",
+                                        operation="state_transition",
                     circuit_name=self.name,
                     from_state="CLOSED",
                     to_state="OPEN",
@@ -152,8 +147,7 @@ class CircuitBreaker:
             self.state = CircuitBreakerState.OPEN
             self.success_count = 0
             logger.warning("circuit_breaker_state_change",
-                component="a2a",
-                operation="state_transition",
+                                operation="state_transition",
                 circuit_name=self.name,
                 from_state="HALF_OPEN",
                 to_state="OPEN",
@@ -185,8 +179,7 @@ class CircuitBreakerRegistry:
             breaker_config = config or self._default_config
             self._breakers[name] = CircuitBreaker(name, breaker_config)
             logger.info("circuit_breaker_created",
-                component="a2a",
-                operation="get_breaker",
+                                operation="get_breaker",
                 circuit_name=name
             )
         return self._breakers[name]
@@ -196,8 +189,7 @@ class CircuitBreakerRegistry:
         if name in self._breakers:
             del self._breakers[name]
             logger.info("circuit_breaker_removed",
-                component="a2a",
-                operation="remove_breaker",
+                                operation="remove_breaker",
                 circuit_name=name
             )
     
@@ -214,8 +206,7 @@ class CircuitBreakerRegistry:
             breaker.success_count = 0
             breaker.half_open_calls = 0
             logger.info("circuit_breaker_reset",
-                component="a2a",
-                operation="reset_breaker",
+                                operation="reset_breaker",
                 circuit_name=name
             )
 
@@ -282,8 +273,7 @@ async def retry_with_exponential_backoff(func: Callable, config: RetryConfig,
                 delay *= (0.5 + random.random() * 0.5)
             
             logger.warning("retry_attempt_failed",
-                component="a2a",
-                operation="retry",
+                                operation="retry",
                 attempt=attempt + 1,
                 delay_seconds=round(delay, 2),
                 error_type=type(e).__name__,
@@ -293,8 +283,7 @@ async def retry_with_exponential_backoff(func: Callable, config: RetryConfig,
     
     # All attempts failed
     logger.error("all_retry_attempts_failed",
-        component="a2a",
-        operation="retry",
+                operation="retry",
         max_attempts=config.max_attempts
     )
     if last_exception:

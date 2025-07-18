@@ -20,13 +20,13 @@ from src.utils.config import (
 )
 from src.utils.config.unified_config import config as app_config
 
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger
 # No input validation needed - trust agent-generated content
 from src.utils.agents.message_processing.unified_serialization import serialize_messages_for_json, is_already_serialized
 from .circuit_breaker import CircuitBreakerConfig, RetryConfig, resilient_call
 
-# Initialize structured logger
-logger = get_logger()
+# Initialize SmartLogger
+logger = SmartLogger("a2a")
 
 @dataclass  
 class TimestampedBase:
@@ -310,8 +310,7 @@ class A2AConnectionPool:
             self._last_used = {}  # endpoint -> timestamp
             self._max_idle_time = app_config.get('a2a.connection_pool_max_idle', 300)
             logger.info("connection_pool_initialized",
-                component="a2a",
-                operation="init",
+                                operation="init",
                 max_idle_time=self._max_idle_time
             )
     
@@ -355,16 +354,14 @@ class A2AConnectionPool:
                     return session
                 else:
                     logger.info("removing_closed_session",
-                        component="a2a",
-                        operation="get_session",
+                                                operation="get_session",
                         pool_key=pool_key
                     )
                     del self._pools[pool_key]
             
             # Create new session with optimized settings
             logger.info("creating_new_session",
-                component="a2a",
-                operation="get_session",
+                                operation="get_session",
                 base_url=base_url,
                 timeout=timeout
             )
@@ -382,8 +379,7 @@ class A2AConnectionPool:
             
             # Log the actual timeout values for debugging
             logger.info("timeout_config",
-                component="a2a",
-                operation="get_session",
+                                operation="get_session",
                 total_timeout=timeout,
                 connect_timeout=app_config.get('a2a.connect_timeout', 30),
                 sock_read_timeout=app_config.get('a2a.sock_read_timeout', 120),
@@ -442,8 +438,7 @@ class A2AConnectionPool:
                     del self._pools[endpoint]
                     del self._last_used[endpoint]
                     logger.info("idle_session_cleaned",
-                        component="a2a",
-                        operation="cleanup_idle_sessions",
+                                                operation="cleanup_idle_sessions",
                         endpoint=endpoint
                     )
     
@@ -458,15 +453,13 @@ class A2AConnectionPool:
             try:
                 await session.close()
                 logger.info("session_closed",
-                    component="a2a",
-                    operation="close_all",
+                                        operation="close_all",
                     endpoint=endpoint
                 )
             except Exception as e:
                 # Log but don't fail - session may already be closed
                 logger.warning("session_close_error",
-                    component="a2a",
-                    operation="close_all",
+                                        operation="close_all",
                     endpoint=endpoint,
                     error=str(e),
                     error_type=type(e).__name__
@@ -508,8 +501,7 @@ class A2AClient:
         self._closed = False
         self._pool = get_connection_pool() if use_pool else None
         logger.info("a2a_client_initialized",
-            component="a2a",
-            operation="init",
+                        operation="init",
             timeout=self.timeout,
             use_pool=use_pool
         )
@@ -534,8 +526,7 @@ class A2AClient:
                 connector=connector
             )
             logger.info("dedicated_session_created",
-                component="a2a",
-                operation="create_session",
+                                operation="create_session",
                 timeout=self.timeout
             )
         return self
@@ -551,8 +542,7 @@ class A2AClient:
                 logger.info("Closed dedicated A2A client session")
             except Exception as e:
                 logger.warning("client_close_error",
-                    component="a2a",
-                    operation="close",
+                                        operation="close",
                     error=str(e),
                     error_type=type(e).__name__
                 )
@@ -609,7 +599,7 @@ class A2AClient:
         operation_id = f"a2a_call_{uuid.uuid4().hex[:8]}"
 
         # Log to multiple systems for comprehensive observability
-        logger.info("A2A_CALL_START".lower(), component="a2a", operation_id=operation_id,
+        logger.info("A2A_CALL_START".lower(), operation_id=operation_id,
                         endpoint=endpoint,
                         method=method,
                         params_keys=list(params.keys()))
@@ -638,8 +628,7 @@ class A2AClient:
 
             start_time = time.time()
             logger.info("a2a_request_start",
-                component="a2a",
-                operation="make_raw_call",
+                                operation="make_raw_call",
                 endpoint=endpoint,
                 timeout=self.timeout,
                 pooled=self.use_pool,
@@ -655,8 +644,7 @@ class A2AClient:
             state_snapshot = task_data.get("state_snapshot", {})
             
             logger.info("a2a_request_dict_debug",
-                component="a2a",
-                operation="make_raw_call",
+                                operation="make_raw_call",
                 endpoint=endpoint,
                 method=method,
                 request_dict_keys=list(request_dict.keys()),
@@ -681,8 +669,7 @@ class A2AClient:
             ) as response:
                 elapsed = time.time() - start_time
                 logger.info("a2a_response_received",
-                    component="a2a",
-                    operation="make_raw_call",
+                                        operation="make_raw_call",
                     endpoint=endpoint,
                     elapsed_seconds=round(elapsed, 2),
                     status_code=response.status
@@ -690,8 +677,7 @@ class A2AClient:
                 if response.status != 200:
                     error_text = await response.text()
                     logger.error("a2a_http_error",
-                        component="a2a",
-                        operation="make_raw_call",
+                                                operation="make_raw_call",
                         status_code=response.status,
                         error_text=error_text,
                         endpoint=endpoint
@@ -703,8 +689,7 @@ class A2AClient:
                 # Check for JSON-RPC error response
                 if "error" in result:
                     logger.error("agent_error_response",
-                        component="a2a",
-                        operation="make_raw_call",
+                                                operation="make_raw_call",
                         error=result['error'],
                         endpoint=endpoint
                     )
@@ -715,13 +700,12 @@ class A2AClient:
                 # Track performance metrics for successful calls
                 duration = None
                 logger.info("a2a_call_success",
-                    component="a2a",
-                    operation="make_raw_call",
+                                        operation="make_raw_call",
                     method=method,
                     endpoint=endpoint
                 )
                 # Log completion
-                logger.info("A2A_CALL_SUCCESS".lower(), component="a2a", operation_id=operation_id,
+                logger.info("A2A_CALL_SUCCESS".lower(), operation_id=operation_id,
                                 endpoint=endpoint,
                                 method=method,
                                 result_keys=list(final_result.keys()),
@@ -734,8 +718,7 @@ class A2AClient:
             # with clear error messages for debugging
             elapsed = time.time() - start_time
             logger.error("a2a_timeout_error",
-                component="a2a",
-                operation="make_raw_call",
+                                operation="make_raw_call",
                 endpoint=endpoint,
                 elapsed_seconds=round(elapsed, 2),
                 configured_timeout=self.timeout,
@@ -747,8 +730,7 @@ class A2AClient:
             # These are often transient and will be retried by the resilience layer
             elapsed = time.time() - start_time
             logger.error("a2a_network_error",
-                component="a2a",
-                operation="make_raw_call",
+                                operation="make_raw_call",
                 endpoint=endpoint,
                 elapsed_seconds=round(elapsed, 2),
                 error=str(e),
@@ -765,8 +747,7 @@ class A2AClient:
             # Log unexpected error with more detail
             import traceback
             logger.error("a2a_unexpected_error",
-                component="a2a",
-                operation="make_raw_call",
+                                operation="make_raw_call",
                 error_type=type(e).__name__,
                 error=str(e),
                 traceback=traceback.format_exc()
@@ -817,8 +798,7 @@ class A2AClient:
             )
         except Exception as e:
             logger.error("resilient_call_failed",
-                component="a2a",
-                operation="call_agent",
+                                operation="call_agent",
                 error=str(e),
                 error_type=type(e).__name__
             )
@@ -839,8 +819,7 @@ class A2AClient:
         """
         # Log task processing start
         logger.info("a2a_task_start",
-            component="a2a",
-            operation="process_task",
+                        operation="process_task",
             task_id=task.id,
             endpoint=endpoint,
             instruction_preview=task.instruction[:100] if task.instruction else "",
@@ -858,8 +837,7 @@ class A2AClient:
             
             # Log successful task completion
             logger.info("a2a_task_complete",
-                component="a2a",
-                operation="process_task",
+                                operation="process_task",
                 task_id=task.id,
                 endpoint=endpoint,
                 result_keys=list(result.keys()) if isinstance(result, dict) else [],
@@ -870,8 +848,7 @@ class A2AClient:
         except Exception as e:
             # Log task failure
             logger.error("a2a_task_error",
-                component="a2a",
-                operation="process_task",
+                                operation="process_task",
                 task_id=task.id,
                 endpoint=endpoint,
                 error=str(e),
@@ -979,8 +956,7 @@ class A2AServer:
                                 reason = data.get("params", {}).get("reason", "unknown")
                                 
                                 logger.info("websocket_interrupt_received",
-                                           component="a2a",
-                                           operation="interrupt_ws", 
+                                                                                      operation="interrupt_ws", 
                                            task_id=task_id,
                                            reason=reason)
                                 
@@ -1001,8 +977,7 @@ class A2AServer:
                                 
                         except json.JSONDecodeError:
                             logger.warning("websocket_interrupt_invalid_json", 
-                                         component="a2a",
-                                         operation="interrupt_ws")
+                                                                                  operation="interrupt_ws")
                     elif msg.type == aiohttp.WSMsgType.ERROR:
                         logger.warning("websocket_interrupt_error",
                                      component="a2a", 
@@ -1012,13 +987,11 @@ class A2AServer:
                         
             except Exception as e:
                 logger.error("websocket_interrupt_handler_error",
-                           component="a2a",
-                           operation="interrupt_ws", 
+                                                      operation="interrupt_ws", 
                            error=str(e))
             finally:
                 logger.info("websocket_interrupt_disconnected",
-                           component="a2a",
-                           operation="interrupt_ws")
+                                                      operation="interrupt_ws")
                 return ws
         
         # Register the interrupt WebSocket handler
@@ -1123,8 +1096,7 @@ class A2AServer:
             except Exception as e:
                 # Handler exceptions are logged but sanitized in response
                 logger.error("handler_error",
-                    component="a2a",
-                    operation="handle_request",
+                                        operation="handle_request",
                     method=method,
                     error=str(e),
                     error_type=type(e).__name__,
@@ -1145,8 +1117,7 @@ class A2AServer:
         except Exception as e:
             # Catch-all for unexpected errors - log but don't leak details
             logger.error("unexpected_request_error",
-                component="a2a",
-                operation="handle_request",
+                                operation="handle_request",
                 error=str(e),
                 error_type=type(e).__name__,
                 traceback=traceback.format_exc()
@@ -1214,8 +1185,7 @@ class A2AServer:
                     except (ConnectionResetError, ConnectionAbortedError) as conn_err:
                         # Client disconnected - this is normal for interrupts
                         logger.info("client_disconnected_during_stream",
-                                   component="a2a",
-                                   operation="handle_streaming_request",
+                                                                      operation="handle_streaming_request",
                                    reason="client_interrupt",
                                    error=str(conn_err))
                         return response
@@ -1224,8 +1194,7 @@ class A2AServer:
                         if isinstance(write_err, ClientConnectionResetError):
                             # Client disconnected - this is normal for interrupts
                             logger.info("client_connection_reset",
-                                       component="a2a",
-                                       operation="handle_streaming_request",
+                                                                              operation="handle_streaming_request",
                                        reason="client_interrupt")
                             return response
                         else:
@@ -1236,13 +1205,12 @@ class A2AServer:
                     await response.write(b"data: {\"event\": \"completed\"}\n\n")
                 except (ConnectionResetError, ConnectionAbortedError):
                     # Client already disconnected
-                    logger.info("completion_event_skipped_client_disconnected", component="a2a")
+                    logger.info("completion_event_skipped_client_disconnected")
                     return response
                 
             except Exception as e:
                 logger.error("streaming_handler_error",
-                    component="a2a",
-                    operation="handle_streaming_request",
+                                        operation="handle_streaming_request",
                     method=streaming_method,
                     error=str(e),
                     error_type=type(e).__name__
@@ -1258,20 +1226,19 @@ class A2AServer:
                     await response.write(f"data: {error_data}\n\n".encode('utf-8'))
                 except (ConnectionResetError, ConnectionAbortedError):
                     # Client already disconnected
-                    logger.info("error_event_skipped_client_disconnected", component="a2a")
+                    logger.info("error_event_skipped_client_disconnected")
                 except Exception as error_write_err:
                     from aiohttp.client_exceptions import ClientConnectionResetError
                     if isinstance(error_write_err, ClientConnectionResetError):
-                        logger.info("error_event_skipped_connection_reset", component="a2a")
+                        logger.info("error_event_skipped_connection_reset")
                     else:
-                        logger.error("error_writing_error_event", component="a2a", error=str(error_write_err))
+                        logger.error("error_writing_error_event", error=str(error_write_err))
             
             return response
             
         except Exception as e:
             logger.error("streaming_request_error",
-                component="a2a",
-                operation="handle_streaming_request",
+                                operation="handle_streaming_request",
                 error=str(e),
                 error_type=type(e).__name__
             )
@@ -1288,8 +1255,7 @@ class A2AServer:
         except Exception as e:
             # Catch-all for unexpected errors - log but don't leak details
             logger.error("unexpected_request_error",
-                component="a2a",
-                operation="handle_request",
+                                operation="handle_request",
                 error=str(e),
                 error_type=type(e).__name__,
                 traceback=traceback.format_exc()

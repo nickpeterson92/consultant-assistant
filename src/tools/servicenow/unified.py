@@ -11,9 +11,9 @@ from .base import (
     ServiceNowAnalyticsTool
     )
 from src.utils.platform.servicenow import GlideQueryBuilder
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger
 
-logger = get_logger("servicenow")
+logger = SmartLogger("servicenow")
 
 
 class ServiceNowGet(ServiceNowReadTool):
@@ -526,8 +526,7 @@ class ServiceNowAnalytics(ServiceNowAnalyticsTool):
             
             # Log the request for debugging
             logger.info("servicenow_analytics_request",
-                component="servicenow",
-                tool_name=self.name,
+                                tool_name=self.name,
                 endpoint=f"/stats/{table_name}",
                 params=params
             )
@@ -539,8 +538,7 @@ class ServiceNowAnalytics(ServiceNowAnalyticsTool):
                 data = response.json()
             except requests.exceptions.JSONDecodeError:
                 logger.error("servicenow_analytics_non_json_response",
-                    component="servicenow",
-                    tool_name=self.name,
+                                        tool_name=self.name,
                     response_text=response.text[:500],
                     content_type=response.headers.get('Content-Type', 'unknown')
                 )
@@ -558,8 +556,7 @@ class ServiceNowAnalytics(ServiceNowAnalyticsTool):
             
             # Log the response structure for debugging
             logger.info("servicenow_analytics_response",
-                component="servicenow",
-                tool_name=self.name,
+                                tool_name=self.name,
                 response_type=type(data).__name__,
                 response_keys=list(data.keys()) if isinstance(data, dict) else "not_dict",
                 result_type=type(data.get('result')).__name__ if isinstance(data, dict) else "n/a",
@@ -605,16 +602,14 @@ class ServiceNowAnalytics(ServiceNowAnalyticsTool):
                 else:
                     # Try to extract grouped data from other possible structures
                     logger.warning("servicenow_analytics_unexpected_format",
-                        component="servicenow",
-                        tool_name=self.name,
+                                                tool_name=self.name,
                         result_structure=str(result)[:200]
                     )
                     breakdown['Unknown'] = 0
             
             # Log the final breakdown for debugging
             logger.info("servicenow_analytics_breakdown",
-                component="servicenow",
-                tool_name=self.name,
+                                tool_name=self.name,
                 breakdown_items=len(breakdown),
                 breakdown_keys=list(breakdown.keys()),
                 breakdown_total=sum(breakdown.values())
@@ -623,8 +618,7 @@ class ServiceNowAnalytics(ServiceNowAnalyticsTool):
             # If breakdown is empty, try fallback method using table API
             if not breakdown or (len(breakdown) == 1 and 'Unknown' in breakdown):
                 logger.info("servicenow_analytics_fallback",
-                    component="servicenow",
-                    tool_name=self.name,
+                                        tool_name=self.name,
                     reason="Stats API returned empty or unknown results, using table API fallback"
                 )
                 return self._breakdown_using_table_api(table_name, group_by, base_query)
@@ -698,8 +692,7 @@ class ServiceNowAnalytics(ServiceNowAnalyticsTool):
                 breakdown[group_value] = breakdown.get(group_value, 0) + 1
             
             logger.info("servicenow_analytics_table_api_success",
-                component="servicenow",
-                tool_name=self.name,
+                                tool_name=self.name,
                 groups_found=len(breakdown),
                 total_records=len(records)
             )
@@ -715,8 +708,7 @@ class ServiceNowAnalytics(ServiceNowAnalyticsTool):
             
         except Exception as e:
             logger.error("servicenow_analytics_table_api_failed",
-                component="servicenow",
-                tool_name=self.name,
+                                tool_name=self.name,
                 error=str(e)
             )
             return self._handle_error(e)
