@@ -4,19 +4,18 @@ import asyncio
 import logging
 
 from src.a2a import A2AServer, AgentCard
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger
 from .agent_registry import AgentRegistry
 from .plan_execute_graph import create_plan_execute_graph
 from .a2a_handler import CleanOrchestratorA2AHandler
 
 # Initialize logger
-logger = get_logger("orchestrator")
+logger = SmartLogger("orchestrator")
 
 
 async def initialize_orchestrator_a2a():
     """Initialize orchestrator in A2A mode."""
     logger.info("orchestrator_a2a_initialization_start",
-        component="system",
         operation="startup",
         mode="a2a"
     )
@@ -37,7 +36,6 @@ async def initialize_orchestrator_a2a():
         discovered = await agent_registry.discover_agents(discovery_endpoints)
         if discovered > 0:
             logger.info("agents_discovered",
-                component="system",
                 operation="agent_discovery",
                 count=discovered
             )
@@ -52,14 +50,12 @@ async def initialize_orchestrator_a2a():
     
     if online_agents:
         logger.info("agents_online",
-            component="system",
             operation="agent_discovery",
             agents=online_agents,
             count=len(online_agents)
         )
     if offline_agents:
         logger.warning("agents_offline",
-            component="system",
             operation="agent_discovery",
             agents=offline_agents,
             count=len(offline_agents)
@@ -68,7 +64,6 @@ async def initialize_orchestrator_a2a():
     # Get updated stats after health checks
     stats = agent_registry.get_registry_stats()
     logger.info("orchestrator_a2a_initialization_complete",
-        component="system",
         operation="startup",
         total_agents=stats['total_agents'],
         online_agents=stats['online_agents'],
@@ -94,7 +89,6 @@ async def main(host: str, port: int):
         logging.getLogger(logger_name).setLevel(logging.WARNING)
     
     logger.info("orchestrator_a2a_starting",
-        component="system",
         operation="startup",
         host=host,
         port=port
@@ -152,7 +146,6 @@ async def main(host: str, port: int):
     
     # Build the graph with LLM support
     logger.info("graph_building",
-        component="system",
         agent="orchestrator",
         operation="build_graph"
     )
@@ -174,7 +167,6 @@ async def main(host: str, port: int):
     local_graph = create_plan_execute_graph(invoke_llm=invoke_llm, plan_extractor=plan_extractor)
     local_graph.set_agent_tools(agent_tools)
     logger.info("graph_built",
-        component="system",
         agent="orchestrator",
         operation="build_graph",
         success=True
@@ -199,7 +191,6 @@ async def main(host: str, port: int):
     runner = await server.start()
     
     logger.info("orchestrator_a2a_started",
-        component="system",
         operation="startup",
         agent="orchestrator",
         host=host,
@@ -215,7 +206,6 @@ async def main(host: str, port: int):
             await asyncio.sleep(1)
     except KeyboardInterrupt:
         logger.info("orchestrator_a2a_shutdown",
-            component="system",
             agent="orchestrator",
             operation="shutdown"
         )

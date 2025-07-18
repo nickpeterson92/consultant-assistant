@@ -13,10 +13,11 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from ..a2a import AgentCard, A2AClient, A2AException
-from ..utils.logging import logger, log_execution, log_operation
-from ..utils.config.unified_config import config as app_config
+from src.utils.logging.framework import SmartLogger, log_execution, log_operation
+from src.utils.config.unified_config import config as app_config
 
-# Using new framework logger
+# Using framework logger
+logger = SmartLogger("orchestrator")
 
 @dataclass
 class RegisteredAgent:
@@ -97,13 +98,11 @@ class AgentRegistry:
             with open(self.config_path, 'w') as f:
                 json.dump(config, f, indent=2)
             logger.info("agent_registry_saved",
-                component="orchestrator",
                 operation="save_config",
                 agent_count=len(self.agents)
             )
         except Exception as e:
             logger.error("agent_registry_save_error",
-                component="orchestrator",
                 operation="save_config",
                 error=str(e),
                 error_type=type(e).__name__
@@ -133,12 +132,11 @@ class AgentRegistry:
         
         self.agents[name] = registered_agent
         
-        logger.info("agent_registered", component="orchestrator",
+        logger.info("agent_registered",
                                 agent_name=name,
                                 endpoint=endpoint,
                                 capabilities=agent_card.capabilities if agent_card else [])
         logger.info("agent_registered_success",
-            component="orchestrator",
             operation="register_agent",
             agent_name=name,
             endpoint=endpoint
@@ -150,7 +148,6 @@ class AgentRegistry:
         if name in self.agents:
             del self.agents[name]
             logger.info("agent_unregistered_success",
-                component="orchestrator",
                 operation="unregister_agent",
                 agent_name=name
             )
@@ -257,7 +254,6 @@ class AgentRegistry:
         
         try:
             logger.info("health_check_start",
-                component="orchestrator",
                 operation="health_check_agent",
                 agent_name=agent_name,
                 endpoint=agent.endpoint,
@@ -273,7 +269,6 @@ class AgentRegistry:
                 
                 elapsed = asyncio.get_event_loop().time() - start_time
                 logger.info("health_check_success",
-                    component="orchestrator",
                     operation="health_check_agent",
                     agent_name=agent_name,
                     duration_seconds=round(elapsed, 3),
@@ -288,7 +283,6 @@ class AgentRegistry:
             agent.status = "error"
             elapsed = asyncio.get_event_loop().time() - start_time
             logger.warning("health_check_failed",
-                component="orchestrator",
                 operation="health_check_agent",
                 agent_name=agent_name,
                 duration_seconds=round(elapsed, 3),
@@ -302,7 +296,6 @@ class AgentRegistry:
             agent.status = "offline"
             elapsed = asyncio.get_event_loop().time() - start_time
             logger.warning("health_check_timeout",
-                component="orchestrator",
                 operation="health_check_agent",
                 agent_name=agent_name,
                 duration_seconds=round(elapsed, 3),
@@ -316,7 +309,6 @@ class AgentRegistry:
             agent.status = "offline"
             elapsed = asyncio.get_event_loop().time() - start_time
             logger.warning("health_check_error",
-                component="orchestrator",
                 operation="health_check_agent",
                 agent_name=agent_name,
                 duration_seconds=round(elapsed, 3),
@@ -337,7 +329,6 @@ class AgentRegistry:
         results = {}
         
         logger.info("health_check_all_start",
-            component="orchestrator",
             operation="health_check_all_agents",
             agent_count=len(self.agents)
         )
@@ -353,7 +344,6 @@ class AgentRegistry:
                 results[agent_name] = await task
             except Exception as e:
                 logger.error("health_check_unexpected_error",
-                    component="orchestrator",
                     operation="health_check_all_agents",
                     agent_name=agent_name,
                     error=str(e),
@@ -366,7 +356,6 @@ class AgentRegistry:
         elapsed = asyncio.get_event_loop().time() - start_time
         online_count = sum(1 for status in results.values() if status)
         logger.info("health_check_all_complete",
-            component="orchestrator",
             operation="health_check_all_agents",
             duration_seconds=round(elapsed, 2),
             total_agents=len(results),

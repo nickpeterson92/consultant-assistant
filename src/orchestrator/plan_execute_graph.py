@@ -23,8 +23,9 @@ from src.utils.config.unified_config import config as app_config
 from src.utils.agents.message_processing import trim_messages_for_context, smart_preserve_messages
 from src.utils.logging.framework import SmartLogger
 
-# Create orchestrator-specific logger
+# Create component-specific loggers
 logger = SmartLogger("orchestrator")
+extraction_logger = SmartLogger("extraction")
 
 
 class PlanExecuteGraph:
@@ -114,7 +115,6 @@ class PlanExecuteGraph:
         """Plan generation node - creates todo-style execution plans."""
         print("🧠 DEBUG: Planner node called - this should appear in console")
         logger.info("planner_node_start", 
-                   component="orchestrator",
                    request=state.get("original_request", "NO_REQUEST"),
                    existing_plan=bool(state.get("plan")),
                    messages_count=len(state.get("messages", [])))
@@ -135,7 +135,6 @@ class PlanExecuteGraph:
                 
                 print(f"🔄 DEBUG: Found existing plan, checking completion: {plan_is_complete}")
                 logger.info("checking_existing_plan", 
-                           component="orchestrator",
                            plan_id=existing_plan.get("id"),
                            task_count=len(existing_plan.get("tasks", [])),
                            plan_is_complete=plan_is_complete)
@@ -144,13 +143,11 @@ class PlanExecuteGraph:
                     # Plan is complete, create new plan for the new request
                     print("🔄 DEBUG: Existing plan is complete, creating new plan")
                     logger.info("existing_plan_complete_creating_new", 
-                               component="orchestrator",
                                completed_plan_id=existing_plan.get("id"))
                     
                     result = await self._handle_initial_planning(state)
                     print("✅ DEBUG: New plan created")
                     logger.info("planner_node_complete", 
-                               component="orchestrator",
                                success=True,
                                plan_created=bool(result.get("plan")),
                                task_count=len(result["plan"]["tasks"]) if result.get("plan") else 0)
@@ -165,7 +162,6 @@ class PlanExecuteGraph:
                     # Plan is not complete, continue with existing plan
                     print("🔄 DEBUG: Continuing with incomplete existing plan")
                     logger.info("continuing_incomplete_plan", 
-                               component="orchestrator",
                                plan_id=existing_plan.get("id"))
                     return state
                 
@@ -176,7 +172,6 @@ class PlanExecuteGraph:
                 result = await self._handle_initial_planning(state)
                 print("✅ DEBUG: Initial planning completed")
                 logger.info("planner_node_complete", 
-                           component="orchestrator",
                            success=True,
                            plan_created=bool(result.get("plan")),
                            task_count=len(result["plan"]["tasks"]) if result.get("plan") else 0)
@@ -221,10 +216,8 @@ class PlanExecuteGraph:
                    message_count=len(planning_prompt))
         
         # Log extraction attempt
-        extraction_logger = get_logger("extraction")
         
         extraction_logger.info("trustcall_plan_extraction_start",
-                              component="extraction",
                               operation="initial_planning",
                               request_preview=state["original_request"][:100],
                               prompt_length=len(str(planning_prompt)),
@@ -234,14 +227,12 @@ class PlanExecuteGraph:
         extraction_result = await self._plan_extractor.ainvoke({"messages": planning_prompt})
         
         extraction_logger.info("trustcall_plan_extraction_complete",
-                              component="extraction",
                               operation="initial_planning",
                               has_result=bool(extraction_result),
                               result_type=type(extraction_result).__name__ if extraction_result else "None")
         
         if not extraction_result:
             extraction_logger.error("trustcall_plan_extraction_failed",
-                                   component="extraction",
                                    operation="initial_planning",
                                    error="No result from trustcall extractor")
             raise ValueError("No structured plan could be extracted from LLM response")
@@ -254,7 +245,6 @@ class PlanExecuteGraph:
                 structured_plan = responses[0]  # First response should be the ExecutionPlanStructured
             else:
                 extraction_logger.error("trustcall_no_responses",
-                                       component="extraction",
                                        operation="initial_planning", 
                                        error="No responses in trustcall result")
                 raise ValueError("No plan found in trustcall responses")
@@ -263,7 +253,6 @@ class PlanExecuteGraph:
             structured_plan = extraction_result
         
         extraction_logger.info("plan_object_extracted",
-                              component="extraction",
                               operation="initial_planning",
                               plan_type=type(structured_plan).__name__,
                               has_description=hasattr(structured_plan, 'description'),
@@ -271,7 +260,6 @@ class PlanExecuteGraph:
                               task_count=len(structured_plan.tasks) if hasattr(structured_plan, 'tasks') else 0)
         
         extraction_logger.info("structured_plan_details", 
-                              component="extraction",
                               operation="initial_planning",
                               plan_description=structured_plan.description,
                               task_count=len(structured_plan.tasks),
@@ -292,7 +280,6 @@ class PlanExecuteGraph:
                               } for task in structured_plan.tasks])
         
         logger.info("structured_plan_extracted", 
-                   component="orchestrator",
                    plan_description=structured_plan.description,
                    task_count=len(structured_plan.tasks))
         
@@ -333,10 +320,8 @@ class PlanExecuteGraph:
         replan_prompt = self._create_structured_replanning_prompt(state, current_plan, latest_message)
         
         # Log replanning extraction attempt
-        extraction_logger = get_logger("extraction")
         
         extraction_logger.info("trustcall_plan_extraction_start",
-                              component="extraction",
                               operation="replanning",
                               user_request_preview=latest_message[:100],
                               current_plan_id=current_plan.get("id", "unknown"),
@@ -347,7 +332,6 @@ class PlanExecuteGraph:
         extracted_plans = await self._plan_extractor.ainvoke({"messages": replan_prompt})
         
         extraction_logger.info("trustcall_plan_extraction_complete",
-                              component="extraction",
                               operation="replanning",
                               has_result=bool(extracted_plans),
                               plan_count=len(extracted_plans) if extracted_plans else 0,
@@ -355,7 +339,6 @@ class PlanExecuteGraph:
         
         if not extracted_plans or len(extracted_plans) == 0:
             extraction_logger.error("trustcall_plan_extraction_failed",
-                                   component="extraction",
                                    operation="replanning",
                                    error="No structured plan could be extracted during replanning")
             raise ValueError("No structured plan could be extracted during replanning")
@@ -363,14 +346,12 @@ class PlanExecuteGraph:
         structured_plan = extracted_plans[0]
         
         extraction_logger.info("structured_replan_details", 
-                              component="extraction",
                               operation="replanning",
                               plan_description=structured_plan.description,
                               task_count=len(structured_plan.tasks),
                               has_success_criteria=bool(getattr(structured_plan, 'success_criteria', None)))
         
         logger.info("structured_replan_extracted", 
-                   component="orchestrator",
                    plan_description=structured_plan.description,
                    task_count=len(structured_plan.tasks))
         
@@ -396,7 +377,6 @@ class PlanExecuteGraph:
     async def _agent_node(self, state: PlanExecuteState, config: dict = None) -> PlanExecuteState:
         """Execute tasks one by one - canonical agent pattern."""
         logger.info("agent_node_start",
-                   component="orchestrator",
                    has_plan=bool(state.get("plan")),
                    task_count=len(state["plan"]["tasks"]) if state.get("plan") else 0)
         
@@ -454,7 +434,6 @@ class PlanExecuteGraph:
             updated_plan = {**state["plan"], "tasks": updated_tasks}
             
             logger.info("agent_task_completed", 
-                       component="orchestrator",
                        task_id=next_task["id"], 
                        success=result.get("success", False))
             
@@ -565,7 +544,6 @@ class PlanExecuteGraph:
             route = "end"
             
         logger.info("route_after_planning", 
-                   component="orchestrator",
                    has_plan=bool(state["plan"]),
                    task_count=len(state["plan"]["tasks"]) if state["plan"] else 0,
                    route=route)
@@ -577,7 +555,6 @@ class PlanExecuteGraph:
         route = "replan"
             
         logger.info("route_after_agent_execution",
-                   component="orchestrator",
                    plan_complete=is_plan_complete(state),
                    route=route)
         return route
@@ -592,7 +569,6 @@ class PlanExecuteGraph:
             route = "end"  # Fallback for empty plans
             
         logger.info("route_after_replan",
-                   component="orchestrator",
                    has_plan=bool(state["plan"]),
                    plan_complete=is_plan_complete(state) if state.get("plan") else False,
                    task_count=len(state["plan"]["tasks"]) if state["plan"] else 0,
@@ -602,7 +578,6 @@ class PlanExecuteGraph:
     async def _replan_node(self, state: PlanExecuteState) -> PlanExecuteState:
         """Replan node - decides if more tasks are needed or plan needs replacement."""
         logger.info("replan_node_start",
-                   component="orchestrator",
                    has_plan=bool(state.get("plan")),
                    task_count=len(state["plan"]["tasks"]) if state.get("plan") else 0)
         
@@ -720,14 +695,12 @@ class PlanExecuteGraph:
         task_count = len(tasks)
         
         logger.info("summary_node_start",
-                   component="orchestrator",
                    plan_id=plan.get("id") if plan else "none",
                    task_count=task_count)
         
         # Only generate LLM summary for multi-task plans (>1 task)
         if task_count > 1:
             logger.info("generating_llm_summary_for_multi_task_plan",
-                       component="orchestrator",
                        task_count=task_count)
             
             summary = self._generate_plan_completion_summary(state)
@@ -738,7 +711,6 @@ class PlanExecuteGraph:
         else:
             # For single-task plans, extract the direct task response
             logger.info("extracting_direct_response_for_single_task_plan",
-                       component="orchestrator",
                        task_count=task_count)
             
             summary = ""
@@ -754,7 +726,6 @@ class PlanExecuteGraph:
                 state["plan"]["summary"] = summary
         
         logger.info("summary_node_complete",
-                   component="orchestrator",
                    plan_id=plan.get("id") if plan else "none",
                    task_count=task_count,
                    is_multi_task=task_count > 1,
@@ -840,7 +811,6 @@ Keep the summary concise but informative and well-formatted."""
             # Generate summary using the LLM
             from langchain_core.messages import HumanMessage
             logger.info("generating_plan_summary", 
-                       component="orchestrator",
                        completed_count=len(completed_tasks),
                        failed_count=len(failed_tasks))
             
@@ -848,7 +818,6 @@ Keep the summary concise but informative and well-formatted."""
             summary = summary_response.content if hasattr(summary_response, 'content') else str(summary_response)
             
             logger.info("plan_summary_generated", 
-                       component="orchestrator",
                        summary_length=len(summary),
                        summary_preview=summary[:200])
             
@@ -856,7 +825,6 @@ Keep the summary concise but informative and well-formatted."""
             
         except Exception as e:
             logger.error("plan_summary_generation_error",
-                        component="orchestrator",
                         error=str(e))
             return f"Plan execution completed with {len([t for t in tasks if t.get('status') == 'completed'])} tasks completed successfully."
     
@@ -1032,7 +1000,6 @@ When adding new tasks, ensure they integrate properly with existing work.
         # If we have completed tasks, we need to integrate them intelligently
         if completed_tasks:
             logger.info("preserving_completed_tasks", 
-                       component="orchestrator",
                        completed_count=len(completed_tasks))
             
             # This is a simplified approach - in practice you might want more sophisticated merging
@@ -1449,7 +1416,6 @@ When adding new tasks, ensure they integrate properly with existing work.
             return state
         
         logger.info("trimming_messages_for_context",
-                   component="orchestrator",
                    original_count=len(messages),
                    triggering_trim=True)
         
@@ -1464,7 +1430,6 @@ When adding new tasks, ensure they integrate properly with existing work.
         )
         
         logger.info("message_trimming_complete",
-                   component="orchestrator",
                    original_count=len(messages),
                    trimmed_count=len(trimmed_messages),
                    tokens_saved=len(messages) - len(trimmed_messages))
@@ -1508,7 +1473,6 @@ When adding new tasks, ensure they integrate properly with existing work.
             current_summary = state.get("summary", "No summary available")
             
             logger.info("background_summary_start",
-                       component="storage",
                        message_count=len(messages),
                        has_existing_summary=bool(current_summary),
                        existing_summary_length=len(current_summary) if current_summary != "No summary available" else 0,
@@ -1518,7 +1482,6 @@ When adding new tasks, ensure they integrate properly with existing work.
             summary_prompt = self._create_summary_prompt(messages, current_summary)
             
             logger.info("background_summary_prompt_created",
-                       component="storage",
                        prompt_length=len(summary_prompt),
                        recent_messages_used=len(smart_preserve_messages(messages, keep_count=10)),
                        current_summary_in_prompt=current_summary != "No summary available")
@@ -1531,7 +1494,6 @@ When adding new tasks, ensure they integrate properly with existing work.
                 # Validate summary format (simplified version of old validation)
                 if self._is_valid_summary_format(new_summary):
                     logger.info("background_summary_complete",
-                               component="storage",
                                summary_length=len(new_summary),
                                summary_preview=new_summary[:200],
                                previous_summary_length=len(current_summary) if current_summary != "No summary available" else 0,
@@ -1540,18 +1502,15 @@ When adding new tasks, ensure they integrate properly with existing work.
                     # Update state with new summary
                     state["summary"] = new_summary
                     logger.info("background_summary_state_updated",
-                               component="storage",
                                state_summary_length=len(state.get("summary", "")),
                                state_updated=True)
                     
                 else:
                     logger.warning("background_summary_invalid_format",
-                                 component="storage",
                                  summary_preview=new_summary[:200])
             
         except Exception as e:
             logger.error("background_summary_error",
-                        component="storage",
                         error=str(e),
                         exception_type=type(e).__name__)
     

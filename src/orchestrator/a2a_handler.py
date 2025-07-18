@@ -11,11 +11,11 @@ from aiohttp import web, WSMsgType
 from langchain_core.messages import HumanMessage
 # Command will be imported when needed
 
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger
 from src.utils.config.unified_config import config as app_config
 from .types import A2AResponse, A2AMetadata
 
-logger = get_logger("orchestrator")
+logger = SmartLogger("orchestrator")
 
 
 class CleanOrchestratorA2AHandler:
@@ -44,7 +44,6 @@ class CleanOrchestratorA2AHandler:
             context = task_data.get("context", {})
             
             logger.info("a2a_task_start", 
-                       component="orchestrator",
                        task_id=task_id,
                        instruction=instruction)
             
@@ -83,7 +82,6 @@ class CleanOrchestratorA2AHandler:
                     if existing_state and existing_state.values:
                         # Continue existing conversation
                         logger.info("continuing_conversation", 
-                                   component="orchestrator",
                                    task_id=task_id,
                                    thread_id=thread_id,
                                    existing_messages=len(existing_state.values.get("messages", [])),
@@ -100,7 +98,6 @@ class CleanOrchestratorA2AHandler:
                     else:
                         # Start new conversation - check for existing summary
                         logger.info("starting_new_conversation", 
-                                   component="orchestrator",
                                    task_id=task_id,
                                    thread_id=thread_id,
                                    instruction=instruction)
@@ -120,7 +117,6 @@ class CleanOrchestratorA2AHandler:
                         
                 except Exception as state_error:
                     logger.warning("state_loading_error", 
-                                 component="orchestrator",
                                  task_id=task_id,
                                  error=str(state_error),
                                  fallback_to_fresh_state=True)
@@ -140,12 +136,10 @@ class CleanOrchestratorA2AHandler:
                     result = await self.graph.graph.ainvoke(initial_state, config)
                 
                 logger.info("graph_invoke_start", 
-                           component="orchestrator",
                            task_id=task_id,
                            instruction=instruction)
                 
                 logger.info("graph_invoke_complete", 
-                           component="orchestrator",
                            task_id=task_id,
                            plan_status=result.get("plan", {}).get("status", "no_plan"))
             
@@ -156,7 +150,7 @@ class CleanOrchestratorA2AHandler:
             self.active_tasks[task_id]["status"] = "completed"
             
             logger.info("a2a_task_complete",
-                       component="orchestrator", 
+                       
                        task_id=task_id,
                        success=True)
             
@@ -174,7 +168,6 @@ class CleanOrchestratorA2AHandler:
             
         except Exception as e:
             logger.error("a2a_task_error",
-                        component="orchestrator",
                         task_id=task_id,
                         error=str(e))
             
@@ -205,7 +198,6 @@ class CleanOrchestratorA2AHandler:
         
         # Debug: Log all messages to understand the structure
         logger.info("extracting_response_content", 
-                   component="orchestrator",
                    message_count=len(messages),
                    message_types=[type(msg).__name__ for msg in messages])
         
@@ -213,7 +205,6 @@ class CleanOrchestratorA2AHandler:
         ai_message = None
         for msg in reversed(messages):
             logger.info("examining_message", 
-                       component="orchestrator",
                        message_type=type(msg).__name__,
                        has_content=hasattr(msg, 'content'),
                        content_preview=msg.content[:100] if hasattr(msg, 'content') and msg.content else "NO_CONTENT")
@@ -225,7 +216,6 @@ class CleanOrchestratorA2AHandler:
                 is_system_message = msg.content.startswith("You are")
                 
                 logger.info("message_analysis",
-                           component="orchestrator",
                            message_type=type(msg).__name__,
                            is_ai_message=is_ai_message,
                            has_tool_calls=has_tool_calls,
@@ -241,11 +231,10 @@ class CleanOrchestratorA2AHandler:
         if ai_message:
             # Return the last meaningful AI message
             logger.info("selected_ai_message", 
-                       component="orchestrator",
                        message_length=len(ai_message))
             return ai_message
         
-        logger.warning("no_ai_message_found", component="orchestrator")
+        logger.warning("no_ai_message_found")
         return "Task completed"
     
     async def get_agent_card(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -318,7 +307,6 @@ class CleanOrchestratorA2AHandler:
                 }
             
             logger.info("interrupt_task_request",
-                       component="orchestrator",
                        thread_id=thread_id,
                        reason=reason)
             
@@ -342,7 +330,7 @@ class CleanOrchestratorA2AHandler:
             await self._broadcast_agent_interrupt(thread_id, reason)
             
             logger.info("interrupt_task_success",
-                       component="orchestrator", 
+                       
                        thread_id=thread_id)
             
             return {
@@ -352,7 +340,6 @@ class CleanOrchestratorA2AHandler:
             
         except Exception as e:
             logger.error("interrupt_task_error",
-                        component="orchestrator",
                         error=str(e))
             return {
                 "success": False,
@@ -372,14 +359,12 @@ class CleanOrchestratorA2AHandler:
             
             if not registry:
                 logger.warning("agent_interrupt_broadcast_no_registry",
-                              component="orchestrator",
                               thread_id=thread_id)
                 return
             
             # Get all registered agents
             agents = registry.get_all_agents()
             logger.info("agent_interrupt_broadcast_start",
-                       component="orchestrator",
                        thread_id=thread_id,
                        reason=reason,
                        agent_count=len(agents))
@@ -420,7 +405,6 @@ class CleanOrchestratorA2AHandler:
                                     data = json.loads(msg.data)
                                     if data.get("method") == "interrupt_ack":
                                         logger.info("agent_interrupt_ack",
-                                                   component="orchestrator",
                                                    agent_id=agent.id,
                                                    thread_id=thread_id)
                                         break
@@ -431,7 +415,6 @@ class CleanOrchestratorA2AHandler:
                         
                 except Exception as e:
                     logger.warning("agent_interrupt_send_failed",
-                                  component="orchestrator",
                                   agent_id=agent.id,
                                   error=str(e))
             
@@ -441,13 +424,11 @@ class CleanOrchestratorA2AHandler:
                                    return_exceptions=True)
             
             logger.info("agent_interrupt_broadcast_complete",
-                       component="orchestrator",
                        thread_id=thread_id,
                        agents_notified=len(agents))
                        
         except Exception as e:
             logger.error("agent_interrupt_broadcast_error",
-                        component="orchestrator",
                         thread_id=thread_id,
                         error=str(e))
     
@@ -464,7 +445,6 @@ class CleanOrchestratorA2AHandler:
                 }
             
             logger.info("resume_task_request",
-                       component="orchestrator",
                        thread_id=thread_id,
                        user_input_length=len(user_input))
             
@@ -480,7 +460,6 @@ class CleanOrchestratorA2AHandler:
             }
             
             logger.info("resume_task_stored",
-                       component="orchestrator",
                        thread_id=thread_id,
                        status="Resume data stored for next streaming request")
             
@@ -492,7 +471,6 @@ class CleanOrchestratorA2AHandler:
             
         except Exception as e:
             logger.error("resume_task_error",
-                        component="orchestrator",
                         error=str(e))
             return {
                 "success": False,
@@ -508,7 +486,6 @@ class CleanOrchestratorA2AHandler:
         thread_id = None
         
         logger.info("websocket_client_connected",
-                   component="orchestrator",
                    client_id=client_id)
         
         try:
@@ -520,7 +497,6 @@ class CleanOrchestratorA2AHandler:
                         payload = data.get("payload", {})
                         
                         logger.info("websocket_message_received",
-                                   component="orchestrator",
                                    client_id=client_id,
                                    message_type=message_type)
                         
@@ -541,7 +517,6 @@ class CleanOrchestratorA2AHandler:
                                 }))
                                 
                                 logger.info("websocket_client_registered",
-                                           component="orchestrator",
                                            client_id=client_id,
                                            thread_id=thread_id)
                         
@@ -567,7 +542,6 @@ class CleanOrchestratorA2AHandler:
                                 }))
                                 
                                 logger.info("websocket_interrupt_processed",
-                                           component="orchestrator",
                                            client_id=client_id,
                                            thread_id=thread_id,
                                            success=result["success"])
@@ -594,7 +568,6 @@ class CleanOrchestratorA2AHandler:
                                 }))
                                 
                                 logger.info("websocket_resume_processed",
-                                           component="orchestrator",
                                            client_id=client_id,
                                            thread_id=thread_id,
                                            success=result["success"])
@@ -608,13 +581,11 @@ class CleanOrchestratorA2AHandler:
                         
                         else:
                             logger.warning("websocket_unknown_message_type",
-                                         component="orchestrator",
                                          client_id=client_id,
                                          message_type=message_type)
                     
                     except json.JSONDecodeError as e:
                         logger.error("websocket_json_decode_error",
-                                   component="orchestrator",
                                    client_id=client_id,
                                    error=str(e))
                         
@@ -625,7 +596,6 @@ class CleanOrchestratorA2AHandler:
                     
                     except Exception as e:
                         logger.error("websocket_message_handling_error",
-                                   component="orchestrator",
                                    client_id=client_id,
                                    error=str(e))
                         
@@ -636,13 +606,11 @@ class CleanOrchestratorA2AHandler:
                 
                 elif msg.type == WSMsgType.ERROR:
                     logger.error("websocket_error_received",
-                               component="orchestrator",
                                client_id=client_id,
                                error=str(ws.exception()))
                 
         except Exception as e:
             logger.error("websocket_connection_error",
-                        component="orchestrator",
                         client_id=client_id,
                         error=str(e))
         
@@ -655,7 +623,6 @@ class CleanOrchestratorA2AHandler:
                 del self.client_threads[client_id]
             
             logger.info("websocket_client_disconnected",
-                       component="orchestrator",
                        client_id=client_id,
                        thread_id=thread_id)
         
@@ -673,7 +640,6 @@ class CleanOrchestratorA2AHandler:
             context = task_data.get("context", {})
             
             logger.info("a2a_streaming_task_start", 
-                       component="orchestrator",
                        task_id=task_id,
                        instruction=instruction)
             
@@ -714,33 +680,29 @@ class CleanOrchestratorA2AHandler:
                 # Clear the stored resume data after using it
                 del self.resume_data[thread_id]
                 logger.info("using_stored_resume_data", 
-                           component="orchestrator",
                            thread_id=thread_id,
                            resume_data_preview=resume_data[:100])
                 
                 # Use LLM to parse user modification intent
                 if self.plan_modification_extractor:
                     logger.info("plan_modification_extractor_available", 
-                               component="orchestrator",
                                thread_id=thread_id,
                                resume_data=resume_data)
                     try:
                         plan_modification = await self._parse_plan_modification(resume_data, thread_id)
                         if plan_modification:
                             logger.info("plan_modification_parsed", 
-                                       component="orchestrator",
                                        thread_id=thread_id,
                                        modification_type=plan_modification.modification_type,
                                        target_step=plan_modification.target_step_number,
                                        confidence=plan_modification.confidence)
                         else:
                             logger.warning("plan_modification_returned_none",
-                                         component="orchestrator",
                                          thread_id=thread_id,
                                          resume_data=resume_data)
                     except Exception as e:
                         logger.error("plan_modification_parse_error",
-                                   component="orchestrator", 
+                                   
                                    thread_id=thread_id,
                                    error=str(e),
                                    resume_data=resume_data)
@@ -749,7 +711,6 @@ class CleanOrchestratorA2AHandler:
                         plan_modification = None
                 else:
                     logger.error("plan_modification_extractor_not_available",
-                               component="orchestrator",
                                thread_id=thread_id)
             
             if plan_modification:
@@ -757,7 +718,6 @@ class CleanOrchestratorA2AHandler:
                 from langgraph.types import Command
                 
                 logger.info("applying_plan_modification",
-                           component="orchestrator",
                            thread_id=thread_id,
                            modification_type=plan_modification.modification_type,
                            target_step=plan_modification.target_step_number)
@@ -765,13 +725,11 @@ class CleanOrchestratorA2AHandler:
                 if plan_modification.modification_type == "cancel_plan":
                     # Cancel current plan, clean slate
                     logger.info("plan_cancelled_clean_slate",
-                               component="orchestrator",
                                thread_id=thread_id)
                     
                     # Clear existing plan from graph state
                     clear_plan_update = {"plan": None}
                     logger.info("clearing_existing_plan_for_cancellation",
-                               component="orchestrator",
                                thread_id=thread_id)
                     
                     # Apply the clear plan update
@@ -787,7 +745,6 @@ class CleanOrchestratorA2AHandler:
                     
                     # Task complete - plan cancelled
                     logger.info("a2a_streaming_task_complete", 
-                               component="orchestrator",
                                task_id=task_id,
                                success=True)
                     return
@@ -796,14 +753,13 @@ class CleanOrchestratorA2AHandler:
                     # Replace current plan with new approach - use Command approach like other modifications
                     instruction = plan_modification.new_plan_description or "continue" 
                     logger.info("plan_replaced",
-                               component="orchestrator", 
+                               
                                thread_id=thread_id,
                                new_instruction=instruction)
                     
                     # Use the same Command approach as other modifications
                     command_update = self._create_plan_state_update(plan_modification)
                     logger.info("plan_replacement_state_update_created",
-                               component="orchestrator",
                                thread_id=thread_id,
                                update_keys=list(command_update.keys()) if command_update else [])
                     
@@ -813,7 +769,6 @@ class CleanOrchestratorA2AHandler:
                         current_plan = current_state.values.get("plan") if current_state and current_state.values else None
                     except Exception as e:
                         logger.warning("failed_to_get_current_state_for_plan_replacement",
-                                     component="orchestrator",
                                      thread_id=thread_id,
                                      error=str(e))
                         current_plan = None
@@ -844,7 +799,6 @@ class CleanOrchestratorA2AHandler:
                 elif plan_modification.modification_type == "conversation_only":
                     # Just respond, don't modify plan
                     logger.info("conversation_only_no_plan_change",
-                               component="orchestrator",
                                thread_id=thread_id)
                     # Continue with original instruction - fall through
                     
@@ -852,7 +806,6 @@ class CleanOrchestratorA2AHandler:
                     # Step-based modifications - use Command with proper state updates
                     command_update = self._create_plan_state_update(plan_modification)
                     logger.info("plan_state_update_created",
-                               component="orchestrator",
                                thread_id=thread_id,
                                update_keys=list(command_update.keys()) if command_update else [],
                                current_task_index=command_update.get("current_task_index"),
@@ -864,7 +817,6 @@ class CleanOrchestratorA2AHandler:
                         current_plan = current_state.values.get("plan") if current_state and current_state.values else None
                     except Exception as e:
                         logger.warning("failed_to_get_current_state_for_plan_modified",
-                                     component="orchestrator",
                                      thread_id=thread_id,
                                      error=str(e))
                         current_plan = None
@@ -914,7 +866,6 @@ class CleanOrchestratorA2AHandler:
                     if existing_state and existing_state.values:
                         # Continue existing conversation
                         logger.info("continuing_conversation_streaming", 
-                                   component="orchestrator",
                                    task_id=task_id,
                                    thread_id=thread_id,
                                    existing_messages=len(existing_state.values.get("messages", [])),
@@ -935,7 +886,6 @@ class CleanOrchestratorA2AHandler:
                             sse_event = self._process_graph_event(event, task_id, thread_id)
                             if sse_event:  # Only yield non-empty events
                                 logger.info("yielding_sse_event",
-                                           component="orchestrator",
                                            task_id=task_id,
                                            thread_id=thread_id,
                                            event_type=sse_event.split('\n')[0].replace('event: ', '') if sse_event.startswith('event: ') else "unknown",
@@ -945,7 +895,6 @@ class CleanOrchestratorA2AHandler:
                     else:
                         # Start new conversation with fresh state
                         logger.info("starting_new_conversation_streaming", 
-                                   component="orchestrator",
                                    task_id=task_id,
                                    thread_id=thread_id,
                                    instruction=instruction)
@@ -963,7 +912,6 @@ class CleanOrchestratorA2AHandler:
                             sse_event = self._process_graph_event(event, task_id, thread_id)
                             if sse_event:  # Only yield non-empty events
                                 logger.info("yielding_sse_event",
-                                           component="orchestrator",
                                            task_id=task_id,
                                            thread_id=thread_id,
                                            event_type=sse_event.split('\n')[0].replace('event: ', '') if sse_event.startswith('event: ') else "unknown",
@@ -972,7 +920,6 @@ class CleanOrchestratorA2AHandler:
                             
                 except Exception as state_error:
                     logger.warning("state_loading_error_streaming", 
-                                 component="orchestrator",
                                  task_id=task_id,
                                  error=str(state_error),
                                  fallback_to_fresh_state=True)
@@ -1001,7 +948,7 @@ class CleanOrchestratorA2AHandler:
             })
             
             logger.info("a2a_streaming_task_complete",
-                       component="orchestrator", 
+                       
                        task_id=task_id,
                        success=True)
             
@@ -1013,7 +960,6 @@ class CleanOrchestratorA2AHandler:
                        
         except Exception as e:
             logger.error("a2a_streaming_task_error",
-                        component="orchestrator",
                         task_id=task_id,
                         error=str(e))
             
@@ -1034,7 +980,6 @@ class CleanOrchestratorA2AHandler:
             # LangGraph streaming events come as {node_name: node_output}
             for node_name, node_output in event.items():
                 logger.info("processing_graph_event",
-                           component="orchestrator",
                            task_id=task_id,
                            node_name=node_name,
                            output_type=type(node_output).__name__,
@@ -1045,7 +990,6 @@ class CleanOrchestratorA2AHandler:
                     cache_key = thread_id if thread_id else task_id
                     self.task_status_cache[cache_key] = {}
                     logger.info("cleared_task_status_cache_for_new_plan",
-                               component="orchestrator",
                                task_id=task_id,
                                thread_id=thread_id,
                                cache_key=cache_key)
@@ -1060,7 +1004,6 @@ class CleanOrchestratorA2AHandler:
                 elif node_name == "agent":
                     # Agent node execution - check for task progress and plan updates
                     logger.info("agent_node_event_detected",
-                               component="orchestrator",
                                task_id=task_id,
                                thread_id=thread_id,
                                has_plan="plan" in node_output)
@@ -1069,7 +1012,6 @@ class CleanOrchestratorA2AHandler:
                         tasks = plan.get("tasks", [])
                         
                         logger.info("agent_node_plan_processing",
-                                   component="orchestrator",
                                    task_id=task_id,
                                    thread_id=thread_id,
                                    task_count=len(tasks))
@@ -1086,7 +1028,6 @@ class CleanOrchestratorA2AHandler:
                             
                             # Debug logging for task status detection
                             logger.info("task_status_detection",
-                                       component="orchestrator",
                                        task_id=task_id,
                                        task_internal_id=task_internal_id,
                                        current_status=current_status,
@@ -1108,7 +1049,6 @@ class CleanOrchestratorA2AHandler:
                                 elif current_status == "completed":
                                     self.task_status_cache[cache_key] = cached_statuses
                                     logger.info("sending_task_completed_event",
-                                               component="orchestrator",
                                                task_id=task_id,
                                                task_internal_id=task_internal_id,
                                                task_content=task.get("content", ""))
@@ -1222,7 +1162,6 @@ class CleanOrchestratorA2AHandler:
             
         except Exception as e:
             logger.error("graph_event_processing_error",
-                        component="orchestrator",
                         task_id=task_id,
                         error=str(e))
             # Return a generic update event instead of failing
@@ -1262,7 +1201,6 @@ class CleanOrchestratorA2AHandler:
         except TypeError as e:
             # Fallback: log the error and return a safe event
             logger.error("sse_event_serialization_error",
-                        component="orchestrator",
                         event_type=event_type,
                         error=str(e),
                         data_keys=list(data.keys()))
@@ -1271,7 +1209,7 @@ class CleanOrchestratorA2AHandler:
     def _check_task_status_and_emit_events(self, task_id: str, thread_id: str) -> str:
         """Check task status and emit any pending SSE events for final task completions."""
         logger.info("final_sse_event_check_start", 
-                   component="orchestrator", 
+                   
                    task_id=task_id,
                    thread_id=thread_id)
         try:
@@ -1284,7 +1222,7 @@ class CleanOrchestratorA2AHandler:
             tasks = plan.get("tasks", [])
             
             logger.info("final_sse_event_check_plan_found", 
-                       component="orchestrator", 
+                       
                        task_id=task_id,
                        thread_id=thread_id,
                        plan_id=plan.get("id"),
@@ -1299,7 +1237,7 @@ class CleanOrchestratorA2AHandler:
                 current_status = task.get("status", "pending")
                 
                 logger.info("final_sse_event_check_task_status", 
-                           component="orchestrator", 
+                           
                            task_id=task_id,
                            thread_id=thread_id,
                            task_internal_id=task_internal_id,
@@ -1313,7 +1251,7 @@ class CleanOrchestratorA2AHandler:
                 # Only emit events for newly changed statuses
                 if current_status != previous_status:
                     logger.info("final_sse_event_check_status_changed", 
-                               component="orchestrator", 
+                               
                                task_id=task_id,
                                thread_id=thread_id,
                                task_internal_id=task_internal_id,
@@ -1345,7 +1283,6 @@ class CleanOrchestratorA2AHandler:
             
         except Exception as e:
             logger.error("check_task_status_and_emit_events_error",
-                        component="orchestrator",
                         task_id=task_id,
                         error=str(e))
             return ""
@@ -1484,7 +1421,6 @@ class CleanOrchestratorA2AHandler:
             
         except Exception as e:
             logger.error("plan_modification_extraction_error",
-                        component="orchestrator",
                         thread_id=thread_id,
                         error=str(e))
             raise
