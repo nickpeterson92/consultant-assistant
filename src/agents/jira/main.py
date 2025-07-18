@@ -19,10 +19,10 @@ from langgraph.checkpoint.memory import MemorySaver
 from src.tools.jira import UNIFIED_JIRA_TOOLS
 from src.a2a import A2AServer, A2AArtifact, AgentCard
 from src.utils.config.unified_config import config as app_config
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger
 from src.utils.agents.prompts import jira_agent_sys_msg
 
-logger = get_logger("jira")
+logger = SmartLogger("jira")
 
 # Unified Jira tools
 jira_tools = UNIFIED_JIRA_TOOLS
@@ -358,7 +358,7 @@ async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
         
         # Include error information if task failed
         if not task_success:
-            result_dict["error"] = "Task execution encountered tool errors"
+            result_dict["error"] = response_content  # Use actual response with error details
             
         return result_dict
         

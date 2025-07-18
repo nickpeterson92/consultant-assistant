@@ -19,12 +19,12 @@ from typing import Optional, Dict, Any, List, ClassVar
 from langchain.tools import BaseTool
 from simple_salesforce.api import Salesforce
 
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger
 from src.utils.platform.salesforce import SOQLQueryBuilder, SOQLOperator
 # Removed table formatter - no longer truncating responses
 
-# Initialize logger
-logger = get_logger("salesforce")
+# Initialize SmartLogger
+logger = SmartLogger("salesforce")
 
 
 class SalesforceConnectionManager:
@@ -52,8 +52,7 @@ class SalesforceConnectionManager:
                 security_token=os.environ['SFDC_TOKEN']
             )
             logger.info("salesforce_connection_created",
-                component="salesforce",
-                operation="connection_manager"
+                                operation="connection_manager"
             )
         return self._connection
     
@@ -95,16 +94,14 @@ class BaseSalesforceTool(BaseTool, ABC):
     def _log_call(self, **kwargs):
         """Log tool call with consistent format."""
         logger.info("tool_call",
-            component="salesforce",
-            tool_name=self.name,
+                        tool_name=self.name,
             tool_args=kwargs
         )
     
     def _log_result(self, result: Any):
         """Log tool result with consistent format."""
         logger.info("tool_result",
-            component="salesforce",
-            tool_name=self.name,
+                        tool_name=self.name,
             result_type=type(result).__name__,
             result_preview=str(result)[:200] if result else "None"
         )
@@ -112,8 +109,7 @@ class BaseSalesforceTool(BaseTool, ABC):
     def _log_error(self, error: Exception):
         """Log tool error with consistent format."""
         logger.error("tool_error",
-            component="salesforce",
-            tool_name=self.name,
+                        tool_name=self.name,
             error=str(error),
             error_type=type(error).__name__
         )

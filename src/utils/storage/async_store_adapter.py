@@ -13,10 +13,10 @@ from typing import Any, Dict, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor
 
 from .sqlite_store import SQLiteStore
-from ..logging import get_logger
+from ..logging.framework import SmartLogger
 
-# Initialize logger
-logger = get_logger()
+# Initialize SmartLogger
+logger = SmartLogger("storage")
 
 
 class AsyncStoreAdapter:
@@ -43,7 +43,6 @@ class AsyncStoreAdapter:
         if not hasattr(self._thread_local, 'store'):
             self._thread_local.store = SQLiteStore(self.db_path)
             logger.info("Created thread-local SQLiteStore",
-                component="storage",
                 thread_id=threading.current_thread().ident,
                 db_path=self.db_path
             )
@@ -55,7 +54,6 @@ class AsyncStoreAdapter:
         # Since SQLiteStore doesn't have a list method, we'll return empty list
         # This is a limitation that should be addressed in SQLiteStore
         logger.warning("list_keys_not_implemented", 
-                      component="storage",
                       operation="list_keys",
                       namespace=namespace)
         return []
@@ -65,8 +63,7 @@ class AsyncStoreAdapter:
         # Log operation start
         user_id = namespace[1] if namespace and len(namespace) > 1 else "unknown"
         logger.info("async_storage_read_start",
-            component="storage",
-            operation="async_get",
+                        operation="async_get",
             namespace=str(namespace),
             key=key,
             user_id=user_id
@@ -81,8 +78,7 @@ class AsyncStoreAdapter:
             
             # Log successful read
             logger.info("async_storage_read_success",
-                component="storage",
-                operation="async_get",
+                                operation="async_get",
                 namespace=str(namespace),
                 key=key,
                 user_id=user_id,
@@ -93,8 +89,7 @@ class AsyncStoreAdapter:
             return result
         except Exception as e:
             logger.error("async_storage_read_error",
-                component="storage",
-                operation="async_get",
+                                operation="async_get",
                 namespace=str(namespace),
                 key=key,
                 user_id=user_id,
@@ -108,8 +103,7 @@ class AsyncStoreAdapter:
         # Log operation start
         user_id = namespace[1] if namespace and len(namespace) > 1 else "unknown"
         logger.info("async_storage_write_start",
-            component="storage",
-            operation="async_put",
+                        operation="async_put",
             namespace=str(namespace),
             key=key,
             user_id=user_id,
@@ -125,16 +119,14 @@ class AsyncStoreAdapter:
             
             # Log successful write
             logger.info("async_storage_write_success",
-                component="storage",
-                operation="async_put",
+                                operation="async_put",
                 namespace=str(namespace),
                 key=key,
                 user_id=user_id
             )
         except Exception as e:
             logger.error("async_storage_write_error",
-                component="storage",
-                operation="async_put",
+                                operation="async_put",
                 namespace=str(namespace),
                 key=key,
                 user_id=user_id,
@@ -148,8 +140,7 @@ class AsyncStoreAdapter:
         # Log operation start
         user_id = namespace[1] if namespace and len(namespace) > 1 else "unknown"
         logger.info("async_storage_delete_start",
-            component="storage",
-            operation="async_delete",
+                        operation="async_delete",
             namespace=str(namespace),
             key=key,
             user_id=user_id
@@ -164,16 +155,14 @@ class AsyncStoreAdapter:
             
             # Log successful delete
             logger.info("async_storage_delete_success",
-                component="storage",
-                operation="async_delete",
+                                operation="async_delete",
                 namespace=str(namespace),
                 key=key,
                 user_id=user_id
             )
         except Exception as e:
             logger.error("async_storage_delete_error",
-                component="storage",
-                operation="async_delete",
+                                operation="async_delete",
                 namespace=str(namespace),
                 key=key,
                 user_id=user_id,
@@ -215,7 +204,7 @@ class AsyncStoreAdapter:
         
         # Log the operation
         user_id = namespace[1] if namespace and len(namespace) > 1 else "unknown"
-        logger.info("memory_get", component="async_store_adapter_sync", namespace=namespace, key=key, result=result, 
+        logger.info("memory_get", namespace=namespace, key=key, result=result, 
                                    user_id=user_id)
         return result
     
@@ -223,7 +212,7 @@ class AsyncStoreAdapter:
         """Synchronous put for backward compatibility."""
         # Log before the operation
         user_id = namespace[1] if namespace and len(namespace) > 1 else "unknown"
-        logger.info("memory_put", component="async_store_adapter_sync", namespace=namespace, key=key, value=value, 
+        logger.info("memory_put", namespace=namespace, key=key, value=value, 
                                    user_id=user_id)
         
         self._get_store().put(namespace, key, value)

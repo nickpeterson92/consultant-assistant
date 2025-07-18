@@ -30,10 +30,10 @@ from src.a2a import A2AClient
 from src.utils.config import ENTERPRISE_ASSISTANT_BANNER, ENTERPRISE_ASSISTANT_COMPACT_LOGO
 from src.utils.config.unified_config import config as app_config
 from src.utils.ui.animations import animated_banner_display, format_compact_logo_for_textual
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger
 
-# Initialize logger
-logger = get_logger()
+# Initialize SmartLogger
+logger = SmartLogger("client")
 
 
 class TextualWebSocketController:
@@ -43,6 +43,7 @@ class TextualWebSocketController:
         self.orchestrator_url = orchestrator_url
         self.thread_id = thread_id
         self.ws = None
+        self.session = None
         self.connected = False
         self.client_id = None
         
@@ -53,8 +54,13 @@ class TextualWebSocketController:
             ws_url = self.orchestrator_url.replace("http://", "ws://").replace("https://", "wss://")
             ws_url = f"{ws_url}/a2a/ws"
             
-            session = aiohttp.ClientSession()
-            self.ws = await session.ws_connect(ws_url)
+            logger.info("websocket_connection_attempt",
+                       orchestrator_url=self.orchestrator_url,
+                       ws_url=ws_url,
+                       thread_id=self.thread_id)
+            
+            self.session = aiohttp.ClientSession()
+            self.ws = await self.session.ws_connect(ws_url)
             
             # Register with the thread ID
             await self.ws.send_str(json.dumps({
@@ -70,74 +76,102 @@ class TextualWebSocketController:
                         self.connected = True
                         self.client_id = data.get("payload", {}).get("client_id")
                         logger.info("websocket_connected",
-                                   component="client",
-                                   client_id=self.client_id,
+                                                                      client_id=self.client_id,
                                    thread_id=self.thread_id)
                         break
                 elif msg.type == aiohttp.WSMsgType.ERROR:
                     logger.error("websocket_connection_error",
-                               component="client",
-                               error=str(self.ws.exception()))
+                                                              error=str(self.ws.exception()))
                     break
             
             return self.connected
             
         except Exception as e:
             logger.error("websocket_connect_error",
-                        component="client",
-                        error=str(e))
+                                                error=str(e))
             return False
     
     async def send_interrupt(self, reason="user_escape"):
         """Send interrupt command via WebSocket."""
+        logger.info("websocket_interrupt_attempt",
+                   connected=self.connected,
+                   has_ws=bool(self.ws),
+                   thread_id=self.thread_id,
+                   reason=reason)
+        
         if not self.connected or not self.ws:
-            logger.warning("websocket_not_connected_for_interrupt", component="client")
+            logger.warning("websocket_not_connected_for_interrupt",
+                          connected=self.connected,
+                          has_ws=bool(self.ws))
             return False
         
         try:
             message_id = str(uuid.uuid4())[:8]
-            await self.ws.send_str(json.dumps({
+            interrupt_msg = {
                 "type": "interrupt",
                 "payload": {
                     "thread_id": self.thread_id,
                     "reason": reason
                 },
                 "id": message_id
-            }))
+            }
             
-            # Wait for acknowledgment
-            timeout_task = asyncio.create_task(asyncio.sleep(5.0))
+            logger.info("websocket_sending_interrupt",
+                       ws_closed=self.ws.closed if self.ws else True)
             
-            async for msg in self.ws:
-                if msg.type == aiohttp.WSMsgType.TEXT:
-                    data = json.loads(msg.data)
-                    if data.get("type") == "interrupt_ack":
-                        timeout_task.cancel()
-                        success = data.get("payload", {}).get("success", False)
-                        message = data.get("payload", {}).get("message", "")
+            await self.ws.send_str(json.dumps(interrupt_msg))
+            
+            logger.info("websocket_interrupt_sent_successfully",
+                       message_id=message_id)
+            
+            # Wait for acknowledgment with proper timeout
+            async def wait_for_interrupt_ack():
+                logger.info("websocket_waiting_for_interrupt_ack")
+                async for msg in self.ws:
+                    logger.info("websocket_received_message",
+                               msg_type=msg.type,
+                               data_preview=str(msg.data)[:200] if hasattr(msg, 'data') else "no_data")
+                    
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        data = json.loads(msg.data)
+                        logger.info("websocket_parsed_message",
+                                   message_type=data.get("type"),
+                                   payload_keys=list(data.get("payload", {}).keys()))
                         
-                        logger.info("websocket_interrupt_ack",
-                                   component="client",
-                                   success=success,
-                                   ack_message=message)
-                        return success
-                
-                if timeout_task.done():
-                    logger.warning("websocket_interrupt_timeout", component="client")
-                    return False
+                        if data.get("type") == "interrupt_ack":
+                            success = data.get("payload", {}).get("success", False)
+                            ack_message = data.get("payload", {}).get("message", "")
+                            
+                            logger.info("websocket_interrupt_ack_received",
+                                       success=success,
+                                       ack_message=ack_message)
+                            return success
+                    elif msg.type == aiohttp.WSMsgType.ERROR:
+                        logger.error("websocket_error_during_interrupt",
+                                   error=str(self.ws.exception()))
+                        return False
+                logger.warning("websocket_interrupt_ack_loop_ended")
+                return False
             
-            return False
+            # Use asyncio.wait_for for proper timeout handling
+            try:
+                result = await asyncio.wait_for(wait_for_interrupt_ack(), timeout=5.0)
+                logger.info("websocket_interrupt_final_result", result=result)
+                return result
+            except asyncio.TimeoutError:
+                logger.warning("websocket_interrupt_timeout_occurred")
+                return False
             
         except Exception as e:
             logger.error("websocket_interrupt_error",
-                        component="client",
-                        error=str(e))
+                        error=str(e),
+                        error_type=type(e).__name__)
             return False
     
     async def send_resume(self, user_input):
         """Send resume command with user modifications via WebSocket."""
         if not self.connected or not self.ws:
-            logger.warning("websocket_not_connected_for_resume", component="client")
+            logger.warning("websocket_not_connected_for_resume")
             return False
         
         try:
@@ -151,43 +185,46 @@ class TextualWebSocketController:
                 "id": message_id
             }))
             
-            # Wait for acknowledgment
-            timeout_task = asyncio.create_task(asyncio.sleep(10.0))
+            # Wait for acknowledgment with proper timeout
+            async def wait_for_resume_ack():
+                async for msg in self.ws:
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        data = json.loads(msg.data)
+                        if data.get("type") == "resume_ack":
+                            success = data.get("payload", {}).get("success", False)
+                            ack_message = data.get("payload", {}).get("message", "")
+                            
+                            logger.info("websocket_resume_ack",
+                                       success=success,
+                                       ack_message=ack_message)
+                            return success
+                    elif msg.type == aiohttp.WSMsgType.ERROR:
+                        logger.error("websocket_error_during_resume",
+                                   error=str(self.ws.exception()))
+                        return False
+                return False
             
-            async for msg in self.ws:
-                if msg.type == aiohttp.WSMsgType.TEXT:
-                    data = json.loads(msg.data)
-                    if data.get("type") == "resume_ack":
-                        timeout_task.cancel()
-                        success = data.get("payload", {}).get("success", False)
-                        message = data.get("payload", {}).get("message", "")
-                        
-                        logger.info("websocket_resume_ack",
-                                   component="client",
-                                   success=success,
-                                   ack_message=message)
-                        return success
-                
-                if timeout_task.done():
-                    logger.warning("websocket_resume_timeout", component="client")
-                    return False
-            
-            return False
+            # Use asyncio.wait_for for proper timeout handling
+            try:
+                return await asyncio.wait_for(wait_for_resume_ack(), timeout=10.0)
+            except asyncio.TimeoutError:
+                logger.warning("websocket_resume_timeout")
+                return False
             
         except Exception as e:
             logger.error("websocket_resume_error",
-                        component="client",
-                        error=str(e))
+                                                error=str(e))
             return False
     
     async def close(self):
         """Close WebSocket connection."""
         if self.ws:
             await self.ws.close()
-            self.connected = False
-            logger.info("websocket_disconnected",
-                       component="client",
-                       client_id=self.client_id)
+        if self.session:
+            await self.session.close()
+        self.connected = False
+        logger.info("websocket_disconnected",
+                   client_id=self.client_id)
 
 
 class PlanModificationScreen(ModalScreen):
@@ -215,7 +252,7 @@ class PlanModificationScreen(ModalScreen):
             
             yield Static("")
             yield Static("[bold]Enter your modification instructions:[/bold]")
-            yield Static("(e.g., 'skip to step 3', 'change step 2 to...', or 'cancel')")
+            yield Static("(e.g., 'skip to step 3', 'change step 2 to...', 'remove step 4', or 'cancel')")
             yield Static("")
             
             yield Input(
@@ -235,8 +272,7 @@ class PlanModificationScreen(ModalScreen):
         """Handle user input submission."""
         self.user_input = event.value.strip()
         logger.info("plan_modification_input_submitted",
-                   component="client",
-                   user_input=self.user_input,
+                                      user_input=self.user_input,
                    input_length=len(self.user_input))
         self.dismiss(self.user_input)
         # Prevent event from bubbling up
@@ -245,7 +281,7 @@ class PlanModificationScreen(ModalScreen):
     def on_key(self, event: Key) -> None:
         """Handle key events."""
         if event.key == "escape":
-            logger.info("plan_modification_cancelled_via_escape", component="client")
+            logger.info("plan_modification_cancelled_via_escape")
             self.dismiss("")
 
 
@@ -535,9 +571,9 @@ class OrchestatorApp(App):
             ws_connected = await self.ws_controller.connect()
             
             if ws_connected:
-                logger.info("websocket_control_ready", component="client", thread_id=self.thread_id)
+                logger.info("websocket_control_ready", thread_id=self.thread_id)
             else:
-                logger.info("websocket_control_unavailable", component="client", thread_id=self.thread_id)
+                logger.info("websocket_control_unavailable", thread_id=self.thread_id)
                 
         except Exception as e:
             logger.warning("websocket_connection_failed", 
@@ -584,8 +620,7 @@ class OrchestatorApp(App):
                     self.status_widget.set_status(f"Plan modified: {modification_type}")
                 
                 logger.info("plan_modified_processed",
-                           component="client",
-                           modification_type=modification_type,
+                                                      modification_type=modification_type,
                            current_task_index=current_task_index,
                            skipped_count=len(skipped_indices))
             
@@ -616,8 +651,7 @@ class OrchestatorApp(App):
                             self.status_widget.set_status("Plan updated")
                 
                 logger.info("plan_updated_processed",
-                           component="client",
-                           current_task_index=current_task_index,
+                                                      current_task_index=current_task_index,
                            skipped_count=len(skipped_indices),
                            has_plan_data=bool(plan_data))
             
@@ -699,6 +733,14 @@ class OrchestatorApp(App):
         self.conversation_widget.add_message("user", user_input)
         logger.info("user_message_added_to_conversation", thread_id=self.thread_id)
         
+        # Clear previous plan state to start fresh
+        self.plan_widget.plan_tasks = []
+        self.plan_widget.completed_steps = []
+        self.plan_widget.failed_steps = []
+        self.plan_widget.skipped_steps = []
+        self.plan_widget.current_step = ""
+        logger.info("plan_state_cleared_for_new_request", thread_id=self.thread_id)
+        
         # Set processing state
         self.is_processing = True
         self.status_widget.set_status("Processing request...", processing=True)
@@ -760,8 +802,7 @@ class OrchestatorApp(App):
         async with aiohttp.ClientSession(timeout=timeout) as session:
             stream_url = f"{self.orchestrator_url}/a2a/stream"
             logger.info("attempting_sse_connection",
-                       component="client",
-                       stream_url=stream_url)
+                                              stream_url=stream_url)
             
             async with session.post(
                 stream_url,
@@ -774,22 +815,20 @@ class OrchestatorApp(App):
                 headers={'Accept': 'text/event-stream'}
             ) as response:
                 logger.info("sse_stream_response_received",
-                           component="client",
-                           status_code=response.status,
+                                                      status_code=response.status,
                            content_type=response.headers.get('content-type'))
                 
                 if response.status != 200:
                     error_text = await response.text()
                     logger.error("sse_stream_request_failed",
-                                component="client",
-                                status_code=response.status,
+                                                                status_code=response.status,
                                 error_text=error_text)
                     self.conversation_widget.add_message("assistant", f"Error: HTTP {response.status}: {error_text}")
                     self.is_processing = False
                     self.status_widget.set_status("Error")
                     return
                 
-                logger.info("sse_stream_processing_start", component="client")
+                logger.info("sse_stream_processing_start")
                 
                 async for line in response.content:
                     if not line:
@@ -797,7 +836,7 @@ class OrchestatorApp(App):
                     
                     # Check for interrupt during streaming
                     if self.interrupt_requested:
-                        logger.info("interrupt_detected_during_stream", component="client")
+                        logger.info("interrupt_detected_during_stream")
                         break
                     
                     line = line.decode('utf-8').strip()
@@ -813,8 +852,7 @@ class OrchestatorApp(App):
                             
                             # Log all received events
                             logger.info("sse_event_received",
-                                       component="client",
-                                       event_type=event_type,
+                                                                              event_type=event_type,
                                        data_keys=list(data.keys()) if data else [],
                                        raw_line=line[:100])
                             
@@ -823,13 +861,11 @@ class OrchestatorApp(App):
                             
                         except json.JSONDecodeError as e:
                             logger.warning("sse_json_decode_error",
-                                         component="client",
-                                         error=str(e),
+                                                                                  error=str(e),
                                          raw_line=line[:100])
                         except Exception as e:
                             logger.error("sse_event_processing_error",
-                                        component="client",
-                                        error=str(e),
+                                                                                error=str(e),
                                         raw_line=line[:100])
                 
                 # Processing complete
@@ -854,7 +890,7 @@ class OrchestatorApp(App):
     async def handle_interrupt(self):
         """Handle interrupt request using Textual's work decorator."""
         try:
-            logger.info("handle_interrupt_start", component="client")
+            logger.info("handle_interrupt_start")
             
             # Reset processing state first to prevent UI lock
             self.is_processing = False
@@ -863,8 +899,7 @@ class OrchestatorApp(App):
             # Show plan modification screen
             current_plan = self.plan_widget.plan_tasks if self.plan_widget else []
             logger.info("showing_plan_modification_modal", 
-                       component="client",
-                       plan_task_count=len(current_plan))
+                                              plan_task_count=len(current_plan))
             
             modification_input = await self.push_screen_wait(PlanModificationScreen(current_plan))
             
@@ -876,20 +911,18 @@ class OrchestatorApp(App):
             if modification_input:
                 # Send interrupt and resume via WebSocket
                 try:
-                    logger.info("sending_websocket_interrupt", component="client")
+                    logger.info("sending_websocket_interrupt")
                     # Send interrupt first
                     interrupt_success = await self.ws_controller.send_interrupt("user_escape")
                     
                     logger.info("websocket_interrupt_result", 
-                               component="client",
-                               success=interrupt_success)
+                                                              success=interrupt_success)
                     
                     if interrupt_success:
                         self.status_widget.set_status("⏸ Execution interrupted successfully")
                         
                         logger.info("sending_websocket_resume", 
-                                   component="client",
-                                   modification_input=modification_input)
+                                                                      modification_input=modification_input)
                         
                         # Send resume with modifications
                         resume_success = await self.ws_controller.send_resume(modification_input)
@@ -906,10 +939,10 @@ class OrchestatorApp(App):
                             self.interrupt_requested = False
                             self.plan_widget.refresh_display()
                         else:
-                            logger.error("websocket_resume_failed", component="client")
+                            logger.error("websocket_resume_failed")
                             self.status_widget.set_status("Error resuming execution via WebSocket.")
                     else:
-                        logger.error("websocket_interrupt_failed", component="client")
+                        logger.error("websocket_interrupt_failed")
                         self.status_widget.set_status("Error sending interrupt via WebSocket.")
                         
                 except Exception as interrupt_error:
@@ -918,16 +951,16 @@ class OrchestatorApp(App):
                                error=str(interrupt_error))
                     self.status_widget.set_status(f"Error handling interrupt: {interrupt_error}")
             else:
-                logger.info("plan_modification_cancelled", component="client")
+                logger.info("plan_modification_cancelled")
                 self.status_widget.set_status("▶ Continuing without modifications...")
                 # Clear interrupt flag and continue
                 self.interrupt_requested = False
                 
         except Exception as e:
-            logger.error("interrupt_handling_error", component="client", error=str(e))
+            logger.error("interrupt_handling_error", error=str(e))
             self.status_widget.set_status(f"Error handling interrupt: {str(e)}")
         finally:
-            logger.info("handle_interrupt_complete", component="client")
+            logger.info("handle_interrupt_complete")
             # Always reset processing state
             self.is_processing = False
             self.interrupt_requested = False
@@ -935,26 +968,25 @@ class OrchestatorApp(App):
     def action_interrupt(self) -> None:
         """Handle interrupt action (ESC key) using Textual's action system."""
         logger.info("escape_key_pressed",
-                   component="client",
-                   is_processing=self.is_processing,
+                                      is_processing=self.is_processing,
                    has_plan=bool(self.plan_widget and self.plan_widget.plan_tasks),
                    has_ws_controller=bool(self.ws_controller))
         
         if self.is_processing and self.plan_widget and self.plan_widget.plan_tasks and self.ws_controller:
             self.interrupt_requested = True
-            logger.info("interrupt_requested_via_key", component="client")
+            logger.info("interrupt_requested_via_key")
             # Use Textual's work decorator for async handling
             self.handle_interrupt()
         else:
             # Show status if interrupt not available
             if not self.ws_controller:
-                logger.warning("interrupt_unavailable_no_websocket", component="client")
+                logger.warning("interrupt_unavailable_no_websocket")
                 self.status_widget.set_status("WebSocket not connected - interrupt unavailable")
             elif not self.is_processing:
-                logger.warning("interrupt_unavailable_not_processing", component="client")
+                logger.warning("interrupt_unavailable_not_processing")
                 self.status_widget.set_status("No active plan to interrupt")
             else:
-                logger.warning("interrupt_unavailable_no_plan", component="client")
+                logger.warning("interrupt_unavailable_no_plan")
                 self.status_widget.set_status("No plan currently executing")
     
     def action_quit(self) -> None:
@@ -992,13 +1024,13 @@ async def run_startup_animation():
             # Clear screen before starting Textual
             print("\033[2J\033[H", end='')
             
-            logger.info("banner_animation_complete", component="client")
+            logger.info("banner_animation_complete")
         else:
             # Just clear screen if animation is disabled
             print("\033[2J\033[H", end='')
             
     except Exception as e:
-        logger.error("banner_animation_error", error=str(e), component="client")
+        logger.error("banner_animation_error", error=str(e))
         # Clear screen and continue even if animation fails
         print("\033[2J\033[H", end='')
 
@@ -1011,14 +1043,14 @@ def main():
     try:
         asyncio.run(run_startup_animation())
     except Exception as e:
-        logger.error("startup_animation_failed", error=str(e), component="client")
+        logger.error("startup_animation_failed", error=str(e))
     
     # Now start the Textual app
     app = OrchestatorApp()
     
     # Signal handlers for clean shutdown
     def handle_signal(signum, frame):
-        logger.info("signal_received", signal=signum, component="client")
+        logger.info("signal_received", signal=signum)
         if app.processing_done:
             app.processing_done.set()
         if app.ws_controller:
@@ -1031,7 +1063,7 @@ def main():
     try:
         app.run()
     except KeyboardInterrupt:
-        logger.info("keyboard_interrupt_received", component="client")
+        logger.info("keyboard_interrupt_received")
     finally:
         # Ensure cleanup
         if app.processing_done:

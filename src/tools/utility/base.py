@@ -10,9 +10,9 @@ This module provides the foundation for orchestrator utility tools with:
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, List
 from langchain.tools import BaseTool
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger
 
-logger = get_logger("utility")
+logger = SmartLogger("utility")
 
 
 class BaseUtilityTool(BaseTool, ABC):
@@ -31,7 +31,6 @@ class BaseUtilityTool(BaseTool, ABC):
     def _log_call(self, **kwargs):
         """Log tool call with consistent format."""
         logger.info(f"Tool call: {self.name}",
-            component="utility",
             tool_name=self.name,
             operation="tool_call",
             tool_args=kwargs
@@ -40,7 +39,6 @@ class BaseUtilityTool(BaseTool, ABC):
     def _log_result(self, result: Any):
         """Log tool result with consistent format."""
         logger.info(f"Tool result: {self.name}",
-            component="utility",
             tool_name=self.name,
             operation="tool_result",
             result_type=type(result).__name__,
@@ -50,7 +48,6 @@ class BaseUtilityTool(BaseTool, ABC):
     def _log_error(self, error: Exception):
         """Log tool error with consistent format."""
         logger.error(f"Tool error in {self.name}: {str(error)}",
-            component="utility",
             tool_name=self.name,
             operation="tool_error",
             error=str(error),

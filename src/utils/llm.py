@@ -4,9 +4,9 @@ import os
 from typing import Optional, Dict, Any, Callable, Dict, Any, List
 from langchain_openai import AzureChatOpenAI
 from src.utils.config.unified_config import config as app_config
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger
 
-logger = get_logger("llm")
+logger = SmartLogger("system")
 
 
 def create_azure_openai_chat(**kwargs) -> AzureChatOpenAI:

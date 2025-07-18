@@ -16,11 +16,11 @@ from pydantic import BaseModel, Field
 from .agent_registry import AgentRegistry
 from ..a2a import A2AClient, A2ATask, A2AException
 
-# Import unified logger
-from src.utils.logging import get_logger
+# Import framework logger
+from src.utils.logging.framework import SmartLogger
 
-# Initialize structured logger
-logger = get_logger()
+# Initialize orchestrator logger
+logger = SmartLogger("orchestrator")
 from src.utils.config import (
     MESSAGES_KEY, MEMORY_KEY, RECENT_MESSAGES_COUNT
 )
@@ -322,7 +322,6 @@ class SalesforceAgentTool(BaseAgentTool):
             
             # Log structured data addition
             logger.info("structured_data_found",
-                component="orchestrator",
                 tool_name="salesforce_agent",
                 data_preview=str(tool_results_data)[:200],
                 data_size=len(json.dumps(tool_results_data)),
@@ -355,7 +354,6 @@ class SalesforceAgentTool(BaseAgentTool):
         """
         # Debug logging to understand state passing
         logger.info("salesforce_tool_debug",
-            component="orchestrator",
             operation="salesforce_agent_tool",
             state_type=type(state).__name__ if state else "None",
             state_keys=list(state.keys()) if state and isinstance(state, dict) else [],
@@ -366,7 +364,6 @@ class SalesforceAgentTool(BaseAgentTool):
         # Log tool invocation start
         tool_call_id = kwargs.get("tool_call_id", None)
         logger.info("tool_invocation_start",
-            component="orchestrator",
             operation="salesforce_agent_tool",
             tool_name="salesforce_agent",
             tool_call_id=tool_call_id,
@@ -383,7 +380,6 @@ class SalesforceAgentTool(BaseAgentTool):
             agent = self._find_salesforce_agent()
             if not agent:
                 logger.error("agent_not_found",
-                    component="orchestrator",
                     operation="salesforce_agent_tool",
                     agent_type="salesforce",
                     tool_call_id=tool_call_id,
@@ -419,7 +415,6 @@ class SalesforceAgentTool(BaseAgentTool):
                 
                 # Log A2A dispatch
                 logger.info("a2a_dispatch", 
-                    component="orchestrator",
                     agent="salesforce-agent",
                     task_id=task_id,
                     instruction_preview=instruction[:100],
@@ -434,7 +429,6 @@ class SalesforceAgentTool(BaseAgentTool):
                 task_success = result.get('status') != 'failed'
                 
                 logger.info("salesforce_task_success_debug",
-                    component="orchestrator",
                     task_id=task_id,
                     result_status=result.get('status'),
                     task_success=task_success,
@@ -448,14 +442,12 @@ class SalesforceAgentTool(BaseAgentTool):
                 # Log with actual success status
                 if task_success:
                     logger.info("a2a_response_success",
-                        component="orchestrator",
                         agent="salesforce-agent", 
                         task_id=task_id,
                         response_length=len(final_response)
                     )
                 else:
                     logger.warning("a2a_response_failure",
-                        component="orchestrator",
                         agent="salesforce-agent", 
                         task_id=task_id,
                         response_length=len(final_response),
@@ -464,7 +456,6 @@ class SalesforceAgentTool(BaseAgentTool):
                 
                 # Log tool completion with actual success status
                 logger.info("tool_invocation_complete",
-                    component="orchestrator",
                     operation="salesforce_agent_tool",
                     tool_name="salesforce_agent",
                     tool_call_id=tool_call_id,
@@ -477,7 +468,6 @@ class SalesforceAgentTool(BaseAgentTool):
                     # Return error Command for failed tasks
                     error_message = result.get('error', 'Salesforce agent task failed')
                     logger.info("salesforce_returning_error_command",
-                        component="orchestrator",
                         task_id=task_id,
                         error_message=error_message,
                         task_success=task_success,
@@ -511,7 +501,6 @@ class SalesforceAgentTool(BaseAgentTool):
         
         except A2AException as e:
             logger.error("tool_invocation_error",
-                component="orchestrator",
                 operation="salesforce_agent_tool",
                 tool_name="salesforce_agent",
                 tool_call_id=tool_call_id,
@@ -524,7 +513,6 @@ class SalesforceAgentTool(BaseAgentTool):
             )
         except Exception as e:
             logger.error("tool_invocation_error",
-                component="orchestrator",
                 operation="salesforce_agent_tool",
                 tool_name="salesforce_agent",
                 tool_call_id=tool_call_id,
@@ -740,7 +728,6 @@ class JiraAgentTool(BaseAgentTool):
             
             # Log structured data addition
             logger.info("structured_data_found",
-                component="orchestrator",
                 tool_name="jira_agent",
                 data_preview=str(tool_results_data)[:200],
                 data_size=len(json.dumps(tool_results_data)),
@@ -773,7 +760,6 @@ class JiraAgentTool(BaseAgentTool):
         """
         # Debug logging to understand state passing
         logger.info("jira_tool_debug",
-            component="orchestrator",
             operation="jira_agent_tool",
             state_type=type(state).__name__ if state else "None",
             state_keys=list(state.keys()) if state and isinstance(state, dict) else [],
@@ -784,7 +770,6 @@ class JiraAgentTool(BaseAgentTool):
         # Log tool invocation start
         tool_call_id = kwargs.get("tool_call_id", None)
         logger.info("tool_invocation_start",
-            component="orchestrator",
             operation="jira_agent_tool",
             tool_name="jira_agent",
             tool_call_id=tool_call_id,
@@ -801,7 +786,6 @@ class JiraAgentTool(BaseAgentTool):
             agent = self._find_jira_agent()
             if not agent:
                 logger.error("agent_not_found",
-                    component="orchestrator",
                     operation="jira_agent_tool",
                     agent_type="jira",
                     tool_call_id=tool_call_id,
@@ -837,7 +821,6 @@ class JiraAgentTool(BaseAgentTool):
                 
                 # Log A2A dispatch
                 logger.info("a2a_dispatch", 
-                    component="orchestrator",
                     agent="jira-agent",
                     task_id=task_id,
                     instruction_preview=instruction[:100],
@@ -852,7 +835,6 @@ class JiraAgentTool(BaseAgentTool):
                 task_success = result.get('status') != 'failed'
                 
                 logger.info("jira_task_success_debug",
-                    component="orchestrator",
                     task_id=task_id,
                     result_status=result.get('status'),
                     task_success=task_success,
@@ -866,14 +848,12 @@ class JiraAgentTool(BaseAgentTool):
                 # Log with actual success status
                 if task_success:
                     logger.info("a2a_response_success",
-                        component="orchestrator",
                         agent="jira-agent", 
                         task_id=task_id,
                         response_length=len(final_response)
                     )
                 else:
                     logger.warning("a2a_response_failure",
-                        component="orchestrator",
                         agent="jira-agent", 
                         task_id=task_id,
                         response_length=len(final_response),
@@ -882,7 +862,6 @@ class JiraAgentTool(BaseAgentTool):
                 
                 # Log tool completion with actual success status
                 logger.info("tool_invocation_complete",
-                    component="orchestrator",
                     operation="jira_agent_tool",
                     tool_name="jira_agent",
                     tool_call_id=tool_call_id,
@@ -895,7 +874,6 @@ class JiraAgentTool(BaseAgentTool):
                     # Return error Command for failed tasks
                     error_message = result.get('error', 'Jira agent task failed')
                     logger.info("jira_returning_error_command",
-                        component="orchestrator",
                         task_id=task_id,
                         error_message=error_message,
                         task_success=task_success,
@@ -929,7 +907,6 @@ class JiraAgentTool(BaseAgentTool):
         
         except A2AException as e:
             logger.error("tool_invocation_error",
-                component="orchestrator",
                 operation="jira_agent_tool",
                 tool_name="jira_agent",
                 tool_call_id=tool_call_id,
@@ -942,7 +919,6 @@ class JiraAgentTool(BaseAgentTool):
             )
         except Exception as e:
             logger.error("tool_invocation_error",
-                component="orchestrator",
                 operation="jira_agent_tool",
                 tool_name="jira_agent",
                 tool_call_id=tool_call_id,
@@ -1020,7 +996,6 @@ class ServiceNowAgentTool(BaseAgentTool):
         # Log tool invocation start
         tool_call_id = kwargs.get("tool_call_id", None)
         logger.info("tool_invocation_start",
-            component="orchestrator",
             operation="servicenow_agent_tool",
             tool_name="servicenow_agent",
             tool_call_id=tool_call_id,
@@ -1065,7 +1040,6 @@ class ServiceNowAgentTool(BaseAgentTool):
             
             if not agent:
                 logger.error("agent_not_found",
-                    component="orchestrator",
                     operation="servicenow_agent_tool",
                     agent_type="servicenow",
                     tool_call_id=tool_call_id,
@@ -1101,7 +1075,6 @@ class ServiceNowAgentTool(BaseAgentTool):
                 
                 # Log A2A dispatch
                 logger.info("a2a_dispatch", 
-                    component="orchestrator",
                     agent="servicenow-agent",
                     task_id=task_id,
                     instruction_preview=instruction[:100],
@@ -1116,7 +1089,6 @@ class ServiceNowAgentTool(BaseAgentTool):
                 task_success = result.get('status') != 'failed'
                 
                 logger.info("servicenow_task_success_debug",
-                    component="orchestrator",
                     task_id=task_id,
                     result_status=result.get('status'),
                     task_success=task_success,
@@ -1130,14 +1102,12 @@ class ServiceNowAgentTool(BaseAgentTool):
                 # Log with actual success status
                 if task_success:
                     logger.info("a2a_response_success",
-                        component="orchestrator",
                         agent="servicenow-agent", 
                         task_id=task_id,
                         response_length=len(final_response)
                     )
                 else:
                     logger.warning("a2a_response_failure",
-                        component="orchestrator",
                         agent="servicenow-agent", 
                         task_id=task_id,
                         response_length=len(final_response),
@@ -1146,7 +1116,6 @@ class ServiceNowAgentTool(BaseAgentTool):
                 
                 # Log tool completion with actual success status
                 logger.info("tool_invocation_complete",
-                    component="orchestrator",
                     operation="servicenow_agent_tool",
                     tool_name="servicenow_agent",
                     tool_call_id=tool_call_id,
@@ -1159,7 +1128,6 @@ class ServiceNowAgentTool(BaseAgentTool):
                     # Return error Command for failed tasks
                     error_message = result.get('error', 'ServiceNow agent task failed')
                     logger.info("servicenow_returning_error_command",
-                        component="orchestrator",
                         task_id=task_id,
                         error_message=error_message,
                         task_success=task_success,
@@ -1192,7 +1160,6 @@ class ServiceNowAgentTool(BaseAgentTool):
         
         except A2AException as e:
             logger.error("tool_invocation_error",
-                component="orchestrator",
                 operation="servicenow_agent_tool",
                 tool_name="servicenow_agent",
                 tool_call_id=tool_call_id,
@@ -1205,7 +1172,6 @@ class ServiceNowAgentTool(BaseAgentTool):
             )
         except Exception as e:
             logger.error("tool_invocation_error",
-                component="orchestrator",
                 operation="servicenow_agent_tool",
                 tool_name="servicenow_agent",
                 tool_call_id=tool_call_id,
@@ -1265,7 +1231,6 @@ class ServiceNowAgentTool(BaseAgentTool):
             
             # Log structured data addition
             logger.info("structured_data_found",
-                component="orchestrator",
                 tool_name="servicenow_agent",
                 data_preview=str(tool_results_data)[:200],
                 data_size=len(json.dumps(tool_results_data)),

@@ -8,9 +8,9 @@ from enum import Enum
 from langgraph.graph.message import add_messages
 from langchain_core.messages import BaseMessage
 
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger
 
-logger = get_logger()
+logger = SmartLogger("orchestrator")
 
 
 class PlanStatus(Enum):

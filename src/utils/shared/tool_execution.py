@@ -8,10 +8,10 @@ which is the modern LangGraph pattern for state management and tool execution.
 import uuid
 from typing import Dict, Any, List
 from langchain_core.messages import ToolMessage
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger
 
-# Initialize logger
-logger = get_logger()
+# Initialize SmartLogger
+logger = SmartLogger()
 
 
 async def execute_command_tools(state: Dict[str, Any], tools: List[Any], component: str = "tools") -> Dict[str, Any]:
@@ -60,7 +60,6 @@ async def execute_command_tools(state: Dict[str, Any], tools: List[Any], compone
                 
                 # Log tool call - IDENTICAL format to orchestrator
                 logger.info("tool_call",
-                    component=component,
                     tool_name=tool_name,
                     tool_args=clean_args,
                     tool_call_id=tool_call_id
@@ -76,7 +75,6 @@ async def execute_command_tools(state: Dict[str, Any], tools: List[Any], compone
                 
                 # Log tool success - IDENTICAL format to orchestrator pattern
                 logger.info("tool_result",
-                    component=component,
                     tool_name=tool_name,
                     tool_call_id=tool_call_id,
                     result_type=type(result).__name__,
@@ -87,8 +85,7 @@ async def execute_command_tools(state: Dict[str, Any], tools: List[Any], compone
                 if hasattr(result, 'update') and isinstance(result.update, dict):
                     # This is a Command object
                     logger.info("tool_command_received",
-                        component=component,
-                        tool_name=tool_name,
+                            tool_name=tool_name,
                         update_keys=list(result.update.keys()),
                         has_messages="messages" in result.update,
                         # Workflow interruption removed
@@ -109,7 +106,6 @@ async def execute_command_tools(state: Dict[str, Any], tools: List[Any], compone
             except Exception as e:
                 # Log tool call error
                 logger.error("tool_call_error",
-                    component=component,
                     tool_name=tool_name,
                     tool_call_id=tool_call_id,
                     error=str(e),

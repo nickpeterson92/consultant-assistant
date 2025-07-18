@@ -29,14 +29,14 @@ import logging
 # Disable LangSmith tracing to avoid circular reference errors
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
-# Import SmartLogger framework
-from src.utils.logging.framework import SmartLogger
+# Import unified logger
+from src.utils.logging import get_logger
 from src.utils.config.unified_config import config as app_config
 from src.utils.llm import create_azure_openai_chat
 from src.utils.agents.prompts import salesforce_agent_sys_msg
 
-# Initialize SmartLogger
-logger = SmartLogger("salesforce")
+# Initialize structured logger
+logger = get_logger("salesforce")
 
 # Suppress verbose HTTP debug logs
 logging.getLogger('openai._base_client').setLevel(logging.WARNING)
@@ -356,7 +356,7 @@ class SalesforceA2AHandler:
             
             # Include error information if task failed
             if not task_success:
-                result_dict["error"] = response_content  # Use actual response with error details
+                result_dict["error"] = "Task execution encountered errors"
                 
             return result_dict
             

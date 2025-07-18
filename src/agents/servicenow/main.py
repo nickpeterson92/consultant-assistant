@@ -18,11 +18,11 @@ from langgraph.checkpoint.memory import MemorySaver
 from src.tools.servicenow import UNIFIED_SERVICENOW_TOOLS
 from src.a2a import A2AServer, AgentCard
 from src.utils.config.unified_config import config as app_config
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger
 from src.utils.llm import create_azure_openai_chat
 from src.utils.agents.prompts import servicenow_agent_sys_msg
 
-logger = get_logger("servicenow")
+logger = SmartLogger("servicenow")
 
 # Agent state definition
 class ServiceNowAgentState(TypedDict):
@@ -61,8 +61,7 @@ def build_servicenow_graph():
         
         # Log agent entry
         logger.info("servicenow_agent_entry",
-            component="servicenow",
-            operation="process_task",
+                        operation="process_task",
             task_id=task_id,
             message_count=len(state.get("messages", [])),
             has_task_context=bool(state.get("task_context")),
@@ -95,8 +94,7 @@ def build_servicenow_graph():
         total_tokens = system_tokens + message_tokens
         
         logger.info("servicenow_token_usage",
-            component="servicenow",
-            operation="prepare_messages",
+                        operation="prepare_messages",
             task_id=task_id,
             original_message_count=len(state_messages),
             trimmed_message_count=len(trimmed_messages),
@@ -135,8 +133,7 @@ def build_servicenow_graph():
                     })
             
             logger.info("servicenow_llm_invocation_complete",
-                component="servicenow",
-                operation="invoke_llm",
+                                operation="invoke_llm",
                 task_id=task_id,
                 has_tool_calls=has_tool_calls,
                 response_length=len(response_content),
@@ -148,8 +145,7 @@ def build_servicenow_graph():
             
         except Exception as e:
             logger.error("servicenow_agent_error",
-                component="servicenow",
-                operation="llm_invoke",
+                                operation="llm_invoke",
                 task_id=task_id,
                 error=str(e),
                 error_type=type(e).__name__
@@ -204,8 +200,7 @@ async def handle_a2a_request(params: dict) -> dict:
         }
         
         logger.info("a2a_task_received",
-            component="servicenow",
-            operation="process_task",
+                        operation="process_task",
             task_id=task_id,
             instruction_preview=instruction[:100] if instruction else "",
             has_context=bool(context),
@@ -280,8 +275,7 @@ async def handle_a2a_request(params: dict) -> dict:
             
             # Log completion with actual success status
             logger.info("a2a_task_complete",
-                component="servicenow",
-                operation="process_task",
+                                operation="process_task",
                 task_id=task_id,
                 response_length=len(response_content),
                 tool_calls_made=len([m for m in messages if hasattr(m, 'tool_calls') and m.tool_calls]),
@@ -300,7 +294,7 @@ async def handle_a2a_request(params: dict) -> dict:
             
             # Include error information if task failed
             if not task_success:
-                result["error"] = "Task execution encountered tool errors"
+                result["error"] = response_content  # Use actual response with error details
             
             return result
         else:
@@ -315,8 +309,7 @@ async def handle_a2a_request(params: dict) -> dict:
             error_msg = "Too many tool calls required. Please simplify your request."
             
         logger.error("a2a_task_error",
-            component="servicenow",
-            operation="process_task",
+                        operation="process_task",
             task_id=task_id,
             error=str(e),
             error_type=type(e).__name__
@@ -366,8 +359,7 @@ async def main(port: int = 8003):
     agent_card = create_servicenow_agent_card()
     
     logger.info("servicenow_agent_startup",
-        component="servicenow",
-        operation="startup",
+                operation="startup",
         port=port,
         tools_count=len(UNIFIED_SERVICENOW_TOOLS),
         capabilities=agent_card.capabilities

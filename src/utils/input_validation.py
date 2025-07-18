@@ -12,9 +12,9 @@ Philosophy:
 
 import re
 
-from .logging import get_logger
+from .logging.framework import SmartLogger
 
-logger = get_logger()
+logger = SmartLogger("system")
 
 class ValidationError(Exception):
     """Custom validation error for user input"""
@@ -105,8 +105,7 @@ def validate_orchestrator_input(user_input: str) -> str:
         # Only log actual errors, not expected validation issues
         if "empty input" not in str(e).lower():
             logger.error("input_validation_failed",
-                component="utils",
-                operation="validate_orchestrator_input",
+                                operation="validate_orchestrator_input",
                 error=str(e),
                 error_type=type(e).__name__
             )

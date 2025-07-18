@@ -6,13 +6,16 @@ from pydantic import BaseModel, Field
 from .base import (
     SalesforceReadTool,
     SalesforceWriteTool,
-    SalesforceAnalyticsTool,
-    logger
+    SalesforceAnalyticsTool
 )
 from src.utils.platform.salesforce import (
     SOQLQueryBuilder,
     SOQLOperator
-    )
+)
+from src.utils.logging.framework import SmartLogger, log_execution
+
+# Initialize SmartLogger
+logger = SmartLogger("salesforce")
 
 
 class SalesforceGet(SalesforceReadTool):
@@ -27,31 +30,29 @@ class SalesforceGet(SalesforceReadTool):
     
     args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
     
+    @log_execution()  # Auto-detects component, logs everything automatically
     def _execute(self, **kwargs) -> Any:
-        """Execute the get operation."""
+        """Execute get operation - automatic comprehensive logging!"""
         record_id = kwargs['record_id']
         object_type = kwargs.get('object_type', None)
         fields = kwargs.get('fields', None)
+        
         # Auto-detect object type from ID prefix if not provided
         if not object_type:
             id_prefixes = {
-                '001': 'Account',
-                '003': 'Contact',
-                '00Q': 'Lead',
-                '006': 'Opportunity',
-                '500': 'Case',
-                '00T': 'Task'
+                '001': 'Account', '003': 'Contact', '00Q': 'Lead',
+                '006': 'Opportunity', '500': 'Case', '00T': 'Task'
             }
-            prefix = record_id[:3]
-            object_type = id_prefixes.get(prefix)
+            object_type = id_prefixes.get(record_id[:3])
             
             if not object_type:
-                return {"success": False, "error": f"Cannot determine object type from ID prefix '{prefix}'"}
+                logger.info("object_type_detection_failed", 
+                                record_id=record_id, id_prefix=record_id[:3])
+                return {"success": False, "error": f"Cannot determine object type from ID prefix '{record_id[:3]}'"}
         
-        # Get the record
+        # Pure business logic - no logging clutter!
         fields_to_query = self._build_field_list(object_type, fields)
         
-        # Use the Salesforce REST API for single record retrieval
         try:
             sobject = getattr(self.sf, object_type)
             result = sobject.get(record_id)
@@ -59,6 +60,12 @@ class SalesforceGet(SalesforceReadTool):
             # Filter to requested fields if specified
             if fields:
                 result = {k: v for k, v in result.items() if k in fields or k == 'attributes'}
+            
+            # Business event emission
+            logger.info("record_retrieved", 
+                            object_type=object_type,
+                            record_id=record_id, 
+                            field_count=len(result))
             
             return result
         except Exception as e:
@@ -81,21 +88,26 @@ class SalesforceSearch(SalesforceReadTool):
     
     args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
     
+    @log_execution()  # Auto-logs entry, params, result, duration, errors
     def _execute(self, **kwargs) -> Any:
-        """Execute the search operation."""
+        """Execute search - pure business logic with automatic logging!"""
         object_type = kwargs['object_type']
         filter = kwargs['filter']
         fields = kwargs.get('fields', None)
         limit = kwargs.get('limit', 50)
         order_by = kwargs.get('order_by', None)
-        # Ensure filter is a string - Pydantic validates the type but LangChain
-        # may still pass non-string values in some edge cases
+        
+        # Ensure filter is a string
         if not isinstance(filter, str):
             filter = str(filter) if filter else ""
             
-        # Validate filter doesn't contain non-filterable fields
+        # Validation with simple event emission
         validation_error = self._validate_filter_fields(object_type, filter)
         if validation_error:
+            logger.info("filter_validation_failed", 
+                            object_type=object_type,
+                            filter=filter,
+                            error=validation_error)
             return {"success": False, "error": validation_error}
         
         # Build field list
@@ -142,15 +154,21 @@ class SalesforceSearch(SalesforceReadTool):
         
         # Execute query
         soql = builder.build()
-        logger.info("soql_query",
-            component="salesforce",
-            tool_name=self.name,
-            operation="query_built",
-            query=soql,
-            query_length=len(soql)
-        )
+        
+        # Event for query analysis
+        logger.info("soql_query_built", 
+                        object_type=object_type,
+                        query_length=len(soql),
+                        field_count=len(fields_to_query))
         
         result = self.sf.query(soql)
+        
+        # Business metrics event
+        logger.info("search_completed",
+                        object_type=object_type, 
+                        record_count=len(result.get('records', [])),
+                        has_more=not result.get('done', True))
+        
         return result.get('records', [])
 
 
@@ -165,26 +183,34 @@ class SalesforceCreate(SalesforceWriteTool):
     
     args_schema: type = Input  # pyright: ignore[reportIncompatibleVariableOverride]
     
+    @log_execution()  # Automatic logging for create operations
     def _execute(self, **kwargs) -> Any:
-        """Execute the create operation."""
+        """Execute create operation - clean business logic!"""
         object_type = kwargs['object_type']
         data = kwargs['data']
+        
         # Validate required fields
         validation_error = self._validate_required_fields(object_type, data)
         if validation_error:
+            logger.info("create_validation_failed", 
+                            object_type=object_type, error=validation_error)
             return {"success": False, "error": validation_error}
         
-        # Prepare data
+        # Pure business logic
         prepared_data = self._prepare_data(data)
-        
-        # Create the record
         sobject = getattr(self.sf, object_type)
         result = sobject.create(prepared_data)
         
         if result.get('success'):
-            # Fetch the created record to return full details using REST API
             created_id = result['id']
-            sobject = getattr(self.sf, object_type)
+            
+            # Business event
+            logger.info("record_created", 
+                            object_type=object_type,
+                            record_id=created_id,
+                            field_count=len(data))
+            
+            # Return full details
             return sobject.get(created_id)
         else:
             errors = result.get('errors', [])
@@ -304,12 +330,11 @@ class SalesforceSOSL(SalesforceReadTool):
         
         # Execute search
         sosl = ' '.join(sosl_parts)
-        logger.info("sosl_query",
-            component="salesforce",
-            tool_name=self.name,
-            operation="query_built",
-            query=sosl
-        )
+        
+        logger.info("sosl_query_built", 
+                        search_term=search_term,
+                        object_count=len(object_types),
+                        query_length=len(sosl))
         
         results = self.sf.search(sosl)
         
@@ -423,15 +448,21 @@ class SalesforceAnalytics(SalesforceAnalyticsTool):
         
         # Execute query
         soql = builder.build()
-        logger.info("soql_analytics_query",
-            component="salesforce",
-            tool_name=self.name,
-            operation="query_built",
-            query=soql
-        )
+        
+        logger.info("analytics_query_built", 
+                        object_type=object_type,
+                        metric_count=len(metrics),
+                        has_grouping=bool(group_by),
+                        query_length=len(soql))
         
         result = self.sf.query(soql)
         records = result.get('records', [])
+        
+        # Analytics completion event
+        logger.info("analytics_completed",
+                        object_type=object_type,
+                        result_count=len(records),
+                        grouped_by=group_by)
         
         # Format results
         if not records:

@@ -24,10 +24,10 @@ import asyncio
 from datetime import datetime
 from typing import Optional, List, Any, Tuple, Iterable, Union, Literal
 from langgraph.store.base import BaseStore, Item, SearchItem, GetOp, PutOp, SearchOp, ListNamespacesOp
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger
 
-# Initialize logger
-logger = get_logger()
+# Initialize SmartLogger
+logger = SmartLogger("storage")
 
 class SQLiteStore(BaseStore):
     """Thread-safe SQLite key-value store with namespace support.
@@ -250,8 +250,7 @@ class SQLiteStore(BaseStore):
         """
         # Log database delete start
         logger.info("database_delete_start",
-            component="storage",
-            operation="delete",
+                        operation="delete",
             namespace=str(namespace),
             key=key
         )
@@ -264,16 +263,14 @@ class SQLiteStore(BaseStore):
             self.conn.commit()
             
             logger.info("database_delete_success",
-                component="storage",
-                operation="delete",
+                                operation="delete",
                 namespace=str(namespace),
                 key=key,
                 rows_affected=cursor.rowcount
             )
         except Exception as e:
             logger.error("database_delete_error",
-                component="storage",
-                operation="delete",
+                                operation="delete",
                 namespace=str(namespace),
                 key=key,
                 error=str(e),

@@ -8,9 +8,9 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, Base
 from langchain_core.runnables import RunnableConfig
 
 from src.orchestrator.plan_execute_state import PlanExecuteState, create_initial_state
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger
 
-logger = get_logger()
+logger = SmartLogger("orchestrator")
 
 
 class CleanConversationHandler:

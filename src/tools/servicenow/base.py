@@ -14,9 +14,9 @@ import requests
 from requests.auth import HTTPBasicAuth
 
 from langchain.tools import BaseTool
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger
 
-logger = get_logger("servicenow")
+logger = SmartLogger("servicenow")
 
 
 class ServiceNowConnectionManager:
@@ -43,8 +43,7 @@ class ServiceNowConnectionManager:
             raise ValueError("SERVICENOW_INSTANCE environment variable not set")
             
         logger.info("servicenow_connection_created",
-            component="servicenow",
-            operation="connection_manager",
+                        operation="connection_manager",
             instance=instance,
             has_auth=bool(os.environ.get('SERVICENOW_USER') and os.environ.get('SERVICENOW_PASSWORD'))
         )
@@ -84,16 +83,14 @@ class BaseServiceNowTool(BaseTool, ABC):
     def _log_call(self, **kwargs):
         """Log tool call with consistent format."""
         logger.info("tool_call",
-            component="servicenow",
-            tool_name=self.name,
+                        tool_name=self.name,
             tool_args=kwargs
         )
     
     def _log_result(self, result: Any):
         """Log tool result with consistent format."""
         logger.info("tool_result",
-            component="servicenow",
-            tool_name=self.name,
+                        tool_name=self.name,
             result_type=type(result).__name__,
             result_preview=str(result)[:200] if result else "None"
         )
@@ -101,8 +98,7 @@ class BaseServiceNowTool(BaseTool, ABC):
     def _log_query(self, query: str, operation: str = "query_built"):
         """Log Glide query for debugging."""
         logger.info("glide_query",
-            component="servicenow",
-            tool_name=self.name,
+                        tool_name=self.name,
             operation=operation,
             query=query,
             query_length=len(query)
@@ -111,8 +107,7 @@ class BaseServiceNowTool(BaseTool, ABC):
     def _handle_error(self, error: Exception) -> Dict[str, Any]:
         """Handle errors with consistent format and structured guidance."""
         logger.error("tool_error",
-            component="servicenow",
-            tool_name=self.name,
+                        tool_name=self.name,
             error=str(error),
             error_type=type(error).__name__
         )
@@ -245,8 +240,7 @@ class BaseServiceNowTool(BaseTool, ABC):
             
             # Log the full error details
             logger.error("servicenow_api_error",
-                component="servicenow",
-                tool_name=self.name if hasattr(self, 'name') else 'unknown',
+                                tool_name=self.name if hasattr(self, 'name') else 'unknown',
                 status_code=response.status_code,
                 url=url,
                 error_message=error_message,
@@ -267,8 +261,7 @@ class BaseServiceNowTool(BaseTool, ABC):
             # Check for hibernated instance (common with dev instances)
             if 'text/html' in content_type and ('Instance Hibernating' in response.text or 'hibernat' in response.text.lower()):
                 logger.error("servicenow_instance_hibernated",
-                    component="servicenow",
-                    tool_name=self.name if hasattr(self, 'name') else 'unknown',
+                                        tool_name=self.name if hasattr(self, 'name') else 'unknown',
                     instance=self.servicenow['base_url'].split('/')[2],
                     response_preview=response.text[:300]
                 )
@@ -278,8 +271,7 @@ class BaseServiceNowTool(BaseTool, ABC):
             else:
                 # Other non-JSON response
                 logger.error("servicenow_unexpected_content_type",
-                    component="servicenow",
-                    tool_name=self.name if hasattr(self, 'name') else 'unknown',
+                                        tool_name=self.name if hasattr(self, 'name') else 'unknown',
                     content_type=content_type,
                     status_code=response.status_code,
                     response_preview=response.text[:200] if response.text else 'empty'
@@ -365,8 +357,7 @@ class ServiceNowReadTool(BaseServiceNowTool):
             depth = field.count('.')
             if depth > 3:
                 logger.warning("excessive_dot_walking",
-                    component="servicenow",
-                    tool_name=self.name,
+                                        tool_name=self.name,
                     field=field,
                     depth=depth,
                     details="Dot-walking beyond 3 levels may impact performance"
@@ -404,8 +395,7 @@ class ServiceNowReadTool(BaseServiceNowTool):
                 result = response.json()
             except requests.exceptions.JSONDecodeError:
                 logger.warning("nlq_api_non_json_response",
-                    component="servicenow",
-                    tool_name=self.name,
+                                        tool_name=self.name,
                     response_text=response.text[:200],
                     status_code=response.status_code
                 )
@@ -425,16 +415,14 @@ class ServiceNowReadTool(BaseServiceNowTool):
                 }
             else:
                 logger.info("nlq_interpretation_failed",
-                    component="servicenow",
-                    tool_name=self.name,
+                                        tool_name=self.name,
                     natural_query=natural_language[:100]
                 )
                 return {"success": False}
                 
         except Exception as e:
             logger.warning("nlq_api_unavailable",
-                component="servicenow",
-                tool_name=self.name,
+                                tool_name=self.name,
                 error=str(e),
                 details="NLQ API not available or error occurred"
             )
