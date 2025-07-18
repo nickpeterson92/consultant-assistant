@@ -12,7 +12,7 @@ from langchain_core.messages import HumanMessage
 # Command will be imported when needed
 
 from src.utils.logging import get_logger
-from src.utils.config import get_conversation_config
+from src.utils.config.unified_config import config as app_config
 from .types import A2AResponse, A2AMetadata
 
 logger = get_logger("orchestrator")
@@ -98,7 +98,7 @@ class CleanOrchestratorA2AHandler:
                         result = await self.graph.graph.ainvoke(updated_state, config)
                         
                     else:
-                        # Start new conversation with fresh state
+                        # Start new conversation - check for existing summary
                         logger.info("starting_new_conversation", 
                                    component="orchestrator",
                                    task_id=task_id,
@@ -107,6 +107,13 @@ class CleanOrchestratorA2AHandler:
                         
                         from .plan_execute_state import create_initial_state
                         initial_state = create_initial_state(instruction)
+                        
+                        # Add config to state so background tasks can access thread_id
+                        initial_state["config"] = config
+                        
+                        # Load existing summary if available (YAGNI: only summary, not full state)
+                        await self._load_summary_if_exists(initial_state, thread_id, user_id)
+                        
                         initial_state["messages"] = [HumanMessage(content=instruction)]
                         
                         result = await self.graph.graph.ainvoke(initial_state, config)
@@ -121,6 +128,13 @@ class CleanOrchestratorA2AHandler:
                     # Fallback to fresh state if state loading fails
                     from .plan_execute_state import create_initial_state
                     initial_state = create_initial_state(instruction)
+                    
+                    # Add config to state so background tasks can access thread_id
+                    initial_state["config"] = config
+                    
+                    # Load existing summary if available (YAGNI: only summary, not full state)
+                    await self._load_summary_if_exists(initial_state, thread_id, user_id)
+                    
                     initial_state["messages"] = [HumanMessage(content=instruction)]
                     
                     result = await self.graph.graph.ainvoke(initial_state, config)
@@ -748,23 +762,84 @@ class CleanOrchestratorA2AHandler:
                            modification_type=plan_modification.modification_type,
                            target_step=plan_modification.target_step_number)
                 
-                if plan_modification.modification_type == "cancel_and_new":
-                    # Start completely new plan
-                    instruction = plan_modification.new_plan_description or "continue"
-                    logger.info("plan_cancelled_starting_new",
+                if plan_modification.modification_type == "cancel_plan":
+                    # Cancel current plan, clean slate
+                    logger.info("plan_cancelled_clean_slate",
                                component="orchestrator",
-                               thread_id=thread_id,
-                               new_instruction=instruction)
-                    # Start fresh - fall through to normal execution
+                               thread_id=thread_id)
+                    
+                    # Clear existing plan from graph state
+                    clear_plan_update = {"plan": None}
+                    logger.info("clearing_existing_plan_for_cancellation",
+                               component="orchestrator",
+                               thread_id=thread_id)
+                    
+                    # Apply the clear plan update
+                    self.graph.graph.update_state(config, clear_plan_update)
+                    
+                    # Send cancellation confirmation response
+                    yield self._format_sse_event("plan_cancelled", {
+                        "task_id": task_id,
+                        "message": "Plan cancelled. How can I help you?",
+                        "thread_id": thread_id,
+                        "timestamp": datetime.now().isoformat()
+                    })
+                    
+                    # Task complete - plan cancelled
+                    logger.info("a2a_streaming_task_complete", 
+                               component="orchestrator",
+                               task_id=task_id,
+                               success=True)
+                    return
                     
                 elif plan_modification.modification_type == "replace_plan":
-                    # Replace current plan with new approach
+                    # Replace current plan with new approach - use Command approach like other modifications
                     instruction = plan_modification.new_plan_description or "continue" 
                     logger.info("plan_replaced",
                                component="orchestrator", 
                                thread_id=thread_id,
                                new_instruction=instruction)
-                    # Start fresh - fall through to normal execution
+                    
+                    # Use the same Command approach as other modifications
+                    command_update = self._create_plan_state_update(plan_modification)
+                    logger.info("plan_replacement_state_update_created",
+                               component="orchestrator",
+                               thread_id=thread_id,
+                               update_keys=list(command_update.keys()) if command_update else [])
+                    
+                    # Get current state to include plan data
+                    try:
+                        current_state = self.graph.graph.get_state(config)
+                        current_plan = current_state.values.get("plan") if current_state and current_state.values else None
+                    except Exception as e:
+                        logger.warning("failed_to_get_current_state_for_plan_replacement",
+                                     component="orchestrator",
+                                     thread_id=thread_id,
+                                     error=str(e))
+                        current_plan = None
+                    
+                    # Send plan modification event to client with plan data
+                    event_data = {
+                        "task_id": task_id,
+                        "modification_type": plan_modification.modification_type,
+                        "message": f"Plan replaced with: {instruction[:100]}...",
+                        "timestamp": datetime.now().isoformat()
+                    }
+                    
+                    # Include plan data if available
+                    if current_plan:
+                        event_data["plan"] = current_plan
+                    
+                    yield self._format_sse_event("plan_modified", event_data)
+                    
+                    # Stream the execution with state updates
+                    async for event in self.graph.graph.astream(
+                        Command(update=command_update, resume=resume_data),
+                        config,
+                        stream_mode="updates"
+                    ):
+                        yield self._process_graph_event(event, task_id, thread_id)
+                    return
                     
                 elif plan_modification.modification_type == "conversation_only":
                     # Just respond, don't modify plan
@@ -1407,6 +1482,34 @@ class CleanOrchestratorA2AHandler:
                         error=str(e))
             raise
     
+    async def _load_summary_if_exists(self, state: dict, thread_id: str, user_id: str):
+        """Load existing summary from storage if available (YAGNI: only summary)."""
+        try:
+            from src.utils.storage import get_async_store_adapter
+            from src.utils.config import STATE_KEY_PREFIX
+            
+            memory_store = get_async_store_adapter(db_path=app_config.db_path)
+            
+            namespace = (app_config.memory_namespace_prefix, user_id)
+            key = f"{STATE_KEY_PREFIX}{thread_id}"
+            
+            stored_data = await memory_store.get(namespace, key)
+            if stored_data and "summary" in stored_data:
+                state["summary"] = stored_data["summary"]
+                logger.info("summary_loaded_from_storage",
+                           component="storage",
+                           thread_id=thread_id,
+                           summary_length=len(stored_data["summary"]))
+            else:
+                logger.info("no_stored_summary_found",
+                           component="storage", 
+                           thread_id=thread_id)
+        except Exception as e:
+            logger.warning("summary_load_error",
+                          component="storage",
+                          thread_id=thread_id,
+                          error=str(e))
+    
     def _create_plan_state_update(self, plan_modification) -> Dict[str, Any]:
         """Create state update dictionary based on plan modification."""
         update = {}
@@ -1421,6 +1524,19 @@ class CleanOrchestratorA2AHandler:
         elif plan_modification.modification_type == "skip_steps" and plan_modification.steps_to_skip:
             # Skip specific steps
             update["skipped_task_indices"] = [i - 1 for i in plan_modification.steps_to_skip]  # Convert to 0-indexed
+            
+        elif plan_modification.modification_type == "replace_plan" and plan_modification.new_plan_description:
+            # Replace current plan with new plan
+            update["replace_plan_requested"] = True
+            update["new_plan_description"] = plan_modification.new_plan_description
+            update["current_task_index"] = 0  # Reset to start
+            update["skipped_task_indices"] = []  # Clear skipped steps
+            
+        elif plan_modification.modification_type == "add_to_plan" and plan_modification.additional_steps:
+            # Add steps to existing plan
+            update["add_to_plan_requested"] = True
+            update["additional_steps"] = plan_modification.additional_steps
+            update["insert_after_step"] = plan_modification.insert_after_step
             
         # Add modification metadata
         update["plan_modification_applied"] = {

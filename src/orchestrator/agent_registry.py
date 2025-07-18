@@ -14,6 +14,7 @@ from datetime import datetime
 
 from ..a2a import AgentCard, A2AClient, A2AException
 from ..utils.logging import get_logger
+from ..utils.config.unified_config import config as app_config
 
 # Initialize logger
 logger = get_logger()
@@ -58,9 +59,7 @@ class AgentRegistry:
     
     def __init__(self, config_path: Optional[str] = None):
         self.agents: Dict[str, RegisteredAgent] = {}
-        from ..utils.config import get_system_config
-        system_config = get_system_config()
-        self.config_path = config_path or system_config.agent_registry_path
+        self.config_path = config_path or app_config.get('system.agent_registry_path', 'agent_registry.json')
         self.client = None
         self._load_config()
     
@@ -257,10 +256,6 @@ class AgentRegistry:
         start_time = asyncio.get_event_loop().time()
         previous_status = agent.status
         
-        # Get config before try block so it's available in except blocks
-        from src.utils.config import get_a2a_config
-        a2a_config = get_a2a_config()
-        
         try:
             logger.info("health_check_start",
                 component="orchestrator",
@@ -270,7 +265,7 @@ class AgentRegistry:
                 current_status=previous_status
             )
             
-            async with A2AClient(timeout=a2a_config.health_check_timeout) as client:
+            async with A2AClient(timeout=app_config.get('a2a.health_check_timeout', 10)) as client:
                 agent_card = await client.get_agent_card(agent.endpoint + "/a2a")
                 
                 agent.agent_card = agent_card

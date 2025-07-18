@@ -32,8 +32,8 @@ class PlanModification(BaseModel):
             "skip_to_step",      # Jump to specific step in current plan
             "skip_steps",        # Skip specific steps in current plan
             "continue",          # Continue current plan without changes
-            "cancel_and_new",    # Cancel current plan and start completely new task
-            "replace_plan",      # Replace entire plan with new approach to same goal
+            "cancel_plan",       # Cancel current plan, clean slate (no new plan)
+            "replace_plan",      # Replace entire plan with new approach
             "add_to_plan",       # Add steps to existing plan
             "conversation_only"  # Just talking, no plan changes needed
         ]

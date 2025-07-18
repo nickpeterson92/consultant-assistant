@@ -31,7 +31,7 @@ os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
 # Import unified logger
 from src.utils.logging import get_logger
-from src.utils.config import get_llm_config
+from src.utils.config.unified_config import config as app_config
 from src.utils.llm import create_azure_openai_chat
 from src.utils.agents.prompts import salesforce_agent_sys_msg
 
@@ -268,12 +268,11 @@ class SalesforceA2AHandler:
             
             # Modern config - no need for complex setup
             # Get recursion limit from config
-            llm_config = get_llm_config()
             config = {
                 "configurable": {
                     "thread_id": f"sf-{task_id}",
                 },
-                "recursion_limit": llm_config.recursion_limit  # Prevent runaway tool calls
+                "recursion_limit": app_config.llm_recursion_limit  # Prevent runaway tool calls
             }
             
             # Execute graph

@@ -3,7 +3,7 @@
 import os
 from typing import Optional, Dict, Any, Callable, Dict, Any, List
 from langchain_openai import AzureChatOpenAI
-from src.utils.config import get_llm_config
+from src.utils.config.unified_config import config as app_config
 from src.utils.logging import get_logger
 
 logger = get_logger("llm")
@@ -18,22 +18,21 @@ def create_azure_openai_chat(**kwargs) -> AzureChatOpenAI:
     Returns:
         Configured AzureChatOpenAI instance
     """
-    llm_config = get_llm_config()
-    
     # Build base configuration from global config
     llm_kwargs: Dict[str, Any] = {
         "azure_endpoint": os.environ.get("AZURE_OPENAI_ENDPOINT"),
-        "azure_deployment": llm_config.azure_deployment,
-        "openai_api_version": llm_config.api_version,
+        "azure_deployment": app_config.get_secret("azure_openai_deployment", required=False) or os.environ.get("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME"),
+        "openai_api_version": app_config.get_secret("azure_openai_api_version", required=False) or os.environ.get("AZURE_OPENAI_API_VERSION"),
         "openai_api_key": os.environ.get("AZURE_OPENAI_API_KEY"),
-        "temperature": llm_config.temperature,
-        "max_tokens": llm_config.max_tokens,
-        "timeout": llm_config.timeout,
+        "temperature": app_config.llm_temperature,
+        "max_tokens": app_config.llm_max_tokens,
+        "timeout": app_config.llm_timeout,
     }
     
     # Add optional top_p if configured
-    if llm_config.top_p is not None:
-        llm_kwargs["top_p"] = llm_config.top_p
+    top_p = app_config.get('llm.top_p')
+    if top_p is not None:
+        llm_kwargs["top_p"] = top_p
     
     # Apply any overrides
     llm_kwargs.update(kwargs)
@@ -45,9 +44,9 @@ def create_azure_openai_chat(**kwargs) -> AzureChatOpenAI:
         raise ValueError("AZURE_OPENAI_API_KEY environment variable is required")
     
     logger.info("creating_llm_instance",
-                deployment=llm_config.azure_deployment,
-                temperature=llm_kwargs.get("temperature", llm_config.temperature),
-                max_tokens=llm_kwargs.get("max_tokens", llm_config.max_tokens))
+                deployment=llm_kwargs.get("azure_deployment"),
+                temperature=llm_kwargs.get("temperature"),
+                max_tokens=llm_kwargs.get("max_tokens"))
     
     return AzureChatOpenAI(**llm_kwargs)
 

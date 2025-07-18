@@ -23,11 +23,10 @@ class AsyncStoreAdapter:
     """Simple async adapter for SQLiteStore using thread pool executor."""
     
     def __init__(self, db_path: Optional[str] = None, max_workers: Optional[int] = None):
-        from ..config import get_database_config
-        db_config = get_database_config()
+        from ..config.unified_config import config as app_config
         
-        self.db_path = db_path or db_config.path
-        self.max_workers = max_workers or db_config.thread_pool_size
+        self.db_path = db_path or app_config.db_path
+        self.max_workers = max_workers or app_config.get('database.thread_pool_size', 4)
         
         # Thread-local storage for SQLite connections
         self._thread_local = threading.local()
@@ -35,7 +34,7 @@ class AsyncStoreAdapter:
         # Thread pool for async operations
         self._executor = ThreadPoolExecutor(
             max_workers=self.max_workers, 
-            thread_name_prefix=db_config.thread_prefix
+            thread_name_prefix=app_config.get('database.thread_prefix', 'sqlite_')
         )
         logger.info(f"Initialized AsyncStoreAdapter at {self.db_path}")
     

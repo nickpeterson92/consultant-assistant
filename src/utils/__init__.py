@@ -13,7 +13,7 @@ For backward compatibility, old imports are still supported but deprecated.
 
 # Core utilities (most commonly used)
 from .logging import get_logger
-from .config import get_system_config, get_llm_config
+from .config import config, ConfigError
 
 # Storage utilities
 from .storage import (
@@ -46,8 +46,8 @@ from .input_validation import validate_orchestrator_input
 __all__ = [
     # Core
     'get_logger',
-    'get_system_config',
-    'get_llm_config',
+    'config',
+    'ConfigError',
     
     # Storage
     'get_async_store_adapter',

@@ -7,8 +7,8 @@ from typing import Dict, Any, cast, List
 
 from langchain_core.messages import SystemMessage, RemoveMessage
 
+from src.utils.config.unified_config import config as app_config
 from src.utils.config import (
-    get_conversation_config, get_database_config,
     DETERMINISTIC_TEMPERATURE, DETERMINISTIC_TOP_P,
     STATE_KEY_PREFIX
 )
@@ -104,7 +104,6 @@ async def summarize_conversation(state: OrchestratorState, invoke_llm):
     
     # Preserve more messages after summarization
     # Keep enough to maintain context but not overwhelm the system
-    conv_config = get_conversation_config()
     preserve_count = min(20, len(state["messages"]) // 3)  # Keep 1/3 of messages or 20, whichever is less
     preserve_count = max(preserve_count, 5)  # But always keep at least 5 messages
     
@@ -143,11 +142,10 @@ async def summarize_conversation(state: OrchestratorState, invoke_llm):
 
 async def memorize_records(state: OrchestratorState, config: Dict[str, Any], memory_store, trustcall_extractor):
     """Extract and persist structured data from conversation."""
-    conv_config = get_conversation_config()
-    user_id = config.get("configurable", {}).get("user_id", conv_config.default_user_id)
+    user_id = config.get("configurable", {}).get("user_id", app_config.default_user_id)
     thread_id = config.get("configurable", {}).get("thread_id")
-    namespace = (conv_config.memory_namespace_prefix, user_id)
-    key = conv_config.memory_key
+    namespace = (app_config.memory_namespace_prefix, user_id)
+    key = app_config.get('conversation.memory_key', 'SimpleMemory')
     
     extraction_start_time = time.time()
     logger.info("memory_extraction_start",
@@ -266,7 +264,7 @@ Tool Message {idx + 1} of {len(tool_messages)}:
             error_type=type(e).__name__
         )
     
-    updated_memory = {conv_config.memory_key: current_memory.model_dump()}
+    updated_memory = {app_config.get('conversation.memory_key', 'SimpleMemory'): current_memory.model_dump()}
     
     # Log completion
     logger.info("memory_extraction_summary",
@@ -291,7 +289,7 @@ async def _run_background_summary_async(messages, summary, memory, user_id, thre
     """Execute summarization in background using async."""
     try:
         memory_store = get_async_store_adapter(
-            db_path=get_database_config().path
+            db_path=app_config.db_path
         )
         
         mock_state = {
@@ -305,28 +303,19 @@ async def _run_background_summary_async(messages, summary, memory, user_id, thre
         if result and "summary" in result:
             new_summary = result["summary"]
             logger.info("background_summary_save", 
-                component="orchestrator", 
+                component="storage", 
                 operation="saving_summary_to_store",
                 summary_preview=new_summary[:200] if new_summary else "NO_SUMMARY"
             )
             
-            conv_config = get_conversation_config()
-            namespace = (conv_config.memory_namespace_prefix, user_id)
+            namespace = (app_config.memory_namespace_prefix, user_id)
             key = f"{STATE_KEY_PREFIX}{thread_id}"
             
             mock_state["summary"] = new_summary
             
-            # Serialize messages before saving
-            from src.utils.agents.message_processing.unified_serialization import serialize_messages_for_json
-            
-            serialized_state = {
-                "messages": serialize_messages_for_json(mock_state["messages"]),
-                "summary": mock_state["summary"],
-                "memory": mock_state["memory"]
-            }
-            
+            # YAGNI: Store only the summary - we never load the full state
             await memory_store.put(namespace, key, {
-                "state": serialized_state,
+                "summary": new_summary,
                 "thread_id": thread_id,
                 "timestamp": time.time()
             })
@@ -348,7 +337,6 @@ async def _run_background_memory_async(messages, summary, memory, user_id, memor
             "summary": summary,
             "memory": memory
         }
-        conv_config = get_conversation_config()
         mock_config = {"configurable": {"user_id": user_id}}
         
         result = await memorize_func(mock_state, mock_config, memory_store, trustcall_extractor)
