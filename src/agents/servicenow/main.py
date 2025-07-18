@@ -294,7 +294,7 @@ async def handle_a2a_request(params: dict) -> dict:
             
             # Include error information if task failed
             if not task_success:
-                result["error"] = "Task execution encountered tool errors"
+                result["error"] = response_content  # Use actual response with error details
             
             return result
         else:

@@ -53,6 +53,7 @@ class PlanModification(BaseModel):
             "cancel_plan",       # Cancel current plan, clean slate (no new plan)
             "replace_plan",      # Replace entire plan with new approach
             "add_to_plan",       # Add steps to existing plan
+            "remove_from_plan",  # Remove steps from existing plan
             "conversation_only"  # Just talking, no plan changes needed
         ]
     )
@@ -72,6 +73,9 @@ class PlanModification(BaseModel):
     # For adding to existing plan
     additional_steps: Optional[List[str]] = Field(description="New steps to add to current plan")
     insert_after_step: Optional[int] = Field(description="Step number to insert new steps after")
+    
+    # For removing from existing plan
+    steps_to_remove: Optional[List[int]] = Field(description="List of step numbers (1-indexed) to remove from plan")
     
     # Metadata
     reasoning: str = Field(description="Clear explanation of user's intent and what modification should be applied")

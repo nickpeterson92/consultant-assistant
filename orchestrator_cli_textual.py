@@ -43,6 +43,7 @@ class TextualWebSocketController:
         self.orchestrator_url = orchestrator_url
         self.thread_id = thread_id
         self.ws = None
+        self.session = None
         self.connected = False
         self.client_id = None
         
@@ -53,8 +54,13 @@ class TextualWebSocketController:
             ws_url = self.orchestrator_url.replace("http://", "ws://").replace("https://", "wss://")
             ws_url = f"{ws_url}/a2a/ws"
             
-            session = aiohttp.ClientSession()
-            self.ws = await session.ws_connect(ws_url)
+            logger.info("websocket_connection_attempt",
+                       orchestrator_url=self.orchestrator_url,
+                       ws_url=ws_url,
+                       thread_id=self.thread_id)
+            
+            self.session = aiohttp.ClientSession()
+            self.ws = await self.session.ws_connect(ws_url)
             
             # Register with the thread ID
             await self.ws.send_str(json.dumps({
@@ -87,46 +93,79 @@ class TextualWebSocketController:
     
     async def send_interrupt(self, reason="user_escape"):
         """Send interrupt command via WebSocket."""
+        logger.info("websocket_interrupt_attempt",
+                   connected=self.connected,
+                   has_ws=bool(self.ws),
+                   thread_id=self.thread_id,
+                   reason=reason)
+        
         if not self.connected or not self.ws:
-            logger.warning("websocket_not_connected_for_interrupt")
+            logger.warning("websocket_not_connected_for_interrupt",
+                          connected=self.connected,
+                          has_ws=bool(self.ws))
             return False
         
         try:
             message_id = str(uuid.uuid4())[:8]
-            await self.ws.send_str(json.dumps({
+            interrupt_msg = {
                 "type": "interrupt",
                 "payload": {
                     "thread_id": self.thread_id,
                     "reason": reason
                 },
                 "id": message_id
-            }))
+            }
             
-            # Wait for acknowledgment
-            timeout_task = asyncio.create_task(asyncio.sleep(5.0))
+            logger.info("websocket_sending_interrupt",
+                       ws_closed=self.ws.closed if self.ws else True)
             
-            async for msg in self.ws:
-                if msg.type == aiohttp.WSMsgType.TEXT:
-                    data = json.loads(msg.data)
-                    if data.get("type") == "interrupt_ack":
-                        timeout_task.cancel()
-                        success = data.get("payload", {}).get("success", False)
-                        message = data.get("payload", {}).get("message", "")
+            await self.ws.send_str(json.dumps(interrupt_msg))
+            
+            logger.info("websocket_interrupt_sent_successfully",
+                       message_id=message_id)
+            
+            # Wait for acknowledgment with proper timeout
+            async def wait_for_interrupt_ack():
+                logger.info("websocket_waiting_for_interrupt_ack")
+                async for msg in self.ws:
+                    logger.info("websocket_received_message",
+                               msg_type=msg.type,
+                               data_preview=str(msg.data)[:200] if hasattr(msg, 'data') else "no_data")
+                    
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        data = json.loads(msg.data)
+                        logger.info("websocket_parsed_message",
+                                   message_type=data.get("type"),
+                                   payload_keys=list(data.get("payload", {}).keys()))
                         
-                        logger.info("websocket_interrupt_ack",
-                                                                      success=success,
-                                   ack_message=message)
-                        return success
-                
-                if timeout_task.done():
-                    logger.warning("websocket_interrupt_timeout")
-                    return False
+                        if data.get("type") == "interrupt_ack":
+                            success = data.get("payload", {}).get("success", False)
+                            ack_message = data.get("payload", {}).get("message", "")
+                            
+                            logger.info("websocket_interrupt_ack_received",
+                                       success=success,
+                                       ack_message=ack_message)
+                            return success
+                    elif msg.type == aiohttp.WSMsgType.ERROR:
+                        logger.error("websocket_error_during_interrupt",
+                                   error=str(self.ws.exception()))
+                        return False
+                logger.warning("websocket_interrupt_ack_loop_ended")
+                return False
             
-            return False
+            # Use asyncio.wait_for for proper timeout handling
+            try:
+                result = await asyncio.wait_for(wait_for_interrupt_ack(), timeout=5.0)
+                logger.info("websocket_interrupt_final_result", result=result)
+                return result
+            except asyncio.TimeoutError:
+                logger.warning("websocket_interrupt_timeout_occurred")
+                return False
             
         except Exception as e:
             logger.error("websocket_interrupt_error",
-                                                error=str(e))
+                        error=str(e),
+                        error_type=type(e).__name__)
             return False
     
     async def send_resume(self, user_input):
@@ -146,27 +185,31 @@ class TextualWebSocketController:
                 "id": message_id
             }))
             
-            # Wait for acknowledgment
-            timeout_task = asyncio.create_task(asyncio.sleep(10.0))
+            # Wait for acknowledgment with proper timeout
+            async def wait_for_resume_ack():
+                async for msg in self.ws:
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        data = json.loads(msg.data)
+                        if data.get("type") == "resume_ack":
+                            success = data.get("payload", {}).get("success", False)
+                            ack_message = data.get("payload", {}).get("message", "")
+                            
+                            logger.info("websocket_resume_ack",
+                                       success=success,
+                                       ack_message=ack_message)
+                            return success
+                    elif msg.type == aiohttp.WSMsgType.ERROR:
+                        logger.error("websocket_error_during_resume",
+                                   error=str(self.ws.exception()))
+                        return False
+                return False
             
-            async for msg in self.ws:
-                if msg.type == aiohttp.WSMsgType.TEXT:
-                    data = json.loads(msg.data)
-                    if data.get("type") == "resume_ack":
-                        timeout_task.cancel()
-                        success = data.get("payload", {}).get("success", False)
-                        message = data.get("payload", {}).get("message", "")
-                        
-                        logger.info("websocket_resume_ack",
-                                                                      success=success,
-                                   ack_message=message)
-                        return success
-                
-                if timeout_task.done():
-                    logger.warning("websocket_resume_timeout")
-                    return False
-            
-            return False
+            # Use asyncio.wait_for for proper timeout handling
+            try:
+                return await asyncio.wait_for(wait_for_resume_ack(), timeout=10.0)
+            except asyncio.TimeoutError:
+                logger.warning("websocket_resume_timeout")
+                return False
             
         except Exception as e:
             logger.error("websocket_resume_error",
@@ -177,9 +220,11 @@ class TextualWebSocketController:
         """Close WebSocket connection."""
         if self.ws:
             await self.ws.close()
-            self.connected = False
-            logger.info("websocket_disconnected",
-                                              client_id=self.client_id)
+        if self.session:
+            await self.session.close()
+        self.connected = False
+        logger.info("websocket_disconnected",
+                   client_id=self.client_id)
 
 
 class PlanModificationScreen(ModalScreen):
@@ -207,7 +252,7 @@ class PlanModificationScreen(ModalScreen):
             
             yield Static("")
             yield Static("[bold]Enter your modification instructions:[/bold]")
-            yield Static("(e.g., 'skip to step 3', 'change step 2 to...', or 'cancel')")
+            yield Static("(e.g., 'skip to step 3', 'change step 2 to...', 'remove step 4', or 'cancel')")
             yield Static("")
             
             yield Input(

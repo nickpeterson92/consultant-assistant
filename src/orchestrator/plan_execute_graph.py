@@ -145,7 +145,20 @@ class PlanExecuteGraph:
                     logger.info("existing_plan_complete_creating_new", 
                                completed_plan_id=existing_plan.get("id"))
                     
-                    result = await self._handle_initial_planning(state)
+                    # Clear existing plan state before creating new plan
+                    cleaned_state = {
+                        **state,
+                        "plan": None,
+                        "current_task_index": 0,
+                        "skipped_task_indices": [],
+                        "plan_history": state.get("plan_history", []),  # Keep history but reset active state
+                        "task_results": {},
+                        "progress_state": None,
+                        "interrupted_workflow": None,
+                        "workflow_human_response": None
+                    }
+                    
+                    result = await self._handle_initial_planning(cleaned_state)
                     print("✅ DEBUG: New plan created")
                     logger.info("planner_node_complete", 
                                success=True,
@@ -169,7 +182,20 @@ class PlanExecuteGraph:
                 # Create new plan for first message in conversation
                 print("🔄 DEBUG: Starting initial planning")
                 logger.info("initial_planning_mode")
-                result = await self._handle_initial_planning(state)
+                
+                # Clear any residual plan state for fresh start
+                cleaned_state = {
+                    **state,
+                    "plan": None,
+                    "current_task_index": 0,
+                    "skipped_task_indices": [],
+                    "task_results": {},
+                    "progress_state": None,
+                    "interrupted_workflow": None,
+                    "workflow_human_response": None
+                }
+                
+                result = await self._handle_initial_planning(cleaned_state)
                 print("✅ DEBUG: Initial planning completed")
                 logger.info("planner_node_complete", 
                            success=True,
@@ -484,7 +510,22 @@ class PlanExecuteGraph:
                                task_id=next_task["id"], message=message_content)
             else:
                 # For failed tasks, show the error
-                error_msg = result.get("error", "Task failed")
+                error_msg = "Task failed"
+                
+                # Extract error message from different result structures
+                if result.get("error"):
+                    error_msg = result["error"]
+                elif result.get("result", {}).get("response"):
+                    # Command results store error details in result.response
+                    response = result["result"]["response"]
+                    if isinstance(response, str) and response.startswith("Error:"):
+                        # Remove "Error: " prefix for cleaner display
+                        error_msg = response[7:] if len(response) > 7 else response
+                    else:
+                        error_msg = response
+                elif result.get("result", {}).get("error"):
+                    error_msg = result["result"]["error"]
+                
                 message_content = f"[FAILED] {next_task['content']} - {error_msg}"
             
             # Debug: Log the final message content before creating AIMessage
@@ -674,6 +715,73 @@ class PlanExecuteGraph:
                     "insert_after_step": None  # Clear position
                 }
         
+        # Check for remove from plan requests
+        elif state.get("remove_from_plan_requested"):
+            logger.info("replan_remove_from_plan_requested")
+            
+            steps_to_remove = state.get("steps_to_remove", [])
+            
+            if steps_to_remove:
+                # Remove steps from existing plan
+                current_plan = state.get("plan", {})
+                current_tasks = current_plan.get("tasks", [])
+                
+                # Convert 1-indexed step numbers to 0-indexed and sort in reverse order
+                # to remove from end to beginning (avoids index shifting issues)
+                indices_to_remove = sorted([i - 1 for i in steps_to_remove if 1 <= i <= len(current_tasks)], reverse=True)
+                
+                if indices_to_remove:
+                    # Create new task list without removed tasks
+                    updated_tasks = current_tasks.copy()
+                    removed_task_contents = []
+                    
+                    for index in indices_to_remove:
+                        if 0 <= index < len(updated_tasks):
+                            removed_task = updated_tasks.pop(index)
+                            removed_task_contents.append(removed_task.get("content", f"Task {index + 1}"))
+                    
+                    # Update plan with remaining tasks
+                    updated_plan = {
+                        **current_plan,
+                        "tasks": updated_tasks,
+                        "version": current_plan.get("version", 1) + 1
+                    }
+                    
+                    logger.info("plan_tasks_removed",
+                               plan_id=updated_plan.get("id"),
+                               original_task_count=len(current_tasks),
+                               removed_task_count=len(indices_to_remove),
+                               remaining_task_count=len(updated_tasks),
+                               removed_tasks=removed_task_contents)
+                    
+                    # Adjust current_task_index if needed
+                    current_task_index = state.get("current_task_index", 0)
+                    adjusted_index = current_task_index
+                    
+                    # Count how many removed indices are before current index
+                    removed_before_current = sum(1 for idx in indices_to_remove if idx < current_task_index)
+                    adjusted_index = max(0, current_task_index - removed_before_current)
+                    
+                    # If current task was removed, move to next available task
+                    if (current_task_index in [i + 1 for i in indices_to_remove]) and adjusted_index < len(updated_tasks):
+                        # Current task was removed, stay at adjusted index
+                        pass
+                    elif adjusted_index >= len(updated_tasks) and updated_tasks:
+                        # Index out of bounds, move to last task
+                        adjusted_index = len(updated_tasks) - 1
+                    
+                    return {
+                        **state,
+                        "plan": updated_plan,
+                        "current_task_index": adjusted_index,
+                        "remove_from_plan_requested": False,  # Clear flag
+                        "steps_to_remove": None  # Clear steps
+                    }
+                else:
+                    logger.warning("remove_from_plan_invalid_steps", 
+                                   steps_to_remove=steps_to_remove,
+                                   total_tasks=len(current_tasks))
+        
         # Simple replan: if all tasks complete, we're done
         if state["plan"] and is_plan_complete(state):
             logger.info("replan_complete", reason="all_tasks_complete")
@@ -767,7 +875,49 @@ class PlanExecuteGraph:
                         "response": task_response
                     })
                 elif task_status == "failed":
-                    error_msg = task.get("error", "Unknown error")
+                    # Extract error message from result structure (where agents store detailed errors)
+                    error_msg = "Unknown error"
+                    
+                    # Debug: Log the exact task structure for failed tasks
+                    logger.info("summary_failed_task_debug",
+                               task_id=task.get("id", "unknown"),
+                               task_keys=list(task.keys()),
+                               result_keys=list(task.get("result", {}).keys()),
+                               result_structure=str(task.get("result", {}))[:500])
+                    
+                    # Check different locations where error information might be stored
+                    # 1. Check task.result.error (direct error field)
+                    if task.get("result", {}).get("error"):
+                        error_msg = task["result"]["error"]
+                        logger.info("summary_error_source", source="task.result.error", error_preview=error_msg[:100])
+                    # 2. Check task.result.result.response (nested Command response)
+                    elif (task.get("result", {}).get("result", {}).get("response")):
+                        response = task["result"]["result"]["response"]
+                        if isinstance(response, str) and response.startswith("Error:"):
+                            # Remove "Error: " prefix for cleaner display
+                            error_msg = response[7:] if len(response) > 7 else response
+                        else:
+                            error_msg = response
+                        logger.info("summary_error_source", source="task.result.result.response", error_preview=error_msg[:100])
+                    # 3. Check task.result.response (Command result response)
+                    elif task.get("result", {}).get("response"):
+                        response = task["result"]["response"]
+                        if isinstance(response, str) and response.startswith("Error:"):
+                            # Remove "Error: " prefix for cleaner display
+                            error_msg = response[7:] if len(response) > 7 else response
+                        else:
+                            error_msg = response
+                        logger.info("summary_error_source", source="task.result.response", error_preview=error_msg[:100])
+                    # 4. Check task.error (top-level error field)
+                    elif task.get("error"):
+                        error_msg = task["error"]
+                        logger.info("summary_error_source", source="task.error", error_preview=error_msg[:100])
+                    else:
+                        logger.warning("summary_error_not_found", 
+                                     task_id=task.get("id", "unknown"),
+                                     available_fields=list(task.keys()),
+                                     result_fields=list(task.get("result", {}).keys()))
+                    
                     failed_tasks.append({
                         "task": task_content,
                         "error": error_msg
@@ -799,6 +949,11 @@ Create a well-structured summary with:
 2. Numbered list of what was accomplished with specific details
 3. Bullet points for key results or outcomes  
 4. Notes on any issues if applicable
+
+**Issues encountered:**
+- Detail any errors with specific technical information
+- Explain what went wrong and why
+- Include exact error messages from systems
 
 Use proper markdown formatting with:
 - **Bold headers** for sections

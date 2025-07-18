@@ -93,6 +93,44 @@ class CleanOrchestratorA2AHandler:
                         updated_state["messages"] = updated_state.get("messages", []) + [new_message]
                         updated_state["original_request"] = instruction  # Update with latest request
                         
+                        # CRITICAL FIX: Clean up completed plan state before starting new workflow
+                        # This ensures the UI doesn't show old plan states when running new workflows
+                        existing_plan = updated_state.get("plan")
+                        if existing_plan:
+                            from .plan_execute_state import is_plan_complete
+                            # Create temporary state to check plan completion
+                            temp_state = {"plan": existing_plan}
+                            if is_plan_complete(temp_state):
+                                logger.info("cleaning_up_completed_plan_state",
+                                           task_id=task_id,
+                                           thread_id=thread_id,
+                                           plan_id=existing_plan.get("id"),
+                                           plan_status=existing_plan.get("status"))
+                                
+                                # Clear completed plan state to start fresh
+                                updated_state.update({
+                                    "plan": None,
+                                    "current_task_index": 0,
+                                    "skipped_task_indices": [],
+                                    "task_results": {},
+                                    "progress_state": None,
+                                    "interrupted_workflow": None,
+                                    "workflow_human_response": None
+                                })
+                                
+                                # Also clear task status cache for this thread to prevent UI issues
+                                cache_key = thread_id if thread_id else task_id
+                                if cache_key in self.task_status_cache:
+                                    del self.task_status_cache[cache_key]
+                                    logger.info("task_status_cache_cleared",
+                                               task_id=task_id,
+                                               thread_id=thread_id,
+                                               cache_key=cache_key)
+                                
+                                logger.info("completed_plan_state_cleaned",
+                                           task_id=task_id,
+                                           thread_id=thread_id)
+                        
                         result = await self.graph.graph.ainvoke(updated_state, config)
                         
                     else:
@@ -363,7 +401,7 @@ class CleanOrchestratorA2AHandler:
                 return
             
             # Get all registered agents
-            agents = registry.get_all_agents()
+            agents = registry.list_agents()
             logger.info("agent_interrupt_broadcast_start",
                        thread_id=thread_id,
                        reason=reason,
@@ -876,6 +914,31 @@ class CleanOrchestratorA2AHandler:
                         updated_state = existing_state.values.copy()
                         updated_state["messages"] = updated_state.get("messages", []) + [new_message]
                         updated_state["original_request"] = instruction  # Update with latest request
+                        
+                        # CRITICAL FIX: Clean up completed plan state before starting new workflow
+                        # This ensures the UI doesn't show old plan states when running new workflows
+                        existing_plan = updated_state.get("plan")
+                        if existing_plan:
+                            from .plan_execute_state import is_plan_complete
+                            # Create temporary state to check plan completion
+                            temp_state = {"plan": existing_plan}
+                            if is_plan_complete(temp_state):
+                                logger.info("cleaning_up_completed_plan_state_streaming",
+                                           task_id=task_id,
+                                           thread_id=thread_id,
+                                           plan_id=existing_plan.get("id"),
+                                           plan_status=existing_plan.get("status"))
+                                
+                                # Clear completed plan state to start fresh
+                                updated_state.update({
+                                    "plan": None,
+                                    "current_task_index": 0,
+                                    "skipped_task_indices": [],
+                                    "task_results": {},
+                                    "progress_state": None,
+                                    "interrupted_workflow": None,
+                                    "workflow_human_response": None
+                                })
                         
                         # Stream the execution
                         async for event in self.graph.graph.astream(
@@ -1480,6 +1543,11 @@ class CleanOrchestratorA2AHandler:
             update["add_to_plan_requested"] = True
             update["additional_steps"] = plan_modification.additional_steps
             update["insert_after_step"] = plan_modification.insert_after_step
+            
+        elif plan_modification.modification_type == "remove_from_plan" and plan_modification.steps_to_remove:
+            # Remove steps from existing plan
+            update["remove_from_plan_requested"] = True
+            update["steps_to_remove"] = plan_modification.steps_to_remove
             
         # Add modification metadata
         update["plan_modification_applied"] = {

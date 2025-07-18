@@ -356,7 +356,7 @@ class SalesforceA2AHandler:
             
             # Include error information if task failed
             if not task_success:
-                result_dict["error"] = "Task execution encountered errors"
+                result_dict["error"] = response_content  # Use actual response with error details
                 
             return result_dict
             
