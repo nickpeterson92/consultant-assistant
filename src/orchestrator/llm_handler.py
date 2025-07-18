@@ -24,6 +24,24 @@ class ExtractedEntity(BaseModel):
 
 
 
+class ExecutionTaskStructured(BaseModel):
+    """Structured task for plan generation"""
+    step_number: int = Field(description="Sequential step number (1, 2, 3, etc.)", ge=1)
+    description: str = Field(description="Clear, specific description of what needs to be done", min_length=15, max_length=200)
+    agent: str = Field(description="Which agent should handle this task", pattern="^(salesforce|jira|servicenow|orchestrator|workflow)$")
+    depends_on: Optional[List[int]] = Field(description="List of step numbers this task depends on (must be less than current step)", default=None)
+    priority: Optional[str] = Field(description="Task priority", enum=["low", "medium", "high", "urgent"], default="medium")
+    estimated_duration: Optional[str] = Field(description="Estimated time to complete (e.g., '5 minutes', '1 hour')", default=None)
+
+
+class ExecutionPlanStructured(BaseModel):
+    """Structured execution plan for orchestrator"""
+    description: str = Field(description="Brief description of what this plan accomplishes", min_length=20, max_length=150)
+    tasks: List[ExecutionTaskStructured] = Field(description="List of tasks in execution order", min_items=1)
+    success_criteria: Optional[str] = Field(description="How to determine if the plan succeeded", default=None)
+    estimated_total_time: Optional[str] = Field(description="Estimated total execution time", default=None)
+
+
 class PlanModification(BaseModel):
     """Structured plan modification based on user input"""
     modification_type: str = Field(
@@ -68,7 +86,7 @@ def create_llm_instances(tools: List[Any]):
     """Create LLM instances for orchestrator use.
     
     Returns:
-        tuple: (llm_with_tools, deterministic_llm, trustcall_extractor, plan_modification_extractor, invoke_llm_func)
+        tuple: (llm_with_tools, deterministic_llm, trustcall_extractor, plan_modification_extractor, plan_extractor, invoke_llm_func)
     """
     # Load environment variables
     from dotenv import load_dotenv
@@ -77,7 +95,7 @@ def create_llm_instances(tools: List[Any]):
     # Create main LLM with tools
     llm_with_tools = create_llm_with_tools(tools)
     
-    # Create deterministic LLM for memory extraction
+    # Create deterministic LLM for memory extraction and structured planning
     deterministic_llm = create_deterministic_llm()
     
     # Configure TrustCall for memory extraction only
@@ -94,10 +112,17 @@ def create_llm_instances(tools: List[Any]):
         enable_inserts=True
     )
     
+    # Create structured plan extractor
+    plan_extractor = create_extractor(
+        deterministic_llm,
+        tools=[ExecutionPlanStructured],
+        enable_inserts=True
+    )
+    
     # Create flexible invocation function
     invoke_llm = create_flexible_llm(tools)
     
-    return llm_with_tools, deterministic_llm, trustcall_extractor, plan_modification_extractor, invoke_llm
+    return llm_with_tools, deterministic_llm, trustcall_extractor, plan_modification_extractor, plan_extractor, invoke_llm
 
 
 def get_orchestrator_system_message(state: OrchestratorState, agent_registry) -> str:

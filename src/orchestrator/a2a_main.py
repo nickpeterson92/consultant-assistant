@@ -168,10 +168,10 @@ async def main(host: str, port: int):
     # Create LLM instances using existing infrastructure
     from .llm_handler import create_llm_instances
     tools = list(agent_tools.values())  # Use agent tools as LLM tools
-    llm_with_tools, deterministic_llm, trustcall_extractor, plan_modification_extractor, invoke_llm = create_llm_instances(tools)
+    llm_with_tools, deterministic_llm, trustcall_extractor, plan_modification_extractor, plan_extractor, invoke_llm = create_llm_instances(tools)
     
-    # Create pure plan-execute graph with LLM support
-    local_graph = create_plan_execute_graph(invoke_llm=invoke_llm)
+    # Create pure plan-execute graph with LLM support and structured planning
+    local_graph = create_plan_execute_graph(invoke_llm=invoke_llm, plan_extractor=plan_extractor)
     local_graph.set_agent_tools(agent_tools)
     logger.info("graph_built",
         component="system",

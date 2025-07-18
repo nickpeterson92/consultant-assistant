@@ -1381,15 +1381,22 @@ class CleanOrchestratorA2AHandler:
             })
             
             # Log to extraction.log for detailed TrustCall debugging
-            from src.utils.logging.multi_file_logger import StructuredLogger
-            extraction_logger = StructuredLogger()
+            from src.utils.logging import get_logger
+            extraction_logger = get_logger()
             
-            extraction_logger.info("trustcall_plan_modification_invoked",
+            extraction_logger.info("trustcall_plan_modification_start",
                                  component="extraction",
+                                 operation="plan_modification",
                                  thread_id=thread_id,
-                                 user_input=user_input,
-                                 extraction_prompt_preview=extraction_prompt[:300],
-                                 result_type=type(result).__name__)
+                                 user_input_preview=user_input[:100],
+                                 extraction_prompt_length=len(extraction_prompt))
+            
+            extraction_logger.info("trustcall_plan_modification_complete",
+                                 component="extraction",
+                                 operation="plan_modification", 
+                                 thread_id=thread_id,
+                                 has_result=bool(result),
+                                 result_type=type(result).__name__ if result else "None")
             
             # Extract PlanModification tool call result from LangChain message structure (same pattern as instruction extractor)
             plan_modification_result = None

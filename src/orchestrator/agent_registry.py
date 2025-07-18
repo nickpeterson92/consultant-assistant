@@ -13,11 +13,10 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from ..a2a import AgentCard, A2AClient, A2AException
-from ..utils.logging import get_logger
+from ..utils.logging import logger, log_execution, log_operation
 from ..utils.config.unified_config import config as app_config
 
-# Initialize logger
-logger = get_logger()
+# Using new framework logger
 
 @dataclass
 class RegisteredAgent:

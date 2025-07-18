@@ -19,43 +19,43 @@ from src.orchestrator.plan_execute_state import (
     get_current_task, get_next_executable_task, update_progress_state,
     is_plan_complete, get_plan_summary
 )
-from src.utils.logging import get_logger
 from src.utils.config.unified_config import config as app_config
 from src.utils.agents.message_processing import trim_messages_for_context, smart_preserve_messages
+from src.utils.logging.framework import SmartLogger
 
-logger = get_logger("orchestrator")
-print(f"🔧 DEBUG: Logger level: {logger.logger.level if hasattr(logger, 'logger') else 'unknown'}")
-print(f"🔧 DEBUG: Logger effective level: {logger.logger.getEffectiveLevel() if hasattr(logger, 'logger') else 'unknown'}")
+# Create orchestrator-specific logger
+logger = SmartLogger("orchestrator")
 
 
 class PlanExecuteGraph:
     """Pure plan-and-execute graph for orchestrator."""
     
-    def __init__(self, checkpointer=None, invoke_llm=None):
+    def __init__(self, checkpointer=None, invoke_llm=None, plan_extractor=None):
         """Initialize the plan-execute graph."""
         self.checkpointer = checkpointer or MemorySaver()
         self.graph = self._build_graph()
         self._agent_tools = {}  # Will be populated with agent caller tools
         self._invoke_llm = invoke_llm  # LLM function for orchestrator tasks and planning
+        self._plan_extractor = plan_extractor  # Structured plan extractor using trustcall
         self._last_summary_time = 0
         self._last_summary_message_count = 0
     
     def _build_graph(self) -> StateGraph:
         """Build the baseline plan-and-execute graph."""
         print("🔧 DEBUG: Building graph - this should appear in console")
-        logger.info("building_graph_start", component="orchestrator")
+        logger.info("building_graph_start")
         
         builder = StateGraph(PlanExecuteState)
         
         # Add nodes - canonical plan-and-execute pattern
-        logger.info("adding_nodes", component="orchestrator")
+        logger.info("adding_nodes")
         builder.add_node("planner", self._planner_node)
         builder.add_node("agent", self._agent_node)  
         builder.add_node("replan", self._replan_node)
         builder.add_node("plan_summary", self._summary_node)
         
         # Entry point
-        logger.info("adding_edges", component="orchestrator")
+        logger.info("adding_edges")
         builder.add_edge(START, "planner")
         
         # Simple flow control
@@ -95,16 +95,16 @@ class PlanExecuteGraph:
             }
         )
         
-        logger.info("compiling_graph", component="orchestrator")
+        logger.info("compiling_graph")
         compiled_graph = builder.compile(checkpointer=self.checkpointer)
-        logger.info("graph_compiled_successfully", component="orchestrator")
+        logger.info("graph_compiled_successfully")
         
         return compiled_graph
     
     def set_agent_tools(self, agent_tools: Dict[str, Any]):
         """Set agent caller tools for task execution."""
         self._agent_tools = agent_tools
-        logger.info("agent_tools_configured", component="orchestrator", agent_count=len(agent_tools))
+        logger.info("agent_tools_configured", agent_count=len(agent_tools))
     
     # ================================
     # Node Implementations
@@ -156,7 +156,7 @@ class PlanExecuteGraph:
                                task_count=len(result["plan"]["tasks"]) if result.get("plan") else 0)
                     
                     # Stream plan creation event (handled by A2A streaming)
-                    logger.info("plan_created_event", component="orchestrator", 
+                    logger.info("plan_created_event", 
                                plan_id=result.get("plan", {}).get("id"),
                                task_count=len(result.get("plan", {}).get("tasks", [])))
                     
@@ -172,7 +172,7 @@ class PlanExecuteGraph:
             else:
                 # Create new plan for first message in conversation
                 print("🔄 DEBUG: Starting initial planning")
-                logger.info("initial_planning_mode", component="orchestrator")
+                logger.info("initial_planning_mode")
                 result = await self._handle_initial_planning(state)
                 print("✅ DEBUG: Initial planning completed")
                 logger.info("planner_node_complete", 
@@ -182,7 +182,7 @@ class PlanExecuteGraph:
                            task_count=len(result["plan"]["tasks"]) if result.get("plan") else 0)
                 
                 # Stream plan creation event (handled by A2A streaming)
-                logger.info("plan_created_event", component="orchestrator", 
+                logger.info("plan_created_event", 
                            plan_id=result.get("plan", {}).get("id"),
                            task_count=len(result.get("plan", {}).get("tasks", [])))
                 
@@ -190,7 +190,7 @@ class PlanExecuteGraph:
                 
         except Exception as e:
             print(f"❌ DEBUG: Planner error: {str(e)}")
-            logger.error("planner_node_error", component="orchestrator", error=str(e), exception_type=type(e).__name__)
+            logger.error("planner_node_error", error=str(e), exception_type=type(e).__name__)
             return {
                 **state,
                 "interrupted": True,
@@ -206,53 +206,98 @@ class PlanExecuteGraph:
             }
     
     async def _handle_initial_planning(self, state: PlanExecuteState) -> PlanExecuteState:
-        """Handle initial plan creation."""
+        """Handle initial plan creation using structured extraction only."""
         print("📋 DEBUG: Handle initial planning called")
-        logger.info("initial_planning_start", component="orchestrator", request=state["original_request"])
+        logger.info("initial_planning_start", request=state["original_request"])
         
-        # Use the proper planning system message from prompts
-        from src.utils.agents.prompts import get_planning_system_message
-        system_msg = get_planning_system_message()
+        if not self._plan_extractor:
+            raise ValueError("Plan extractor is required for structured planning")
         
-        # Build the complete planning prompt using conversation history from graph state
-        from langchain_core.messages import SystemMessage, HumanMessage
-        planning_prompt = [SystemMessage(content=system_msg)]
+        # Create planning prompt for structured extraction
+        planning_prompt = self._create_structured_planning_prompt(state)
         
-        # Add conversation history from state for context
-        conversation_messages = state.get("messages", [])
-        if conversation_messages:
-            # Include the conversation history so planner understands context
-            planning_prompt.extend(conversation_messages)
-            logger.info("planning_with_context", component="orchestrator", 
-                       message_count=len(conversation_messages),
-                       context_available=True)
-        else:
-            # Fallback if no conversation history
-            planning_prompt.append(HumanMessage(content=f'Create an execution plan for: "{state["original_request"]}"'))
-            logger.info("planning_without_context", component="orchestrator", 
-                       request=state["original_request"],
-                       context_available=False)
-        
-        # Add final planning instruction
-        planning_prompt.append(HumanMessage(content=f'Based on the conversation above, create an execution plan for: "{state["original_request"]}"'))
-        
-        logger.info("invoking_planning_llm", component="orchestrator", 
+        logger.info("invoking_structured_planning", 
                    prompt_length=len(str(planning_prompt)),
                    message_count=len(planning_prompt))
         
-        # Generate plan using LLM factory pattern
-        if self._invoke_llm:
-            # The invoke_llm function is synchronous and returns an AIMessage
-            response = self._invoke_llm(planning_prompt)
-            plan_text = response.content if hasattr(response, 'content') else str(response)
+        # Log extraction attempt
+        extraction_logger = get_logger("extraction")
+        
+        extraction_logger.info("trustcall_plan_extraction_start",
+                              component="extraction",
+                              operation="initial_planning",
+                              request_preview=state["original_request"][:100],
+                              prompt_length=len(str(planning_prompt)),
+                              message_count=len(planning_prompt))
+        
+        # Extract structured plan using trustcall
+        extraction_result = await self._plan_extractor.ainvoke({"messages": planning_prompt})
+        
+        extraction_logger.info("trustcall_plan_extraction_complete",
+                              component="extraction",
+                              operation="initial_planning",
+                              has_result=bool(extraction_result),
+                              result_type=type(extraction_result).__name__ if extraction_result else "None")
+        
+        if not extraction_result:
+            extraction_logger.error("trustcall_plan_extraction_failed",
+                                   component="extraction",
+                                   operation="initial_planning",
+                                   error="No result from trustcall extractor")
+            raise ValueError("No structured plan could be extracted from LLM response")
+        
+        # trustcall returns a dict with messages/responses, need to extract the actual plan
+        if isinstance(extraction_result, dict) and "responses" in extraction_result:
+            # New trustcall format: plan is in responses
+            responses = extraction_result.get("responses", [])
+            if responses and len(responses) > 0:
+                structured_plan = responses[0]  # First response should be the ExecutionPlanStructured
+            else:
+                extraction_logger.error("trustcall_no_responses",
+                                       component="extraction",
+                                       operation="initial_planning", 
+                                       error="No responses in trustcall result")
+                raise ValueError("No plan found in trustcall responses")
         else:
-            # Fallback if LLM not available
-            plan_text = f"1. {state['original_request']} (Agent: orchestrator)"
+            # Fallback: assume it's the plan object directly
+            structured_plan = extraction_result
         
-        logger.info("llm_response_received", response_length=len(plan_text), response_preview=plan_text[:100])
+        extraction_logger.info("plan_object_extracted",
+                              component="extraction",
+                              operation="initial_planning",
+                              plan_type=type(structured_plan).__name__,
+                              has_description=hasattr(structured_plan, 'description'),
+                              has_tasks=hasattr(structured_plan, 'tasks'),
+                              task_count=len(structured_plan.tasks) if hasattr(structured_plan, 'tasks') else 0)
         
-        # Parse the plan into structured tasks
-        plan = await self._parse_plan_from_text(plan_text, state["original_request"])
+        extraction_logger.info("structured_plan_details", 
+                              component="extraction",
+                              operation="initial_planning",
+                              plan_description=structured_plan.description,
+                              task_count=len(structured_plan.tasks),
+                              has_success_criteria=bool(getattr(structured_plan, 'success_criteria', None)),
+                              has_estimated_time=bool(getattr(structured_plan, 'estimated_total_time', None)))
+        
+        # Log the actual plan content for debugging
+        extraction_logger.info("extracted_plan_content",
+                              component="extraction", 
+                              operation="initial_planning",
+                              full_plan_description=structured_plan.description,
+                              tasks=[{
+                                  "step": task.step_number,
+                                  "description": task.description, 
+                                  "agent": task.agent,
+                                  "depends_on": task.depends_on,
+                                  "priority": task.priority
+                              } for task in structured_plan.tasks])
+        
+        logger.info("structured_plan_extracted", 
+                   component="orchestrator",
+                   plan_description=structured_plan.description,
+                   task_count=len(structured_plan.tasks))
+        
+        # Convert structured plan to internal format
+        plan = await self._convert_structured_plan(structured_plan, state["original_request"])
         
         logger.info("plan_created", 
                    plan_id=plan["id"], 
@@ -281,35 +326,57 @@ class PlanExecuteGraph:
         
         logger.info("replanning_with_context", user_input=latest_message[:100])
         
-        # Create replanning prompt
-        replan_prompt = f"""
-        CURRENT PLAN: {self._format_plan_display(current_plan)}
+        if not self._plan_extractor:
+            raise ValueError("Plan extractor is required for structured replanning")
         
-        USER REQUEST: {latest_message}
+        # Create structured replanning prompt
+        replan_prompt = self._create_structured_replanning_prompt(state, current_plan, latest_message)
         
-        Modify the plan based on the user's request. You can:
-        - Add new tasks
-        - Remove pending tasks (keep completed ones)
-        - Reorder tasks
-        - Change task priorities or agent assignments
+        # Log replanning extraction attempt
+        extraction_logger = get_logger("extraction")
         
-        Preserve completed tasks and their results.
-        Format the updated plan as a numbered list like before.
-        """
+        extraction_logger.info("trustcall_plan_extraction_start",
+                              component="extraction",
+                              operation="replanning",
+                              user_request_preview=latest_message[:100],
+                              current_plan_id=current_plan.get("id", "unknown"),
+                              prompt_length=len(str(replan_prompt)),
+                              message_count=len(replan_prompt))
         
-        # Generate updated plan using LLM factory pattern
-        if self._invoke_llm:
-            # The invoke_llm function is synchronous and returns an AIMessage
-            replan_messages = [HumanMessage(content=replan_prompt)]
-            response = self._invoke_llm(replan_messages)
-            updated_plan_text = response.content if hasattr(response, 'content') else str(response)
-        else:
-            # Fallback if LLM not available
-            updated_plan_text = f"1. {latest_message} (Agent: orchestrator)"
-        updated_plan = await self._parse_plan_from_text(
-            updated_plan_text, 
-            current_plan["original_request"],
-            base_plan=current_plan
+        # Extract updated structured plan using trustcall
+        extracted_plans = await self._plan_extractor.ainvoke({"messages": replan_prompt})
+        
+        extraction_logger.info("trustcall_plan_extraction_complete",
+                              component="extraction",
+                              operation="replanning",
+                              has_result=bool(extracted_plans),
+                              plan_count=len(extracted_plans) if extracted_plans else 0,
+                              result_type=type(extracted_plans).__name__ if extracted_plans else "None")
+        
+        if not extracted_plans or len(extracted_plans) == 0:
+            extraction_logger.error("trustcall_plan_extraction_failed",
+                                   component="extraction",
+                                   operation="replanning",
+                                   error="No structured plan could be extracted during replanning")
+            raise ValueError("No structured plan could be extracted during replanning")
+        
+        structured_plan = extracted_plans[0]
+        
+        extraction_logger.info("structured_replan_details", 
+                              component="extraction",
+                              operation="replanning",
+                              plan_description=structured_plan.description,
+                              task_count=len(structured_plan.tasks),
+                              has_success_criteria=bool(getattr(structured_plan, 'success_criteria', None)))
+        
+        logger.info("structured_replan_extracted", 
+                   component="orchestrator",
+                   plan_description=structured_plan.description,
+                   task_count=len(structured_plan.tasks))
+        
+        # Convert structured plan to internal format, preserving completed tasks
+        updated_plan = await self._convert_structured_plan_with_preservation(
+            structured_plan, current_plan
         )
         
         # Increment version
@@ -340,19 +407,19 @@ class PlanExecuteGraph:
         await self._trigger_background_summary(state, config)
         
         if not state["plan"]:
-            logger.warning("agent_no_plan", component="orchestrator")
+            logger.warning("agent_no_plan")
             return state
         
         # Get next executable task
         next_task = get_next_executable_task(state)
         if not next_task:
-            logger.info("agent_no_more_tasks", component="orchestrator")
+            logger.info("agent_no_more_tasks")
             return state
         
-        logger.info("agent_executing_task", component="orchestrator", task_id=next_task["id"], content=next_task["content"][:100])
+        logger.info("agent_executing_task", task_id=next_task["id"], content=next_task["content"][:100])
         
         # Stream task start event (handled by A2A streaming)
-        logger.info("task_started_event", component="orchestrator", 
+        logger.info("task_started_event", 
                    task_id=next_task["id"], 
                    task_content=next_task["content"][:100])
         
@@ -377,7 +444,7 @@ class PlanExecuteGraph:
                     }
                     
                     # Debug: Log what we're storing in the task result
-                    logger.info("storing_task_result", component="orchestrator", 
+                    logger.info("storing_task_result", 
                                task_id=next_task["id"], 
                                result_type=type(result).__name__,
                                result_keys=list(result.keys()) if isinstance(result, dict) else "not_dict",
@@ -392,7 +459,7 @@ class PlanExecuteGraph:
                        success=result.get("success", False))
             
             # Stream task completion event (handled by A2A streaming)
-            logger.info("task_completed_event", component="orchestrator", 
+            logger.info("task_completed_event", 
                        task_id=next_task["id"], 
                        success=result.get("success", False),
                        task_content=next_task["content"][:100])
@@ -404,7 +471,7 @@ class PlanExecuteGraph:
                     actual_task_status = task.get("status")
                     break
             
-            logger.info("plan_task_status_updated", component="orchestrator", 
+            logger.info("plan_task_status_updated", 
                        task_id=next_task["id"], 
                        actual_task_status=actual_task_status,
                        result_success=result.get("success"),
@@ -415,7 +482,7 @@ class PlanExecuteGraph:
             if result.get("success"):
                 # Extract the actual response from the result structure
                 result_data = result.get("result", {})
-                logger.info("extracting_message_content", component="orchestrator", 
+                logger.info("extracting_message_content", 
                            task_id=next_task["id"], 
                            result_data_type=type(result_data).__name__,
                            result_data_keys=list(result_data.keys()) if isinstance(result_data, dict) else "not_dict",
@@ -423,18 +490,18 @@ class PlanExecuteGraph:
                 
                 if isinstance(result_data, dict) and "response" in result_data:
                     message_content = result_data["response"]
-                    logger.info("using_response_from_result", component="orchestrator", 
+                    logger.info("using_response_from_result", 
                                task_id=next_task["id"], 
                                raw_response_type=type(result_data["response"]).__name__,
                                response_preview=message_content[:100])
                 elif isinstance(result_data, dict) and "status" in result_data and "response" in result_data:
                     # Handle direct orchestrator result format
                     message_content = result_data["response"]
-                    logger.info("using_direct_orchestrator_response", component="orchestrator", 
+                    logger.info("using_direct_orchestrator_response", 
                                task_id=next_task["id"], response_preview=message_content[:100])
                 else:
                     message_content = f"[COMPLETED] {next_task['content']}"
-                    logger.info("using_fallback_message", component="orchestrator", 
+                    logger.info("using_fallback_message", 
                                task_id=next_task["id"], message=message_content)
             else:
                 # For failed tasks, show the error
@@ -442,7 +509,7 @@ class PlanExecuteGraph:
                 message_content = f"[FAILED] {next_task['content']} - {error_msg}"
             
             # Debug: Log the final message content before creating AIMessage
-            logger.info("final_message_content", component="orchestrator", 
+            logger.info("final_message_content", 
                        task_id=next_task["id"], 
                        message_content_type=type(message_content).__name__,
                        message_content_preview=str(message_content)[:100])
@@ -456,10 +523,10 @@ class PlanExecuteGraph:
             }
             
         except Exception as e:
-            logger.error("agent_task_execution_error", component="orchestrator", task_id=next_task["id"], error=str(e))
+            logger.error("agent_task_execution_error", task_id=next_task["id"], error=str(e))
             
             # Stream task error event (handled by A2A streaming)
-            logger.error("task_error_event", component="orchestrator", 
+            logger.error("task_error_event", 
                         task_id=next_task["id"], 
                         error=str(e),
                         task_content=next_task["content"][:100])
@@ -541,7 +608,7 @@ class PlanExecuteGraph:
         
         # Check for plan replacement requests
         if state.get("replace_plan_requested"):
-            logger.info("replan_replacement_requested", component="orchestrator", 
+            logger.info("replan_replacement_requested", 
                        replace_plan=state.get("replace_plan_requested", False))
             
             # Get the new plan description
@@ -549,7 +616,7 @@ class PlanExecuteGraph:
             
             if new_plan_description:
                 # Create a new plan to replace the current one
-                logger.info("generating_replacement_plan", component="orchestrator",
+                logger.info("generating_replacement_plan",
                            new_plan_description=new_plan_description[:100])
                 
                 # Create new plan with the replacement description
@@ -565,22 +632,22 @@ class PlanExecuteGraph:
                 # Generate new plan
                 result = await self._handle_initial_planning(replacement_state)
                 
-                logger.info("replacement_plan_created", component="orchestrator",
+                logger.info("replacement_plan_created",
                            plan_id=result.get("plan", {}).get("id"),
                            task_count=len(result.get("plan", {}).get("tasks", [])))
                 
                 # Stream plan creation event (handled by A2A streaming)
-                logger.info("plan_created_event", component="orchestrator", 
+                logger.info("plan_created_event", 
                            plan_id=result.get("plan", {}).get("id"),
                            task_count=len(result.get("plan", {}).get("tasks", [])))
                 
                 return result
             else:
-                logger.warning("replacement_plan_missing_description", component="orchestrator")
+                logger.warning("replacement_plan_missing_description")
         
         # Check for add to plan requests
         elif state.get("add_to_plan_requested"):
-            logger.info("replan_add_to_plan_requested", component="orchestrator")
+            logger.info("replan_add_to_plan_requested")
             
             additional_steps = state.get("additional_steps", [])
             insert_after_step = state.get("insert_after_step", None)
@@ -618,7 +685,7 @@ class PlanExecuteGraph:
                     "version": current_plan.get("version", 1) + 1
                 }
                 
-                logger.info("plan_extended", component="orchestrator",
+                logger.info("plan_extended",
                            plan_id=updated_plan.get("id"),
                            original_task_count=len(current_tasks),
                            new_task_count=len(new_tasks),
@@ -634,16 +701,16 @@ class PlanExecuteGraph:
         
         # Simple replan: if all tasks complete, we're done
         if state["plan"] and is_plan_complete(state):
-            logger.info("replan_complete", component="orchestrator", reason="all_tasks_complete")
+            logger.info("replan_complete", reason="all_tasks_complete")
             
             # Stream plan completion event (handled by A2A streaming)
-            logger.info("plan_completed_event", component="orchestrator", 
+            logger.info("plan_completed_event", 
                        plan_id=state["plan"].get("id"))
             
             return state
         
         # Otherwise, continue with existing plan
-        logger.info("replan_continue", component="orchestrator", reason="tasks_remaining")
+        logger.info("replan_continue", reason="tasks_remaining")
         return state
     
     def _summary_node(self, state: PlanExecuteState) -> PlanExecuteState:
@@ -698,7 +765,7 @@ class PlanExecuteGraph:
     
     def _route_after_summary(self, state: PlanExecuteState) -> str:
         """Route after summary generation - always go to end."""
-        logger.info("route_after_summary", component="orchestrator", route="end")
+        logger.info("route_after_summary", route="end")
         return "end"
     
     def _generate_plan_completion_summary(self, state: PlanExecuteState) -> str:
@@ -825,7 +892,7 @@ Keep the summary concise but informative and well-formatted."""
                 "task_results": state.get("task_results", {})
             }
         
-        logger.info("built_agent_state", component="orchestrator", 
+        logger.info("built_agent_state", 
                    keys=list(agent_state.keys()), 
                    message_count=len(agent_state.get("messages", [])))
         
@@ -833,80 +900,215 @@ Keep the summary concise but informative and well-formatted."""
     
     
     
-    async def _parse_plan_from_text(self, plan_text: str, original_request: str, base_plan: Optional[ExecutionPlan] = None) -> ExecutionPlan:
-        """Parse plan text into structured ExecutionPlan."""
+    def _create_structured_planning_prompt(self, state: PlanExecuteState) -> List:
+        """Create planning prompt for structured extraction."""
+        from langchain_core.messages import SystemMessage, HumanMessage
+        from src.utils.agents.prompts import get_planning_system_message
+        
+        # Use the proper planning system message but adapted for structured output
+        system_msg = get_planning_system_message()
+        
+        # Enhance system message for structured output
+        enhanced_system_msg = system_msg + """
+
+IMPORTANT: You must respond with a structured ExecutionPlanStructured object containing:
+- description: Brief description of what this plan accomplishes
+- tasks: List of tasks with step_number, description, agent, depends_on (optional), priority (optional), estimated_duration (optional)
+
+Each task must specify which agent will handle it:
+- salesforce: For CRM operations (accounts, contacts, opportunities, leads, cases, tasks)
+- jira: For project management (projects, issues, sprints, boards)
+- servicenow: For IT service management (incidents, changes, problems)
+- orchestrator: For coordination, web search, or multi-agent workflows
+- workflow: For complex pre-built workflows
+
+Ensure step numbers are sequential (1, 2, 3...) and dependencies reference valid step numbers.
+"""
+        
+        planning_prompt = [SystemMessage(content=enhanced_system_msg)]
+        
+        # Add conversation history from state for context
+        conversation_messages = state.get("messages", [])
+        if conversation_messages:
+            planning_prompt.extend(conversation_messages)
+        
+        # Add final planning instruction
+        planning_prompt.append(
+            HumanMessage(content=f'Based on the conversation context above, create a structured execution plan for: "{state["original_request"]}"')
+        )
+        
+        return planning_prompt
+    
+    async def _convert_structured_plan(self, structured_plan, original_request: str) -> ExecutionPlan:
+        """Convert structured plan from trustcall to internal ExecutionPlan format."""
         from uuid import uuid4
-        import re
         
-        # Create base plan structure
-        plan_id = base_plan["id"] if base_plan else str(uuid4())
-        plan = create_new_plan(original_request, plan_id)
+        # Create base plan
+        plan = create_new_plan(original_request, str(uuid4()))
+        plan["description"] = structured_plan.description
         
-        # Parse tasks from text
-        lines = [line.strip() for line in plan_text.strip().split('\n') if line.strip()]
+        # Convert tasks
         tasks = []
-        
-        for line in lines:
-            # Match numbered list items
-            match = re.match(r'(\d+)\.\s*(.+)', line)
-            if match:
-                task_content = match.group(2)
-                
-                # Extract agent from content
-                agent_match = re.search(r'\(Agent:\s*(\w+)', task_content)
-                agent = agent_match.group(1) if agent_match else None
-                
-                # Extract dependencies
-                deps_match = re.search(r'depends on:\s*([0-9,\s]+)', task_content)
-                depends_on = []
-                if deps_match:
-                    dep_nums = [int(x.strip()) for x in deps_match.group(1).split(',') if x.strip().isdigit()]
-                    # Convert numbers to task IDs (we'll need to track this)
-                    depends_on = [f"task_{num}" for num in dep_nums]
-                
-                # Clean up content
-                clean_content = re.sub(r'\s*\(Agent:.*?\)', '', task_content)
-                clean_content = re.sub(r'\s*depends on:.*', '', clean_content)
-                
-                task = create_new_task(
-                    content=clean_content.strip(),
-                    agent=agent,
-                    depends_on=depends_on
-                )
-                task["id"] = f"task_{len(tasks) + 1}"  # Simple ID for dependencies
-                tasks.append(task)
+        for task_struct in structured_plan.tasks:
+            # Create task with proper dependencies
+            depends_on = []
+            if task_struct.depends_on:
+                # Convert step numbers to task IDs
+                depends_on = [f"task_{step_num}" for step_num in task_struct.depends_on]
+            
+            task = create_new_task(
+                content=task_struct.description,
+                agent=task_struct.agent,
+                depends_on=depends_on
+            )
+            task["id"] = f"task_{task_struct.step_number}"
+            task["priority"] = task_struct.priority or "medium"
+            task["estimated_duration"] = task_struct.estimated_duration
+            
+            tasks.append(task)
         
         plan["tasks"] = tasks
+        plan["success_criteria"] = getattr(structured_plan, 'success_criteria', None)
+        plan["estimated_total_time"] = getattr(structured_plan, 'estimated_total_time', None)
+        
         return plan
+    
+    def _create_structured_replanning_prompt(self, state: PlanExecuteState, current_plan: ExecutionPlan, user_request: str) -> List:
+        """Create replanning prompt for structured extraction."""
+        from langchain_core.messages import SystemMessage, HumanMessage
+        
+        # Create current plan summary for context
+        plan_summary = self._format_plan_display(current_plan)
+        
+        system_msg = f"""You are updating an execution plan based on user feedback.
+
+CURRENT PLAN:
+{plan_summary}
+
+USER REQUEST: {user_request}
+
+You must create an updated ExecutionPlanStructured that:
+1. Preserves any completed tasks and their results
+2. Modifies the plan based on the user's request (add/remove/reorder tasks)
+3. Maintains proper step numbering (1, 2, 3...)
+4. Ensures dependencies reference valid step numbers
+5. Uses appropriate agents: salesforce, jira, servicenow, orchestrator, workflow
+
+When preserving completed tasks, keep their original content and mark them appropriately.
+When adding new tasks, ensure they integrate properly with existing work.
+"""
+        
+        planning_prompt = [SystemMessage(content=system_msg)]
+        
+        # Add conversation context
+        conversation_messages = state.get("messages", [])
+        if conversation_messages:
+            # Only include recent messages to avoid token limits
+            recent_messages = conversation_messages[-5:] if len(conversation_messages) > 5 else conversation_messages
+            planning_prompt.extend(recent_messages)
+        
+        # Add final replanning instruction
+        planning_prompt.append(
+            HumanMessage(content=f'Update the execution plan based on this request: "{user_request}"')
+        )
+        
+        return planning_prompt
+    
+    async def _convert_structured_plan_with_preservation(self, structured_plan, current_plan: ExecutionPlan) -> ExecutionPlan:
+        """Convert structured plan while preserving completed tasks from current plan."""
+        from uuid import uuid4
+        
+        # Start with the base conversion
+        updated_plan = await self._convert_structured_plan(structured_plan, current_plan["original_request"])
+        
+        # Preserve plan ID and other metadata
+        updated_plan["id"] = current_plan["id"]
+        updated_plan["created_at"] = current_plan.get("created_at")
+        
+        # Preserve completed tasks by merging with new plan
+        completed_tasks = [task for task in current_plan.get("tasks", []) 
+                          if task.get("status") == TaskStatus.COMPLETED.value]
+        
+        # If we have completed tasks, we need to integrate them intelligently
+        if completed_tasks:
+            logger.info("preserving_completed_tasks", 
+                       component="orchestrator",
+                       completed_count=len(completed_tasks))
+            
+            # This is a simplified approach - in practice you might want more sophisticated merging
+            # For now, we'll keep completed tasks and append new ones with adjusted step numbers
+            preserved_tasks = []
+            max_completed_step = 0
+            
+            for task in completed_tasks:
+                preserved_tasks.append(task)
+                # Extract step number from task ID
+                if task.get("id", "").startswith("task_"):
+                    try:
+                        step_num = int(task["id"].split("_")[1])
+                        max_completed_step = max(max_completed_step, step_num)
+                    except (IndexError, ValueError):
+                        pass
+            
+            # Adjust new task step numbers to continue from completed tasks
+            for task in updated_plan["tasks"]:
+                if task.get("id", "").startswith("task_"):
+                    try:
+                        old_step_num = int(task["id"].split("_")[1])
+                        new_step_num = max_completed_step + old_step_num
+                        task["id"] = f"task_{new_step_num}"
+                        
+                        # Update dependencies to account for step number shift
+                        if task.get("depends_on"):
+                            adjusted_deps = []
+                            for dep in task["depends_on"]:
+                                if dep.startswith("task_"):
+                                    try:
+                                        dep_num = int(dep.split("_")[1])
+                                        adjusted_deps.append(f"task_{max_completed_step + dep_num}")
+                                    except (IndexError, ValueError):
+                                        adjusted_deps.append(dep)
+                                else:
+                                    adjusted_deps.append(dep)
+                            task["depends_on"] = adjusted_deps
+                        
+                    except (IndexError, ValueError):
+                        pass
+                
+                preserved_tasks.append(task)
+            
+            updated_plan["tasks"] = preserved_tasks
+        
+        return updated_plan
     
     async def _execute_task(self, task: ExecutionTask, state: PlanExecuteState) -> Dict[str, Any]:
         """Execute a single task - pure and simple."""
-        logger.info("execute_task_start", component="orchestrator", task_id=task["id"], agent=task.get("agent"))
+        logger.info("execute_task_start", task_id=task["id"], agent=task.get("agent"))
         
         try:
             agent_name = task.get("agent", "orchestrator")
-            logger.info("execute_task_routing", component="orchestrator", task_id=task["id"], agent=agent_name)
+            logger.info("execute_task_routing", task_id=task["id"], agent=agent_name)
             
             # Convert plan-execute state to agent tool expected format
             agent_state = self._build_agent_state(state)
             
             # Pure execution - call with proper state injection pattern from legacy code
             if agent_name == "salesforce" and "salesforce_agent" in self._agent_tools:
-                logger.info("calling_salesforce_agent", component="orchestrator", task_id=task["id"])
+                logger.info("calling_salesforce_agent", task_id=task["id"])
                 result = await self._agent_tools["salesforce_agent"]._arun(
                     instruction=task["content"],
                     state=agent_state,
                     tool_call_id=f"task_{task['id']}"
                 )
             elif agent_name == "jira" and "jira_agent" in self._agent_tools:
-                logger.info("calling_jira_agent", component="orchestrator", task_id=task["id"])
+                logger.info("calling_jira_agent", task_id=task["id"])
                 result = await self._agent_tools["jira_agent"]._arun(
                     instruction=task["content"],
                     state=agent_state,
                     tool_call_id=f"task_{task['id']}"
                 ) 
             elif agent_name == "servicenow" and "servicenow_agent" in self._agent_tools:
-                logger.info("calling_servicenow_agent", component="orchestrator", task_id=task["id"])
+                logger.info("calling_servicenow_agent", task_id=task["id"])
                 result = await self._agent_tools["servicenow_agent"]._arun(
                     instruction=task["content"],
                     state=agent_state,
@@ -914,7 +1116,7 @@ Keep the summary concise but informative and well-formatted."""
                 )
             elif agent_name == "orchestrator":
                 # For orchestrator tasks, use existing LLM infrastructure
-                logger.info("handling_orchestrator_task", component="orchestrator", task_id=task["id"])
+                logger.info("handling_orchestrator_task", task_id=task["id"])
                 
                 # Use the invoke_llm function from llm_handler if available
                 if hasattr(self, '_invoke_llm') and self._invoke_llm:
@@ -923,13 +1125,13 @@ Keep the summary concise but informative and well-formatted."""
                         orchestrator_messages = [HumanMessage(content=task["content"])]
                         response = self._invoke_llm(orchestrator_messages)
                         llm_response = response.content if hasattr(response, 'content') else str(response)
-                        logger.info("orchestrator_llm_response", component="orchestrator", 
+                        logger.info("orchestrator_llm_response", 
                                    task_id=task["id"], 
                                    response_type=type(response).__name__,
                                    has_content=hasattr(response, 'content'),
                                    llm_response_preview=llm_response[:100])
                     except Exception as e:
-                        logger.error("orchestrator_llm_error", component="orchestrator", task_id=task["id"], error=str(e))
+                        logger.error("orchestrator_llm_error", task_id=task["id"], error=str(e))
                         llm_response = f"I'm ready to help with: {task['content']}"
                 else:
                     # Fallback to simple response if LLM not available
@@ -941,20 +1143,20 @@ Keep the summary concise but informative and well-formatted."""
                     "response": llm_response
                 }
                 
-                logger.info("orchestrator_result_created", component="orchestrator", 
+                logger.info("orchestrator_result_created", 
                            task_id=task["id"], 
                            result_keys=list(result.keys()),
                            response_preview=result["response"][:100])
                 
                 # Debug: Log the result object ID to track modifications
-                logger.info("orchestrator_result_debug", component="orchestrator", 
+                logger.info("orchestrator_result_debug", 
                            task_id=task["id"], 
                            result_id=id(result),
                            result_response_id=id(result["response"]),
                            result_response_type=type(result["response"]).__name__)
             else:
                 # Agent not available or unknown
-                logger.warning("unknown_agent", component="orchestrator", task_id=task["id"], agent=agent_name)
+                logger.warning("unknown_agent", task_id=task["id"], agent=agent_name)
                 return {
                     "success": False,
                     "error": f"Agent {agent_name} not available or unknown",
@@ -962,10 +1164,10 @@ Keep the summary concise but informative and well-formatted."""
                     "task_id": task["id"]
                 }
             
-            logger.info("execute_task_success", component="orchestrator", task_id=task["id"], agent=agent_name)
+            logger.info("execute_task_success", task_id=task["id"], agent=agent_name)
             
             # Debug: Log what we're about to return
-            logger.info("execute_task_return_debug", component="orchestrator", 
+            logger.info("execute_task_return_debug", 
                        task_id=task["id"], 
                        result_type=type(result).__name__,
                        result_preview=str(result)[:200])
@@ -973,7 +1175,7 @@ Keep the summary concise but informative and well-formatted."""
             # Handle Command pattern results from agent tools
             if hasattr(result, 'update') and isinstance(result.update, dict):
                 # This is a Command object with state updates
-                logger.info("agent_command_received", component="orchestrator", 
+                logger.info("agent_command_received", 
                            task_id=task["id"], agent=agent_name,
                            update_keys=list(result.update.keys()),
                            has_messages="messages" in result.update)
@@ -994,7 +1196,7 @@ Keep the summary concise but informative and well-formatted."""
                 task_success = not is_error
                 task_status = "failed" if is_error else "completed"
                 
-                logger.info("agent_command_result_analysis", component="orchestrator",
+                logger.info("agent_command_result_analysis",
                            task_id=task["id"], 
                            is_error=is_error,
                            task_success=task_success,
@@ -1280,7 +1482,6 @@ Keep the summary concise but informative and well-formatted."""
             return
         
         logger.info("triggering_background_summary",
-                   component="storage",
                    message_count=len(messages),
                    last_summary_count=self._last_summary_message_count)
         
@@ -1294,7 +1495,6 @@ Keep the summary concise but informative and well-formatted."""
             config = state.get("config", {})
         
         logger.info("background_summary_config_check",
-                   component="storage", 
                    config_available=bool(config),
                    config_keys=list(config.keys()) if config else [],
                    has_configurable=bool(config.get("configurable")) if config else False)
@@ -1357,15 +1557,18 @@ Keep the summary concise but informative and well-formatted."""
     
     async def _run_background_summary_with_storage(self, state: PlanExecuteState, config: dict) -> None:
         """Run conversation summarization in background using simplified working pattern."""
-        try:
-            from src.utils.storage import get_async_store_adapter
-            from src.utils.config import STATE_KEY_PREFIX
+        from src.utils.storage import get_async_store_adapter
+        from src.utils.config import STATE_KEY_PREFIX
+        from src.utils.logging import log_operation
+        
+        with log_operation("orchestrator", "background_summarization", 
+                          thread_id=config.get("configurable", {}).get("thread_id"),
+                          user_id=config.get("configurable", {}).get("user_id", app_config.default_user_id)):
             
             # Get thread_id from passed config
             thread_id = config.get("configurable", {}).get("thread_id")
             if not thread_id:
-                logger.error("background_summary_no_thread_id", 
-                           component="storage",
+                logger.error("background_summary_no_thread_id",
                            config_keys=list(config.keys()),
                            configurable_keys=list(config.get("configurable", {}).keys()))
                 return
@@ -1377,6 +1580,12 @@ Keep the summary concise but informative and well-formatted."""
             messages = state.get("messages", [])
             current_summary = state.get("summary", "")
             
+            logger.info("background_summary_start",
+                        thread_id=thread_id,
+                        user_id=user_id,
+                        message_count=len(messages),
+                        existing_summary_length=len(current_summary))
+            
             # Load existing summary from storage if available
             try:
                 memory_store = get_async_store_adapter(db_path=app_config.db_path)
@@ -1386,28 +1595,14 @@ Keep the summary concise but informative and well-formatted."""
                 stored_data = await memory_store.get(namespace, key)
                 if stored_data and "summary" in stored_data:
                     current_summary = stored_data["summary"]
-                    logger.info("summary_loaded_from_storage_for_background",
-                               component="storage",
-                               thread_id=thread_id,
-                               loaded_summary_length=len(current_summary),
-                               state_summary_length=len(state.get("summary", "")))
+                    logger.info("summary_loaded_from_storage",
+                                thread_id=thread_id,
+                                loaded_summary_length=len(current_summary),
+                                state_summary_length=len(state.get("summary", "")))
                 else:
-                    logger.info("no_stored_summary_found_for_background",
-                               component="storage",
-                               thread_id=thread_id)
+                    logger.info("no_stored_summary_found", thread_id=thread_id)
             except Exception as e:
-                logger.warning("summary_load_error_for_background",
-                              component="storage",
-                              thread_id=thread_id,
-                              error=str(e))
-            
-            logger.info("background_summary_using_working_pattern",
-                       component="storage",
-                       thread_id=thread_id,
-                       user_id=user_id,
-                       message_count=len(messages),
-                       existing_summary_length=len(current_summary),
-                       loaded_from_storage=len(current_summary) > 0)
+                logger.error("summary_load_error", thread_id=thread_id, error=str(e))
             
             # Generate new summary using existing method
             summary_prompt = self._create_summary_prompt(messages, current_summary)
@@ -1418,35 +1613,22 @@ Keep the summary concise but informative and well-formatted."""
                 
                 if self._is_valid_summary_format(new_summary):
                     logger.info("background_summary_generated",
-                               component="storage",
-                               summary_length=len(new_summary),
-                               summary_preview=new_summary[:200])
+                                summary_length=len(new_summary),
+                                summary_preview=new_summary[:200])
                     
                     # Save to external storage (simplified - only summary)
-                    memory_store = get_async_store_adapter(db_path=app_config.db_path)
-                    namespace = (app_config.memory_namespace_prefix, user_id)
-                    key = f"{STATE_KEY_PREFIX}{thread_id}"
-                    
                     await memory_store.put(namespace, key, {
                         "summary": new_summary,
                         "thread_id": thread_id,
                         "timestamp": time.time()
                     })
                     
-                    logger.info("background_summary_saved_to_storage",
-                               component="storage",
-                               thread_id=thread_id,
-                               summary_length=len(new_summary))
+                    logger.info("background_summary_saved",
+                                thread_id=thread_id,
+                                summary_length=len(new_summary))
                 else:
-                    logger.warning("background_summary_invalid_format",
-                                 component="storage",
-                                 summary_preview=new_summary[:200])
-            
-        except Exception as e:
-            logger.error("background_summary_with_storage_error",
-                        component="storage",
-                        error=str(e),
-                        exception_type=type(e).__name__)
+                    logger.error("background_summary_invalid_format",
+                               summary_preview=new_summary[:200])
     
     def _create_summary_prompt(self, messages: List, current_summary: str) -> str:
         """Create summary prompt similar to old system."""
@@ -1454,7 +1636,6 @@ Keep the summary concise but informative and well-formatted."""
         recent_messages = smart_preserve_messages(messages, keep_count=10)
         
         logger.info("summary_prompt_building",
-                   component="storage", 
                    total_messages=len(messages),
                    recent_messages_kept=len(recent_messages),
                    current_summary_chars=len(current_summary),
@@ -1507,6 +1688,6 @@ Keep the summary concise but comprehensive."""
         return all(section in summary for section in required_sections)
 
 
-def create_plan_execute_graph(checkpointer=None, invoke_llm=None) -> PlanExecuteGraph:
+def create_plan_execute_graph(checkpointer=None, invoke_llm=None, plan_extractor=None) -> PlanExecuteGraph:
     """Factory function to create a plan-execute graph."""
-    return PlanExecuteGraph(checkpointer=checkpointer, invoke_llm=invoke_llm)
+    return PlanExecuteGraph(checkpointer=checkpointer, invoke_llm=invoke_llm, plan_extractor=plan_extractor)
