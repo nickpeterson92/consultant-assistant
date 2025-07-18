@@ -733,6 +733,14 @@ class OrchestatorApp(App):
         self.conversation_widget.add_message("user", user_input)
         logger.info("user_message_added_to_conversation", thread_id=self.thread_id)
         
+        # Clear previous plan state to start fresh
+        self.plan_widget.plan_tasks = []
+        self.plan_widget.completed_steps = []
+        self.plan_widget.failed_steps = []
+        self.plan_widget.skipped_steps = []
+        self.plan_widget.current_step = ""
+        logger.info("plan_state_cleared_for_new_request", thread_id=self.thread_id)
+        
         # Set processing state
         self.is_processing = True
         self.status_widget.set_status("Processing request...", processing=True)
