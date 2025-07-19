@@ -49,33 +49,13 @@ class PlanModification(BaseModel):
         enum=[
             "skip_to_step",      # Jump to specific step in current plan
             "skip_steps",        # Skip specific steps in current plan
-            "continue",          # Continue current plan without changes
-            "cancel_plan",       # Cancel current plan, clean slate (no new plan)
-            "replace_plan",      # Replace entire plan with new approach
-            "add_to_plan",       # Add steps to existing plan
-            "remove_from_plan",  # Remove steps from existing plan
             "conversation_only"  # Just talking, no plan changes needed
         ]
     )
     
-    # For step modifications within current plan
+    # For step navigation within current plan
     target_step_number: Optional[int] = Field(description="Target step number (1-indexed) for skip_to_step")
     steps_to_skip: Optional[List[int]] = Field(description="List of step numbers (1-indexed) to skip")
-    
-    # For complete plan changes
-    new_plan_description: Optional[str] = Field(
-        description="Description of entirely new plan/task when user wants something completely different"
-    )
-    should_abandon_current_plan: bool = Field(
-        description="Whether to completely abandon current plan and start fresh with new goal"
-    )
-    
-    # For adding to existing plan
-    additional_steps: Optional[List[str]] = Field(description="New steps to add to current plan")
-    insert_after_step: Optional[int] = Field(description="Step number to insert new steps after")
-    
-    # For removing from existing plan
-    steps_to_remove: Optional[List[int]] = Field(description="List of step numbers (1-indexed) to remove from plan")
     
     # Metadata
     reasoning: str = Field(description="Clear explanation of user's intent and what modification should be applied")

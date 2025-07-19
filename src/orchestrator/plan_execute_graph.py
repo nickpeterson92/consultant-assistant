@@ -622,165 +622,6 @@ class PlanExecuteGraph:
                    has_plan=bool(state.get("plan")),
                    task_count=len(state["plan"]["tasks"]) if state.get("plan") else 0)
         
-        # Check for plan replacement requests
-        if state.get("replace_plan_requested"):
-            logger.info("replan_replacement_requested", 
-                       replace_plan=state.get("replace_plan_requested", False))
-            
-            # Get the new plan description
-            new_plan_description = state.get("new_plan_description", "")
-            
-            if new_plan_description:
-                # Create a new plan to replace the current one
-                logger.info("generating_replacement_plan",
-                           new_plan_description=new_plan_description[:100])
-                
-                # Create new plan with the replacement description
-                replacement_state = {
-                    **state,
-                    "original_request": new_plan_description,
-                    "messages": state.get("messages", []),
-                    "plan": None,  # Clear existing plan
-                    "replace_plan_requested": False,  # Clear flag
-                    "new_plan_description": None  # Clear description
-                }
-                
-                # Generate new plan
-                result = await self._handle_initial_planning(replacement_state)
-                
-                logger.info("replacement_plan_created",
-                           plan_id=result.get("plan", {}).get("id"),
-                           task_count=len(result.get("plan", {}).get("tasks", [])))
-                
-                # Stream plan creation event (handled by A2A streaming)
-                logger.info("plan_created_event", 
-                           plan_id=result.get("plan", {}).get("id"),
-                           task_count=len(result.get("plan", {}).get("tasks", [])))
-                
-                return result
-            else:
-                logger.warning("replacement_plan_missing_description")
-        
-        # Check for add to plan requests
-        elif state.get("add_to_plan_requested"):
-            logger.info("replan_add_to_plan_requested")
-            
-            additional_steps = state.get("additional_steps", [])
-            insert_after_step = state.get("insert_after_step", None)
-            
-            if additional_steps:
-                # Add new steps to existing plan
-                current_plan = state.get("plan", {})
-                current_tasks = current_plan.get("tasks", [])
-                
-                # Create new tasks from additional steps
-                new_tasks = []
-                for i, step_description in enumerate(additional_steps):
-                    new_task = {
-                        "id": f"added_task_{len(current_tasks) + i + 1}",
-                        "content": step_description,
-                        "agent": "orchestrator",  # Will be determined during execution
-                        "status": TaskStatus.PENDING.value,
-                        "created_at": datetime.now().isoformat()
-                    }
-                    new_tasks.append(new_task)
-                
-                # Insert new tasks at the right position
-                if insert_after_step and insert_after_step <= len(current_tasks):
-                    # Insert after specific step
-                    insert_index = insert_after_step
-                    updated_tasks = current_tasks[:insert_index] + new_tasks + current_tasks[insert_index:]
-                else:
-                    # Append to end
-                    updated_tasks = current_tasks + new_tasks
-                
-                # Update plan with new tasks
-                updated_plan = {
-                    **current_plan,
-                    "tasks": updated_tasks,
-                    "version": current_plan.get("version", 1) + 1
-                }
-                
-                logger.info("plan_extended",
-                           plan_id=updated_plan.get("id"),
-                           original_task_count=len(current_tasks),
-                           new_task_count=len(new_tasks),
-                           total_task_count=len(updated_tasks))
-                
-                return {
-                    **state,
-                    "plan": updated_plan,
-                    "add_to_plan_requested": False,  # Clear flag
-                    "additional_steps": None,  # Clear steps
-                    "insert_after_step": None  # Clear position
-                }
-        
-        # Check for remove from plan requests
-        elif state.get("remove_from_plan_requested"):
-            logger.info("replan_remove_from_plan_requested")
-            
-            steps_to_remove = state.get("steps_to_remove", [])
-            
-            if steps_to_remove:
-                # Remove steps from existing plan
-                current_plan = state.get("plan", {})
-                current_tasks = current_plan.get("tasks", [])
-                
-                # Convert 1-indexed step numbers to 0-indexed and sort in reverse order
-                # to remove from end to beginning (avoids index shifting issues)
-                indices_to_remove = sorted([i - 1 for i in steps_to_remove if 1 <= i <= len(current_tasks)], reverse=True)
-                
-                if indices_to_remove:
-                    # Create new task list without removed tasks
-                    updated_tasks = current_tasks.copy()
-                    removed_task_contents = []
-                    
-                    for index in indices_to_remove:
-                        if 0 <= index < len(updated_tasks):
-                            removed_task = updated_tasks.pop(index)
-                            removed_task_contents.append(removed_task.get("content", f"Task {index + 1}"))
-                    
-                    # Update plan with remaining tasks
-                    updated_plan = {
-                        **current_plan,
-                        "tasks": updated_tasks,
-                        "version": current_plan.get("version", 1) + 1
-                    }
-                    
-                    logger.info("plan_tasks_removed",
-                               plan_id=updated_plan.get("id"),
-                               original_task_count=len(current_tasks),
-                               removed_task_count=len(indices_to_remove),
-                               remaining_task_count=len(updated_tasks),
-                               removed_tasks=removed_task_contents)
-                    
-                    # Adjust current_task_index if needed
-                    current_task_index = state.get("current_task_index", 0)
-                    adjusted_index = current_task_index
-                    
-                    # Count how many removed indices are before current index
-                    removed_before_current = sum(1 for idx in indices_to_remove if idx < current_task_index)
-                    adjusted_index = max(0, current_task_index - removed_before_current)
-                    
-                    # If current task was removed, move to next available task
-                    if (current_task_index in [i + 1 for i in indices_to_remove]) and adjusted_index < len(updated_tasks):
-                        # Current task was removed, stay at adjusted index
-                        pass
-                    elif adjusted_index >= len(updated_tasks) and updated_tasks:
-                        # Index out of bounds, move to last task
-                        adjusted_index = len(updated_tasks) - 1
-                    
-                    return {
-                        **state,
-                        "plan": updated_plan,
-                        "current_task_index": adjusted_index,
-                        "remove_from_plan_requested": False,  # Clear flag
-                        "steps_to_remove": None  # Clear steps
-                    }
-                else:
-                    logger.warning("remove_from_plan_invalid_steps", 
-                                   steps_to_remove=steps_to_remove,
-                                   total_tasks=len(current_tasks))
         
         # Simple replan: if all tasks complete, we're done
         if state["plan"] and is_plan_complete(state):
@@ -987,37 +828,17 @@ Keep the summary concise but informative and well-formatted."""
     # Helper Methods
     # ================================
     
-    def _build_agent_state(self, state: PlanExecuteState) -> Dict[str, Any]:
-        """Build agent state in the format expected by agent tools."""
-        # Serialize messages to avoid JSON serialization errors
-        from src.utils.agents.message_processing.unified_serialization import serialize_messages_for_json
-        serialized_messages = serialize_messages_for_json(state.get("messages", []))
+    def _build_agent_state(self, state: PlanExecuteState, task_content: str = "") -> Dict[str, Any]:
+        """Build filtered agent state using simple layered architecture."""
+        from src.orchestrator.plan_execute_state import build_agent_state_dict
         
-        # Convert plan-execute state to orchestrator state format
-        agent_state = {
-            "messages": serialized_messages,
-            "memory": state.get("memory", {}),
-            "summary": state.get("summary", ""),
-            "execution_context": state.get("execution_context", {}),
-            "agent_context": state.get("agent_context", {}),
-            "tool_calls_since_memory": state.get("tool_calls_since_memory", 0),
-            "agent_calls_since_memory": state.get("agent_calls_since_memory", 0),
-            "active_agents": state.get("active_agents", []),
-            "config": state.get("config", {})
-        }
+        # Use the new simple filtering approach
+        agent_state = build_agent_state_dict(state, task_content)
         
-        # Add plan context if available
-        if state.get("plan"):
-            agent_state["current_plan"] = state["plan"]
-            agent_state["plan_context"] = {
-                "original_request": state["original_request"],
-                "current_task_index": state.get("current_task_index", 0),
-                "task_results": state.get("task_results", {})
-            }
-        
-        logger.info("built_agent_state", 
+        logger.info("built_filtered_agent_state", 
                    keys=list(agent_state.keys()), 
-                   message_count=len(agent_state.get("messages", [])))
+                   message_count=len(agent_state.get("messages", [])),
+                   task_content_preview=task_content[:50] if task_content else "")
         
         return agent_state
     
@@ -1211,8 +1032,8 @@ When adding new tasks, ensure they integrate properly with existing work.
             agent_name = task.get("agent", "orchestrator")
             logger.info("execute_task_routing", task_id=task["id"], agent=agent_name)
             
-            # Convert plan-execute state to agent tool expected format
-            agent_state = self._build_agent_state(state)
+            # Convert plan-execute state to agent tool expected format with task context
+            agent_state = self._build_agent_state(state, task["content"])
             
             # Pure execution - call with proper state injection pattern from legacy code
             if agent_name == "salesforce" and "salesforce_agent" in self._agent_tools:

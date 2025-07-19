@@ -132,9 +132,8 @@ class PlanExecuteState(TypedDict):
     progress_state: ProgressState
     ui_mode: Literal["simple", "progressive"]  # Simple spinner vs step-by-step
     
-    # Memory and background operations (preserved from original)
+    # Background operations (no memory)
     summary: str
-    memory: Dict[str, Any]
     tool_calls_since_memory: int
     agent_calls_since_memory: int
     
@@ -218,7 +217,6 @@ def create_initial_state(original_request: str) -> PlanExecuteState:
         ),
         ui_mode="simple",
         summary="",
-        memory={},
         tool_calls_since_memory=0,
         agent_calls_since_memory=0,
         active_agents=[],
@@ -381,3 +379,101 @@ def get_plan_summary(plan: ExecutionPlan) -> str:
     pending = total - completed - failed
     
     return f"Plan Status: {completed} completed, {failed} failed, {pending} pending ({total} total)"
+
+
+# =================================
+# Simple Layered State Management
+# =================================
+
+class TaskContext(TypedDict):
+    """Simple task context for agents."""
+    current_task: str
+    task_id: Optional[str]
+    original_request: str
+
+
+class AgentVisibleState(TypedDict):
+    """Public state schema - what agents can see.
+    
+    Clean, minimal context agents receive.
+    No sensitive orchestrator internals.
+    """
+    # Core conversation
+    messages: Annotated[List[BaseMessage], add_messages]
+    summary: str
+    
+    # Current task info
+    task_context: TaskContext
+    
+    # Simple counters
+    tool_calls_since_memory: int
+    agent_calls_since_memory: int
+
+
+def create_agent_context(state: PlanExecuteState, 
+                        task_content: str = "") -> AgentVisibleState:
+    """Create clean agent context from orchestrator state.
+    
+    Args:
+        state: Complete orchestrator state
+        task_content: Current task description (optional override)
+        
+    Returns:
+        Clean agent-visible state
+    """
+    # Extract current task info
+    current_task = task_content
+    task_id = None
+    
+    if not current_task and state.get("plan"):
+        current_index = state.get("current_task_index", 0)
+        tasks = state.get("plan", {}).get("tasks", [])
+        
+        if 0 <= current_index < len(tasks):
+            current_task_obj = tasks[current_index]
+            current_task = current_task_obj.get("content", "")
+            task_id = current_task_obj.get("id")
+    
+    # Fallback to original request
+    if not current_task:
+        current_task = state.get("original_request", "")
+    
+    # Create task context
+    task_context = TaskContext(
+        current_task=current_task,
+        task_id=task_id,
+        original_request=state.get("original_request", "")
+    )
+    
+    # Create clean agent state
+    return AgentVisibleState(
+        messages=state.get("messages", []),
+        summary=state.get("summary", ""),
+        task_context=task_context,
+        tool_calls_since_memory=state.get("tool_calls_since_memory", 0),
+        agent_calls_since_memory=state.get("agent_calls_since_memory", 0)
+    )
+
+
+def build_agent_state_dict(state: PlanExecuteState, 
+                          task_content: str = "") -> Dict[str, Any]:
+    """Build agent state dictionary for tool consumption.
+    
+    Args:
+        state: Complete orchestrator state
+        task_content: Current task description
+        
+    Returns:
+        Dictionary format expected by agent tools
+    """
+    agent_context = create_agent_context(state, task_content)
+    
+    # Convert to dict format expected by tools
+    return {
+        "messages": agent_context["messages"],
+        "summary": agent_context["summary"],
+        "task_context": agent_context["task_context"],
+        "tool_calls_since_memory": agent_context["tool_calls_since_memory"],
+        "agent_calls_since_memory": agent_context["agent_calls_since_memory"],
+        "config": state.get("config", {})
+    }

@@ -6,13 +6,33 @@ def servicenow_agent_sys_msg(task_context: Optional[Dict[Any, Any]] = None, exte
     """System message for ServiceNow IT Service Management specialist agent.
     
     Args:
-        task_context: Task-specific context
+        task_context: Task-specific context with current_task, task_id, original_request
         external_context: External conversation context
         
     Returns:
-        Complete system message for ServiceNow agent
+        Complete system message for ServiceNow agent with injected task context
     """
-    system_message_content = """# Role
+    
+    # Build dynamic task context section
+    task_context_section = ""
+    if task_context:
+        current_task = task_context.get("current_task", "")
+        task_id = task_context.get("task_id", "")
+        original_request = task_context.get("original_request", "")
+        
+        if current_task or original_request:
+            task_context_section = f"""
+# Current Task Context
+**Current Task**: {current_task}
+**Task ID**: {task_id or 'N/A'}
+**Original Request**: {original_request}
+
+Your specific task is: "{current_task}"
+Keep this task focus while using your ServiceNow expertise to provide comprehensive help.
+
+"""
+    
+    system_message_content = f"""{task_context_section}# Role
 You are a ServiceNow IT Service Management specialist agent. Execute ServiceNow operations (incidents, problems, changes, requests, users, catalog items) as requested.
 
 # Available Tools
@@ -102,11 +122,9 @@ For unclear requests, analyze step by step:
 
 # Tool Response Structure (CRITICAL)
 All tools return a standardized response format:
-{
-    "success": true/false,
-    "data": <actual result>,
-    "operation": <tool_name>
-}
+- success: true/false
+- data: actual result
+- operation: tool_name
 
 When you see "success": true:
 1. The operation completed successfully

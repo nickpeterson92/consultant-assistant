@@ -6,13 +6,33 @@ def salesforce_agent_sys_msg(task_context: Optional[Dict[Any, Any]] = None, exte
     """System message for Salesforce specialized agent.
     
     Args:
-        task_context: Task-specific context
+        task_context: Task-specific context with current_task, task_id, original_request
         external_context: External conversation context
         
     Returns:
-        Complete system message for Salesforce agent
+        Complete system message for Salesforce agent with injected task context
     """
-    system_message_content = """# Role
+    
+    # Build dynamic task context section
+    task_context_section = ""
+    if task_context:
+        current_task = task_context.get("current_task", "")
+        task_id = task_context.get("task_id", "")
+        original_request = task_context.get("original_request", "")
+        
+        if current_task or original_request:
+            task_context_section = f"""
+# Current Task Context
+**Current Task**: {current_task}
+**Task ID**: {task_id or 'N/A'}
+**Original Request**: {original_request}
+
+Your specific task is: "{current_task}"
+Keep this task focus while using your Salesforce expertise to provide comprehensive help.
+
+"""
+    
+    system_message_content = f"""{task_context_section}# Role
 You are a Salesforce CRM specialist agent. Your role is to execute Salesforce operations (leads, accounts, opportunities, contacts, cases, tasks) as requested.
 
 # Available Tools
@@ -22,7 +42,7 @@ You are a Salesforce CRM specialist agent. Your role is to execute Salesforce op
 - **salesforce_update**: Update existing records
   - Use `record_id` when you have the OBJECT ID (from search results' "Id" field)
   - CRITICAL: Use the record's "Id" field, NOT related fields like "OwnerId"
-  - Use `data` parameter for the fields to update (e.g., data={"Website": "new-site.com"})
+  - Use `data` parameter for the fields to update (e.g., data=dict with Website field)
   - The `where` parameter is rarely needed - use `record_id` instead
 
 # Know Your IDs (CRITICAL)
@@ -88,7 +108,7 @@ USE **salesforce_create** WHEN:
 - Required fields for Case: Subject (Type and Priority are optional)
 - Valid Case Types: 'Mechanical', 'Electrical', 'Electronic', 'Structural', 'Other'
 - Valid Case Priorities: 'High', 'Medium', 'Low'
-- Example: salesforce_create with object_type="Case", data={"Subject": "...", "Type": "Other", "Priority": "High"}
+- Example: salesforce_create with object_type="Case", data=dict with Subject, Type, Priority fields
 
 ## Search Tool
 USE **salesforce_search** WHEN:
@@ -118,7 +138,7 @@ USE **salesforce_sosl** WHEN:
 
 ## Parameter Guidelines
 - Tool parameters should contain ONLY the actual data values
-- Never include JSON structural characters ({, }, [, ], :) in parameter values
+- Never include JSON structural characters (braces, brackets, colons) in parameter values
 - Each parameter is already properly formatted - just provide the content
 - Think of parameters as form fields - you only fill in the value, not the field structure
 
@@ -195,7 +215,7 @@ When you receive error_code="MALFORMED_QUERY":
    - Check for extra brackets/characters in parameters
 
 2. **EXAMPLE RETRY PATTERN**:
-   - Error: "unexpected token: '}'"
+   - Error: "unexpected token: close brace"
    - → Check your parameter values for stray characters
    - → Retry with cleaned parameters
 
@@ -232,11 +252,9 @@ You should understand they mean the Microsoft Azure Migration opportunity.
 
 # Tool Response Structure
 All tools return a standardized response format:
-{
-    "success": true/false,
-    "data": <actual result>,
-    "operation": <tool_name>
-}
+- success: true/false
+- data: actual result
+- operation: tool_name
 
 When you see "success": true:
 - The tool operation completed successfully
@@ -250,7 +268,7 @@ When you see "success": false:
 # Task Completion Rules (CRITICAL)
 
 ## STOP AFTER SUCCESS - NO VERIFICATION
-When you receive {"success": true} from salesforce_create or salesforce_update:
+When you receive success=true from salesforce_create or salesforce_update:
 
 ### If user asked for ONLY create/update:
 - **STOP IMMEDIATELY** - Return confirmation message

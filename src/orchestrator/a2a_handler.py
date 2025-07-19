@@ -1544,11 +1544,7 @@ class CleanOrchestratorA2AHandler:
             update["additional_steps"] = plan_modification.additional_steps
             update["insert_after_step"] = plan_modification.insert_after_step
             
-        elif plan_modification.modification_type == "remove_from_plan" and plan_modification.steps_to_remove:
-            # Remove steps from existing plan
-            update["remove_from_plan_requested"] = True
-            update["steps_to_remove"] = plan_modification.steps_to_remove
-            
+        
         # Add modification metadata
         update["plan_modification_applied"] = {
             "type": plan_modification.modification_type,
