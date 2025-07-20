@@ -30,8 +30,9 @@
 ## Table of Contents
 - [Overview](#overview)
 - [Architecture](#architecture)
+- [Complete Quickstart Guide](#-complete-quickstart-guide)
 - [Key Features](#key-features)
-- [Quick Start](#quick-start)
+- [Quick Reference](#quick-reference)
 - [System Requirements](#system-requirements)
 - [Configuration](#configuration)
 - [Usage Examples](#usage-examples)
@@ -105,6 +106,170 @@ Traditional single-agent systems hit scalability walls. This architecture solves
     │ - LangGraph State  │     │ - LangGraph State  │     │ - CMDB Operations  │
     └────────────────────┘     └────────────────────┘     └────────────────────┘
 ```
+
+## 🚀 Complete Quickstart Guide
+
+### Prerequisites
+
+Before you begin, ensure you have:
+- **Python 3.11+** installed
+- **Git** for cloning the repository
+- **Access to the following services**:
+  - Azure OpenAI (required)
+  - Salesforce instance with API access
+  - Jira instance with API access (optional)
+  - ServiceNow instance with API access (optional)
+
+### Step 1: Clone and Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/your-org/consultant-assistant.git
+cd consultant-assistant
+
+# Create and activate virtual environment
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### Step 2: Environment Configuration
+
+Create your environment file:
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your credentials:
+```bash
+# Azure OpenAI (REQUIRED)
+AZURE_OPENAI_ENDPOINT=https://your-instance.openai.azure.com/
+AZURE_OPENAI_CHAT_DEPLOYMENT_NAME=gpt-4o-mini
+AZURE_OPENAI_API_VERSION=2024-06-01
+AZURE_OPENAI_API_KEY=your-api-key
+
+# Salesforce (REQUIRED for CRM features)
+SFDC_USER=your@email.com
+SFDC_PASS=your-password
+SFDC_TOKEN=your-security-token
+
+# Jira (Optional - for project management features)
+JIRA_BASE_URL=https://your-domain.atlassian.net
+JIRA_USER=your@email.com
+JIRA_API_TOKEN=your-api-token
+
+# ServiceNow (Optional - for IT service management)
+SNOW_INSTANCE=your-instance.service-now.com
+SNOW_USER=your-username
+SNOW_PASS=your-password
+
+# Optional Settings
+DEBUG_MODE=true
+LLM_TEMPERATURE=0.1
+```
+
+**Getting Your Credentials:**
+- **Azure OpenAI**: Get from Azure Portal → OpenAI Service
+- **Salesforce**: User settings → Reset security token
+- **Jira**: Account settings → Security → API tokens
+- **ServiceNow**: Admin account with REST API access
+
+### Step 3: Start the System
+
+Open two terminal windows:
+
+**Terminal 1 - Start all agents and orchestrator:**
+```bash
+python3 start_system.py
+```
+Wait for "All agents started successfully" message.
+
+**Terminal 2 - Start the user interface:**
+```bash
+python3 orchestrator_cli_textual.py
+```
+
+You should see a beautiful text-based interface launch!
+
+### Step 4: Try Your First Requests
+
+Start with these example requests to get familiar with the system:
+
+#### Simple Data Retrieval
+```
+"Get the GenePoint account from Salesforce"
+"Show me all critical incidents in ServiceNow"
+"Find all open bugs in my Jira projects"
+```
+
+#### Complex Multi-Step Operations
+```
+"Find all critical incidents and create Jira tickets for them"
+"Check account health for our top 5 opportunities"
+"Get all records for Express Logistics and create a summary report"
+```
+
+#### Cross-System Analysis
+```
+"Analyze deal risk across all our open opportunities"
+"Show me customer health for accounts with recent cases"
+"Find opportunities without recent activity and check for related issues"
+```
+
+#### System Management
+```
+"Check the status of all agents"
+"Search the web for information about our competitors"
+"List all available Jira projects"
+```
+
+### What You'll See
+
+The system will automatically:
+1. **Create execution plans** for complex requests
+2. **Show progress** as it executes each step
+3. **Coordinate between systems** (Salesforce ↔ Jira ↔ ServiceNow)
+4. **Provide rich summaries** with actionable insights
+
+### Navigation Tips
+
+- **Interrupt Plans**: Press `Ctrl+C` during execution to interrupt and modify plans
+- **Skip Steps**: Say "skip to step 3" or "skip steps 2 and 4" to navigate plans
+- **Conversation Mode**: Say "just talking" when you don't want plan changes
+- **Exit**: Press `Ctrl+C` twice or type "exit" to quit
+
+### Troubleshooting First Run
+
+**"Agent not responding" errors:**
+- Check your credentials in `.env`
+- Ensure network connectivity to your services
+- Try restarting with `python3 start_system.py`
+
+**"Authentication failed":**
+- Verify your API keys are correct
+- For Salesforce: Check username, password, and security token
+- For ServiceNow: Ensure user has REST API permissions
+
+**"No such deployment" (Azure OpenAI):**
+- Verify your deployment name matches exactly
+- Check your API version is supported
+- Ensure endpoint URL is correct
+
+**Import errors:**
+- Ensure you're in the virtual environment: `source venv/bin/activate`
+- Reinstall dependencies: `pip install -r requirements.txt`
+
+### Next Steps
+
+Once you're comfortable with basic operations:
+- Explore the [Advanced Capabilities](#advanced-capabilities) section
+- Learn about [Custom Workflows](#plan-and-execute-business-process-orchestration)
+- Review [Configuration Options](#configuration) for fine-tuning
+- Check out [Production Deployment](#production-deployment) for scaling
+
+---
 
 ### Core Components
 
@@ -187,32 +352,6 @@ Service discovery inspired by Consul/Kubernetes:
 - **Performance Metrics**: Operation duration and throughput analysis
 - **Cost Analytics**: Token usage tracking per operation
 
-## Quick Start
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/your-org/consultant-assistant.git
-cd consultant-assistant
-
-# 2. Install dependencies
-pip install -r requirements.txt
-
-# 3. Configure environment
-cp .env.example .env
-# Edit .env with your credentials
-
-# 4. Start the system
-python3 start_system.py              # Terminal 1: Start all agents + orchestrator
-python3 orchestrator_cli_textual.py  # Terminal 2: Textual UI client
-
-# 5. Interact via plan-and-execute interface
-# The orchestrator will automatically create plans for complex tasks:
-> get all records for GenePoint account                    # Simple delegation
-> find all critical incidents and create jira tickets     # Multi-step plan
-> check account health for our top 5 opportunities        # Complex analysis
-> update express logistics opportunity and create case     # Cross-system coordination
-```
-
 ## System Requirements
 
 - **Python**: 3.11+ (async/await support required)
@@ -265,28 +404,53 @@ LLM_RECURSION_LIMIT=15  # Max iterations for agent loops
 
 ### System Configuration (system_config.json)
 
-The system uses a hierarchical configuration with intelligent defaults:
+The system uses a hierarchical configuration with intelligent defaults. Key sections include:
 
 ```json
 {
-  "conversation": {
-    "typing_effect_enabled": true,          // Animated UI effects
-    "animated_capabilities_enabled": true   // Banner animations
+  "llm": {
+    "model": "gpt-4o-mini",
+    "temperature": 0.3,
+    "max_tokens": 4000,
+    "timeout": 120,
+    "retry_attempts": 3
   },
   "a2a": {
-    "connection_pool_size": 50,             // Total connection limit
-    "circuit_breaker_threshold": 5,         // Failures before circuit opens
-    "timeout": 30                           // Request timeout in seconds
+    "timeout": 120,
+    "circuit_breaker_threshold": 5,
+    "connection_pool_size": 20,
+    "max_concurrent_calls": 10
   },
-  "llm": {
-    "temperature": 0.1,                     // Conservative temperature
-    "max_tokens": 4000,                     // Response token limit
-    "recursion_limit": 15                   // Max iterations for agent loops
+  "conversation": {
+    "summary_threshold": 5,
+    "max_conversation_length": 50,
+    "typing_effect_enabled": true,
+    "animated_banner_enabled": true
+  },
+  "database": {
+    "path": "memory_store.db",
+    "timeout": 30,
+    "thread_pool_size": 4
+  },
+  "logging": {
+    "level": "INFO",
+    "external_logs_dir": "logs",
+    "max_file_size": 10485760
+  },
+  "agents": {
+    "salesforce-agent": {
+      "port": 8001,
+      "timeout": 120
+    },
+    "jira-agent": {
+      "port": 8002,
+      "timeout": 120
+    }
   }
 }
 ```
 
-Configuration precedence: Runtime → Environment → JSON → Defaults
+**Configuration Precedence:** Environment Variables → system_config.json → Code Defaults
 
 ## Usage Examples
 
@@ -480,7 +644,7 @@ consultant-assistant/
 │   │   └── servicenow/         # Unified ITSM tools
 │   └── utils/                   # Shared utilities
 │       ├── config/              # Configuration management
-│       │   ├── config.py        # Main config system
+│       │   ├── unified_config.py # Main config system
 │       │   └── constants.py     # Centralized constants
 │       ├── storage/             # SQLite adapter
 │       ├── logging/             # Multi-file logging
