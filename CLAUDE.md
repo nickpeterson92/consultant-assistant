@@ -15,7 +15,7 @@ Are often wrong! If you have an assumption - challenge and try to confirm it bef
 Multi-agent orchestrator using LangGraph with specialized agents communicating via A2A protocol.
 
 ```
-CLI CLIENT (orchestrator_cli.py)
+CLI CLIENT (orchestrator_cli_textual.py)
         │
 A2A PROTOCOL (JSON-RPC 2.0)
         │  
@@ -62,16 +62,15 @@ We've replaced the complex event system with a simple counter-based approach:
 
 ```bash
 # Complete system startup (A2A mode - the only mode)
-python3 start_system.py        # Terminal 1: Start all agents + orchestrator A2A server
-python3 orchestrator_cli.py    # Terminal 2: Chat interface with beautiful UX
+python3 start_system.py              # Terminal 1: Start all agents + orchestrator A2A server
+python3 orchestrator_cli_textual.py  # Terminal 2: Textual TUI interface
 
 # Individual components (dev only)
 python3 salesforce_agent.py --port 8001
 python3 jira_agent.py --port 8002
 python3 servicenow_agent.py --port 8003
-# Workflow functionality now integrated in plan-and-execute system
-python3 orchestrator.py --port 8000  # A2A server mode (only mode)
-python3 orchestrator_cli.py          # CLI client for A2A orchestrator
+# Plan-and-execute functionality built into orchestrator
+python3 orchestrator.py              # A2A server mode (only mode, default port 8000)
 ```
 
 ### Environment Setup (.env)
@@ -97,32 +96,32 @@ LLM_RECURSION_LIMIT=15
 ## 📁 Key File Structure
 
 ```
-├── orchestrator.py              # Main entry
-├── orchestrator_cli.py          # CLI client for A2A orchestrator
+├── orchestrator.py              # Main orchestrator A2A server entry
+├── orchestrator_cli_textual.py  # Textual TUI client
 ├── salesforce_agent.py          # SF agent entry
 ├── jira_agent.py               # Jira agent entry
 ├── servicenow_agent.py         # ServiceNow agent entry
-# Workflow agent removed - functionality moved to plan-and-execute
 ├── start_system.py              # System starter
 ├── src/
 │   ├── orchestrator/
-│   │   ├── main.py             # CLI interface & main loop
-│   │   ├── graph_builder.py    # LangGraph orchestration
-│   │   ├── conversation_handler.py # Message processing
-│   │   ├── agent_caller_tools.py   # Agent communication
-│   │   └── agent_registry.py   # Agent discovery
+│   │   ├── a2a_main.py         # A2A server interface
+│   │   ├── a2a_handler.py      # A2A request processing
+│   │   ├── plan_execute_graph.py # LangGraph plan-and-execute pattern
+│   │   ├── plan_execute_state.py # State schema with layered architecture
+│   │   ├── simple_layered_state.py # AgentVisibleState implementation
+│   │   ├── conversation_handler.py # Message processing & summarization
+│   │   ├── llm_handler.py      # Azure OpenAI integration & plan modification
+│   │   ├── agent_registry.py   # Service discovery & health monitoring
+│   │   ├── agent_caller_tools.py # Agent delegation tools
+│   │   ├── state.py            # Legacy state definitions
+│   │   └── types.py            # Type definitions
 │   ├── agents/
 │   │   ├── salesforce/
 │   │   │   └── main.py         # SF LangGraph agent
 │   │   ├── jira/
 │   │   │   └── main.py         # Jira LangGraph agent
-│   │   ├── servicenow/
-│   │   │   └── main.py         # ServiceNow LangGraph agent
-│   │   └── workflow/
-│   │       ├── main.py         # Workflow LangGraph agent
-│   │       ├── engine.py       # Workflow execution engine
-│   │       ├── models.py       # Workflow data models
-│   │       └── templates.py    # Pre-built workflow templates
+│   │   └── servicenow/
+│   │       └── main.py         # ServiceNow LangGraph agent
 │   ├── a2a/
 │   │   ├── protocol.py         # A2A protocol (for network calls)
 │   │   └── circuit_breaker.py  # Resilience for A2A
@@ -130,10 +129,11 @@ LLM_RECURSION_LIMIT=15
 │   │   ├── salesforce/
 │   │   │   └── unified.py      # 6 unified Salesforce tools
 │   │   ├── jira/
-│   │   │   └── unified.py      # 6 unified Jira tools
+│   │   │   └── unified.py      # 11 unified Jira tools
 │   │   ├── servicenow/
 │   │   │   └── unified.py      # 6 unified ServiceNow tools
-# Workflow tools removed - functionality moved to plan-and-execute
+│   │   └── utility/
+│   │       └── web_search.py   # Web search tool
 │   └── utils/
 │       ├── config/             # Configuration management
 │       │   ├── config.py       # Main config system
@@ -170,7 +170,7 @@ LLM_RECURSION_LIMIT=15
 - **SalesforceAnalyticsTool**: Pipeline analytics and aggregations
 - **SalesforceCollaborationTool**: Activity and note management
 
-### Jira Tools (10 unified)
+### Jira Tools (11 unified)
 - **GetJiraTool**: Get issues by key or ID
 - **CreateJiraTool**: Create new issues (bug, story, task, epic)
 - **UpdateJiraTool**: Update issue fields and transitions
@@ -190,17 +190,12 @@ LLM_RECURSION_LIMIT=15
 - **ServiceNowAnalyticsTool**: ITSM metrics and reporting
 - **ServiceNowWorkflowTool**: Process automation and approvals
 
-### Workflow Tools (3 orchestration)
-- **WorkflowExecutionTool**: Smart workflow routing and execution
-- **WorkflowStatusTool**: Monitor running workflow status
-- **WorkflowListTool**: Discover available workflow templates
-
 ### Orchestrator Tools
 - **SalesforceAgentTool**: Routes CRM operations to SF agent
 - **JiraAgentTool**: Routes issue management to Jira agent
 - **ServiceNowAgentTool**: Routes ITSM operations to ServiceNow agent
-- **WorkflowAgentTool**: Routes complex workflows to workflow agent
 - **AgentRegistryTool**: System health monitoring
+- **WebSearchTool**: External information gathering
 
 ## 💾 Memory Architecture
 
@@ -237,35 +232,34 @@ CREATE TABLE store (
 - **Circuit Breaker**: 5 failures threshold, 60s timeout
 - **Retry**: 3 attempts with exponential backoff
 
-### 🔄 Workflow Agent
+### 🔄 Plan-and-Execute Orchestration
 
-### Why A2A Mode for Workflows?
-Running the orchestrator in A2A mode (`python3 start_system.py --a2a`) provides better workflow orchestration:
-- **Cleaner architecture**: Separates UI from orchestration logic
-- **Better concurrency**: Handles complex multi-step workflows more reliably
-- **Network-native**: Agents communicate via proper A2A protocol instead of callbacks
-- **Same UI experience**: `orchestrator_cli.py` provides identical interface
+### Why Plan-and-Execute Pattern?
+The orchestrator implements LangGraph's plan-and-execute pattern for complex multi-step workflows:
+- **Dynamic Planning**: LLM generates execution plans for complex tasks
+- **Task Context Injection**: Each agent receives structured context about their role
+- **Skip Navigation**: Users can skip to specific steps or skip multiple steps
+- **Real-time Modification**: Plans can be modified during execution
 
-### Available Workflows (5 templates)
-- **deal_risk_assessment**: Find at-risk opportunities + blockers across systems
-- **incident_to_resolution**: End-to-end incident management with system linking  
-- **customer_360_report**: Comprehensive customer data aggregation
-- **weekly_account_health_check**: Proactive account monitoring
-- **new_customer_onboarding**: Automated customer setup process
+### Plan Generation Process
+1. **User Request**: Complex multi-step request received
+2. **Plan Creation**: LLM creates structured ExecutionPlan with tasks
+3. **Task Execution**: Orchestrator delegates each task to appropriate agent
+4. **Plan Modification**: User can skip steps or provide feedback
+5. **Plan Summary**: Final results aggregated and presented
 
-### Key Features
-- **Multi-step execution**: ACTION, CONDITION, PARALLEL, WAIT, FOR_EACH steps
-- **Cross-system coordination**: Salesforce + Jira + ServiceNow integration
-- **State persistence**: Resume workflows after interruption
-- **LLM-powered reporting**: Business intelligence and executive summaries
+### Plan Modification Types
+- **skip_to_step**: Jump to specific step in current plan
+- **skip_steps**: Skip multiple specific steps in current plan  
+- **conversation_only**: Just talking, no plan changes needed
 
-### Quick Start
+### Example Business Processes
 ```bash
-# Run workflows via natural language
-"check for at-risk deals"
-"start customer onboarding for ACME Corp"
-"generate customer report for GenePoint"
-"run weekly account health check"
+# Complex workflows handled by plan-and-execute
+"find all critical incidents and create jira tickets"
+"check account health for our top 5 opportunities"
+"update express logistics opportunity and create case"
+"analyze deal risk across all our open opportunities"
 ```
 
 ## 🎯 Usage Examples
@@ -280,9 +274,9 @@ Running the orchestrator in A2A mode (`python3 start_system.py --a2a`) provides 
 "create new lead for John Smith at TechCorp"
 "update opportunity ABC123 to Closed Won"
 
-# Workflow operations
-"check for at-risk deals"
-"start customer onboarding"
+# Plan-and-execute operations
+"find all critical incidents and create jira tickets"
+"check account health for our top 5 opportunities"
 
 # System admin
 "check agent status"
@@ -291,11 +285,11 @@ Running the orchestrator in A2A mode (`python3 start_system.py --a2a`) provides 
 
 ### A2A Mode (Network Interface)
 ```bash
-# Start orchestrator with A2A interface
-python3 orchestrator.py --a2a --port 8000
+# Start orchestrator A2A server
+python3 orchestrator.py
 
-# Or start entire system with A2A mode
-python3 start_system.py --a2a --orchestrator-port 8000
+# Or start entire system 
+python3 start_system.py --orchestrator-port 8000
 
 # Test A2A interface
 python3 test_orchestrator_a2a.py
@@ -508,9 +502,30 @@ tail -f logs/errors.log | grep -E "(web_search|TAVILY)"
 - **Web search errors**: Look for `web_search_error` or `tavily_` in orchestrator.log
 - **All critical errors**: Always check errors.log first!
 
-## 🔄 Current Session Context (Updated 2025-07-17)
+## 🔄 Current Session Context (Updated 2025-07-20)
 
-### Active Work: Textual UI Fixes
+### Recent Major Updates: Implementation Review & Documentation Cleanup
+
+**Completed Work**: Comprehensive review and cleanup of system documentation
+- **Issue**: CLAUDE.md and README.md contained references to non-existent workflow agent
+- **Root Cause**: Documentation was describing planned workflow agent that was never implemented
+- **Reality Check**: Confirmed actual implementation is pure plan-and-execute orchestrator
+
+**Key Findings from Implementation Review**:
+1. **No Workflow Agent**: The workflow agent directory and tools don't exist in codebase
+2. **Plan-and-Execute Only**: Orchestrator handles complex workflows via built-in plan-and-execute pattern
+3. **Textual UI Only**: No separate Rich CLI exists, only `orchestrator_cli_textual.py`
+4. **11 Jira Tools**: Actual count is 11 unified tools, not 6 or 10
+5. **Simplified State**: AgentVisibleState with no memory complexity works as documented
+
+**Documentation Updates Completed**:
+- ✅ **README.md**: Updated architecture diagram, removed workflow agent, fixed CLI references
+- ✅ **CLAUDE.md**: Removed workflow agent sections, updated file structure, corrected tool counts
+- ✅ **System Architecture**: Now accurately reflects plan-and-execute with A2A agents
+- ✅ **Quick Start**: Fixed CLI command (`orchestrator_cli_textual.py`)
+- ✅ **Project Structure**: Updated to match actual file structure
+
+### Previous Work: Textual UI Fixes (COMPLETED)
 **Problem**: User reported textual CLI interface issues:
 - Can't see typed input until hitting enter
 - Assistant responses not displaying in conversation area
@@ -587,7 +602,7 @@ Result: Shows all matches (Express Logistics SLA, Express Logistics Inc, etc.)
 - **Errors**: 403 Forbidden for `core_company`, 400 Bad Request for `cmn_company` and `customer_account`
 - **Root Cause**: Table names vary by instance configuration and installed plugins
 - **Solution**: Use `core_company` as the standard table name in workflows
-- **Updated**: `src/agents/workflow/templates.py` - new_customer_onboarding workflow now explicitly uses `core_company`
+- **Note**: No longer applicable - workflow agent removed from system
 
 ### A2A Parameter Handling
 **Problem**: ServiceNow agent expecting `"task"` wrapper but A2A sends parameters directly
@@ -609,7 +624,7 @@ Result: Shows all matches (Express Logistics SLA, Express Logistics Inc, etc.)
 - **Fix**: Use `os.environ.get()` directly, avoid shell interpretation
 - **Test**: Verify with curl command line vs Python requests
 
-### Workflow State Persistence
+### State Persistence
 **Problem**: LangChain messages break when saved directly to storage
 - **Root Cause**: Message objects not JSON serializable
 - **Fix**: Always use `serialize_messages()` before storage
@@ -621,22 +636,20 @@ Result: Shows all matches (Express Logistics SLA, Express Logistics Inc, etc.)
 - **Fix**: Use `("memory", user_id)` not `"memory"`
 - **Pattern**: Always use tuple format for namespaces
 
-### Human-in-the-Loop Workflow
-**How it works**: Workflows can pause for human decisions using LangGraph's interrupt mechanism
-- **Workflow Side**: 
-  - HUMAN step type calls `interrupt()` with context
-  - Execution pauses, returns interrupt data to orchestrator
-  - Waits for `Command(resume=human_input)` to continue
+### Plan Interruption and Resume
+**How it works**: Plan execution can be interrupted and resumed using LangGraph's interrupt mechanism
+- **Plan Execution Side**: 
+  - User can interrupt plans with Ctrl+C during execution
+  - Execution pauses, preserves state
+  - Can resume with modified plans or skip steps
 - **Orchestrator Side**:
-  - Detects `WORKFLOW_HUMAN_INPUT_REQUIRED` in response
-  - Sets `interrupted_workflow` state with workflow details
-  - When user responds, sets `_workflow_human_response`
-  - Auto-generates plan execution to resume
+  - Handles plan interruption gracefully
+  - Preserves completed tasks and current state
+  - Supports plan modification during resume
 - **Key Files**:
-  - `src/agents/workflow/compiler.py:318-370` - Human node implementation
-  - `src/orchestrator/conversation_handler.py:142-185` - Auto-resume logic
-  - `src/orchestrator/agent_caller_tools.py:1347-1417` - Interrupt handling
-- **Testing**: Use `test_workflow_human_loop.py` to verify end-to-end flow
+  - `src/orchestrator/plan_execute_graph.py` - Plan execution with interrupt support
+  - `src/orchestrator/conversation_handler.py` - Resume logic
+  - `src/orchestrator/a2a_handler.py` - Plan state management
 
 ### Plan Display During Interrupts (FIXED)
 **Problem**: Plan display goes from 5 steps to 2 when interrupts happen, instead of showing original plan with skipped steps marked

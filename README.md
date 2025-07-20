@@ -66,48 +66,56 @@ Traditional single-agent systems hit scalability walls. This architecture solves
 ```
 ┌────────────────────────────────────────────────────────────────────────────┐
 │                              USER INTERFACE                                │
-│                           (orchestrator.py CLI)                            │
-└────────────────────────────────────────────────────────────────────────────┘
-                                         │
-                                         ▼
-┌────────────────────────────────────────────────────────────────────────────┐
-│                             ORCHESTRATOR AGENT                             │
-│  ┌─────────────────┐  ┌───────────────────┐  ┌─────────────────────────┐   │
-│  │  LangGraph      │  │  Agent Registry   │  │  Memory & State Mgmt    │   │
-│  │  State Machine  │  │  Service Discovery│  │  Auto Summarization     │   │
+│                     (orchestrator_cli_textual.py)                          │
+└──────────────────────────────────────┬─────────────────────────────────────┘
+                                       │
+                                 A2A Interface
+                                (JSON-RPC 2.0)
+                                       │
+                                       ▼
+┌────────────────────────────────────────────────────────────────────────────┐ 
+│                        PLAN-AND-EXECUTE ORCHESTRATOR                       │           ┌────────────────────┐
+│  ┌─────────────────┐  ┌───────────────────┐  ┌─────────────────────────┐   │           │ ORCHESTRATOR TOOLS │
+│  │  LangGraph      │  │  Plan Generation  │  │  Execution Engine       │   │           │ - Web Search       │
+│  │  State Machine  │  │  & Modification   │  │  Task Context Injection │   │ ────────► │ - Agent Registry   │
+│  └─────────────────┘  └───────────────────┘  └─────────────────────────┘   │           │ - Health Monitoring│
+│  ┌─────────────────┐  ┌───────────────────┐  ┌─────────────────────────┐   │           │ (Internal Access)  │
+│  │  Agent Registry │  │  Conversation     │  │  Simplified State       │   │           └────────────────────┘
+│  │  Service Disc.  │  │  Summarization    │  │  Public/Private Schema  │   │
 │  └─────────────────┘  └───────────────────┘  └─────────────────────────┘   │
-│                          Coordination & Intelligence                       │
-└────────────────────────────────────┬───────────────────────────────────────┘
-                                     │
-                        ┌────────────┴────────────┐
-                        │   A2A Protocol Layer    │
-                        │  JSON-RPC 2.0 + HTTP    │
-                        │  Circuit Breakers       │
-                        │  Connection Pooling     │
-                        └────────────┬────────────┘
-                                     │
- ┌───────────────────────────┬────────────────────────────┬──────────────────────┐
- │                           │                            │                      │
- ▼                           ▼                            ▼                      ▼
-┌────────────────────┐ ┌────────────────────┐ ┌────────────────────┐ ┌────────────────────┐
-│ SALESFORCE AGENT   │ │   JIRA AGENT       │ │ SERVICENOW AGENT   │ │  WORKFLOW AGENT    │
-│ - 6 Unified Tools  │ │ - 6 Unified Tools  │ │ - 6 Unified Tools  │ │ - 5 Workflow Types │
-│ - SOQL Builder     │ │ - JQL Search       │ │ - Incident Mgmt    │ │ - Multi-step Exec  │
-│ - Lead Management  │ │ - Sprint Mgmt      │ │ - Change Mgmt      │ │ - Parallel Process │
-│ - Opportunity Mgmt │ │ - Epic Tracking    │ │ - Problem Mgmt     │ │ - Cross-system     │
-│ - LangGraph State  │ │ - LangGraph State  │ │ - CMDB Operations  │ │ - Business Reports │
-└────────────────────┘ └────────────────────┘ └────────────────────┘ └────────────────────┘
+│                     Intelligent Task Orchestration                         │
+└──────────────────────────────────────┬─────────────────────────────────────┘
+                                       │
+                          ┌────────────┴────────────┐
+                          │   A2A Protocol Layer    │
+                          │  JSON-RPC 2.0 + HTTP    │
+                          │  Circuit Breakers       │
+                          │  Connection Pooling     │
+                          └────────────┬────────────┘
+                                       │
+            ┌──────────────────────────┼──────────────────────────┐
+            │                          │                          │
+            ▼                          ▼                          ▼
+    ┌────────────────────┐     ┌────────────────────┐     ┌────────────────────┐
+    │ SALESFORCE AGENT   │     │   JIRA AGENT       │     │ SERVICENOW AGENT   │
+    │ - 6 Unified Tools  │     │ - 11 Unified Tools │     │ - 6 Unified Tools  │
+    │ - SOQL Builder     │     │ - JQL Search       │     │ - Incident Mgmt    │
+    │ - Lead Management  │     │ - Sprint Mgmt      │     │ - Change Mgmt      │
+    │ - Opportunity Mgmt │     │ - Epic Tracking    │     │ - Problem Mgmt     │
+    │ - LangGraph State  │     │ - LangGraph State  │     │ - CMDB Operations  │
+    └────────────────────┘     └────────────────────┘     └────────────────────┘
 ```
 
 ### Core Components
 
-#### 1. **Orchestrator** (`src/orchestrator/main.py`)
+#### 1. **Plan-and-Execute Orchestrator** (`src/orchestrator/main.py`)
 The central nervous system implementing:
-- LangGraph state machine for conversation flow
-- Intelligent agent selection based on capabilities
-- Background tasks for non-blocking operations (3 tool calls, 2 agent calls, or 180 seconds)
-- Smart message preservation during summarization
-- Memory-first retrieval to minimize API calls
+- LangGraph plan-and-execute pattern for structured task execution
+- Dynamic plan generation and modification with skip navigation (skip_to_step, skip_steps, conversation_only)
+- Task context injection for enhanced agent LLM performance
+- Simplified state management with public/private schema separation
+- Background conversation summarization (5 messages or 300 seconds)
+- Intelligent agent routing with capability-based selection
 
 #### 2. **A2A Protocol** (`src/a2a/protocol.py`)
 Enterprise-grade implementation of Agent-to-Agent standard:
@@ -133,10 +141,10 @@ Service discovery inspired by Consul/Kubernetes:
 - Auto-detection of object types from ID prefixes
 
 **Jira Agent** (`src/agents/jira/main.py`)
-- 6 unified tools for complete issue lifecycle management
+- 10 unified tools for complete issue lifecycle management
 - JQL search with natural language support
 - Sprint and epic management capabilities
-- Agile workflow automation
+- Project creation and resource management
 
 **ServiceNow Agent** (`src/agents/servicenow/main.py`)
 - 6 unified ITSM tools across key operational categories
@@ -144,11 +152,12 @@ Service discovery inspired by Consul/Kubernetes:
 - CMDB integration for configuration items
 - GlideQuery builder for secure, complex queries
 
-**Workflow Agent** (`src/agents/workflow/main.py`)
-- 5 pre-built business workflow templates
-- Advanced multi-step execution engine with parallel processing
-- Cross-system orchestration (Salesforce + Jira + ServiceNow)
-- LLM-powered business intelligence and reporting
+**Built-in Orchestrator Capabilities**
+- Plan-and-execute workflow orchestration for complex multi-step tasks
+- Cross-system coordination (Salesforce + Jira + ServiceNow) via agent delegation
+- Web search integration for external information gathering
+- Task context injection for enhanced agent performance
+- Skip-based plan navigation (skip_to_step, skip_steps, conversation_only)
 
 ## Key Features
 
@@ -164,11 +173,13 @@ Service discovery inspired by Consul/Kubernetes:
 - **Graceful Degradation**: System continues with reduced functionality
 - **Timeout Management**: Multi-level timeouts prevent hanging
 
-### 🧠 Intelligent Memory
+### 🧠 Simplified State Management
 - **AsyncStoreAdapter**: Simplified SQLite storage (167 lines - 69% reduction)
 - **Thread Persistence**: Full state snapshots with serialized messages
-- **Memory-First Retrieval**: Check memory before making API calls
-- **Namespace Isolation**: User-specific memory boundaries
+- **Layered State Schema**: Clean public/private state separation with AgentVisibleState
+- **Task Context Injection**: Enhanced agent performance with structured context
+- **Simple Trigger System**: Counter-based approach (98% less code than events)
+- **No Memory Complexity**: Removed complex memory filtering and domain mappings
 
 ### 📊 Observability
 - **Structured JSON Logging**: Machine-readable logs for all components
@@ -191,14 +202,15 @@ cp .env.example .env
 # Edit .env with your credentials
 
 # 4. Start the system
-python3 start_system.py
+python3 start_system.py              # Terminal 1: Start all agents + orchestrator
+python3 orchestrator_cli_textual.py  # Terminal 2: Textual UI client
 
-# 5. Interact via CLI
-# In the orchestrator terminal:
-> get all records for GenePoint account      # Salesforce
-> show me all critical incidents             # ServiceNow
-> find all open bugs in project PROJ-123    # Jira
-> create a change request for server upgrade # ServiceNow
+# 5. Interact via plan-and-execute interface
+# The orchestrator will automatically create plans for complex tasks:
+> get all records for GenePoint account                    # Simple delegation
+> find all critical incidents and create jira tickets     # Multi-step plan
+> check account health for our top 5 opportunities        # Complex analysis
+> update express logistics opportunity and create case     # Cross-system coordination
 ```
 
 ## System Requirements
@@ -403,7 +415,7 @@ The system features a specialized Jira agent with 6 unified tools covering:
 For detailed Jira capabilities, examples, and API reference, see the [Jira Agent README](src/agents/jira/README.md).
 
 ### ServiceNow ITSM Integration
-The system features a specialized ServiceNow agent with 15 specialized tools covering:
+The system features a specialized ServiceNow agent with 6 unified tools covering:
 
 - **Incident Management**: Create, track, and resolve IT service disruptions
 - **Change Management**: Plan and execute infrastructure changes with approval workflows
@@ -413,24 +425,21 @@ The system features a specialized ServiceNow agent with 15 specialized tools cov
 
 For detailed ServiceNow capabilities, examples, and API reference, see the [ServiceNow Agent README](src/agents/servicenow/README.md).
 
-### Workflow-Based Business Process Automation
-The system features a sophisticated workflow agent with 5 pre-built business processes:
+### Plan-and-Execute Business Process Orchestration
+The orchestrator features built-in plan-and-execute capabilities for complex business processes:
 
-- **Deal Risk Assessment**: Identify at-risk opportunities and blockers across all systems
-- **Incident to Resolution**: End-to-end incident management with automatic system linking
-- **Customer 360 Report**: Comprehensive customer data aggregation and business intelligence
-- **Weekly Account Health Check**: Proactive monitoring of key account health metrics
-- **New Customer Onboarding**: Automated customer setup and stakeholder coordination
+- **Dynamic Plan Generation**: LLM creates execution plans for complex multi-step tasks
+- **Cross-System Coordination**: Automatically delegates tasks to Salesforce, Jira, and ServiceNow agents
+- **Task Context Injection**: Each agent receives structured context about their role in the larger plan
+- **Skip-Based Navigation**: Users can skip to specific steps or skip multiple steps during execution
+- **Real-Time Plan Modification**: Plans can be modified during execution with conversation_only mode
 
-**Advanced Workflow Features**:
-- Multi-step execution with conditional branching
-- Parallel processing for independent operations
-- Cross-system state management and context propagation
-- LLM-powered business intelligence and executive reporting
-- Human-in-the-loop approval workflows
-- Error handling with retry logic and graceful degradation
-
-For detailed workflow capabilities, template creation, and API reference, see the [Workflow Agent README](src/agents/workflow/README.md).
+**Example Business Processes**:
+- Deal risk assessment across multiple systems
+- Incident-to-resolution workflows with automatic linking
+- Customer health analysis with actionable recommendations
+- Account onboarding coordination across platforms
+- Proactive monitoring and alerting workflows
 
 ### Multi-Agent Extensibility
 The architecture supports adding new specialized agents for:
@@ -446,28 +455,29 @@ The architecture supports adding new specialized agents for:
 ```
 consultant-assistant/
 ├── src/
-│   ├── orchestrator/             # Central coordination
-│   │   ├── main.py              # CLI interface & main loop
-│   │   ├── graph_builder.py     # LangGraph workflow construction
-│   │   ├── state.py             # State schema
-│   │   ├── conversation_handler.py # Message processing
-│   │   ├── background_tasks.py  # Async operations
-│   │   ├── llm_handler.py       # Azure OpenAI integration
-│   │   ├── agent_registry.py    # Service discovery
-│   │   └── agent_caller_tools.py # A2A delegation
+│   ├── orchestrator/             # Plan-and-execute orchestration
+│   │   ├── a2a_main.py          # A2A server interface
+│   │   ├── a2a_handler.py       # A2A request processing
+│   │   ├── plan_execute_graph.py # LangGraph plan-and-execute pattern
+│   │   ├── plan_execute_state.py # State schema with layered architecture
+│   │   ├── simple_layered_state.py # AgentVisibleState implementation
+│   │   ├── conversation_handler.py # Message processing & summarization
+│   │   ├── llm_handler.py       # Azure OpenAI integration & plan modification
+│   │   ├── agent_registry.py    # Service discovery & health monitoring
+│   │   ├── agent_caller_tools.py # Agent delegation tools
+│   │   ├── state.py             # Legacy state definitions
+│   │   └── types.py             # Type definitions
 │   ├── agents/                  # Specialized agents
 │   │   ├── salesforce/          # CRM agent
 │   │   ├── jira/               # Issue tracking agent
-│   │   ├── servicenow/         # ITSM agent
-│   │   └── workflow/           # Business process orchestration agent
+│   │   └── servicenow/         # ITSM agent
 │   ├── a2a/                     # Protocol layer
 │   │   ├── protocol.py          # A2A implementation
 │   │   └── circuit_breaker.py   # Resilience patterns
 │   ├── tools/                   # Agent capabilities
 │   │   ├── salesforce/          # Unified CRM tools
 │   │   ├── jira/               # Unified issue tracking tools
-│   │   ├── servicenow/         # Unified ITSM tools
-│   │   └── workflow_tools.py    # Workflow orchestration tools
+│   │   └── servicenow/         # Unified ITSM tools
 │   └── utils/                   # Shared utilities
 │       ├── config/              # Configuration management
 │       │   ├── config.py        # Main config system
@@ -489,6 +499,9 @@ consultant-assistant/
 │       │   └── servicenow/
 │       │       └── glide_builder.py # Glide query builder
 │       └── message_serialization.py # LangChain serialization
+├── orchestrator.py              # Main orchestrator entry point
+├── orchestrator_cli_textual.py  # Textual UI client  
+├── start_system.py              # System starter script
 ├── logs/                        # Component-separated logs
 ├── memory_store.db             # SQLite persistence
 └── system_config.json          # System configuration
