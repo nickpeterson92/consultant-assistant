@@ -32,7 +32,6 @@
 - [Architecture](#architecture)
 - [Complete Quickstart Guide](#-complete-quickstart-guide)
 - [Key Features](#key-features)
-- [Quick Reference](#quick-reference)
 - [System Requirements](#system-requirements)
 - [Configuration](#configuration)
 - [Usage Examples](#usage-examples)
