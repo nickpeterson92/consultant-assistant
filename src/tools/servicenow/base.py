@@ -109,7 +109,7 @@ class BaseServiceNowTool(BaseTool, ABC):
         )
     
     def _handle_error(self, error: Exception) -> Dict[str, Any]:
-        """Handle errors with consistent format and structured guidance."""
+        """Handle errors with standardized response format and structured guidance."""
         logger.error("tool_error",
             component="servicenow",
             tool_name=self.name,
@@ -120,25 +120,33 @@ class BaseServiceNowTool(BaseTool, ABC):
         error_str = str(error)
         if "401" in error_str or "Unauthorized" in error_str:
             return {
-                "error": "Authentication failed",
-                "error_code": "UNAUTHORIZED",
-                "details": str(error),
-                "guidance": {
-                    "reflection": "The credentials are invalid or missing.",
-                    "consider": "Are the SERVICENOW_USER and SERVICENOW_PASSWORD environment variables correctly set?",
-                    "approach": "Verify your ServiceNow credentials and instance configuration."
-                }
+                "success": False,
+                "data": {
+                    "error": "Authentication failed",
+                    "error_code": "UNAUTHORIZED",
+                    "details": str(error),
+                    "guidance": {
+                        "reflection": "The credentials are invalid or missing.",
+                        "consider": "Are the SERVICENOW_USER and SERVICENOW_PASSWORD environment variables correctly set?",
+                        "approach": "Verify your ServiceNow credentials and instance configuration."
+                    }
+                },
+                "operation": self.name
             }
         elif "403" in error_str or "Forbidden" in error_str:
             return {
-                "error": "Permission denied",
-                "error_code": "FORBIDDEN",
-                "details": str(error),
-                "guidance": {
-                    "reflection": "You don't have permission to perform this action.",
-                    "consider": "Does your user account have the necessary roles and permissions?",
-                    "approach": "Check with your ServiceNow administrator about required roles."
-                }
+                "success": False,
+                "data": {
+                    "error": "Permission denied",
+                    "error_code": "FORBIDDEN",
+                    "details": str(error),
+                    "guidance": {
+                        "reflection": "You don't have permission to perform this action.",
+                        "consider": "Does your user account have the necessary roles and permissions?",
+                        "approach": "Check with your ServiceNow administrator about required roles."
+                    }
+                },
+                "operation": self.name
             }
         elif "404" in error_str or "Not Found" in error_str:
             # Try to extract table or record info
@@ -147,14 +155,18 @@ class BaseServiceNowTool(BaseTool, ABC):
             table_name = table_match.group(1) or table_match.group(2) if table_match else "unknown"
             
             return {
-                "error": "Resource not found",
-                "error_code": "NOT_FOUND",
-                "details": str(error),
-                "guidance": {
-                    "reflection": f"The requested resource doesn't exist.",
-                    "consider": "Is the table name correct? ServiceNow tables often have prefixes like 'incident', 'change_request', etc.",
-                    "approach": "Verify the table name and record ID. Common tables: incident, change_request, problem, sc_task."
-                }
+                "success": False,
+                "data": {
+                    "error": "Resource not found",
+                    "error_code": "NOT_FOUND",
+                    "details": str(error),
+                    "guidance": {
+                        "reflection": f"The requested resource doesn't exist.",
+                        "consider": "Is the table name correct? ServiceNow tables often have prefixes like 'incident', 'change_request', etc.",
+                        "approach": "Verify the table name and record ID. Common tables: incident, change_request, problem, sc_task."
+                    }
+                },
+                "operation": self.name
             }
         elif "400" in error_str or "Bad Request" in error_str:
             # Try to extract field information
@@ -165,20 +177,28 @@ class BaseServiceNowTool(BaseTool, ABC):
                 field_name = field_match.group(1) or field_match.group(2) or field_match.group(3)
             
             return {
-                "error": "Invalid request",
-                "error_code": "BAD_REQUEST",
-                "details": str(error),
-                "guidance": {
-                    "reflection": f"The request format or parameters are invalid{f' for field {field_name}' if field_name else ''}.",
-                    "consider": "Are all required fields provided? Is the query syntax correct?",
-                    "approach": "Check field names and query operators. ServiceNow uses specific field naming conventions."
-                }
+                "success": False,
+                "data": {
+                    "error": "Invalid request",
+                    "error_code": "BAD_REQUEST",
+                    "details": str(error),
+                    "guidance": {
+                        "reflection": f"The request format or parameters are invalid{f' for field {field_name}' if field_name else ''}.",
+                        "consider": "Are all required fields provided? Is the query syntax correct?",
+                        "approach": "Check field names and query operators. ServiceNow uses specific field naming conventions."
+                    }
+                },
+                "operation": self.name
             }
         else:
             return {
-                "error": "Operation failed",
-                "error_code": "UNKNOWN_ERROR",
-                "details": str(error)
+                "success": False,
+                "data": {
+                    "error": "Operation failed",
+                    "error_code": "UNKNOWN_ERROR",
+                    "details": str(error)
+                },
+                "operation": self.name
             }
     
     def _run(self, **kwargs) -> Any:
@@ -188,7 +208,13 @@ class BaseServiceNowTool(BaseTool, ABC):
         try:
             result = self._execute(**kwargs)
             self._log_result(result)
-            return result
+            
+            # Wrap successful result in standardized format
+            return {
+                "success": True,
+                "data": result,
+                "operation": self.name
+            }
         except Exception as e:
             return self._handle_error(e)
     

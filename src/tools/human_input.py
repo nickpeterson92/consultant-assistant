@@ -34,7 +34,7 @@ class HumanInputTool(BaseTool):
     MANDATORY: You MUST include the result from the previous steps in the full_message parameter.
     The parameter should be an EXACT copy of the result from the previous steps.
     
-    human_tool MANTRA:
+    🚨🚨 CRITICAL 🚨🚨: human_tool MANTRA:
     I DO NOT THINK. I DO NOT HELP. I COPY PASTE. THAT IS ALL.
     I DO NOT THINK. I DO NOT HELP. I COPY PASTE. THAT IS ALL.
     I DO NOT THINK. I DO NOT HELP. I COPY PASTE. THAT IS ALL.

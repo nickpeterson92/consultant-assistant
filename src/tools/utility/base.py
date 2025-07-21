@@ -66,53 +66,69 @@ class BaseUtilityTool(BaseTool, ABC):
         # API key errors
         if "api key" in error_str.lower() or "unauthorized" in error_str.lower():
             return {
-                "error": "API authentication failed",
-                "error_code": "UNAUTHORIZED",
-                "details": str(error),
-                "guidance": {
-                    "reflection": "The API key is invalid or missing.",
-                    "consider": "Is the TAVILY_API_KEY environment variable set correctly?",
-                    "approach": "Verify your API credentials and try again."
-                }
+                "success": False,
+                "data": {
+                    "error": "API authentication failed",
+                    "error_code": "UNAUTHORIZED",
+                    "details": str(error),
+                    "guidance": {
+                        "reflection": "The API key is invalid or missing.",
+                        "consider": "Is the TAVILY_API_KEY environment variable set correctly?",
+                        "approach": "Verify your API credentials and try again."
+                    }
+                },
+                "operation": self.name
             }
         
         # Rate limit errors
         elif "rate limit" in error_str.lower() or "429" in error_str:
             return {
-                "error": "Rate limit exceeded",
-                "error_code": "RATE_LIMIT",
-                "details": str(error),
-                "guidance": {
-                    "reflection": "Too many requests have been made to the API.",
-                    "consider": "Have you been making many rapid searches?",
-                    "approach": "Wait a moment before trying again, or reduce search frequency."
-                }
+                "success": False,
+                "data": {
+                    "error": "Rate limit exceeded",
+                    "error_code": "RATE_LIMIT",
+                    "details": str(error),
+                    "guidance": {
+                        "reflection": "Too many requests have been made to the API.",
+                        "consider": "Have you been making many rapid searches?",
+                        "approach": "Wait a moment before trying again, or reduce search frequency."
+                    }
+                },
+                "operation": self.name
             }
         
         # Network errors
         elif "connection" in error_str.lower() or "timeout" in error_str.lower():
             return {
-                "error": "Network connection failed",
-                "error_code": "NETWORK_ERROR",
-                "details": str(error),
-                "guidance": {
-                    "reflection": "Unable to connect to the search service.",
-                    "consider": "Is there a network connectivity issue?",
-                    "approach": "Check your internet connection and try again."
-                }
+                "success": False,
+                "data": {
+                    "error": "Network connection failed",
+                    "error_code": "NETWORK_ERROR",
+                    "details": str(error),
+                    "guidance": {
+                        "reflection": "Unable to connect to the search service.",
+                        "consider": "Is there a network connectivity issue?",
+                        "approach": "Check your internet connection and try again."
+                    }
+                },
+                "operation": self.name
             }
         
         # Generic errors
         else:
             return {
-                "error": "Operation failed",
-                "error_code": "UNKNOWN_ERROR",
-                "details": str(error),
-                "guidance": {
-                    "reflection": "An unexpected error occurred.",
-                    "consider": "Is the input data valid and complete?",
-                    "approach": "Review the error details and adjust your request."
-                }
+                "success": False,
+                "data": {
+                    "error": "Operation failed",
+                    "error_code": "UNKNOWN_ERROR",
+                    "details": str(error),
+                    "guidance": {
+                        "reflection": "An unexpected error occurred.",
+                        "consider": "Is the input data valid and complete?",
+                        "approach": "Review the error details and adjust your request."
+                    }
+                },
+                "operation": self.name
             }
     
     def _extract_entities_from_state(self, state: Optional[Dict[str, Any]]) -> List[str]:
@@ -178,7 +194,13 @@ class BaseUtilityTool(BaseTool, ABC):
         try:
             result = self._execute(**kwargs)
             self._log_result(result)
-            return result
+            
+            # Wrap successful result in standardized format
+            return {
+                "success": True,
+                "data": result,
+                "operation": self.name
+            }
         except Exception as e:
             return self._handle_error(e)
     

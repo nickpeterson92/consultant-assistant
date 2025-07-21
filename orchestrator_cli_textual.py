@@ -167,22 +167,24 @@ class ConversationWidget(ScrollableContainer):
             except:
                 pass
         
-        # Add user message with main branch styling
-        user_widget = Static(
-            f"[bold #58a6ff]You:[/bold #58a6ff] {message}",
-            classes="user-message"
-        )
-        await self.mount(user_widget)
+        # Create separate widgets for label and content (like main branch)
+        label_widget = Static("[bold cyan]USER:[/bold cyan]", classes="message-label")
+        content_widget = Markdown(message, classes="message-content")
+        
+        # Mount both widgets
+        await self.mount(label_widget)
+        await self.mount(content_widget)
         self.scroll_end(animate=True)
         
     async def add_assistant_message(self, message: str):
         """Add an assistant message to the conversation."""
-        # Add assistant message with main branch styling
-        assistant_widget = Static(
-            f"[bold #7ee787]Assistant:[/bold #7ee787] {message}",
-            classes="assistant-message"
-        )
-        await self.mount(assistant_widget)
+        # Create separate widgets for label and content (like main branch)
+        label_widget = Static("[bold green]ASSISTANT:[/bold green]", classes="message-label")
+        content_widget = Markdown(message, classes="message-content")
+        
+        # Mount both widgets  
+        await self.mount(label_widget)
+        await self.mount(content_widget)
         self.scroll_end(animate=True)
         
     async def add_system_message(self, message: str, message_type: str = "info"):

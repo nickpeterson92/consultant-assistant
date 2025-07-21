@@ -45,25 +45,21 @@ class SalesforceGet(SalesforceReadTool):
             object_type = id_prefixes.get(prefix)
             
             if not object_type:
-                return {"error": f"Cannot determine object type from ID prefix '{prefix}'"}
+                # This will be wrapped in standardized format by base class
+                raise ValueError(f"Cannot determine object type from ID prefix '{prefix}'")
         
         # Get the record
         fields_to_query = self._build_field_list(object_type, fields)
         
         # Use the Salesforce REST API for single record retrieval
-        try:
-            sobject = getattr(self.sf, object_type)
-            result = sobject.get(record_id)
-            
-            # Filter to requested fields if specified
-            if fields:
-                result = {k: v for k, v in result.items() if k in fields or k == 'attributes'}
-            
-            return result
-        except Exception as e:
-            if "NOT_FOUND" in str(e):
-                return {"error": f"No {object_type} found with ID {record_id}"}
-            raise
+        sobject = getattr(self.sf, object_type)
+        result = sobject.get(record_id)
+        
+        # Filter to requested fields if specified
+        if fields:
+            result = {k: v for k, v in result.items() if k in fields or k == 'attributes'}
+        
+        return result
 
 
 class SalesforceSearch(SalesforceReadTool):
@@ -87,7 +83,8 @@ class SalesforceSearch(SalesforceReadTool):
         # Validate filter doesn't contain non-filterable fields
         validation_error = self._validate_filter_fields(object_type, filter)
         if validation_error:
-            return {"error": validation_error}
+            # This will be wrapped in standardized format by base class
+            raise ValueError(validation_error)
         
         # Build field list
         fields_to_query = self._build_field_list(object_type, fields)
@@ -157,7 +154,8 @@ class SalesforceCreate(SalesforceWriteTool):
         # Validate required fields
         validation_error = self._validate_required_fields(object_type, data)
         if validation_error:
-            return {"error": validation_error}
+            # This will be wrapped in standardized format by base class
+            raise ValueError(validation_error)
         
         # Prepare data
         prepared_data = self._prepare_data(data)
@@ -174,7 +172,8 @@ class SalesforceCreate(SalesforceWriteTool):
         else:
             errors = result.get('errors', [])
             error_msg = errors[0].get('message', 'Unknown error') if errors else 'Creation failed'
-            return {"error": f"Failed to create {object_type}: {error_msg}"}
+            # This will be wrapped in standardized format by base class
+            raise Exception(f"Failed to create {object_type}: {error_msg}")
 
 
 class SalesforceUpdate(SalesforceWriteTool):
@@ -187,7 +186,7 @@ class SalesforceUpdate(SalesforceWriteTool):
         object_type: str = Field(description="Type of object to update (e.g., Opportunity, Account, Contact)")
         record_id: Optional[str] = Field(None, description="ID of specific record to update (if known)")
         where: Optional[str] = Field(None, description="SOQL WHERE condition to FIND records to update (e.g., 'Name LIKE \\'%GenePoint%\\''). Do NOT use this for field values!")
-        data: Dict[str, Any] = Field(description="NEW VALUES to set on the record(s). For status updates, use field names like 'StageName'. Example: {'StageName': 'Closed Won'} means SET StageName TO 'Closed Won'. This is REQUIRED!")
+        data: Dict[str, Any] = Field(description="NEW VALUES to set on the record(s). For status updates, use field names like 'StageName'. Example: {'StageName': '[new_stage_value]'} means SET StageName TO [new_stage_value]. This is REQUIRED!")
     
     args_schema: type = Input
     
@@ -195,10 +194,12 @@ class SalesforceUpdate(SalesforceWriteTool):
                  record_id: Optional[str] = None, where: Optional[str] = None) -> Any:
         """Execute the update operation."""
         if not record_id and not where:
-            return {"error": "Must provide either record_id or where condition"}
+            # This will be wrapped in standardized format by base class
+            raise ValueError("Must provide either record_id or where condition")
         
         if not data:
-            return {"error": "data parameter is required - specify fields to update. For opportunity status, use: {'StageName': 'Closed Won'}"}
+            # This will be wrapped in standardized format by base class
+            raise ValueError("data parameter is required - specify fields to update. For opportunity status, use: {'StageName': '[stage_value]'}")
         
         # Prepare update data
         prepared_data = self._prepare_data(data)
@@ -214,14 +215,20 @@ class SalesforceUpdate(SalesforceWriteTool):
                 updated_record = sobject.get(record_id)
                 return updated_record
             else:
-                return {"error": f"Failed to update {object_type} {record_id}"}
+                # This will be wrapped in standardized format by base class
+                raise Exception(f"Failed to update {object_type} {record_id}")
         else:
             # Find records to update using query builder
             query = SOQLQueryBuilder(object_type).select(['Id']).where_raw(where).build()
             records = self.sf.query(query)['records']
             
             if not records:
-                return {"error": f"No {object_type} records found matching: {where}"}
+                # Empty result is success - no records found to update
+                return {
+                    "message": f"No {object_type} records found matching: {where}",
+                    "updated_count": 0,
+                    "records_updated": []
+                }
             
             # Update each record
             updated = []

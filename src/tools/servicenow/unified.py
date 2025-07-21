@@ -35,41 +35,16 @@ class ServiceNowGet(ServiceNowReadTool):
         """Execute the get operation."""
         # Validate inputs
         if not sys_id and not number:
-            return {
-                "error": "Missing required identifier",
-                "error_code": "MISSING_IDENTIFIER",
-                "guidance": {
-                    "reflection": "No sys_id or number was provided to identify the record.",
-                    "consider": "What record are you trying to retrieve? Do you have its number or system ID?",
-                    "approach": "Provide either the record number (e.g., INC0001234) or the sys_id."
-                }
-            }
+            raise ValueError("Missing required identifier: No sys_id or number was provided to identify the record.")
             
         # Auto-detect table from number if not provided
         if not table_name and number:
             table_name = self._detect_table_from_number(number)
             if not table_name:
-                return {
-                    "error": "Unknown record number format",
-                    "error_code": "UNKNOWN_NUMBER_FORMAT",
-                    "number": number,
-                    "guidance": {
-                        "reflection": f"Could not determine the table type from number: {number}",
-                        "consider": "What type of record is this? Common prefixes: INC (incident), CHG (change), PRB (problem).",
-                        "approach": "Specify the table_name parameter explicitly (e.g., 'incident', 'change_request')."
-                    }
-                }
+                raise ValueError(f"Unknown record number format: Could not determine the table type from number: {number}")
         
         if not table_name:
-            return {
-                "error": "Missing table name",
-                "error_code": "MISSING_TABLE_NAME",
-                "guidance": {
-                    "reflection": "A sys_id was provided but no table name to search in.",
-                    "consider": "What type of record does this sys_id belong to?",
-                    "approach": "Specify the table_name parameter (e.g., 'incident', 'change_request', 'problem')."
-                }
-            }
+            raise ValueError("Missing table name: A sys_id was provided but no table name to search in.")
             
         # Use default fields if not specified
         if not fields:
@@ -98,17 +73,7 @@ class ServiceNowGet(ServiceNowReadTool):
             if data.get('result'):
                 return data['result'][0]
             else:
-                return {
-                    "error": "Record not found",
-                    "error_code": "NOT_FOUND",
-                    "number": number,
-                    "table": table_name,
-                    "guidance": {
-                        "reflection": f"No {table_name} record found with number: {number}",
-                        "consider": "Is the record number correct? Has it been deleted or archived?",
-                        "approach": "Verify the record exists in ServiceNow or try searching with different criteria."
-                    }
-                }
+                raise ValueError(f"Record not found: No {table_name} record found with number: {number}")
 
 
 class ServiceNowSearch(ServiceNowReadTool):
@@ -149,16 +114,7 @@ class ServiceNowSearch(ServiceNowReadTool):
                 encoded_query = nlq_result["encoded_query"]
             else:
                 # Return guidance for LLM to retry with structured query
-                return {
-                    "error": "Natural language query not understood",
-                    "error_code": "NLQ_INTERPRETATION_FAILED", 
-                    "query": query,
-                    "guidance": {
-                        "reflection": f"ServiceNow couldn't interpret: '{query}'",
-                        "consider": f"What specific {table_name} fields and conditions do you need?",
-                        "approach": "Try an encoded query like: field=value^field2!=value2"
-                    }
-                }
+                raise ValueError(f"Natural language query not understood: ServiceNow couldn't interpret: '{query}'")
         
         # Add ordering if specified
         if order_by:
@@ -272,15 +228,9 @@ class ServiceNowUpdate(ServiceNowWriteTool):
             
             if not search_data.get('result') or len(search_data['result']) == 0:
                 return {
-                    "error": "Record not found",
-                    "error_code": "NOT_FOUND",
-                    "number": number,
-                    "table": table_name,
-                    "guidance": {
-                        "reflection": f"No {table_name} record found with number: {number}",
-                        "consider": "Is the record number correct? Does it exist in this table?",
-                        "approach": "Verify the record exists or use sys_id if available."
-                    }
+                    "message": f"No {table_name} record found with number: {number}",
+                    "updated_count": 0,
+                    "records_updated": []
                 }
                 
             # Update using the found sys_id
@@ -306,15 +256,7 @@ class ServiceNowUpdate(ServiceNowWriteTool):
             }
             
         else:
-            return {
-                "error": "Missing required identifier",
-                "error_code": "MISSING_IDENTIFIER",
-                "guidance": {
-                    "reflection": "No sys_id, number, or where clause was provided to identify records to update.",
-                    "consider": "How do you want to identify the records to update?",
-                    "approach": "Provide either sys_id for single record, number for lookup, or where clause for bulk updates."
-                }
-            }
+            raise ValueError("Missing required identifier: No sys_id, number, or where clause was provided to identify records to update.")
 
 
 class ServiceNowWorkflow(ServiceNowWorkflowTool):
@@ -360,16 +302,7 @@ class ServiceNowWorkflow(ServiceNowWorkflowTool):
         elif action == "assign":
             # Assignment logic
             if not data.get('assigned_to'):
-                return {
-                    "error": "Missing required field for assignment",
-                    "error_code": "MISSING_REQUIRED_FIELD",
-                    "field": "assigned_to",
-                    "guidance": {
-                        "reflection": "Assignment action requires an 'assigned_to' field in the data.",
-                        "consider": "Who should this record be assigned to?",
-                        "approach": "Include 'assigned_to' in the data parameter with the user's sys_id or username."
-                    }
-                }
+                raise ValueError("Missing required field for assignment: Assignment action requires an 'assigned_to' field in the data.")
             update_data = {
                 'assigned_to': data['assigned_to'],
                 'assignment_group': data.get('assignment_group')
@@ -378,16 +311,7 @@ class ServiceNowWorkflow(ServiceNowWorkflowTool):
         elif action == "transition":
             # State transition logic
             if not data.get('state'):
-                return {
-                    "error": "Missing required field for transition",
-                    "error_code": "MISSING_REQUIRED_FIELD",
-                    "field": "state",
-                    "guidance": {
-                        "reflection": "State transition requires a 'state' field in the data.",
-                        "consider": "What state should the record transition to?",
-                        "approach": "Include 'state' in the data parameter (e.g., 'in_progress', 'resolved', 'closed')."
-                    }
-                }
+                raise ValueError("Missing required field for transition: State transition requires a 'state' field in the data.")
                 
             # Validate state value
             valid_states = self._get_valid_states(table_name)
@@ -399,16 +323,7 @@ class ServiceNowWorkflow(ServiceNowWorkflowTool):
             }
             
         else:
-            return {
-                "error": "Unknown workflow action",
-                "error_code": "INVALID_ACTION",
-                "action": action,
-                "guidance": {
-                    "reflection": f"The workflow action '{action}' is not recognized.",
-                    "consider": "What workflow operation are you trying to perform?",
-                    "approach": "Use one of: 'approve', 'reject', 'assign', or 'transition'."
-                }
-            }
+            raise ValueError(f"Unknown workflow action: The workflow action '{action}' is not recognized.")
             
         # Execute the update
         endpoint = f"/table/{table_name}/{sys_id}"
@@ -531,16 +446,7 @@ class ServiceNowAnalytics(ServiceNowAnalyticsTool):
             }
             
         else:
-            return {
-                "error": "Unknown metric type",
-                "error_code": "INVALID_METRIC_TYPE",
-                "metric_type": metric_type,
-                "guidance": {
-                    "reflection": f"The metric type '{metric_type}' is not supported.",
-                    "consider": "What kind of analytics are you looking for?",
-                    "approach": "Use one of: 'count' for totals, 'breakdown' for grouping, or 'trend' for time-based analysis."
-                }
-            }
+            raise ValueError(f"Unknown metric type: The metric type '{metric_type}' is not supported.")
 
 
 # Export unified tools

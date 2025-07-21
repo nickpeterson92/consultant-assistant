@@ -74,19 +74,60 @@ def execute_step(state: PlanExecute):
     from .observers import get_observer_registry, SearchResultsEvent
     
     plan = state["plan"]
+    
+    # Check if plan is empty
+    if not plan:
+        logger.error("Empty plan received in execute_step", 
+                    component="orchestrator",
+                    operation="execute_step")
+        return {"messages": [HumanMessage(content="Error: No plan steps available to execute")]}
+    
     plan_str = "\n".join(f"{i + 1}. {step}" for i, step in enumerate(plan))
     task = plan[0]
+    
+    # Calculate current step number dynamically
+    current_step_num = len(state.get("past_steps", [])) + 1
+    
+    # Include past_steps context so ReAct agent can access previous results
+    past_steps_context = ""
+    past_steps = state.get("past_steps", [])
+    
+    logger.info(f"DEBUG: past_steps available: {len(past_steps)} steps", 
+               component="orchestrator", operation="execute_step")
+    
+    if past_steps:
+        past_steps_context = "\n\nPREVIOUS STEPS COMPLETED:\n"
+        for i, (step_desc, result) in enumerate(past_steps, 1):
+            past_steps_context += f"Step {i}: {step_desc}\nResult: {result}\n\n"
+            logger.info(f"DEBUG: Added past step {i}: {step_desc[:50]}...", 
+                       component="orchestrator", operation="execute_step")
+    else:
+        logger.warning("DEBUG: No past_steps found in state!", 
+                      component="orchestrator", operation="execute_step")
+    
     task_formatted = f"""For the following plan:
 {plan_str}
 
-You are tasked with executing step {1}, {task}."""
+You are tasked with executing step {current_step_num}: {task}.
+{past_steps_context}"""
+    
+    logger.info(f"DEBUG: task_formatted length: {len(task_formatted)}, has context: {bool(past_steps_context)}", 
+               component="orchestrator", operation="execute_step")
     
     # Use ReAct agent executor which handles tool execution automatically
     agent_response = asyncio.run(agent_executor.ainvoke(
         {"messages": [("user", task_formatted)]}
     ))
     
-    final_response = agent_response["messages"][-1].content
+    # Check if agent response has messages before accessing
+    messages = agent_response.get("messages", [])
+    if not messages:
+        logger.error("Agent response has no messages", 
+                    component="orchestrator",
+                    operation="execute_step")
+        final_response = "Error: No response received from agent"
+    else:
+        final_response = messages[-1].content
     
     # Check if any tools used during execution produce user data
     # We need to get the available tools to check their metadata
@@ -162,8 +203,9 @@ def replan_step(state: PlanExecute):
         user_visible_responses = []
         
         # If any plan step mentions human_input, show the most recent past step result to user
-        if any("human_input" in step.lower() for step in new_plan) and state.get("past_steps"):
-            last_step, last_result = state["past_steps"][-1]
+        past_steps = state.get("past_steps", [])
+        if any("human_input" in step.lower() for step in new_plan) and past_steps:
+            last_step, last_result = past_steps[-1]
             user_visible_responses.append(last_result)
         
         return {

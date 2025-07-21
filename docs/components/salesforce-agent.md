@@ -122,7 +122,7 @@ salesforce_create(
 salesforce_update(
     object_type="Opportunity",
     record_id="006XX000123",
-    data={"StageName": "Closed Won", "Amount": 75000}
+    data={"StageName": "[new_stage]", "Amount": 75000}
 )
 ```
 

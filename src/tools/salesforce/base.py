@@ -133,7 +133,7 @@ class BaseSalesforceTool(BaseTool, ABC):
         return None
     
     def _handle_error(self, error: Exception) -> Dict[str, Any]:
-        """Convert exception to user-friendly error response."""
+        """Convert exception to standardized error response."""
         self._log_error(error)
         
         # Extract error code if available
@@ -141,7 +141,7 @@ class BaseSalesforceTool(BaseTool, ABC):
         if hasattr(error, 'content') and isinstance(error.content, list) and error.content:
             error_code = error.content[0].get('errorCode', '')
         
-        # Simple, focused error responses
+        # Simple, focused error responses in standardized format
         if error_code == 'INVALID_FIELD':
             # Extract field name from error message if possible
             import re
@@ -149,32 +149,52 @@ class BaseSalesforceTool(BaseTool, ABC):
             field_name = field_match.group(1) or field_match.group(2) if field_match else "unknown"
             
             return {
-                "error": "Invalid field in query",
-                "error_code": "INVALID_FIELD",
-                "details": str(error),
-                "guidance": {
-                    "reflection": f"The field '{field_name}' doesn't exist on this object.",
-                    "consider": "What type of data are you looking for? Different objects use different field names for similar concepts.",
-                    "approach": "Think about the object's purpose and what fields it might have."
-                }
+                "success": False,
+                "data": {
+                    "error": "Invalid field in query",
+                    "error_code": "INVALID_FIELD",
+                    "details": str(error),
+                    "guidance": {
+                        "reflection": f"The field '{field_name}' doesn't exist on this object.",
+                        "consider": "What type of data are you looking for? Different objects use different field names for similar concepts.",
+                        "approach": "Think about the object's purpose and what fields it might have."
+                    }
+                },
+                "operation": self.name
             }
         elif error_code == 'MALFORMED_QUERY':
             return {
-                "error": "Malformed SOQL query", 
-                "error_code": "MALFORMED_QUERY",
-                "details": str(error),
-                "guidance": {
-                    "reflection": "The query syntax is incorrect.",
-                    "consider": "Check for extra characters, unmatched brackets, or invalid SOQL syntax.",
-                    "approach": "Simplify the query or ensure parameters contain only the intended values."
-                }
+                "success": False,
+                "data": {
+                    "error": "Malformed SOQL query", 
+                    "error_code": "MALFORMED_QUERY",
+                    "details": str(error),
+                    "guidance": {
+                        "reflection": "The query syntax is incorrect.",
+                        "consider": "Check for extra characters, unmatched brackets, or invalid SOQL syntax.",
+                        "approach": "Simplify the query or ensure parameters contain only the intended values."
+                    }
+                },
+                "operation": self.name
             }
         elif error_code == 'INVALID_TYPE':
-            return {"error": "Invalid object type", "details": str(error)}
+            return {
+                "success": False,
+                "data": {"error": "Invalid object type", "details": str(error)},
+                "operation": self.name
+            }
         elif error_code == 'INSUFFICIENT_ACCESS':
-            return {"error": "Insufficient access rights"}
+            return {
+                "success": False,
+                "data": {"error": "Insufficient access rights"},
+                "operation": self.name
+            }
         else:
-            return {"error": f"Operation failed: {str(error)}"}
+            return {
+                "success": False,
+                "data": {"error": f"Operation failed: {str(error)}"},
+                "operation": self.name
+            }
     
     def _run(self, **kwargs) -> Any:
         """Execute tool with automatic logging and error handling."""
@@ -183,7 +203,13 @@ class BaseSalesforceTool(BaseTool, ABC):
         try:
             result = self._execute(**kwargs)
             self._log_result(result)
-            return result
+            
+            # Wrap successful result in standardized format
+            return {
+                "success": True,
+                "data": result,
+                "operation": self.name
+            }
         except Exception as e:
             return self._handle_error(e)
     

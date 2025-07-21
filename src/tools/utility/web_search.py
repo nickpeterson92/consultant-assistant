@@ -231,15 +231,7 @@ class WebSearchTool(BaseUtilityTool):
         
         # Check if Tavily is available
         if not TAVILY_AVAILABLE:
-            return {
-                "error": "Web search unavailable",
-                "error_code": "TAVILY_NOT_INSTALLED",
-                "guidance": {
-                    "reflection": "The Tavily search package is not installed.",
-                    "consider": "Do you need web search functionality?",
-                    "approach": "Install langchain-tavily package: pip install langchain-tavily"
-                }
-            }
+            raise ValueError("Web search unavailable: The Tavily search package is not installed.")
         
         # Get API key from environment
         api_key = os.environ.get("TAVILY_API_KEY")
@@ -249,15 +241,7 @@ class WebSearchTool(BaseUtilityTool):
                 tool_name="web_search",
                 operation="tavily_api_key_missing"
             )
-            return {
-                "error": "API key missing",
-                "error_code": "MISSING_API_KEY",
-                "guidance": {
-                    "reflection": "TAVILY_API_KEY environment variable is not set.",
-                    "consider": "Do you have a Tavily API account?",
-                    "approach": "Set TAVILY_API_KEY environment variable with your API key."
-                }
-            }
+            raise ValueError("API key missing: TAVILY_API_KEY environment variable is not set.")
         
         # Enhance query if requested
         search_query = query
