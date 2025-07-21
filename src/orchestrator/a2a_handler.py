@@ -100,7 +100,8 @@ class OrchestratorA2AHandler:
                     "plan": [],
                     "past_steps": [],
                     "response": "",
-                    "user_visible_responses": []
+                    "user_visible_responses": [],
+                    "thread_id": thread_id  # Add thread_id to state for memory integration
                 }
                 
                 # Execute the graph

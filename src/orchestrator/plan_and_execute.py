@@ -4,6 +4,7 @@ Reference: https://langchain-ai.github.io/langgraph/tutorials/plan-and-execute/p
 """
 
 import operator
+from datetime import datetime
 from typing import Annotated, List, Union
 from typing_extensions import TypedDict
 from pydantic import BaseModel, Field
@@ -31,6 +32,7 @@ class PlanExecute(TypedDict):
     past_steps: Annotated[List[tuple], operator.add]
     response: str
     user_visible_responses: Annotated[List[str], operator.add]  # Responses that should be shown to user immediately
+    thread_id: str  # Thread ID for memory context
 
 
 # ================================
@@ -72,6 +74,19 @@ class Act(BaseModel):
 def execute_step(state: PlanExecute):
     import asyncio
     from .observers import get_observer_registry, SearchResultsEvent
+    from src.memory import get_thread_memory, ContextType, create_memory_node
+    
+    # Get memory for this conversation thread
+    thread_id = state.get("thread_id", "default-thread")
+    memory = get_thread_memory(thread_id)
+    
+    # DEBUG: Log memory integration
+    logger.info("MEMORY_INTEGRATION_DEBUG",
+               component="orchestrator",
+               operation="execute_step",
+               thread_id=thread_id,
+               using_memory_system=True,
+               memory_nodes_count=len(memory.nodes))
     
     plan = state["plan"]
     
@@ -88,7 +103,7 @@ def execute_step(state: PlanExecute):
     # Calculate current step number dynamically
     current_step_num = len(state.get("past_steps", [])) + 1
     
-    # Include past_steps context so ReAct agent can access previous results
+    # Include past_steps context (preserve original LangGraph structure)
     past_steps_context = ""
     past_steps = state.get("past_steps", [])
     
@@ -105,14 +120,62 @@ def execute_step(state: PlanExecute):
         logger.warning("DEBUG: No past_steps found in state!", 
                       component="orchestrator", operation="execute_step")
     
+    # MEMORY ENHANCEMENT: Add intelligent memory context as supplementary information
+    memory_context = ""
+    
+    # Retrieve relevant context from memory for this task
+    relevant_memories = memory.retrieve_relevant(
+        query_text=f"{task} {state['input']}",
+        max_age_hours=2,  # Recent context only
+        min_relevance=0.3,
+        max_results=5
+    )
+    
+    logger.info("MEMORY_RETRIEVAL_DEBUG",
+               component="orchestrator", 
+               operation="execute_step",
+               thread_id=thread_id,
+               relevant_memories_count=len(relevant_memories),
+               query_text=f"{task} {state['input']}"[:100])
+    
+    if relevant_memories:
+        memory_context = "\n\nRELEVANT CONTEXT FROM MEMORY:\n"
+        for i, memory_node in enumerate(relevant_memories, 1):
+            # Format memory context intelligently
+            relevance = memory_node.current_relevance()
+            age_hours = (datetime.now() - memory_node.created_at).total_seconds() / 3600
+            
+            memory_context += f"Context {i}: {memory_node.summary}\n"
+            memory_context += f"  Type: {memory_node.context_type.value} (relevance: {relevance:.2f}, age: {age_hours:.1f}h)\n"
+            
+            # Include actual content for high-relevance items
+            if relevance > 0.7 and memory_node.context_type in {ContextType.SEARCH_RESULT, ContextType.DOMAIN_ENTITY}:
+                content_preview = str(memory_node.content)[:200]
+                memory_context += f"  Data: {content_preview}{'...' if len(str(memory_node.content)) > 200 else ''}\n"
+            
+            memory_context += "\n"
+            
+            logger.info(f"DEBUG: Added memory context {i}: {memory_node.summary[:50]}... (relevance: {relevance:.2f})", 
+                       component="orchestrator", operation="execute_step")
+    else:
+        logger.info("DEBUG: No relevant memory context found for this task", 
+                   component="orchestrator", operation="execute_step")
+    
     task_formatted = f"""For the following plan:
 {plan_str}
 
 You are tasked with executing step {current_step_num}: {task}.
+{memory_context}
 {past_steps_context}"""
     
-    logger.info(f"DEBUG: task_formatted length: {len(task_formatted)}, has context: {bool(past_steps_context)}", 
-               component="orchestrator", operation="execute_step")
+    logger.info("TASK_FORMATTING_DEBUG",
+               component="orchestrator", 
+               operation="execute_step",
+               thread_id=thread_id,
+               task_formatted_length=len(task_formatted),
+               has_past_steps_context=bool(past_steps_context),
+               has_memory_context=bool(memory_context),
+               memory_context_preview=memory_context[:200] if memory_context else "None")
     
     # Use ReAct agent executor which handles tool execution automatically
     agent_response = asyncio.run(agent_executor.ainvoke(
@@ -165,6 +228,59 @@ You are tasked with executing step {current_step_num}: {task}.
         )
         registry.notify_search_results(event)
     
+    # MEMORY INTEGRATION: Store execution results in memory
+    try:
+        # Determine context type based on what the agent did
+        if produced_user_data:
+            context_type = ContextType.SEARCH_RESULT  # User will need to interact with this data
+        else:
+            context_type = ContextType.COMPLETED_ACTION  # This task is done
+        
+        # Extract semantic tags from the task and response
+        task_words = set(task.lower().split())
+        input_words = set(state["input"].lower().split())
+        semantic_tags = task_words.union(input_words)
+        
+        # Clean up tags (remove common words)
+        stop_words = {"the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by"}
+        semantic_tags = {tag for tag in semantic_tags if len(tag) > 2 and tag not in stop_words}
+        
+        # Store in memory (auto-summary will be generated from actual content)
+        memory_node_id = memory.store(
+            content={
+                "task": task,
+                "response": final_response,
+                "plan_context": plan,
+                "step_number": current_step_num,
+                "produced_user_data": produced_user_data,
+                "tool_calls": [
+                    {"tool": tc.get("name"), "args": tc.get("args", {})} 
+                    for msg in agent_response["messages"] 
+                    if hasattr(msg, 'tool_calls') and msg.tool_calls
+                    for tc in msg.tool_calls
+                ]
+            },
+            context_type=context_type,
+            tags=semantic_tags,
+            base_relevance=0.9 if produced_user_data else 0.7,
+            auto_summarize=True
+        )
+        
+        logger.info("stored_execution_result_in_memory",
+                   component="orchestrator",
+                   operation="execute_step",
+                   memory_node_id=memory_node_id,
+                   context_type=context_type.value,
+                   tags=list(semantic_tags),
+                   produced_user_data=produced_user_data)
+        
+    except Exception as e:
+        logger.error("failed_to_store_execution_result",
+                    component="orchestrator", 
+                    operation="execute_step",
+                    error=str(e))
+        # Don't fail the whole execution if memory storage fails
+    
     return {
         "past_steps": [(task, final_response)],
     }
@@ -174,28 +290,123 @@ You are tasked with executing step {current_step_num}: {task}.
 def plan_step(state: PlanExecute):
     import asyncio
     from langchain_core.messages import HumanMessage
-    plan = asyncio.run(planner.ainvoke({"messages": [HumanMessage(content=state["input"])]}))
+    from src.memory import get_thread_memory, ContextType
+    
+    # Get memory for context-aware planning
+    thread_id = state.get("thread_id", "default-thread")
+    memory = get_thread_memory(thread_id)
+    
+    # Get relevant context for planning
+    planning_context = memory.retrieve_relevant(
+        query_text=state["input"],
+        max_age_hours=4,  # Broader context for planning
+        min_relevance=0.2,
+        max_results=8
+    )
+    
+    # Format memory context for planner
+    context_for_planning = ""
+    if planning_context:
+        context_for_planning = "\n\nRELEVANT CONTEXT:\n"
+        for memory_node in planning_context:
+            context_for_planning += f"- {memory_node.summary}\n"
+            
+            # Include domain entities and recent search results for better planning
+            if memory_node.context_type in {ContextType.DOMAIN_ENTITY, ContextType.SEARCH_RESULT}:
+                content_preview = str(memory_node.content)[:150]
+                context_for_planning += f"  Data: {content_preview}{'...' if len(str(memory_node.content)) > 150 else ''}\n"
+            context_for_planning += "\n"
+    
+    # Enhanced planning prompt with memory context
+    planning_input = f"{state['input']}{context_for_planning}"
+    
+    logger.info("planning_with_memory_context",
+               component="orchestrator",
+               operation="plan_step",
+               context_items=len(planning_context),
+               input_length=len(planning_input))
+    
+    plan = asyncio.run(planner.ainvoke({"messages": [HumanMessage(content=planning_input)]}))
     return {"plan": plan.steps}
 
 
 @log_execution("orchestrator", "replan_step", include_args=True, include_result=True)
 def replan_step(state: PlanExecute):
     import asyncio
+    from src.memory import get_thread_memory, ContextType
+    
+    # Get memory for context-aware replanning
+    thread_id = state.get("thread_id", "default-thread")
+    memory = get_thread_memory(thread_id)
     
     # Format past_steps for the template
     past_steps_str = ""
     for i, (step, result) in enumerate(state["past_steps"]):
         past_steps_str += f"Step {i + 1}: {step}\nResult: {result}\n\n"
     
-    # Format the template variables
+    # MEMORY ENHANCEMENT: Add recent context for replanning decisions
+    replan_context = memory.retrieve_relevant(
+        query_text=f"{state['input']} plan replan",
+        max_age_hours=1,  # Recent context for replanning
+        min_relevance=0.3,
+        max_results=6
+    )
+    
+    # Format memory context for replanner
+    memory_context = ""
+    if replan_context:
+        memory_context = "\n\nRECENT CONTEXT:\n"
+        for memory_node in replan_context:
+            memory_context += f"- {memory_node.summary}\n"
+            # Include high-relevance content details
+            if memory_node.current_relevance() > 0.7:
+                content_preview = str(memory_node.content)[:100]
+                memory_context += f"  Details: {content_preview}{'...' if len(str(memory_node.content)) > 100 else ''}\n"
+    
+    logger.info("replan_with_memory_context",
+               component="orchestrator",
+               operation="replan_step", 
+               context_items=len(replan_context),
+               thread_id=thread_id)
+    
+    # Format the template variables with memory context
     template_vars = {
-        "input": state["input"],
+        "input": state["input"] + memory_context,
         "plan": "\n".join(f"{i + 1}. {step}" for i, step in enumerate(state["plan"])),
         "past_steps": past_steps_str.strip()
     }
     
     output = asyncio.run(replanner.ainvoke(template_vars))
     if isinstance(output.action, Response):
+        # CRITICAL: Task is completing - trigger memory decay for task-specific context
+        try:
+            # Extract task-related tags from the original input and plan
+            input_words = set(state["input"].lower().split())
+            plan_words = set()
+            for step in state["plan"]:
+                plan_words.update(step.lower().split())
+            
+            task_tags = input_words.union(plan_words)
+            # Clean up tags
+            stop_words = {"the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by", "step"}
+            task_tags = {tag for tag in task_tags if len(tag) > 2 and tag not in stop_words}
+            
+            # Mark task as completed to trigger decay
+            decayed_nodes = memory.mark_task_completed(task_related_tags=task_tags)
+            
+            logger.info("task_completion_detected",
+                       component="orchestrator",
+                       operation="replan_step",
+                       thread_id=thread_id,
+                       task_tags=list(task_tags),
+                       decayed_nodes=decayed_nodes)
+            
+        except Exception as e:
+            logger.error("failed_to_mark_task_completed",
+                        component="orchestrator",
+                        operation="replan_step", 
+                        error=str(e))
+        
         return {"response": output.action.response}
     else:
         # Check if the new plan includes human_input - if so, show the most recent result to user

@@ -51,15 +51,28 @@ class MemoryGraph:
               tags: Optional[Set[str]] = None,
               summary: str = "",
               relates_to: Optional[List[str]] = None,
-              base_relevance: float = 1.0) -> str:
+              base_relevance: float = 1.0,
+              auto_summarize: bool = True) -> str:
         """Store content in memory graph with relationships."""
+        
+        # Auto-generate summary if requested and not provided
+        final_summary = summary
+        if auto_summarize and not summary.strip():
+            from .summary_generator import auto_generate_summary
+            final_summary = auto_generate_summary(content, context_type, tags or set())
+            
+            logger.debug("auto_generated_summary",
+                        thread_id=self.thread_id,
+                        context_type=context_type.value,
+                        generated_summary=final_summary,
+                        component="memory")
         
         # Create memory node
         node = create_memory_node(
             content=content,
             context_type=context_type,
             tags=tags or set(),
-            summary=summary,
+            summary=final_summary,
             base_relevance=base_relevance
         )
         
