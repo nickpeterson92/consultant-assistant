@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Textual-based CLI client for the plan-and-execute orchestrator."""
+"""Textual-based CLI client for the plan-and-execute orchestrator - exact main branch port."""
 
 import sys
 import os
@@ -24,18 +24,59 @@ from textual.screen import Screen, ModalScreen
 from textual.events import Key
 from textual import on, work
 
-from src.a2a import A2AClient
-from src.utils.config.constants import ENTERPRISE_ASSISTANT_BANNER
+from src.a2a import A2AClient, A2ATask
+from src.utils.config.constants import ENTERPRISE_ASSISTANT_BANNER, ENTERPRISE_ASSISTANT_COMPACT_LOGO
 from src.utils.config.unified_config import config as app_config
-from src.utils.ui.animations import animated_banner_display
+from src.utils.ui.animations import animated_banner_display, format_compact_logo_for_textual
 from src.utils.logging.framework import SmartLogger
 
 # Initialize SmartLogger
 logger = SmartLogger("client")
 
 
+class StatusWidget(Static):
+    """Widget to display connection and system status."""
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.connected = False
+        self.orchestrator_url = ""
+        self.thread_id = ""
+        self.current_task_id = None
+        self.update_display()
+        
+    def set_connection_info(self, orchestrator_url: str, thread_id: str):
+        """Set connection information."""
+        self.orchestrator_url = orchestrator_url
+        self.thread_id = thread_id
+        self.update_display()
+        
+    def update_status(self, connected: bool = None, task_id: Optional[str] = None):
+        """Update the status display."""
+        if connected is not None:
+            self.connected = connected
+        if task_id is not None:
+            self.current_task_id = task_id
+        self.update_display()
+        
+    def update_display(self):
+        """Update the status display."""
+        status_icon = "🟢 Connected" if self.connected else "🔴 Disconnected"
+        
+        status_parts = [status_icon]
+        if self.orchestrator_url:
+            status_parts.append(f"URL: {self.orchestrator_url}")
+        if self.thread_id:
+            status_parts.append(f"Thread: {self.thread_id}")
+        if self.current_task_id:
+            status_parts.append(f"Task: {self.current_task_id}")
+            
+        status_text = " | ".join(status_parts)
+        self.update(status_text)
+
+
 class PlanStatusWidget(Static):
-    """Widget to display plan status and execution progress."""
+    """Widget to display plan status and execution progress - exact main branch style."""
     
     plan_tasks = reactive([])
     current_step = reactive("")
@@ -44,154 +85,207 @@ class PlanStatusWidget(Static):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.plan_data = []
+        self.current_step_index = -1
+        self.update_display()
         
     def update_plan(self, plan: List[str]):
         """Update the plan display with new plan steps."""
         self.plan_data = plan
         self.plan_tasks = plan
-        self.refresh_display()
+        self.current_step_index = -1
+        self.update_display()
         
     def update_execution_status(self, step: str, status: str = "executing"):
         """Update which step is currently executing."""
         self.current_step = step
         self.execution_status = status
-        self.refresh_display()
         
-    def refresh_display(self):
-        """Refresh the plan display."""
+        # Find the step index
+        if step in self.plan_data:
+            self.current_step_index = self.plan_data.index(step)
+        
+        self.update_display()
+        
+    def mark_step_complete(self, step_index: int):
+        """Mark a specific step as complete."""
+        if 0 <= step_index < len(self.plan_data):
+            self.current_step_index = step_index
+            self.execution_status = "completed"
+            self.update_display()
+        
+    def update_display(self):
+        """Refresh the plan display - exact main branch format."""
         if not self.plan_data:
-            content = "[dim]No plan available[/dim]"
+            content = """[bold #7dd3fc]📋 Execution Plan[/bold #7dd3fc]
+
+[dim #8b949e]No plan available[/dim #8b949e]"""
         else:
-            content_lines = ["[bold]📋 Execution Plan:[/bold]", ""]
+            content_lines = ["[bold #7dd3fc]📋 Execution Plan[/bold #7dd3fc]", ""]
             
-            for i, step in enumerate(self.plan_data, 1):
-                if step == self.current_step and self.execution_status == "executing":
-                    content_lines.append(f"[yellow]▶ {i}. {step}[/yellow]")
-                elif step == self.current_step and self.execution_status == "completed":
-                    content_lines.append(f"[green]✓ {i}. {step}[/green]")
+            for i, step in enumerate(self.plan_data):
+                if i == self.current_step_index and self.execution_status == "executing":
+                    # Currently executing - yellow with arrow
+                    content_lines.append(f"[yellow]▶ {i+1}. {step}[/yellow]")
+                elif i <= self.current_step_index and self.execution_status == "completed":
+                    # Completed steps - green with checkmark
+                    content_lines.append(f"[green]✓ {i+1}. {step}[/green]")
+                elif i < self.current_step_index:
+                    # Previously completed steps - green with checkmark
+                    content_lines.append(f"[green]✓ {i+1}. {step}[/green]")
                 else:
-                    content_lines.append(f"[dim]  {i}. {step}[/dim]")
+                    # Pending steps - dim
+                    content_lines.append(f"[dim #8b949e]  {i+1}. {step}[/dim #8b949e]")
             
-            content = "\\n".join(content_lines)
+            content = "\n".join(content_lines)
         
         self.update(content)
 
 
 class ConversationWidget(ScrollableContainer):
-    """Widget to display conversation history with proper scrolling."""
+    """Widget to display conversation history - exact main branch style."""
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.conversation_content = Static("Welcome! Ask me anything about your CRM, projects, or IT systems.", id="conversation-content")
+        self.message_count = 0
         
     def compose(self) -> ComposeResult:
-        yield self.conversation_content
+        """Initial welcome message."""
+        yield Static(
+            "[dim #8b949e]Welcome! Ask me anything about your CRM, projects, or IT systems.[/dim #8b949e]",
+            id="welcome-message"
+        )
         
-    async def add_message(self, message: str):
-        """Add a message to the conversation display."""
-        current_content = self.conversation_content.renderable
+    async def add_user_message(self, message: str):
+        """Add a user message to the conversation."""
+        self.message_count += 1
         
-        if isinstance(current_content, str):
-            if current_content.strip() == "Welcome! Ask me anything about your CRM, projects, or IT systems.":
-                new_content = message
-            else:
-                new_content = f"{current_content}\\n\\n{message}"
-        else:
-            new_content = message
+        # Remove welcome message if this is the first real message
+        if self.message_count == 1:
+            try:
+                welcome = self.query_one("#welcome-message")
+                welcome.remove()
+            except:
+                pass
         
-        self.conversation_content.update(new_content)
+        # Add user message with main branch styling
+        user_widget = Static(
+            f"[bold #58a6ff]You:[/bold #58a6ff] {message}",
+            classes="user-message"
+        )
+        await self.mount(user_widget)
+        self.scroll_end(animate=True)
         
-        # Scroll to bottom
-        self.scroll_end(animate=False)
-
-
-class StatusWidget(Static):
-    """Widget to display connection and system status."""
-    
-    def __init__(self, orchestrator_url: str, thread_id: str, **kwargs):
-        super().__init__(**kwargs)
-        self.orchestrator_url = orchestrator_url
-        self.thread_id = thread_id
-        self.update_status()
+    async def add_assistant_message(self, message: str):
+        """Add an assistant message to the conversation."""
+        # Add assistant message with main branch styling
+        assistant_widget = Static(
+            f"[bold #7ee787]Assistant:[/bold #7ee787] {message}",
+            classes="assistant-message"
+        )
+        await self.mount(assistant_widget)
+        self.scroll_end(animate=True)
         
-    def update_status(self, connected: bool = True, task_id: Optional[str] = None):
-        """Update the status display."""
-        status_icon = "🟢" if connected else "🔴"
-        connection_status = "Connected" if connected else "Disconnected"
-        
-        status_text = f"{status_icon} {connection_status} | URL: {self.orchestrator_url} | Thread: {self.thread_id}"
-        
-        if task_id:
-            status_text += f" | Task: {task_id}"
+    async def add_system_message(self, message: str, message_type: str = "info"):
+        """Add a system message to the conversation."""
+        if message_type == "error":
+            color = "#f85149"
+            prefix = "❌ Error:"
+        elif message_type == "processing":
+            # Create a subtle inline processing message with ASCII spinner
+            processing_widget = Static(
+                "[dim #7dd3fc]⠋[/dim #7dd3fc] [dim #8b949e]Processing...[/dim #8b949e]",
+                classes="processing-message",
+                id="processing-spinner"
+            )
+            await self.mount(processing_widget)
+            self.scroll_end(animate=True)
             
-        self.update(status_text)
+            # Start the spinner animation
+            self._animate_processing_spinner(processing_widget)
+            return processing_widget  # Return reference so we can remove it later
+        else:
+            color = "#8b949e"
+            prefix = "ℹ️ System:"
+            
+        system_widget = Static(
+            f"[{color}]{prefix}[/{color}] [dim]{message}[/dim]"
+        )
+        await self.mount(system_widget)
+        self.scroll_end(animate=True)
+        return system_widget
+    
+    def _animate_processing_spinner(self, widget):
+        """Animate a sophisticated ASCII art spinner for processing indication."""
+        async def animate():
+            # Advanced ASCII spinner with more sophisticated characters
+            spinner_frames = [
+                "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"
+            ]
+            # Fallback for terminals that don't support Braille patterns
+            fallback_frames = [
+                "◐", "◓", "◑", "◒"
+            ]
+            # Simple fallback if even those don't work
+            simple_frames = [
+                "●", "○", "◯", "○"
+            ]
+            
+            current_index = 0
+            frames_to_use = spinner_frames  # Start with the most advanced
+            
+            while widget.parent:  # Continue while widget is still mounted
+                try:
+                    frame = frames_to_use[current_index % len(frames_to_use)]
+                    widget.update(f"[dim #7dd3fc]{frame}[/dim #7dd3fc] [dim #8b949e]Processing...[/dim #8b949e]")
+                    current_index += 1
+                    await asyncio.sleep(0.1)  # Smooth 10 FPS animation
+                except Exception:
+                    # If there's an encoding issue, try fallback frames
+                    if frames_to_use == spinner_frames:
+                        frames_to_use = fallback_frames
+                        current_index = 0
+                        continue
+                    elif frames_to_use == fallback_frames:
+                        frames_to_use = simple_frames
+                        current_index = 0
+                        continue
+                    else:
+                        break  # Widget was removed or other error
+        
+        # Start the animation task
+        asyncio.create_task(animate())
 
 
 class OrchestatorApp(App):
-    """Main Textual application for the orchestrator client."""
+    """Main Textual application - exact main branch structure."""
     
-    CSS = """
-    .header {
-        dock: top;
-        height: 8;
-        padding: 1;
-        background: #1e293b;
-        color: #94a3b8;
-    }
-    
-    .main-container {
-        height: 100%;
-        padding: 1;
-    }
-    
-    .plan-status {
-        dock: right;
-        width: 40%;
-        height: 100%;
-        border: solid #374151;
-        padding: 1;
-        margin: 1;
-    }
-    
-    .conversation {
-        height: 80%;
-        border: solid #374151;
-        padding: 1;
-        margin-bottom: 1;
-    }
-    
-    .input-container {
-        dock: bottom;
-        height: 5;
-        padding: 1;
-    }
-    
-    .status-bar {
-        dock: bottom;
-        height: 3;
-        background: #1e293b;
-        color: #94a3b8;
-        padding: 1;
-    }
-    """
+    CSS_PATH = "textual_styles.tcss"
     
     def __init__(self, orchestrator_url: str = "http://localhost:8000", thread_id: Optional[str] = None):
         super().__init__()
         self.orchestrator_url = orchestrator_url
         self.thread_id = thread_id or f"textual-{uuid.uuid4().hex[:8]}"
-        self.a2a_client = A2AClient(base_url=orchestrator_url)
+        self.a2a_client = A2AClient()
         self.conversation_history = []
         self.current_task_id = None
+        
+        # Initialize widgets as instance variables
+        self.conversation_widget = None
+        self.status_widget = None
+        self.plan_widget = None
         
         logger.info("textual_app_initialized", 
                    orchestrator_url=orchestrator_url,
                    thread_id=self.thread_id)
     
     def compose(self) -> ComposeResult:
-        """Create the UI layout."""
-        # Main banner - simple text version for now
+        """Compose the UI layout - exact main branch structure."""
+        yield Header()
+        
+        # Main banner with compact ASCII logo
+        compact_logo = format_compact_logo_for_textual(ENTERPRISE_ASSISTANT_COMPACT_LOGO)
         yield Static(
-            "[bold cyan]ENTERPRISE ASSISTANT[/bold cyan]\\n"
+            f"{compact_logo}\n"
             "[dim #94a3b8]Powered by Plan-and-Execute Multi-Agent Orchestration[/dim #94a3b8]",
             classes="header",
             id="main-banner"
@@ -199,27 +293,44 @@ class OrchestatorApp(App):
         
         # Main container
         with Container(classes="main-container"):
-            # Plan status widget
-            yield PlanStatusWidget(classes="plan-status", id="plan-status")
+            # Left panel - conversation
+            with Vertical(classes="left-panel"):
+                self.conversation_widget = ConversationWidget(classes="conversation")
+                yield self.conversation_widget
+                
+                # Status bar
+                self.status_widget = StatusWidget(classes="status-bar")
+                yield self.status_widget
+                
+                # Input container - simplified
+                yield Input(
+                    placeholder="Type your message here...",
+                    id="message-input",
+                    classes="input-field"
+                )
             
-            # Conversation area
-            yield ConversationWidget(classes="conversation", id="conversation")
-            
-            # Input area
-            with Container(classes="input-container"):
-                yield Input(placeholder="Enter your request...", id="user-input")
+            # Right panel - plan status
+            with Vertical(classes="right-panel"):
+                self.plan_widget = PlanStatusWidget(classes="plan-status")
+                yield self.plan_widget
         
-        # Status bar
-        yield StatusWidget(self.orchestrator_url, self.thread_id, classes="status-bar", id="status")
+        yield Footer()
     
     def on_mount(self) -> None:
-        """Called when the app is mounted."""
-        self.query_one("#user-input", Input).focus()
+        """Initialize the application when mounted."""
         logger.info("textual_app_mounted", thread_id=self.thread_id)
+        
+        # Set up status widget
+        self.status_widget.set_connection_info(self.orchestrator_url, self.thread_id)
+        self.status_widget.update_status(connected=True)  # Assume connected initially
+        
+        # Focus on input
+        self.query_one("#message-input", Input).focus()
+        logger.info("input_focused", thread_id=self.thread_id)
     
-    @on(Input.Submitted, "#user-input")
+    @on(Input.Submitted, "#message-input")
     async def handle_input(self, event: Input.Submitted) -> None:
-        """Handle user input submission."""
+        """Handle user input submission - exact main branch behavior."""
         user_input = event.value.strip()
         if not user_input:
             return
@@ -228,14 +339,14 @@ class OrchestatorApp(App):
         event.input.value = ""
         
         # Add user message to conversation
-        conversation = self.query_one("#conversation", ConversationWidget)
-        await conversation.add_message(f"[bold blue]You:[/bold blue] {user_input}")
+        await self.conversation_widget.add_user_message(user_input)
         
         # Send to orchestrator
         await self.send_to_orchestrator(user_input)
     
     async def send_to_orchestrator(self, user_input: str) -> None:
         """Send user input to the orchestrator via A2A protocol."""
+        spinner_widget = None
         try:
             # Generate task ID
             task_id = f"task-{uuid.uuid4().hex[:8]}"
@@ -245,21 +356,33 @@ class OrchestatorApp(App):
                        task_id=task_id,
                        user_input=user_input[:100])
             
-            # Show loading state
-            conversation = self.query_one("#conversation", ConversationWidget)
-            await conversation.add_message(f"[dim yellow]🤔 Processing your request...[/dim yellow]")
-            
-            # Update status
-            status_widget = self.query_one("#status", StatusWidget)
-            status_widget.update_status(connected=True, task_id=task_id)
-            
-            # Send A2A request
-            response = await self.a2a_client.process_task(
-                task_id=task_id,
-                instruction=user_input,
-                context={"thread_id": self.thread_id}
+            # Show processing spinner
+            spinner_widget = await self.conversation_widget.add_system_message(
+                "", "processing"
             )
             
+            # Update status
+            self.status_widget.update_status(connected=True, task_id=task_id)
+            
+            # Create A2A task
+            task = A2ATask(
+                id=task_id,
+                instruction=user_input,
+                context={"thread_id": self.thread_id},
+                state_snapshot={}
+            )
+            
+            # Send A2A request to orchestrator
+            response = await self.a2a_client.process_task(
+                endpoint=self.orchestrator_url + "/a2a",
+                task=task
+            )
+            
+            # Remove spinner
+            if spinner_widget:
+                spinner_widget.remove()
+            
+            # Handle response
             if response.get("status") == "completed":
                 # Extract artifacts and display results
                 artifacts = response.get("artifacts", [])
@@ -267,36 +390,42 @@ class OrchestatorApp(App):
                 if artifacts:
                     for artifact in artifacts:
                         content = artifact.get("content", "")
-                        await conversation.add_message(f"[bold green]Assistant:[/bold green] {content}")
+                        await self.conversation_widget.add_assistant_message(content)
                 else:
-                    await conversation.add_message("[bold green]Assistant:[/bold green] Task completed successfully.")
+                    await self.conversation_widget.add_assistant_message("Task completed successfully.")
                 
-                # If there was plan data, show it
+                # Handle plan data
                 metadata = response.get("metadata", {})
-                if "plan" in metadata:
-                    plan_widget = self.query_one("#plan-status", PlanStatusWidget)
-                    plan_widget.update_plan(metadata["plan"])
+                if "plan" in metadata and metadata["plan"]:
+                    self.plan_widget.update_plan(metadata["plan"])
+                    logger.info("plan_updated", plan_steps=len(metadata["plan"]))
             
             elif response.get("status") == "failed":
                 error_msg = response.get("error", "Unknown error occurred")
-                await conversation.add_message(f"[bold red]Error:[/bold red] {error_msg}")
+                await self.conversation_widget.add_system_message(error_msg, "error")
             
             else:
-                await conversation.add_message(f"[yellow]Status:[/yellow] {response.get('status', 'unknown')}")
+                status = response.get("status", "unknown")
+                await self.conversation_widget.add_system_message(f"Status: {status}")
             
             # Clear task from status
-            status_widget.update_status(connected=True, task_id=None)
-        
+            self.status_widget.update_status(connected=True, task_id=None)
+            
         except Exception as e:
+            # Remove spinner on error too
+            if spinner_widget:
+                spinner_widget.remove()
+                
             logger.error("orchestrator_request_error", 
                         error=str(e),
                         task_id=self.current_task_id)
-            conversation = self.query_one("#conversation", ConversationWidget)
-            await conversation.add_message(f"[bold red]Connection Error:[/bold red] {str(e)}")
+            
+            await self.conversation_widget.add_system_message(
+                f"Connection error: {str(e)}", "error"
+            )
             
             # Update status to show disconnected
-            status_widget = self.query_one("#status", StatusWidget)
-            status_widget.update_status(connected=False)
+            self.status_widget.update_status(connected=False, task_id=None)
     
     def action_quit(self) -> None:
         """Quit the application."""

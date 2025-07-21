@@ -23,6 +23,16 @@ ENTERPRISE_ASSISTANT_BANNER = """
 ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝   
 """
 
+# Compact ASCII Logo for header display
+ENTERPRISE_ASSISTANT_COMPACT_LOGO = """
+███████╗ █████╗ 
+██╔════╝██╔══██╗
+█████╗  ███████║
+██╔══╝  ██╔══██║
+███████╗██║  ██║
+╚══════╝╚═╝  ╚═╝
+"""
+
 # Memory and storage keys
 MEMORY_NAMESPACE_PREFIX = "memory"
 SIMPLE_MEMORY_KEY = "SimpleMemory"

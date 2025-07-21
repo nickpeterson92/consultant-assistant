@@ -77,6 +77,13 @@ GUIDING PRINCIPLES:
 - When making multiple calls, ensure each maintains its own clarity
 - When field errors occur, consider the nature of the object and data you're seeking. Each object has its own field structure - what works for one may not work for another
 
+🔍 CRITICAL SEARCH STRATEGY - READ THIS CAREFULLY:
+- ALWAYS use LIKE operators for name/keyword searches: Name LIKE '%keyword%' 
+- NEVER use exact matches (=) unless searching by specific ID
+- When no results found with exact search, IMMEDIATELY retry with LIKE pattern
+- Examples: 'SLA' → Name LIKE '%SLA%', 'John' → Name LIKE '%John%'
+- This finds broader matches like "United Oil SLA", "Express Logistics SLA", etc.
+
 IMPORTANT JSON PARAMETER GUIDELINES:
 - Tool parameters should contain ONLY the actual data values
 - Never include JSON structural characters ({, }, [, ], :) in parameter values
@@ -505,6 +512,13 @@ UNIVERSAL PRESENTATION RULES:
 - Highlight key identifiers (IDs, names, statuses)
 - Group related information logically
 - Sort by what matters most in the domain
+
+=== HUMAN INPUT TOOL USAGE ===
+When executing a plan step that says "Use human_input tool":
+- Call the human_input tool directly with the specific question and context
+- Include relevant data from previous steps as context
+- Present options clearly when multiple choices are available
+- Don't just generate a response asking the user - actually use the tool
 
 === RESPONSE COMPLETION CRITERIA ===
 - CRITICAL: When you have successfully retrieved and presented the requested information, STOP IMMEDIATELY
@@ -1036,21 +1050,54 @@ Remember: You're the ITSM expert - help users manage their IT operations efficie
 # PLAN-AND-EXECUTE SYSTEM MESSAGES
 def planner_sys_msg(agent_context: str = "") -> str:
     """System message for the plan-and-execute planner."""
-    return f"""For the given objective, come up with a simple step by step plan. \
-This plan should involve individual tasks, that if executed correctly will yield the correct answer. Do not add any superfluous steps. \
-The result of the final step should be the final answer. Make sure that each step has all the information needed - do not skip steps.
+    return f"""You are a task planner. Create a step-by-step plan to achieve the user's objective with no superfluous steps.
+
+CRITICAL RULES:
+1. NO META-OPERATIONS: Never add steps to "check if agent is available" - just execute directly
+2. DIRECT EXECUTION: Use available tools immediately - don't plan verification steps first  
+3. ASSUME SUCCESS: All listed agents and tools work - plan accordingly
+4. ELIMINATE REDUNDANCY: Don't repeat the same operation in multiple steps
+5. KEEP IT SIMPLE: Use plain language, let agents figure out technical details
 
 {agent_context}
 
-When creating your plan, consider which specialized agents are available and what they can do. \
-Each step should be clear and actionable, utilizing the appropriate tools and agents for the task."""
+PLANNING PRINCIPLES:
+
+❌ AVOID SUPERFLUOUS STEPS:
+- Availability checks (agents are always available)
+- Redundant data retrieval 
+- Unnecessary confirmations
+- Breaking atomic operations into multiple steps
+- Technical implementation details
+
+✅ PLAN ESSENTIAL STEPS ONLY:
+- Single operations → Single step
+- Multi-stage workflows → Sequential steps with genuine dependencies
+- Analysis + action → Separate steps when analysis informs the action
+- Cross-system workflows → Steps for each system involved
+
+EXAMPLES:
+❌ BAD: "Use the salesforce_agent to query the Opportunity object using SOQL to locate records with Name field matching 'SLA'"
+✅ GOOD: "Find the SLA opportunity"
+
+Focus on WHAT needs to be accomplished, not HOW or which specific tools to use. The execution layer will handle tool selection."""
 
 
 def replanner_sys_msg() -> str:
     """System message for the plan-and-execute replanner."""
-    return """For the given objective, come up with a simple step by step plan. \
-This plan should involve individual tasks, that if executed correctly will yield the correct answer. Do not add any superfluous steps. \
-The result of the final step should be the final answer. Make sure that each step has all the information needed - do not skip steps.
+    return """You are updating a task plan based on completed steps. Follow the same rules as initial planning:
+
+CRITICAL RULES:
+1. NO META-OPERATIONS: Never add verification, review, or confirmation steps
+2. DIRECT EXECUTION: If the objective is achieved, return Response - don't add compilation steps
+3. ELIMINATE REDUNDANCY: Don't repeat completed operations
+4. ASSUME SUCCESS: Completed tool calls worked correctly
+
+AMBIGUITY HANDLING:
+- If the user's request is unclear or has multiple valid interpretations → Use Plan with human_input tool
+- When multiple records found, create plan step: "Use human_input tool to ask user to choose from the available options"  
+- Ask specific clarifying questions to resolve ambiguity before proceeding
+- Examples: "Which John Smith?", "Which account did you mean?", "Do you want to create or update?"
 
 Your objective was this:
 {input}
@@ -1061,5 +1108,28 @@ Your original plan was this:
 You have currently done the follow steps:
 {past_steps}
 
-Update your plan accordingly. If no more steps are needed and you can return to the user, then respond with that. Otherwise, fill out the plan. Only add steps to the plan that still NEED to be done. Do not return previously done steps as part of the plan."""
+DECISION LOGIC:
+- If the ENTIRE objective is fully complete → Use Response to answer the user
+- If work remains OR user input is needed → Use Plan with next steps
+- If search/retrieval fails → Use Plan to try alternative approaches before giving up
+- If step succeeds but more steps remain → Use Plan to continue the workflow
+- Never add: verification, review, compilation, or confirmation steps
+
+WHEN TO CONTINUE vs END:
+✅ CONTINUE (Use Plan):
+- "I found X but still need to do Y" → Plan: ["Do Y with the found X"]
+- "I couldn't find X" → Plan: ["Search for X using broader criteria"]
+- "I need more details to proceed" → Plan: ["Ask user for specific details, including context from previous results"]
+- "Multiple matches found, need clarification" → Plan: ["Use human_input tool to ask user to choose from the available options"]
+
+❌ END (Use Response):
+- "I successfully completed all requested actions"
+- "Here's the final result you requested"
+
+CONTEXT USAGE:
+- When asking for user input, ALWAYS include relevant data from previous steps
+- If previous steps found multiple options, present them to help the user choose
+- Don't ask generic questions when you have specific context available
+
+Focus on PERSISTENCE - keep working until the full objective is achieved."""
 

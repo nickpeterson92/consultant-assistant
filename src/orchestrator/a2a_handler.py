@@ -69,8 +69,9 @@ class OrchestratorA2AHandler:
             # Execute the graph
             result = await self.graph.ainvoke(initial_state, config)
             
-            # Extract response
+            # Extract response and plan data
             response_content = self._extract_response_content(result)
+            plan_data = result.get("plan", []) if isinstance(result, dict) else []
             
             # Mark task as complete
             self.active_tasks[task_id]["status"] = "completed"
@@ -92,7 +93,8 @@ class OrchestratorA2AHandler:
                 "metadata": {
                     "task_id": task_id,
                     "thread_id": thread_id,
-                    "execution_time": self.active_tasks[task_id].get("completed_at")
+                    "execution_time": self.active_tasks[task_id].get("completed_at"),
+                    "plan": plan_data
                 },
                 "error": None
             }

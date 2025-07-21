@@ -100,6 +100,7 @@ ORCHESTRATOR TOOLS:
 2. jira_agent: For project management (projects, bugs, epics, stories, etc.)
 3. servicenow_agent: For incident management and IT (change requests, incidents, problems, etc.)
 4. manage_agents: To check agent status and capabilities
-5. web_search: Search the web for information about entities, companies, people, or topics"""
+5. web_search: Search the web for information about entities, companies, people, or topics
+6. human_input: Request human clarification when requests are ambiguous or need additional context"""
     
     return orchestrator_chatbot_sys_msg(summary, memory_val, agent_context)
