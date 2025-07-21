@@ -60,8 +60,19 @@ class HumanInputTool(BaseTool):
             component="orchestrator"
         )
         
-        # Use the complete message provided by the LLM
-        formatted_request = full_message
+        # Check with observers for enhanced message with accumulated user-visible data
+        try:
+            from src.orchestrator.observers import get_observer_registry, HumanInputRequestedEvent
+            registry = get_observer_registry()
+            event = HumanInputRequestedEvent(
+                step_name="human_input",
+                question=full_message
+            )
+            enhanced_message = registry.notify_human_input_requested(event)
+            formatted_request = enhanced_message if enhanced_message else full_message
+        except ImportError:
+            # Fallback if observers not available
+            formatted_request = full_message
         
         # Use LangGraph's interrupt to pause execution and wait for user input
         # The GraphInterrupt exception should propagate up to pause execution - don't catch it!

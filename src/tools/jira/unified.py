@@ -19,6 +19,7 @@ class JiraGet(JiraReadTool):
     """
     name: str = "jira_get"
     description: str = "Get a Jira issue by key"
+    produces_user_data: bool = True  # Issue details may need user review
     
     class Input(BaseModel):
         issue_key: str = Field(description="Jira issue key (e.g., PROJ-123)")
@@ -51,6 +52,7 @@ class JiraSearch(JiraReadTool):
     """
     name: str = "jira_search"
     description: str = "Search Jira issues with flexible criteria"
+    produces_user_data: bool = True  # Search results often need user selection
     
     class Input(BaseModel):
         query: str = Field(description="JQL query or natural language search")
@@ -104,6 +106,7 @@ class JiraCreate(JiraWriteTool):
     Simple creation tool that works with any issue type.
     The LLM provides the issue data and this tool handles the creation.
     """
+    produces_user_data: bool = False  # Create operations don't require user selection
     name: str = "jira_create"
     description: str = "Create a new Jira issue or subtask"
     
@@ -179,6 +182,7 @@ class JiraUpdate(JiraWriteTool):
     Comprehensive update tool that handles all types of issue modifications.
     """
     name: str = "jira_update"
+    produces_user_data: bool = False  # Update operations don't require user selection
     description: str = "Update Jira issue fields, status, or assignment"
     
     class Input(BaseModel):
@@ -276,6 +280,7 @@ class JiraCollaboration(JiraCollaborationTool):
     Comprehensive collaboration tool for team interactions.
     """
     name: str = "jira_collaboration"
+    produces_user_data: bool = False  # Collaboration actions don't require user selection
     description: str = "Add comments, attachments, or link issues"
     
     class Input(BaseModel):
@@ -332,6 +337,7 @@ class JiraAnalytics(JiraAnalyticsTool):
     Provides issue history, worklog data, and project metrics.
     """
     name: str = "jira_analytics"
+    produces_user_data: bool = True  # Analytics results may need user review
     description: str = "Get issue history, metrics, and analytics"
     
     class Input(BaseModel):

@@ -19,6 +19,7 @@ class SalesforceGet(SalesforceReadTool):
     """Get any Salesforce record by ID."""
     name: str = "salesforce_get"
     description: str = "Retrieve a single record when you have its ID (15 or 18 character identifier)"
+    produces_user_data: bool = True  # Users may need to see retrieved data for decisions
     
     class Input(BaseModel):
         record_id: str = Field(description="Salesforce record ID (15 or 18 character)")
@@ -69,6 +70,7 @@ class SalesforceSearch(SalesforceReadTool):
     """Search any Salesforce object with natural language or structured queries."""
     name: str = "salesforce_search"
     description: str = "LIST individual records with details - use when you need the actual records, not summaries (e.g., list all opportunities, show contacts)"
+    produces_user_data: bool = True  # Search results often need user selection
     
     class Input(BaseModel):
         object_type: str = Field(description="Object to search (Account, Contact, Lead, etc.)")
@@ -142,6 +144,7 @@ class SalesforceCreate(SalesforceWriteTool):
     """Create any type of Salesforce record."""
     name: str = "salesforce_create"
     description: str = "Add a new record to Salesforce (lead, contact, opportunity, case, etc.)"
+    produces_user_data: bool = False  # Create operations don't require user selection
     
     class Input(BaseModel):
         object_type: str = Field(description="Type of object to create")
@@ -178,6 +181,7 @@ class SalesforceUpdate(SalesforceWriteTool):
     """Update any Salesforce record."""
     name: str = "salesforce_update"
     description: str = "Modify existing records - change field values, update status, etc. For opportunities, use StageName field for status changes."
+    produces_user_data: bool = False  # Update operations don't require user selection
     
     class Input(BaseModel):
         object_type: str = Field(description="Type of object to update (e.g., Opportunity, Account, Contact)")

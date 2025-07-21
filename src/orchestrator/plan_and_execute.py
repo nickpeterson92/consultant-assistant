@@ -71,6 +71,8 @@ class Act(BaseModel):
 @log_execution("orchestrator", "execute_step", include_args=True, include_result=True)
 def execute_step(state: PlanExecute):
     import asyncio
+    from .observers import get_observer_registry, SearchResultsEvent
+    
     plan = state["plan"]
     plan_str = "\n".join(f"{i + 1}. {step}" for i, step in enumerate(plan))
     task = plan[0]
@@ -79,25 +81,51 @@ def execute_step(state: PlanExecute):
 
 You are tasked with executing step {1}, {task}."""
     
-    # If user_visible_responses exist and the task involves human_input, include them
-    user_visible_responses = state.get("user_visible_responses", [])
-    if user_visible_responses and "human_input" in task.lower():
-        # Add the user_visible_responses content to the task context
-        visible_content = "\n\n".join(user_visible_responses)
-        task_formatted += f"""
-
-IMPORTANT: The following search results or data should be included in your human_input tool call:
-
-{visible_content}
-
-Use the above content EXACTLY in the full_message parameter of your human_input tool call. Do not summarize or truncate."""
-    
     # Use ReAct agent executor which handles tool execution automatically
     agent_response = asyncio.run(agent_executor.ainvoke(
         {"messages": [("user", task_formatted)]}
     ))
+    
+    final_response = agent_response["messages"][-1].content
+    
+    # Check if any tools used during execution produce user data
+    # We need to get the available tools to check their metadata
+    from src.tools.salesforce import UNIFIED_SALESFORCE_TOOLS
+    from src.tools.jira import UNIFIED_JIRA_TOOLS
+    from src.tools.servicenow import UNIFIED_SERVICENOW_TOOLS
+    
+    # Build a lookup of all available tools using the unified constants
+    all_tools = list(UNIFIED_SALESFORCE_TOOLS) + list(UNIFIED_JIRA_TOOLS) + list(UNIFIED_SERVICENOW_TOOLS)
+    
+    tool_lookup = {tool.name: tool for tool in all_tools}
+    
+    # Check actual tool calls made during execution
+    produced_user_data = False
+    for message in agent_response["messages"]:
+        if hasattr(message, 'tool_calls') and message.tool_calls:
+            for tool_call in message.tool_calls:
+                tool_name = tool_call.get("name", "")
+                
+                # Look up the tool to check its metadata
+                if tool_name in tool_lookup:
+                    tool = tool_lookup[tool_name]
+                    if getattr(tool, 'produces_user_data', False):
+                        produced_user_data = True
+                        break
+    
+    # Notify observers if user data was produced
+    if produced_user_data:
+        registry = get_observer_registry()
+        event = SearchResultsEvent(
+            step_name=task,
+            results=final_response,
+            tool_name="data_producing_operation",
+            is_user_selectable=True
+        )
+        registry.notify_search_results(event)
+    
     return {
-        "past_steps": [(task, agent_response["messages"][-1].content)],
+        "past_steps": [(task, final_response)],
     }
 
 
@@ -214,6 +242,12 @@ async def create_plan_execute_graph():
     
     # Create agent registry and LLM instances
     agent_registry = AgentRegistry()
+    
+    # Initialize the UX observer for tracking user-visible data
+    from .observers import get_observer_registry, UXObserver
+    registry = get_observer_registry()
+    ux_observer = UXObserver()
+    registry.add_observer(ux_observer)
     
     # Create tools list with agent caller tools
     tools = [

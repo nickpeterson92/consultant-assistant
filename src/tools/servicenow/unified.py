@@ -20,6 +20,7 @@ class ServiceNowGet(ServiceNowReadTool):
     """
     name: str = "servicenow_get"
     description: str = "Get a ServiceNow record by ID or number"
+    produces_user_data: bool = True  # Record details may need user review
     
     class Input(BaseModel):
         table_name: Optional[str] = Field(None, description="Table name (e.g., incident, change_request). Optional if using number.")
@@ -116,6 +117,7 @@ class ServiceNowSearch(ServiceNowReadTool):
     Handles both natural language queries and Glide encoded queries.
     The LLM can pass human-friendly searches or precise conditions.
     Supports dot-walking for related fields (e.g., caller_id.name).
+    produces_user_data: bool = True  # Search results often need user selection
     """
     name: str = "servicenow_search"
     description: str = "Search ServiceNow records with natural language or encoded queries"
@@ -189,6 +191,7 @@ class ServiceNowCreate(ServiceNowWriteTool):
     Simple creation with automatic validation of required fields
     based on table type.
     """
+    produces_user_data: bool = False  # Create operations don't require user selection
     name: str = "servicenow_create"
     description: str = "Create a new ServiceNow record"
     
@@ -223,6 +226,7 @@ class ServiceNowUpdate(ServiceNowWriteTool):
     Supports updates by:
     - sys_id (preferred for performance)
     - number (queries for sys_id first)
+    produces_user_data: bool = False  # Update operations don't require user selection
     - where clause (bulk updates)
     
     Uses PATCH method for partial updates per ServiceNow Table API.
@@ -319,6 +323,7 @@ class ServiceNowWorkflow(ServiceNowWorkflowTool):
     Specialized tool for state transitions, approvals, assignments,
     and other workflow-related actions.
     """
+    produces_user_data: bool = False  # Workflow actions don't require user selection
     name: str = "servicenow_workflow"
     description: str = "Handle ServiceNow workflow operations like approvals and state changes"
     
@@ -424,6 +429,7 @@ class ServiceNowAnalytics(ServiceNowAnalyticsTool):
     Provides aggregations, statistics, and reporting capabilities
     across any ServiceNow table.
     """
+    produces_user_data: bool = True  # Analytics results may need user review
     name: str = "servicenow_analytics"
     description: str = "Get analytics, metrics, and statistics from ServiceNow"
     
