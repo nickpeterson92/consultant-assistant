@@ -69,12 +69,12 @@ def build_jira_agent():
     llm_config = config
     llm = AzureChatOpenAI(
         azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-        azure_deployment=llm_config.get_secret('azure_openai_deployment'),
-        openai_api_version=llm_config.get_secret('azure_openai_api_version'),
+        azure_deployment=os.environ.get("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME", "gpt-4o-mini"),
+        openai_api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-06-01"),
         openai_api_key=os.environ["AZURE_OPENAI_API_KEY"],
         temperature=llm_config.llm_temperature,
         max_tokens=llm_config.llm_max_tokens,
-        timeout=llm_config.timeout,
+        timeout=llm_config.llm_timeout,
     )
     
     # Bind tools to LLM

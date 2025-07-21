@@ -22,14 +22,13 @@ def smart_preserve_messages(messages: list, keep_count: int = 2):
         
         # CALIBRATED: Realistic token counter based on actual usage analysis
         from .config import config
-        conv_config = config
         
         def simple_token_counter(messages):
-            return len(messages) * conv_config.token_per_message_estimate  # Calibrated from logs
+            return len(messages) * config.get('conversation.token_per_message_estimate', 400)  # Calibrated from logs
         
         # CALIBRATED: Token budget based on real multi-tool conversation analysis
         # More aggressive since we're summarizing more frequently
-        max_tokens = keep_count * conv_config.token_budget_multiplier  # Configurable token budget
+        max_tokens = keep_count * config.get('conversation.token_budget_multiplier', 800)  # Configurable token budget
         
         # Use trim_messages with tool call preservation
         preserved = trim_messages(

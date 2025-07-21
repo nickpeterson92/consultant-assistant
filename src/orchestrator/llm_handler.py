@@ -23,8 +23,8 @@ def create_llm_instances(tools: List[Any]):
     # Create main LLM instance
     llm_kwargs = {
         "azure_endpoint": os.environ["AZURE_OPENAI_ENDPOINT"],
-        "azure_deployment": llm_config.get_secret('azure_openai_deployment'),
-        "openai_api_version": llm_config.get_secret('azure_openai_api_version'),
+        "azure_deployment": os.environ.get("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME", "gpt-4o-mini"),
+        "openai_api_version": os.environ.get("AZURE_OPENAI_API_VERSION", "2024-06-01"),
         "openai_api_key": os.environ["AZURE_OPENAI_API_KEY"],
         "temperature": llm_config.llm_temperature,
         "max_tokens": llm_config.llm_max_tokens,
@@ -39,8 +39,8 @@ def create_llm_instances(tools: List[Any]):
     # Create deterministic LLM for memory extraction
     deterministic_llm = AzureChatOpenAI(
         azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-        azure_deployment=llm_config.get_secret('azure_openai_deployment'),
-        openai_api_version=llm_config.get_secret('azure_openai_api_version'),
+        azure_deployment=os.environ.get("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME", "gpt-4o-mini"),
+        openai_api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-06-01"),
         openai_api_key=os.environ["AZURE_OPENAI_API_KEY"],
         temperature=DETERMINISTIC_TEMPERATURE,
         top_p=DETERMINISTIC_TOP_P,
@@ -62,8 +62,8 @@ def create_llm_instances(tools: List[Any]):
             # Create a new LLM with custom parameters
             temp_llm = AzureChatOpenAI(
                 azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-                azure_deployment=llm_config.get_secret('azure_openai_deployment'),
-                openai_api_version=llm_config.get_secret('azure_openai_api_version'),
+                azure_deployment=os.environ.get("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME", "gpt-4o-mini"),
+                openai_api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-06-01"),
                 openai_api_key=os.environ["AZURE_OPENAI_API_KEY"],
                 temperature=temperature if temperature is not None else llm_config.llm_temperature,
                 max_tokens=llm_config.llm_max_tokens,

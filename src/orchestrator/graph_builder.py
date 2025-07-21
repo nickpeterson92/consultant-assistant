@@ -93,8 +93,9 @@ def build_orchestrator_graph():
     return graph_builder.compile(checkpointer=memory, store=memory_store)
 
 
-# Create default orchestrator graph for module export
-orchestrator_graph = build_orchestrator_graph()
+# Note: orchestrator_graph is created on-demand to avoid initialization issues
+# Use build_orchestrator_graph() to create the graph when needed
+orchestrator_graph = None
 
 
 def get_global_memory_store():

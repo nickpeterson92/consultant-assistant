@@ -113,10 +113,10 @@ async def orchestrator(
         # Load summary from persistent store
         summary = state.get(SUMMARY_KEY, NO_SUMMARY_TEXT)
         if summary == NO_SUMMARY_TEXT:
-            conv_config = config
-            user_id = config["configurable"].get("user_id", conv_config.default_user_id)
-            thread_id = config["configurable"].get("thread_id", conv_config.default_thread_id)
-            namespace = (conv_config.memory_namespace_prefix, user_id)
+            from src.utils.config import config as app_config
+            user_id = config["configurable"].get("user_id", app_config.get('conversation.default_user_id', 'default'))
+            thread_id = config["configurable"].get("thread_id", app_config.get('conversation.default_thread_id', 'default'))
+            namespace = (app_config.get('conversation.memory_namespace_prefix', 'memory'), user_id)
             key = f"summary_{thread_id}"
             
             try:
@@ -184,8 +184,8 @@ async def orchestrator(
                         event_count=len(events))
         
         # Trim events to prevent unbounded growth
-        conv_config = config
-        max_events = conv_config.max_event_history
+        from src.utils.config import config as app_config
+        max_events = app_config.get('conversation.max_event_history', 50)
         recent_events = events[-max_events:] if len(events) > max_events else events
         event_dicts = [e.to_dict() for e in recent_events]
         
@@ -204,8 +204,7 @@ async def orchestrator(
             updated_state["summary"] = "No summary available"
             logger.info("summary_initialized", component="orchestrator", operation="setting_default_summary")
         
-        # Check for background task triggers
-        conv_config = config
+        # Check for background task triggers - no config needed here
         
         # Check summary trigger
         if EventAnalyzer.should_trigger_summary(events, 
@@ -257,7 +256,7 @@ async def orchestrator(
             
             # Create new store instance for async context
             async_memory_store = get_async_store_adapter(
-                db_path=config.db_path
+                db_path=app_config.get('storage.db_path', 'memory_store.db')
             )
             
             asyncio.create_task(

@@ -17,7 +17,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from src.utils.logging.framework import SmartLogger, log_execution
 
 # Initialize logger
-logger = SmartLogger("plan_execute")
+logger = SmartLogger("orchestrator")
 
 
 # ================================
@@ -66,8 +66,9 @@ class Act(BaseModel):
 # Node Functions - EXACT from tutorial
 # ================================
 
-@log_execution("plan_execute", "execute_step", include_args=True, include_result=True)
-async def execute_step(state: PlanExecute):
+@log_execution("orchestrator", "execute_step", include_args=True, include_result=True)
+def execute_step(state: PlanExecute):
+    import asyncio
     plan = state["plan"]
     plan_str = "\n".join(f"{i + 1}. {step}" for i, step in enumerate(plan))
     task = plan[0]
@@ -75,30 +76,29 @@ async def execute_step(state: PlanExecute):
 {plan_str}
 
 You are tasked with executing step {1}, {task}."""
-    agent_response = await agent_executor.ainvoke(
-        {
-            "messages": [HumanMessage(content=task_formatted)],
-            "background_operations": [],
-            "background_results": {}
-        }
-    )
+    
+    # Agent executor is the LLM with tools, so invoke with messages directly
+    agent_response = asyncio.run(agent_executor.ainvoke([HumanMessage(content=task_formatted)]))
     return {
         "past_steps": [
             HumanMessage(content=task),
-            agent_response["messages"][-1]
+            agent_response
         ],
     }
 
 
 @log_execution("plan_execute", "plan_step", include_args=True, include_result=True)
-async def plan_step(state: PlanExecute):
-    plan = await planner.ainvoke({"input": state["input"]})
+def plan_step(state: PlanExecute):
+    import asyncio
+    from langchain_core.messages import HumanMessage
+    plan = asyncio.run(planner.ainvoke({"messages": [HumanMessage(content=state["input"])]}))
     return {"plan": plan.steps}
 
 
 @log_execution("plan_execute", "replan_step", include_args=True, include_result=True)
-async def replan_step(state: PlanExecute):
-    output = await replanner.ainvoke(state)
+def replan_step(state: PlanExecute):
+    import asyncio
+    output = asyncio.run(replanner.ainvoke(state))
     if isinstance(output.action, Response):
         return {"response": output.action.response}
     else:
@@ -162,6 +162,32 @@ def create_graph(agent_executor, planner, replanner):
 # Factory function for easy setup
 # ================================
 
+async def create_plan_execute_graph():
+    """Create a simple plan-execute graph for A2A usage."""
+    from src.orchestrator.llm_handler import create_llm_instances
+    from src.orchestrator.agent_registry import AgentRegistry
+    from src.orchestrator.agent_caller_tools import SalesforceAgentTool, JiraAgentTool, ServiceNowAgentTool, AgentRegistryTool
+    from src.tools.utility import WebSearchTool
+    
+    # Create agent registry and LLM instances
+    agent_registry = AgentRegistry()
+    
+    # Create tools list with agent caller tools
+    tools = [
+        SalesforceAgentTool(agent_registry),
+        JiraAgentTool(agent_registry),
+        ServiceNowAgentTool(agent_registry),
+        AgentRegistryTool(agent_registry),
+        WebSearchTool()
+    ]
+    
+    # Create LLM instances
+    llm_with_tools, deterministic_llm, trustcall_extractor, invoke_llm = create_llm_instances(tools)
+    
+    # Use the canonical setup with proper prompts and agent context
+    return setup_canonical_plan_execute(llm_with_tools, llm_with_tools, agent_registry)
+
+
 def setup_canonical_plan_execute(llm_with_tools, llm_for_planning, agent_registry=None):
     """Set up the canonical plan-and-execute graph with LLMs and tool context."""
     
@@ -180,14 +206,15 @@ def setup_canonical_plan_execute(llm_with_tools, llm_for_planning, agent_registr
             agent_context = f"=== CURRENTLY AVAILABLE TOOLS ===\nORCHESTRATOR TOOLS:{tools_section}"
     
     # Import centralized prompt functions
-    from src.utils.sys_msg import orchestrator_planner_sys_msg, orchestrator_replanner_sys_msg
+    from src.utils.sys_msg import planner_sys_msg, replanner_sys_msg
     
-    # Create prompts with dynamic agent context
-    planner_prompt = ChatPromptTemplate.from_template(
-        orchestrator_planner_sys_msg(agent_context)
-    )
+    # Create prompts with dynamic agent context  
+    planner_prompt = ChatPromptTemplate.from_messages([
+        ("system", planner_sys_msg(agent_context)),
+        ("placeholder", "{messages}")
+    ])
     replanner_prompt = ChatPromptTemplate.from_template(
-        orchestrator_replanner_sys_msg(agent_context)
+        replanner_sys_msg()
     )
     
     # Create planner and replanner with structured output and agent context

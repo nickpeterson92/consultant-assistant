@@ -54,8 +54,8 @@ def create_azure_openai_chat():
     llm_config = config
     llm_kwargs = {
         "azure_endpoint": os.environ["AZURE_OPENAI_ENDPOINT"],  # Keep sensitive info in env
-        "azure_deployment": llm_config.get_secret('azure_openai_deployment'),
-        "openai_api_version": llm_config.get_secret('azure_openai_api_version'),
+        "azure_deployment": os.environ.get("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME", "gpt-4o-mini"),
+        "openai_api_version": os.environ.get("AZURE_OPENAI_API_VERSION", "2024-06-01"),
         "openai_api_key": os.environ["AZURE_OPENAI_API_KEY"],  # Keep sensitive info in env
         "temperature": llm_config.llm_temperature,
         "max_tokens": llm_config.llm_max_tokens,

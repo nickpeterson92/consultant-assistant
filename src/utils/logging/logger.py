@@ -203,19 +203,25 @@ class StructuredLogger:
 # Global logger instance
 _logger = None
 
-def get_logger(component: str = None) -> StructuredLogger:
-    """Get the global logger instance (singleton).
+def get_logger(component: Optional[str] = None) -> StructuredLogger:
+    """Get the component-specific logger instance.
     
     Args:
-        component: Component name (ignored - kept for backward compatibility)
+        component: Component name for routing logs to specific files
         
     Returns:
-        The global StructuredLogger instance
+        The component-specific logger that routes to the right log file
     """
-    global _logger
-    if _logger is None:
-        _logger = StructuredLogger()
-    return _logger
+    # Import here to avoid circular dependency
+    from .multi_file_logger import get_multi_file_logger
+    
+    # Always return the multi-file logger which handles component routing
+    logger = get_multi_file_logger()
+    
+    # If component is provided, we could store it as metadata on the logger
+    # but the multi-file logger already handles routing via component= parameters
+    # in logging calls, so this works correctly
+    return logger
 
 
 # Backward compatibility functions
