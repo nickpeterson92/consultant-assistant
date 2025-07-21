@@ -101,7 +101,8 @@ class OrchestratorA2AHandler:
                     "past_steps": [],
                     "response": "",
                     "user_visible_responses": [],
-                    "thread_id": thread_id  # Add thread_id to state for memory integration
+                    "thread_id": thread_id,  # Add thread_id to state for memory integration
+                    "task_id": task_id  # Add actual task_id for SSE events
                 }
                 
                 # Execute the graph

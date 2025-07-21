@@ -7,6 +7,7 @@ import asyncio
 import time
 import uuid
 import json
+import aiohttp
 from typing import List, Dict, Any, Optional
 
 # Add the project root to Python path for src imports
@@ -76,7 +77,7 @@ class StatusWidget(Static):
 
 
 class PlanStatusWidget(Static):
-    """Widget to display plan status and execution progress - exact main branch style."""
+    """Widget to display plan status and execution progress with live SSE updates."""
     
     plan_tasks = reactive([])
     current_step = reactive("")
@@ -85,7 +86,11 @@ class PlanStatusWidget(Static):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.plan_data = []
+        self.completed_steps = []
+        self.failed_steps = []
         self.current_step_index = -1
+        self.current_task_id = None
+        self.plan_status = "idle"  # "idle", "in_progress", "completed", "failed"
         self.update_display()
         
     def update_plan(self, plan: List[str]):
@@ -113,28 +118,179 @@ class PlanStatusWidget(Static):
             self.execution_status = "completed"
             self.update_display()
         
+    def handle_sse_plan_created(self, data: Dict[str, Any]):
+        """Handle plan_created SSE event."""
+        if data.get("task_id") != self.current_task_id:
+            return  # Not for our current task
+            
+        plan_steps = data.get("plan_steps", [])
+        self.plan_data = plan_steps
+        self.plan_tasks = plan_steps
+        self.completed_steps = []
+        self.failed_steps = []
+        self.plan_status = "in_progress"
+        self.update_display()
+    
+    def handle_sse_task_started(self, data: Dict[str, Any]):
+        """Handle task_started SSE event."""
+        if data.get("task_id") != self.current_task_id:
+            return
+            
+        task_desc = data.get("task_description", "")
+        step_number = data.get("step_number", 1)
+        
+        # Find the step in our plan data
+        for i, step in enumerate(self.plan_data):
+            if step == task_desc or i == (step_number - 1):
+                self.current_step_index = i
+                self.current_step = task_desc
+                self.execution_status = "executing" 
+                break
+        
+        self.update_display()
+    
+    def handle_sse_task_completed(self, data: Dict[str, Any]):
+        """Handle task_completed SSE event."""
+        if data.get("task_id") != self.current_task_id:
+            return
+            
+        task_desc = data.get("task_description", "")
+        status = data.get("status", "success")
+        
+        logger.info("task_completion_tracking",
+                   task_desc=task_desc[:50],
+                   status=status,
+                   completed_before=len(self.completed_steps),
+                   failed_before=len(self.failed_steps))
+        
+        if status == "success":
+            if task_desc not in self.completed_steps:
+                self.completed_steps.append(task_desc)
+                logger.info("task_marked_completed", 
+                           task_desc=task_desc[:50],
+                           total_completed=len(self.completed_steps))
+            # Remove from failed if it was there
+            if task_desc in self.failed_steps:
+                self.failed_steps.remove(task_desc)
+        else:
+            if task_desc not in self.failed_steps:
+                self.failed_steps.append(task_desc)
+            # Remove from completed if it was there  
+            if task_desc in self.completed_steps:
+                self.completed_steps.remove(task_desc)
+        
+        self.execution_status = "completed" if status == "success" else "failed"
+        self.update_display()
+    
+    def handle_sse_plan_modified(self, data: Dict[str, Any]):
+        """Handle plan_modified SSE event."""
+        if data.get("task_id") != self.current_task_id:
+            return
+            
+        old_plan = data.get("old_plan", [])
+        new_plan = data.get("new_plan", [])
+        self.plan_data = new_plan
+        self.plan_tasks = new_plan
+        
+        # Intelligently preserve completion status when plan structure changes
+        # Keep completed/failed steps that still exist in new plan
+        preserved_completed = [step for step in self.completed_steps if step in new_plan]
+        preserved_failed = [step for step in self.failed_steps if step in new_plan]
+        
+        # For steps that were completed in old plan but have similar wording in new plan,
+        # try to match them (this handles cases where step text is slightly modified)
+        for old_completed in self.completed_steps:
+            if old_completed not in new_plan:
+                # Look for similar step in new plan
+                for new_step in new_plan:
+                    if new_step not in preserved_completed and len(new_step) > 10:
+                        # Simple similarity check - if they share significant common words
+                        old_words = set(old_completed.lower().split())
+                        new_words = set(new_step.lower().split())
+                        common_words = old_words.intersection(new_words)
+                        if len(common_words) >= 3:  # At least 3 words in common
+                            preserved_completed.append(new_step)
+                            break
+        
+        self.completed_steps = preserved_completed
+        self.failed_steps = preserved_failed
+        
+        self.update_display()
+    
+    def handle_sse_plan_updated(self, data: Dict[str, Any]):
+        """Handle plan_updated SSE event."""
+        if data.get("task_id") != self.current_task_id:
+            return
+            
+        # Update plan structure but preserve our completion tracking
+        self.plan_data = data.get("plan_steps", self.plan_data)
+        
+        # Only update completed/failed steps if server provides them, otherwise preserve client tracking
+        server_completed = data.get("completed_steps", [])
+        server_failed = data.get("failed_steps", [])
+        
+        # If server provides completion data, use it; otherwise keep client tracking
+        if server_completed or server_failed:
+            self.completed_steps = server_completed
+            self.failed_steps = server_failed
+        # If no server completion data, keep our client-side tracking intact
+        
+        self.current_step = data.get("current_step")
+        self.plan_status = data.get("status", "in_progress")
+        
+        # Find current step index
+        if self.current_step and self.current_step in self.plan_data:
+            self.current_step_index = self.plan_data.index(self.current_step)
+        
+        self.update_display()
+    
+    def set_task_id(self, task_id: str):
+        """Set the current task ID to filter SSE events."""
+        self.current_task_id = task_id
+        
+    def reset_plan(self):
+        """Reset the plan state."""
+        self.plan_data = []
+        self.completed_steps = []
+        self.failed_steps = []
+        self.current_step_index = -1
+        self.current_task_id = None
+        self.plan_status = "idle"
+        self.update_display()
+
     def update_display(self):
-        """Refresh the plan display - exact main branch format."""
+        """Refresh the plan display with enhanced status indicators."""
         if not self.plan_data:
             content = """[bold #7dd3fc]📋 Execution Plan[/bold #7dd3fc]
 
 [dim #8b949e]No plan available[/dim #8b949e]"""
         else:
-            content_lines = ["[bold #7dd3fc]📋 Execution Plan[/bold #7dd3fc]", ""]
+            # Plan header with status
+            status_indicator = {
+                "idle": "[dim #8b949e]●[/dim #8b949e] Idle",
+                "in_progress": "[yellow]●[/yellow] In Progress", 
+                "completed": "[green]●[/green] Completed",
+                "failed": "[red]●[/red] Failed"
+            }.get(self.plan_status, "[dim]●[/dim] Unknown")
+            
+            content_lines = [
+                f"[bold #7dd3fc]📋 Execution Plan[/bold #7dd3fc] {status_indicator}",
+                ""
+            ]
             
             for i, step in enumerate(self.plan_data):
-                if i == self.current_step_index and self.execution_status == "executing":
-                    # Currently executing - yellow with arrow
-                    content_lines.append(f"[yellow]▶ {i+1}. {step}[/yellow]")
-                elif i <= self.current_step_index and self.execution_status == "completed":
+                if step in self.failed_steps:
+                    # Failed steps - red with X
+                    content_lines.append(f"[red]✗ {i+1}. {step}[/red]")
+                elif step in self.completed_steps:
                     # Completed steps - green with checkmark
                     content_lines.append(f"[green]✓ {i+1}. {step}[/green]")
-                elif i < self.current_step_index:
-                    # Previously completed steps - green with checkmark
-                    content_lines.append(f"[green]✓ {i+1}. {step}[/green]")
+                elif step == self.current_step and self.execution_status == "executing":
+                    # Currently executing - yellow with arrow
+                    content_lines.append(f"[yellow]▶ {i+1}. {step}[/yellow]")
                 else:
                     # Pending steps - dim
-                    content_lines.append(f"[dim #8b949e]  {i+1}. {step}[/dim #8b949e]")
+                    content_lines.append(f"[dim #8b949e]□ {i+1}. {step}[/dim #8b949e]")
             
             content = "\n".join(content_lines)
         
@@ -281,9 +437,15 @@ class OrchestatorApp(App):
         self.status_widget = None
         self.plan_widget = None
         
+        # SSE connection for live plan updates
+        self.sse_session = None
+        self.sse_task = None
+        self.sse_url = f"{orchestrator_url}/a2a/stream"
+        
         logger.info("textual_app_initialized", 
                    orchestrator_url=orchestrator_url,
-                   thread_id=self.thread_id)
+                   thread_id=self.thread_id,
+                   sse_url=self.sse_url)
     
     def compose(self) -> ComposeResult:
         """Compose the UI layout - exact main branch structure."""
@@ -334,6 +496,9 @@ class OrchestatorApp(App):
         # Focus on input
         self.query_one("#message-input", Input).focus()
         logger.info("input_focused", thread_id=self.thread_id)
+        
+        # Start SSE connection for live plan updates
+        self.start_sse_connection()
     
     @on(Input.Submitted, "#message-input")
     async def handle_input(self, event: Input.Submitted) -> None:
@@ -388,6 +553,9 @@ class OrchestatorApp(App):
                            user_input=user_input[:100])
             
             self.current_task_id = task_id
+            
+            # Set task ID for plan widget to track events  
+            self.set_plan_task_id(task_id)
             
             # Show processing spinner
             spinner_widget = await self.conversation_widget.add_system_message(
@@ -499,9 +667,109 @@ class OrchestatorApp(App):
             # Update status to show disconnected
             self.status_widget.update_status(connected=False, task_id=None)
     
+    def start_sse_connection(self):
+        """Start SSE connection for live plan updates."""
+        if self.sse_task is None or self.sse_task.done():
+            self.sse_task = asyncio.create_task(self._sse_connection_loop())
+            logger.info("sse_connection_started", sse_url=self.sse_url)
+    
+    async def _sse_connection_loop(self):
+        """Main SSE connection loop with automatic reconnection."""
+        while True:
+            try:
+                await self._connect_sse()
+            except Exception as e:
+                logger.error("sse_connection_error", error=str(e), sse_url=self.sse_url)
+                # Wait before reconnecting
+                await asyncio.sleep(5)
+    
+    async def _connect_sse(self):
+        """Connect to SSE stream and handle events."""
+        if self.sse_session is None:
+            self.sse_session = aiohttp.ClientSession()
+        
+        logger.info("sse_connecting", sse_url=self.sse_url)
+        
+        try:
+            async with self.sse_session.get(self.sse_url) as response:
+                logger.info("sse_connected", status=response.status, headers=dict(response.headers))
+                
+                if response.status != 200:
+                    logger.error("sse_connection_failed", status=response.status)
+                    return
+                
+                # Track current event being parsed
+                current_event_type = None
+                logger.info("sse_stream_reading_started")
+                
+                try:
+                    async for line_bytes in response.content:
+                        line = line_bytes.decode('utf-8').strip()
+                        
+                        if not line:
+                            continue
+                        
+                        logger.debug("sse_line_received", line=line[:100])
+                        
+                        # Parse main branch format: "data: {"event": "type", "data": {...}}"
+                        if line.startswith("data: "):
+                            data_json = line[6:]  # Remove "data: " prefix
+                            logger.info("sse_data_received", data_preview=data_json[:100])
+                            try:
+                                event_payload = json.loads(data_json)
+                                event_type = event_payload.get('event')
+                                event_data = event_payload.get('data', {})
+                                
+                                if event_type:
+                                    logger.info("sse_event_parsed", event_type=event_type, has_data=bool(event_data))
+                                    await self._handle_sse_event(event_type, event_data)
+                                else:
+                                    logger.warning("sse_event_missing_type", payload=event_payload)
+                            except json.JSONDecodeError as e:
+                                logger.error("sse_json_decode_error", error=str(e), data=data_json[:100])
+                            
+                except Exception as stream_e:
+                    logger.error("sse_stream_reading_error", error=str(stream_e))
+                    raise
+        except Exception as e:
+            logger.error("sse_stream_error", error=str(e))
+            raise
+    
+    async def _handle_sse_event(self, event_type: str, data: Dict[str, Any]):
+        """Handle incoming SSE events."""
+        logger.info("sse_event_received", 
+                   event_type=event_type, 
+                   task_id=data.get("task_id"),
+                   current_task_id=self.current_task_id)
+        
+        # Route events to plan widget
+        if self.plan_widget:
+            if event_type == "plan_created":
+                self.plan_widget.handle_sse_plan_created(data)
+            elif event_type == "task_started":
+                self.plan_widget.handle_sse_task_started(data)
+            elif event_type == "task_completed":
+                self.plan_widget.handle_sse_task_completed(data)
+            elif event_type == "plan_modified":
+                self.plan_widget.handle_sse_plan_modified(data)
+            elif event_type == "plan_updated":
+                self.plan_widget.handle_sse_plan_updated(data)
+    
+    def set_plan_task_id(self, task_id: str):
+        """Set the current task ID for plan tracking."""
+        if self.plan_widget:
+            self.plan_widget.set_task_id(task_id)
+    
     def action_quit(self) -> None:
         """Quit the application."""
         logger.info("textual_app_quit", thread_id=self.thread_id)
+        
+        # Clean up SSE connection
+        if self.sse_task and not self.sse_task.done():
+            self.sse_task.cancel()
+        if self.sse_session:
+            asyncio.create_task(self.sse_session.close())
+        
         self.exit()
 
 

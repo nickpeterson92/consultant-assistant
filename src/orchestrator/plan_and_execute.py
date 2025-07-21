@@ -17,6 +17,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from src.utils.logging.framework import SmartLogger, log_execution
+from .event_decorators import emit_coordinated_events
 
 # Initialize logger
 logger = SmartLogger("orchestrator")
@@ -33,6 +34,7 @@ class PlanExecute(TypedDict):
     response: str
     user_visible_responses: Annotated[List[str], operator.add]  # Responses that should be shown to user immediately
     thread_id: str  # Thread ID for memory context
+    task_id: str  # Task ID for SSE event correlation
 
 
 # ================================
@@ -71,6 +73,7 @@ class Act(BaseModel):
 # ================================
 
 @log_execution("orchestrator", "execute_step", include_args=True, include_result=True)
+@emit_coordinated_events(["task_lifecycle", "plan_updated"])
 def execute_step(state: PlanExecute):
     import asyncio
     from .observers import get_observer_registry, SearchResultsEvent
@@ -281,6 +284,7 @@ You are tasked with executing step {current_step_num}: {task}.
 
 
 @log_execution("orchestrator", "plan_step", include_args=True, include_result=True)
+@emit_coordinated_events(["plan_created", "plan_updated"])
 def plan_step(state: PlanExecute):
     import asyncio
     from langchain_core.messages import HumanMessage
@@ -325,6 +329,7 @@ def plan_step(state: PlanExecute):
 
 
 @log_execution("orchestrator", "replan_step", include_args=True, include_result=True)
+@emit_coordinated_events(["plan_modified", "plan_updated"])
 def replan_step(state: PlanExecute):
     import asyncio
     from src.memory import get_thread_memory, ContextType
