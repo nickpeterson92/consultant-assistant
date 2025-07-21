@@ -139,43 +139,18 @@ def execute_step(state: PlanExecute):
                query_text=f"{task} {state['input']}"[:100])
     
     if relevant_memories:
-        memory_context = "\n\n🧠 RELEVANT CONTEXT FROM CONVERSATION MEMORY:\n"
-        memory_context += "IMPORTANT: Use this context to understand what the user is referring to.\n\n"
+        memory_context = "\n\nCONVERSATION CONTEXT:\n"
         
-        # Separate domain entities (accounts, opportunities) from actions
-        domain_entities = []
-        recent_actions = []
+        for i, memory_node in enumerate(relevant_memories, 1):
+            relevance = memory_node.current_relevance()
+            memory_context += f"{i}. {memory_node.summary}\n"
+            
+            # Include actual content only for high-relevance items  
+            if relevance > 0.7:
+                content_preview = str(memory_node.content)[:200]
+                memory_context += f"   {content_preview}{'...' if len(str(memory_node.content)) > 200 else ''}\n"
         
-        for memory_node in relevant_memories:
-            if memory_node.context_type == ContextType.DOMAIN_ENTITY:
-                domain_entities.append(memory_node)
-            else:
-                recent_actions.append(memory_node)
-        
-        # Show domain entities first (what we're working with)
-        if domain_entities:
-            memory_context += "📊 ACTIVE RECORDS IN CONTEXT:\n"
-            for entity in domain_entities:
-                memory_context += f"- {entity.summary}\n"
-                if entity.current_relevance() > 0.7:
-                    content_preview = str(entity.content)[:300]
-                    memory_context += f"  Details: {content_preview}{'...' if len(str(entity.content)) > 300 else ''}\n"
-            memory_context += "\n"
-        
-        # Show recent actions (what we've done)
-        if recent_actions:
-            memory_context += "📋 RECENT CONVERSATION ACTIONS:\n"
-            for i, action in enumerate(recent_actions, 1):
-                relevance = action.current_relevance()
-                memory_context += f"{i}. {action.summary}\n"
-                
-                # Include content for high-relevance actions
-                if relevance > 0.7 and action.context_type in {ContextType.COMPLETED_ACTION, ContextType.SEARCH_RESULT}:
-                    content_preview = str(action.content)[:400]  
-                    memory_context += f"   Result: {content_preview}{'...' if len(str(action.content)) > 400 else ''}\n"
-            memory_context += "\n"
-        
-        memory_context += "💡 CONTEXT GUIDANCE: If user references 'the account', 'that opportunity', etc., they likely mean items from the active records above.\n"
+        memory_context += "\nGUIDANCE: When user requests are ambiguous, connect them to recent conversation context above - they likely reference items they just discussed.\n"
     else:
         logger.info("DEBUG: No relevant memory context found for this task", 
                    component="orchestrator", operation="execute_step")

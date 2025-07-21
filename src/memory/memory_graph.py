@@ -170,6 +170,26 @@ class MemoryGraph:
             hours_since_access = (current_time - node.last_accessed).total_seconds() / 3600
             access_boost = max(0, 0.5 - hours_since_access * 0.1)
             
+            # STRONG recency boost for recent nodes (prioritizes immediate context)
+            hours_since_creation = (current_time - node.created_at).total_seconds() / 3600
+            if hours_since_creation < 0.1:  # Less than 6 minutes old
+                recency_boost = 1.0  # Very strong boost for very recent context
+            elif hours_since_creation < 0.5:  # Less than 30 minutes old  
+                recency_boost = 0.5  # Strong boost for recent context
+            elif hours_since_creation < 2:  # Less than 2 hours old
+                recency_boost = 0.2  # Moderate boost for somewhat recent
+            else:
+                recency_boost = 0.0  # No boost for older context
+            
+            # Detect positional reference queries (these need maximum recency weighting)
+            has_positional_reference = any(phrase in query_text.lower() for phrase in [
+                "first one", "second one", "third one", "last one", "that one", "this one",
+                "first", "second", "third", "next", "previous"
+            ])
+            
+            if has_positional_reference:
+                recency_boost *= 2.0  # Double the recency boost for positional references
+            
             # Anti-spam measures: penalize nodes with spam-like characteristics
             spam_penalty = 0
             
@@ -193,7 +213,7 @@ class MemoryGraph:
                 if access_frequency > 10:  # Very frequent access pattern
                     spam_penalty += 0.1
             
-            final_score = max(0, base_relevance + tag_score * 0.3 + access_boost - spam_penalty)
+            final_score = max(0, base_relevance + tag_score * 0.3 + access_boost + recency_boost - spam_penalty)
             
             candidates.append((node, final_score))
             
