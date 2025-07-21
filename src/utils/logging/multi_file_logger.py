@@ -40,14 +40,14 @@ class MultiFileLogger(StructuredLogger):
         """
         # Lazy import to avoid circular dependency
         try:
-            from ..config import config
+            from ..config.unified_config import config as app_config
             
             # Use provided values or fall back to config
-            self.log_dir = Path(log_dir or config.log_dir)
+            self.log_dir = Path(log_dir or app_config.log_dir)
             
             # Convert string level to int if needed
             if level is None:
-                level = getattr(logging, config.log_level.upper(), logging.INFO)
+                level = getattr(logging, app_config.log_level.upper(), logging.INFO)
         except ImportError:
             # Fallback if config not available (during initial import)
             self.log_dir = Path(log_dir or "logs")
