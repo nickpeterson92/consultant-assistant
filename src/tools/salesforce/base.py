@@ -21,7 +21,6 @@ from simple_salesforce import Salesforce
 
 from src.utils.logging import get_logger
 from src.utils.soql_query_builder import SOQLQueryBuilder, SOQLOperator
-from src.utils.table_formatter import format_salesforce_response
 
 # Initialize logger
 logger = get_logger("salesforce")
@@ -183,9 +182,8 @@ class BaseSalesforceTool(BaseTool, ABC):
         
         try:
             result = self._execute(**kwargs)
-            formatted_result = self._format_result(result)
-            self._log_result(formatted_result)
-            return formatted_result
+            self._log_result(result)
+            return result
         except Exception as e:
             return self._handle_error(e)
     
@@ -194,11 +192,6 @@ class BaseSalesforceTool(BaseTool, ABC):
         """Execute the tool's main logic. Must be implemented by subclasses."""
         pass
     
-    def _format_result(self, result: Any) -> Any:
-        """Format result using standard formatter."""
-        if isinstance(result, dict) and "error" in result:
-            return result
-        return format_salesforce_response(result)
 
 
 class SalesforceReadTool(BaseSalesforceTool):

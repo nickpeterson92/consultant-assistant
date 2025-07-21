@@ -40,15 +40,14 @@ class MultiFileLogger(StructuredLogger):
         """
         # Lazy import to avoid circular dependency
         try:
-            from ..config import get_logging_config
-            config = get_logging_config()
+            from ..config import config
             
             # Use provided values or fall back to config
-            self.log_dir = Path(log_dir or config.external_logs_dir)
+            self.log_dir = Path(log_dir or config.log_dir)
             
             # Convert string level to int if needed
             if level is None:
-                level = getattr(logging, config.level.upper(), logging.INFO)
+                level = getattr(logging, config.log_level.upper(), logging.INFO)
         except ImportError:
             # Fallback if config not available (during initial import)
             self.log_dir = Path(log_dir or "logs")
@@ -80,10 +79,9 @@ class MultiFileLogger(StructuredLogger):
         """Create a handler for each component log file."""
         # Lazy import and use config if available
         try:
-            from ..config import get_logging_config
-            config = get_logging_config()
-            max_bytes = config.max_file_size
-            backup_count = config.backup_count
+            from ..config import config
+            max_bytes = config.get('logging.max_file_size', 10485760)
+            backup_count = config.get('logging.backup_count', 5)
         except ImportError:
             # Fallback values
             max_bytes = 50*1024*1024  # 50MB
@@ -104,10 +102,9 @@ class MultiFileLogger(StructuredLogger):
         """Create special handler for all ERROR level messages."""
         # Lazy import and use config if available
         try:
-            from ..config import get_logging_config
-            config = get_logging_config()
-            max_bytes = config.max_file_size
-            backup_count = config.backup_count * 2  # Keep more error logs
+            from ..config import config
+            max_bytes = config.get('logging.max_file_size', 10485760)
+            backup_count = config.get('logging.backup_count', 5) * 2  # Keep more error logs
         except ImportError:
             # Fallback values
             max_bytes = 50*1024*1024  # 50MB

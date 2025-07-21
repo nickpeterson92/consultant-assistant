@@ -6,7 +6,7 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_core.runnables import RunnableConfig
 
 from src.utils.config import (
-    get_conversation_config, get_database_config,
+    config,
     MEMORY_NAMESPACE_PREFIX, SIMPLE_MEMORY_KEY,
     SUMMARY_KEY, NO_SUMMARY_TEXT,
     SUMMARY_USER_MESSAGE_THRESHOLD, SUMMARY_TIME_THRESHOLD_SECONDS,
@@ -113,7 +113,7 @@ async def orchestrator(
         # Load summary from persistent store
         summary = state.get(SUMMARY_KEY, NO_SUMMARY_TEXT)
         if summary == NO_SUMMARY_TEXT:
-            conv_config = get_conversation_config()
+            conv_config = config
             user_id = config["configurable"].get("user_id", conv_config.default_user_id)
             thread_id = config["configurable"].get("thread_id", conv_config.default_thread_id)
             namespace = (conv_config.memory_namespace_prefix, user_id)
@@ -184,7 +184,7 @@ async def orchestrator(
                         event_count=len(events))
         
         # Trim events to prevent unbounded growth
-        conv_config = get_conversation_config()
+        conv_config = config
         max_events = conv_config.max_event_history
         recent_events = events[-max_events:] if len(events) > max_events else events
         event_dicts = [e.to_dict() for e in recent_events]
@@ -205,7 +205,7 @@ async def orchestrator(
             logger.info("summary_initialized", component="orchestrator", operation="setting_default_summary")
         
         # Check for background task triggers
-        conv_config = get_conversation_config()
+        conv_config = config
         
         # Check summary trigger
         if EventAnalyzer.should_trigger_summary(events, 
@@ -257,7 +257,7 @@ async def orchestrator(
             
             # Create new store instance for async context
             async_memory_store = get_async_store_adapter(
-                db_path=get_database_config().path
+                db_path=config.db_path
             )
             
             asyncio.create_task(

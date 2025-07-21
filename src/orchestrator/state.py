@@ -7,7 +7,7 @@ from typing_extensions import TypedDict
 from langgraph.graph.message import add_messages
 
 from src.utils.events import OrchestratorEvent
-from src.utils.config import get_conversation_config
+from src.utils.config import config
 from src.utils.logging import get_logger
 
 logger = get_logger()
@@ -36,7 +36,7 @@ def load_events_with_limit(state: dict, limit: Optional[int] = None) -> List[Orc
         List of OrchestratorEvent objects, limited to most recent events
     """
     if limit is None:
-        limit = get_conversation_config().max_event_history
+        limit = config.get('conversation.max_conversation_length', 50)
         
     stored_events = state.get('events', [])
     if len(stored_events) > limit:

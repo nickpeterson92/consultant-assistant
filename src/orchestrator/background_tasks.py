@@ -8,7 +8,7 @@ from typing import Dict, Any
 from langchain_core.messages import SystemMessage, RemoveMessage
 
 from src.utils.config import (
-    get_conversation_config, get_database_config,
+    config,
     DETERMINISTIC_TEMPERATURE, DETERMINISTIC_TOP_P,
     STATE_KEY_PREFIX
 )
@@ -153,7 +153,7 @@ async def summarize_conversation(state: OrchestratorState, invoke_llm):
 
 async def memorize_records(state: OrchestratorState, config: Dict[str, Any], memory_store, trustcall_extractor):
     """Extract and persist structured data from conversation."""
-    conv_config = get_conversation_config()
+    conv_config = config
     user_id = config["configurable"].get("user_id", conv_config.default_user_id)
     thread_id = config["configurable"].get("thread_id")
     namespace = (conv_config.memory_namespace_prefix, user_id)
@@ -303,7 +303,7 @@ async def _run_background_summary_async(messages, summary, events, memory, user_
     """Execute summarization in background using async."""
     try:
         memory_store = get_async_store_adapter(
-            db_path=get_database_config().path
+            db_path=config.db_path
         )
         
         mock_state = {
@@ -323,7 +323,7 @@ async def _run_background_summary_async(messages, summary, events, memory, user_
                 summary_preview=new_summary[:200] if new_summary else "NO_SUMMARY"
             )
             
-            conv_config = get_conversation_config()
+            conv_config = config
             namespace = (conv_config.memory_namespace_prefix, user_id)
             key = f"{STATE_KEY_PREFIX}{thread_id}"
             
@@ -361,7 +361,7 @@ async def _run_background_memory_async(messages, summary, events, memory, user_i
             "events": [e.to_dict() for e in events],
             "memory": memory
         }
-        conv_config = get_conversation_config()
+        conv_config = config
         mock_config = {"configurable": {"user_id": user_id}}
         
         result = await memorize_func(mock_state, mock_config, memory_store, trustcall_extractor)
@@ -397,7 +397,7 @@ def _run_background_summary(messages, summary, events, memory, user_id, thread_i
             logger.info("background_summary_save", component="system", operation="saving_summary_to_store",
                         summary_preview=new_summary[:200] if new_summary else "NO_SUMMARY")
             
-            conv_config = get_conversation_config()
+            conv_config = config
             namespace = (conv_config.memory_namespace_prefix, user_id)
             key = f"{STATE_KEY_PREFIX}{thread_id}"
             

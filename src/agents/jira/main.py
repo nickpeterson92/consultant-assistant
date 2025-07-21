@@ -17,7 +17,7 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from src.tools.jira import UNIFIED_JIRA_TOOLS
 from src.a2a import A2AServer, A2AArtifact, AgentCard
-from src.utils.config import get_llm_config
+from src.utils.config import config
 from src.utils.logging import get_logger
 from src.utils.sys_msg import jira_agent_sys_msg
 
@@ -66,14 +66,14 @@ def build_jira_agent():
     """
     
     # Initialize LLM with Azure OpenAI configuration
-    llm_config = get_llm_config()
+    llm_config = config
     llm = AzureChatOpenAI(
         azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-        azure_deployment=llm_config.azure_deployment,
-        openai_api_version=llm_config.api_version,
+        azure_deployment=llm_config.get_secret('azure_openai_deployment'),
+        openai_api_version=llm_config.get_secret('azure_openai_api_version'),
         openai_api_key=os.environ["AZURE_OPENAI_API_KEY"],
-        temperature=llm_config.temperature,
-        max_tokens=llm_config.max_tokens,
+        temperature=llm_config.llm_temperature,
+        max_tokens=llm_config.llm_max_tokens,
         timeout=llm_config.timeout,
     )
     

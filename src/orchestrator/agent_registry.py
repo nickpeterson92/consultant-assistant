@@ -58,9 +58,8 @@ class AgentRegistry:
     
     def __init__(self, config_path: Optional[str] = None):
         self.agents: Dict[str, RegisteredAgent] = {}
-        from ..utils.config import get_system_config
-        system_config = get_system_config()
-        self.config_path = config_path or system_config.agent_registry_path
+        from ..utils.config import config
+        self.config_path = config_path or config.get('agent_registry_path', 'agent_registry.json')
         self.client = None
         self._load_config()
     
@@ -265,8 +264,8 @@ class AgentRegistry:
                 current_status=previous_status
             )
             
-            from src.utils.config import get_a2a_config
-            a2a_config = get_a2a_config()
+            from src.utils.config import config
+            a2a_config = config
             
             async with A2AClient(timeout=a2a_config.health_check_timeout) as client:
                 agent_card = await client.get_agent_card(agent.endpoint + "/a2a")

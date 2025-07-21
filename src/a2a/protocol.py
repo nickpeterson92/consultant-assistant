@@ -24,7 +24,7 @@ from src.utils.logging import get_logger
 # No input validation needed - trust agent-generated content
 from src.utils.message_serialization import serialize_message
 from .circuit_breaker import CircuitBreakerConfig, RetryConfig, resilient_call
-from src.utils.config import get_a2a_config, get_system_config
+from src.utils.config import config
 
 # Initialize structured logger
 logger = get_logger()
@@ -293,7 +293,7 @@ class A2AConnectionPool:
             self._pools = {}  # endpoint -> session
             self._pool_locks = {}  # endpoint -> lock
             self._last_used = {}  # endpoint -> timestamp
-            a2a_config = get_a2a_config()
+            a2a_config = config
             self._max_idle_time = a2a_config.connection_pool_max_idle
             logger.info("connection_pool_initialized",
                 component="a2a",
@@ -317,9 +317,9 @@ class A2AConnectionPool:
         Returns:
             aiohttp.ClientSession configured for the endpoint
         """
-        a2a_config = get_a2a_config()
+        a2a_config = config
         if timeout is None:
-            timeout = a2a_config.timeout
+            timeout = a2a_config.a2a_timeout
         
         # Extract base URL to pool connections by host
         from urllib.parse import urlparse
@@ -489,10 +489,10 @@ class A2AClient:
             timeout: Request timeout in seconds (uses config default if None)
             use_pool: Whether to use connection pooling (True for production)
         """
-        a2a_config = get_a2a_config()
-        system_config = get_system_config()
+        a2a_config = config
+        system_config = config
         
-        self.timeout = timeout if timeout is not None else a2a_config.timeout
+        self.timeout = timeout if timeout is not None else a2a_config.a2a_timeout
         self.use_pool = use_pool
         self.session = None
         self._closed = False
@@ -507,7 +507,7 @@ class A2AClient:
     async def __aenter__(self):
         if not self.use_pool:
             # Get config settings
-            a2a_config = get_a2a_config()
+            a2a_config = config
             # Create dedicated session if not using pool
             timeout_config = aiohttp.ClientTimeout(
                 total=self.timeout,
@@ -725,7 +725,7 @@ class A2AClient:
         Raises:
             A2AException: After all retry attempts are exhausted
         """
-        a2a_config = get_a2a_config()
+        a2a_config = config
         
         # Configure circuit breaker for fast failure detection
         circuit_config = CircuitBreakerConfig(

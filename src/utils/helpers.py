@@ -21,8 +21,8 @@ def smart_preserve_messages(messages: list, keep_count: int = 2):
         from langchain_core.messages.utils import trim_messages
         
         # CALIBRATED: Realistic token counter based on actual usage analysis
-        from .config import get_conversation_config
-        conv_config = get_conversation_config()
+        from .config import config
+        conv_config = config
         
         def simple_token_counter(messages):
             return len(messages) * conv_config.token_per_message_estimate  # Calibrated from logs

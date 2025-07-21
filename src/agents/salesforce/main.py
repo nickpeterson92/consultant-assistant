@@ -33,7 +33,7 @@ os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
 # Import unified logger
 from src.utils.logging import get_logger
-from src.utils.config import get_llm_config
+from src.utils.config import config
 from src.utils.sys_msg import salesforce_agent_sys_msg
 
 # Initialize structured logger
@@ -51,18 +51,18 @@ logging.getLogger('httpcore.connection').setLevel(logging.WARNING)
 
 def create_azure_openai_chat():
     """Create Azure OpenAI chat instance using global config"""
-    llm_config = get_llm_config()
+    llm_config = config
     llm_kwargs = {
         "azure_endpoint": os.environ["AZURE_OPENAI_ENDPOINT"],  # Keep sensitive info in env
-        "azure_deployment": llm_config.azure_deployment,
-        "openai_api_version": llm_config.api_version,
+        "azure_deployment": llm_config.get_secret('azure_openai_deployment'),
+        "openai_api_version": llm_config.get_secret('azure_openai_api_version'),
         "openai_api_key": os.environ["AZURE_OPENAI_API_KEY"],  # Keep sensitive info in env
-        "temperature": llm_config.temperature,
-        "max_tokens": llm_config.max_tokens,
-        "timeout": llm_config.timeout,
+        "temperature": llm_config.llm_temperature,
+        "max_tokens": llm_config.llm_max_tokens,
+        "timeout": llm_config.llm_timeout,
     }
-    if llm_config.top_p is not None:
-        llm_kwargs["top_p"] = llm_config.top_p
+    if llm_config.get('llm.top_p') is not None:
+        llm_kwargs["top_p"] = llm_config.get('llm.top_p')
     return AzureChatOpenAI(**llm_kwargs)
 
 def build_salesforce_graph():

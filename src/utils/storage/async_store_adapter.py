@@ -23,8 +23,8 @@ class AsyncStoreAdapter:
     """Simple async adapter for SQLiteStore using thread pool executor."""
     
     def __init__(self, db_path: str = None, max_workers: int = None):
-        from ..config import get_database_config
-        db_config = get_database_config()
+        from ..config import config
+        db_config = config
         
         self.db_path = db_path or db_config.path
         self.max_workers = max_workers or db_config.thread_pool_size

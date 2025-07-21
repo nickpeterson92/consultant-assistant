@@ -6,7 +6,7 @@ from typing import Any, List
 from langchain_openai import AzureChatOpenAI
 from trustcall import create_extractor
 
-from src.utils.config import get_llm_config, DETERMINISTIC_TEMPERATURE, DETERMINISTIC_TOP_P
+from src.utils.config import config, DETERMINISTIC_TEMPERATURE, DETERMINISTIC_TOP_P
 from src.utils.sys_msg import orchestrator_chatbot_sys_msg
 from src.utils.storage.memory_schemas import SimpleMemory
 from .state import OrchestratorState
@@ -18,20 +18,20 @@ def create_llm_instances(tools: List[Any]):
     Returns:
         tuple: (llm_with_tools, deterministic_llm, trustcall_extractor, invoke_llm_func)
     """
-    llm_config = get_llm_config()
+    llm_config = config
     
     # Create main LLM instance
     llm_kwargs = {
         "azure_endpoint": os.environ["AZURE_OPENAI_ENDPOINT"],
-        "azure_deployment": llm_config.azure_deployment,
-        "openai_api_version": llm_config.api_version,
+        "azure_deployment": llm_config.get_secret('azure_openai_deployment'),
+        "openai_api_version": llm_config.get_secret('azure_openai_api_version'),
         "openai_api_key": os.environ["AZURE_OPENAI_API_KEY"],
-        "temperature": llm_config.temperature,
-        "max_tokens": llm_config.max_tokens,
-        "timeout": llm_config.timeout,
+        "temperature": llm_config.llm_temperature,
+        "max_tokens": llm_config.llm_max_tokens,
+        "timeout": llm_config.llm_timeout,
     }
-    if llm_config.top_p is not None:
-        llm_kwargs["top_p"] = llm_config.top_p
+    if llm_config.get('llm.top_p') is not None:
+        llm_kwargs["top_p"] = llm_config.get('llm.top_p')
     
     llm = AzureChatOpenAI(**llm_kwargs)
     llm_with_tools = llm.bind_tools(tools)
@@ -39,13 +39,13 @@ def create_llm_instances(tools: List[Any]):
     # Create deterministic LLM for memory extraction
     deterministic_llm = AzureChatOpenAI(
         azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-        azure_deployment=llm_config.azure_deployment,
-        openai_api_version=llm_config.api_version,
+        azure_deployment=llm_config.get_secret('azure_openai_deployment'),
+        openai_api_version=llm_config.get_secret('azure_openai_api_version'),
         openai_api_key=os.environ["AZURE_OPENAI_API_KEY"],
         temperature=DETERMINISTIC_TEMPERATURE,
         top_p=DETERMINISTIC_TOP_P,
-        max_tokens=llm_config.max_tokens,
-        timeout=llm_config.timeout,
+        max_tokens=llm_config.llm_max_tokens,
+        timeout=llm_config.llm_timeout,
     )
     
     # Configure TrustCall for structured data extraction
@@ -62,12 +62,12 @@ def create_llm_instances(tools: List[Any]):
             # Create a new LLM with custom parameters
             temp_llm = AzureChatOpenAI(
                 azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-                azure_deployment=llm_config.azure_deployment,
-                openai_api_version=llm_config.api_version,
+                azure_deployment=llm_config.get_secret('azure_openai_deployment'),
+                openai_api_version=llm_config.get_secret('azure_openai_api_version'),
                 openai_api_key=os.environ["AZURE_OPENAI_API_KEY"],
-                temperature=temperature if temperature is not None else llm_config.temperature,
-                max_tokens=llm_config.max_tokens,
-                timeout=llm_config.timeout,
+                temperature=temperature if temperature is not None else llm_config.llm_temperature,
+                max_tokens=llm_config.llm_max_tokens,
+                timeout=llm_config.llm_timeout,
                 top_p=top_p
             )
             if use_tools:
