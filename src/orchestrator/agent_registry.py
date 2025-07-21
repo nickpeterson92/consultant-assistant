@@ -267,7 +267,7 @@ class AgentRegistry:
             from src.utils.config import config
             a2a_config = config
             
-            async with A2AClient(timeout=a2a_config.health_check_timeout) as client:
+            async with A2AClient(timeout=a2a_config.health_check_timeout, use_pool=True) as client:
                 agent_card = await client.get_agent_card(agent.endpoint + "/a2a")
                 
                 agent.agent_card = agent_card
@@ -383,7 +383,7 @@ class AgentRegistry:
     async def discover_agent(self, endpoint: str) -> bool:
         """Discover and register a single agent from an endpoint"""
         try:
-            async with A2AClient() as client:
+            async with A2AClient(use_pool=True) as client:
                 agent_card = await client.get_agent_card(endpoint + "/a2a")
                 self.register_agent(
                     name=agent_card.name,
@@ -406,7 +406,7 @@ class AgentRegistry:
         """
         discovered_count = 0
         
-        async with A2AClient() as client:
+        async with A2AClient(use_pool=True) as client:
             for endpoint in discovery_endpoints:
                 try:
                     agent_card = await client.get_agent_card(endpoint + "/a2a")

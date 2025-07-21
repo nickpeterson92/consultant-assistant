@@ -24,7 +24,7 @@ logger = get_logger()
 from src.utils.config import (
     MESSAGES_KEY, MEMORY_KEY, RECENT_MESSAGES_COUNT
 )
-from src.utils.message_serialization import serialize_recent_messages
+from src.utils.agents.message_processing.unified_serialization import serialize_messages_for_json
 
 
 class BaseAgentTool(BaseTool):
@@ -51,7 +51,7 @@ class BaseAgentTool(BaseTool):
         
         # Include recent messages using centralized serialization utility
         if MESSAGES_KEY in state and state[MESSAGES_KEY]:
-            recent_messages = serialize_recent_messages(state[MESSAGES_KEY], message_count)
+            recent_messages = serialize_messages_for_json(state[MESSAGES_KEY], limit=message_count)
             if recent_messages:
                 context["recent_messages"] = recent_messages
         
@@ -182,7 +182,7 @@ class SalesforceAgentTool(BaseAgentTool):
         
         # Include recent messages using centralized serialization
         if messages:
-            recent_messages = serialize_recent_messages(messages, count=5)
+            recent_messages = serialize_messages_for_json(messages, limit=5)
             if recent_messages:
                 extracted_context["recent_messages"] = recent_messages
         
@@ -214,7 +214,7 @@ class SalesforceAgentTool(BaseAgentTool):
             for key, value in state.items():
                 if key == "messages" and isinstance(value, list):
                     # Serialize messages using centralized utility
-                    serialized_state[key] = serialize_recent_messages(value)
+                    serialized_state[key] = serialize_messages_for_json(value, limit=5)
                 else:
                     # Keep other state as-is
                     serialized_state[key] = value
@@ -390,8 +390,8 @@ class SalesforceAgentTool(BaseAgentTool):
                 state_snapshot=serialized_state
             )
             
-            # Execute A2A call
-            async with A2AClient() as client:
+            # Execute A2A call using connection pool
+            async with A2AClient(use_pool=True) as client:
                 endpoint = agent.endpoint + "/a2a"
                 
                 # Log A2A dispatch
@@ -539,7 +539,7 @@ class JiraAgentTool(BaseAgentTool):
         
         # Include recent messages using centralized serialization
         if messages:
-            recent_messages = serialize_recent_messages(messages, count=5)
+            recent_messages = serialize_messages_for_json(messages, limit=5)
             if recent_messages:
                 extracted_context["recent_messages"] = recent_messages
         
@@ -571,7 +571,7 @@ class JiraAgentTool(BaseAgentTool):
             for key, value in state.items():
                 if key == "messages" and isinstance(value, list):
                     # Serialize messages using centralized utility
-                    serialized_state[key] = serialize_recent_messages(value)
+                    serialized_state[key] = serialize_messages_for_json(value, limit=5)
                 else:
                     # Keep other state as-is
                     serialized_state[key] = value
@@ -747,8 +747,8 @@ class JiraAgentTool(BaseAgentTool):
                 state_snapshot=serialized_state
             )
             
-            # Execute A2A call
-            async with A2AClient() as client:
+            # Execute A2A call using connection pool
+            async with A2AClient(use_pool=True) as client:
                 endpoint = agent.endpoint + "/a2a"
                 
                 # Log A2A dispatch
@@ -951,8 +951,8 @@ class ServiceNowAgentTool(BaseAgentTool):
                 state_snapshot=state_snapshot
             )
             
-            # Execute A2A call
-            async with A2AClient() as client:
+            # Execute A2A call using connection pool
+            async with A2AClient(use_pool=True) as client:
                 endpoint = agent.endpoint + "/a2a"
                 
                 # Log A2A dispatch

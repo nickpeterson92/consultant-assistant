@@ -179,6 +179,24 @@ You are tasked with executing step {current_step_num}: {task}.
         {"messages": [("user", task_formatted)]}
     ))
     
+    # Simple background task check - ReAct agent maintains own message context
+    try:
+        messages = agent_response.get("messages", [])
+        # Access the LLM from globals (set in create_graph)
+        planning_llm = globals().get('planner', {})
+        if hasattr(planning_llm, 'llm'):  # Extract LLM from planner chain
+            # Run background task in background thread since execute_step is sync
+            asyncio.create_task(trigger_background_summary_if_needed(messages, planning_llm.llm))
+        else:
+            logger.debug("no_llm_for_background_tasks", 
+                        component="orchestrator",
+                        note="Background summarization skipped - no LLM reference available")
+    except Exception as e:
+        logger.debug("background_task_error",
+                    component="orchestrator", 
+                    error=str(e),
+                    note="Background task check failed - continuing execution")
+    
     # Check if agent response has messages before accessing
     messages = agent_response.get("messages", [])
     if not messages:
@@ -480,6 +498,55 @@ def create_graph(agent_executor, planner, replanner):
 # ================================
 # Factory function for easy setup
 # ================================
+
+import time
+
+# Background task tracking - simple approach
+_last_summary_time = 0
+_last_summary_message_count = 0
+
+def should_trigger_background_summary(message_count: int) -> bool:
+    """Simple background summary trigger - aligned with main branch approach."""
+    global _last_summary_time, _last_summary_message_count
+    
+    current_time = time.time()
+    
+    # Trigger every 10 messages (configurable)
+    message_threshold = 10
+    if message_count - _last_summary_message_count >= message_threshold:
+        return True
+    
+    # Trigger every 5 minutes if there are new messages
+    time_threshold = 300  # 5 minutes
+    if current_time - _last_summary_time >= time_threshold and message_count > _last_summary_message_count:
+        return True
+    
+    return False
+
+def update_background_summary_tracking(message_count: int):
+    """Update background summary tracking."""
+    global _last_summary_time, _last_summary_message_count
+    _last_summary_time = time.time()
+    _last_summary_message_count = message_count
+
+async def trigger_background_summary_if_needed(messages: list, llm):
+    """Simple background summarization trigger for ReAct agent."""
+    if not should_trigger_background_summary(len(messages)):
+        return
+    
+    logger.info("triggering_background_summary",
+               component="orchestrator",
+               message_count=len(messages))
+    
+    # Update tracking
+    update_background_summary_tracking(len(messages))
+    
+    # Simple background summary - could be enhanced later
+    # For now, just log that we would summarize
+    logger.info("background_summary_triggered",
+               component="orchestrator", 
+               message_count=len(messages),
+               note="ReAct agent maintains own context - summary would be stored externally")
 
 async def create_plan_execute_graph():
     """Create a simple plan-execute graph for A2A usage."""

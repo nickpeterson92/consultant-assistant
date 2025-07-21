@@ -22,7 +22,7 @@ import logging
 
 from src.utils.logging import get_logger
 # No input validation needed - trust agent-generated content
-from src.utils.message_serialization import serialize_message
+from src.utils.agents.message_processing.unified_serialization import serialize_messages_for_json
 from .circuit_breaker import CircuitBreakerConfig, RetryConfig, resilient_call
 from src.utils.config import config
 
@@ -99,11 +99,11 @@ class A2ATask:
         
         # Handle recent_messages using centralized utility
         if "recent_messages" in result and isinstance(result["recent_messages"], list):
-            result["recent_messages"] = [serialize_message(msg) for msg in result["recent_messages"]]
+            result["recent_messages"] = [serialize_messages_for_json(msg)[0] for msg in result["recent_messages"]]
         
         # Handle messages field (for state_snapshot) using centralized utility
         if "messages" in result and isinstance(result["messages"], list):
-            result["messages"] = [serialize_message(msg) for msg in result["messages"]]
+            result["messages"] = [serialize_messages_for_json(msg)[0] for msg in result["messages"]]
         
         return result
 

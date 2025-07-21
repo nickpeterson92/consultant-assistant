@@ -205,17 +205,30 @@ async def main(host: str = "0.0.0.0", port: int = 8000):
     except KeyboardInterrupt:
         logger.info("orchestrator_a2a_shutdown",
                     component="orchestrator")
-        await server.stop(runner)
+    finally:
+        # Always clean up resources on exit
+        logger.info("cleanup_starting", component="orchestrator")
         
-        # Clean up any connections
+        try:
+            await server.stop(runner)
+        except Exception as e:
+            logger.warning("server_stop_error", component="orchestrator", error=str(e))
+        
+        # Clean up A2A connection pool
         from src.a2a.protocol import get_connection_pool
         try:
             pool = get_connection_pool()
             await pool.close_all()
+            logger.info("connection_pool_closed", component="orchestrator")
         except Exception as e:
             logger.warning("connection_pool_cleanup_error",
                           component="orchestrator",
                           error=str(e))
+        
+        # Give a moment for cleanup to complete
+        await asyncio.sleep(0.1)
+        
+        logger.info("cleanup_complete", component="orchestrator")
 
 
 if __name__ == "__main__":
