@@ -13,6 +13,7 @@ class HumanInputRequest(BaseModel):
     """Schema for human input requests."""
     question: str = Field(description="The question or clarification request to present to the user")
     context: str = Field(default="", description="Additional context about why input is needed")
+    full_message: str = Field(default="", description="The complete message to show the user (if provided, this takes precedence over question + context)")
     timeout_seconds: int = Field(default=300, description="How long to wait for user input (seconds)")
 
 
@@ -32,11 +33,14 @@ class HumanInputTool(BaseTool):
     - Additional context or details are required to proceed
     - You need to verify assumptions before taking action
     
+    IMPORTANT: Use the 'full_message' parameter to provide your complete response including all context,
+    lists, options, and the question. This will be shown directly to the user as-is.
+    
     The tool will pause execution and wait for the human to provide the requested input."""
     
     args_schema: type[BaseModel] = HumanInputRequest
     
-    def _run(self, question: str, context: str = "", timeout_seconds: int = 300) -> str:
+    def _run(self, question: str, context: str = "", full_message: str = "", timeout_seconds: int = 300) -> str:
         """Request human input using LangGraph interrupt functionality.
         
         Args:
@@ -54,35 +58,30 @@ class HumanInputTool(BaseTool):
             component="orchestrator"
         )
         
-        # Format the request for clarity
-        if context:
-            formatted_request = f"CLARIFICATION NEEDED:\n\nContext: {context}\n\nQuestion: {question}\n\nPlease provide your response:"
+        # Use full_message if provided, otherwise construct from question + context
+        if full_message:
+            # Use the complete message provided by the LLM
+            formatted_request = full_message
+        elif context:
+            # If there's context, include it naturally
+            formatted_request = f"{context}\n\n{question}"
         else:
-            formatted_request = f"CLARIFICATION NEEDED:\n\n{question}\n\nPlease provide your response:"
+            # Just use the question as-is
+            formatted_request = question
         
-        try:
-            # Use LangGraph's interrupt to pause execution and wait for user input
-            user_response = interrupt(formatted_request)
-            
-            logger.info(
-                "human_input_received", 
-                response_preview=str(user_response)[:100],
-                response_length=len(str(user_response)),
-                component="orchestrator"
-            )
-            
-            return str(user_response)
-            
-        except Exception as e:
-            logger.error(
-                "human_input_error",
-                error=str(e),
-                error_type=type(e).__name__,
-                component="orchestrator"
-            )
-            # Return a helpful fallback message
-            return f"Unable to get human input: {str(e)}. Please rephrase your request with more specific details."
+        # Use LangGraph's interrupt to pause execution and wait for user input
+        # The GraphInterrupt exception should propagate up to pause execution - don't catch it!
+        user_response = interrupt(formatted_request)
+        
+        logger.info(
+            "human_input_received", 
+            response_preview=str(user_response)[:100],
+            response_length=len(str(user_response)),
+            component="orchestrator"
+        )
+        
+        return str(user_response)
     
-    async def _arun(self, question: str, context: str = "", timeout_seconds: int = 300) -> str:
+    async def _arun(self, question: str, context: str = "", full_message: str = "", timeout_seconds: int = 300) -> str:
         """Async version - just calls the sync version since interrupt is sync."""
-        return self._run(question, context, timeout_seconds)
+        return self._run(question, context, full_message, timeout_seconds)

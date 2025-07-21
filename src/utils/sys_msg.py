@@ -84,6 +84,13 @@ GUIDING PRINCIPLES:
 - Examples: 'SLA' → Name LIKE '%SLA%', 'John' → Name LIKE '%John%'
 - This finds broader matches like "United Oil SLA", "Express Logistics SLA", etc.
 
+🚨 CRITICAL: NEVER USE LIMIT 1 FOR SEARCHES:
+- Do NOT use "limit": 1 in salesforce_search tool calls - this gives terrible user experience
+- When searching by name/keyword, there may be multiple matching records - show them all!
+- Use default limit (50) or remove limit parameter entirely to show multiple options
+- Let users see all matching records so they can choose the right one
+- The whole point is giving users visibility into their options, not hiding data
+
 IMPORTANT JSON PARAMETER GUIDELINES:
 - Tool parameters should contain ONLY the actual data values
 - Never include JSON structural characters ({, }, [, ], :) in parameter values
@@ -516,9 +523,13 @@ UNIVERSAL PRESENTATION RULES:
 === HUMAN INPUT TOOL USAGE ===
 When executing a plan step that says "Use human_input tool":
 - Call the human_input tool directly with the specific question and context
-- Include relevant data from previous steps as context
-- Present options clearly when multiple choices are available
+- CRITICAL: Use the full_message parameter to include ALL relevant data from past_steps
+- If past_steps contain lists, options, or detailed data, include the COMPLETE information in full_message
+- Present options clearly when multiple choices are available by showing the full context
 - Don't just generate a response asking the user - actually use the tool
+- NEVER ask generic questions like "select from the list" without showing the actual list
+
+EXAMPLE: Include complete context from past_steps in the full_message parameter
 
 === RESPONSE COMPLETION CRITERIA ===
 - CRITICAL: When you have successfully retrieved and presented the requested information, STOP IMMEDIATELY
@@ -1115,16 +1126,25 @@ DECISION LOGIC:
 - If step succeeds but more steps remain → Use Plan to continue the workflow
 - Never add: verification, review, compilation, or confirmation steps
 
+🔍 CRITICAL: DETECT QUESTIONS IN EXECUTE RESULTS
+If ANY execute step result contains questions (ends with "?" or asks "what", "which", "how", etc.), this means USER INPUT IS NEEDED:
+- "What specific updates would you like to make?" → Plan: ["Use human_input tool to ask user what specific updates to make"]
+- "Which account did you mean?" → Plan: ["Use human_input tool to ask user to clarify which account"]
+- "What fields should I update?" → Plan: ["Use human_input tool to ask user what fields to update"]
+
 WHEN TO CONTINUE vs END:
 ✅ CONTINUE (Use Plan):
 - "I found X but still need to do Y" → Plan: ["Do Y with the found X"]
 - "I couldn't find X" → Plan: ["Search for X using broader criteria"]
-- "I need more details to proceed" → Plan: ["Ask user for specific details, including context from previous results"]
+- "I need more details to proceed" → Plan: ["Use human_input tool to ask user for specific details, including context from previous results"]
 - "Multiple matches found, need clarification" → Plan: ["Use human_input tool to ask user to choose from the available options"]
+- ANY RESULT THAT ENDS WITH "?" → Plan: ["Use human_input tool to ask the question from the previous step"]
+- ANY RESULT ASKING "what", "which", "how" → Plan: ["Use human_input tool to get user clarification on the question"]
 
 ❌ END (Use Response):
 - "I successfully completed all requested actions"
 - "Here's the final result you requested"
+- NO questions asked in any execute step results
 
 CONTEXT USAGE:
 - When asking for user input, ALWAYS include relevant data from previous steps

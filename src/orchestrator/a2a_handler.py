@@ -4,6 +4,7 @@ import uuid
 from typing import Dict, Any
 from datetime import datetime
 
+from langgraph.errors import GraphInterrupt
 from src.utils.logging import get_logger
 from src.a2a import AgentCard
 from .plan_and_execute import create_plan_execute_graph
@@ -34,13 +35,27 @@ class OrchestratorA2AHandler:
             instruction = task_data.get("instruction", "")
             context = task_data.get("context", {})
             
+            # Check if this is resuming from an interrupt
+            is_resume = context.get("resume_from_interrupt", False)
+            user_response = context.get("user_response", "")
+            
             logger.info("a2a_task_start", 
                        component="orchestrator",
                        task_id=task_id,
-                       instruction=instruction)
+                       instruction=instruction[:100],
+                       is_resume=is_resume,
+                       has_user_response=bool(user_response))
             
             # Create thread ID for the graph
-            thread_id = context.get("thread_id", f"a2a-{task_id}-{str(uuid.uuid4())[:8]}")
+            # CRITICAL: For resume operations, preserve the original thread_id
+            # For new operations, use a unique thread_id to avoid stale interrupt state
+            if is_resume:
+                thread_id = context.get("thread_id")
+                if not thread_id:
+                    logger.error("resume_missing_thread_id", component="orchestrator", task_id=task_id)
+                    raise ValueError("Resume operation requires thread_id in context")
+            else:
+                thread_id = context.get("thread_id", f"a2a-{task_id}-{str(uuid.uuid4())[:8]}")
             
             # Configuration for the graph
             config = {
@@ -55,27 +70,122 @@ class OrchestratorA2AHandler:
                 "thread_id": thread_id,
                 "instruction": instruction,
                 "status": "processing",
-                "started_at": datetime.now().isoformat()
+                "started_at": datetime.now().isoformat(),
+                "is_resume": is_resume
             }
             
-            # Create initial state
-            initial_state = {
-                "input": instruction,
-                "plan": [],
-                "past_steps": [],
-                "response": ""
-            }
+            if is_resume and user_response:
+                # Resume interrupted graph with user response
+                logger.info("resuming_graph_execution",
+                           component="orchestrator",
+                           task_id=task_id,
+                           user_response=user_response[:100])
+                
+                # Resume the graph with the user's input using LangGraph Command
+                from langgraph.constants import Send
+                from langgraph.types import Command
+                result = await self.graph.ainvoke(Command(resume=user_response), config)
+                
+                # CRITICAL: Clear any residual interrupt state from LangGraph checkpoint
+                # After successful resume, ensure no __interrupt__ remains in checkpoint
+                if isinstance(result, dict) and "__interrupt__" not in result:
+                    # Successful resume - try to clear checkpoint state to prevent re-interruption
+                    try:
+                        if hasattr(self.graph, 'checkpointer') and self.graph.checkpointer:
+                            # Get current checkpoint
+                            checkpoint = await self.graph.checkpointer.aget(config)
+                            if checkpoint and hasattr(checkpoint, 'tasks') and checkpoint.tasks:
+                                # Check if any tasks have interrupt state
+                                for task in checkpoint.tasks:
+                                    if hasattr(task, 'interrupts') and task.interrupts:
+                                        logger.info("clearing_checkpoint_interrupt_state",
+                                                   component="orchestrator",
+                                                   task_id=task_id,
+                                                   thread_id=thread_id)
+                                        # Clear the interrupt state by updating checkpoint without interrupts
+                                        task.interrupts = []
+                                        await self.graph.checkpointer.aput(config, checkpoint)
+                                        break
+                    except Exception as checkpoint_error:
+                        # Don't fail the operation if checkpoint clearing fails
+                        logger.warning("checkpoint_clear_failed",
+                                     component="orchestrator",
+                                     task_id=task_id,
+                                     error=str(checkpoint_error))
+                    
+                    logger.info("resume_successful_interrupt_cleared",
+                               component="orchestrator",
+                               task_id=task_id,
+                               thread_id=thread_id)
+            else:
+                # Create initial state for new execution
+                initial_state = {
+                    "input": instruction,
+                    "plan": [],
+                    "past_steps": [],
+                    "response": ""
+                }
+                
+                # Execute the graph
+                result = await self.graph.ainvoke(initial_state, config)
             
-            # Execute the graph
-            result = await self.graph.ainvoke(initial_state, config)
+            # Check if the graph was interrupted (LangGraph with checkpointing)
+            if isinstance(result, dict) and "__interrupt__" in result:
+                interrupt_value = result["__interrupt__"]
+                
+                # Convert Interrupt object to JSON-serializable format
+                if hasattr(interrupt_value, 'value'):
+                    # Extract the actual value from the Interrupt object
+                    interrupt_content = str(interrupt_value.value)
+                elif isinstance(interrupt_value, list) and interrupt_value:
+                    # Handle list of Interrupt objects
+                    interrupt_content = str(interrupt_value[0].value if hasattr(interrupt_value[0], 'value') else interrupt_value[0])
+                else:
+                    # Fallback: convert to string
+                    interrupt_content = str(interrupt_value)
+                
+                logger.info("graph_interrupted",
+                           component="orchestrator", 
+                           task_id=task_id,
+                           interrupt_value=interrupt_content[:200])
+                
+                # Mark task as interrupted
+                if task_id in self.active_tasks:
+                    self.active_tasks[task_id]["status"] = "interrupted"
+                    self.active_tasks[task_id]["interrupt_value"] = interrupt_content
+                
+                return {
+                    "artifacts": [{
+                        "id": f"orchestrator-interrupt-{task_id}",
+                        "task_id": task_id,
+                        "content": interrupt_content,
+                        "content_type": "text/plain"
+                    }],
+                    "status": "interrupted",
+                    "metadata": {
+                        "task_id": task_id,
+                        "thread_id": thread_id,
+                        "interrupt_value": interrupt_content,
+                        "resumable": True
+                    },
+                    "error": None
+                }
             
             # Extract response and plan data
             response_content = self._extract_response_content(result)
             plan_data = result.get("plan", []) if isinstance(result, dict) else []
             
-            # Mark task as complete
+            # Mark task as complete and clear any interrupt state
             self.active_tasks[task_id]["status"] = "completed"
             self.active_tasks[task_id]["completed_at"] = datetime.now().isoformat()
+            
+            # Clear interrupt state if this was a resumed task
+            if "interrupt_value" in self.active_tasks[task_id]:
+                del self.active_tasks[task_id]["interrupt_value"]
+                logger.info("interrupt_state_cleared",
+                           component="orchestrator",
+                           task_id=task_id,
+                           was_resume=is_resume)
             
             logger.info("a2a_task_complete",
                        component="orchestrator",
@@ -95,6 +205,35 @@ class OrchestratorA2AHandler:
                     "thread_id": thread_id,
                     "execution_time": self.active_tasks[task_id].get("completed_at"),
                     "plan": plan_data
+                },
+                "error": None
+            }
+            
+        except GraphInterrupt as gi:
+            # This is an expected interrupt - not an error
+            logger.info("graph_interrupted",
+                       component="orchestrator",
+                       task_id=task_id,
+                       interrupt_value=str(gi.value)[:200])
+            
+            # Mark task as interrupted
+            if task_id in self.active_tasks:
+                self.active_tasks[task_id]["status"] = "interrupted"
+                self.active_tasks[task_id]["interrupt_value"] = gi.value
+            
+            return {
+                "artifacts": [{
+                    "id": f"orchestrator-interrupt-{task_id}",
+                    "task_id": task_id,
+                    "content": str(gi.value),
+                    "content_type": "text/plain"
+                }],
+                "status": "interrupted",
+                "metadata": {
+                    "task_id": task_id,
+                    "thread_id": thread_id,
+                    "interrupt_value": gi.value,
+                    "resumable": True
                 },
                 "error": None
             }

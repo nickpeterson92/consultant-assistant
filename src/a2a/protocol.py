@@ -317,6 +317,27 @@ class A2AConnectionPool:
         Returns:
             aiohttp.ClientSession configured for the endpoint
         """
+        # Check if event loop is still running to prevent "Event loop is closed" errors
+        try:
+            loop = asyncio.get_running_loop()
+            if loop.is_closed():
+                logger.warning("event_loop_closed_detected",
+                    component="a2a",
+                    operation="get_session",
+                    endpoint=endpoint
+                )
+                # Create new session with new event loop context
+                raise RuntimeError("Event loop is closed")
+        except RuntimeError as e:
+            if "no running event loop" in str(e).lower() or "event loop is closed" in str(e).lower():
+                logger.error("no_event_loop_available",
+                    component="a2a", 
+                    operation="get_session",
+                    endpoint=endpoint,
+                    error=str(e)
+                )
+                raise
+        
         a2a_config = config
         if timeout is None:
             timeout = a2a_config.get('a2a.timeout', 60)
@@ -337,16 +358,23 @@ class A2AConnectionPool:
             # Fast path: reuse existing session
             if pool_key in self._pools:
                 session = self._pools[pool_key]
-                if not session.closed:
-                    self._last_used[pool_key] = time.time()
-                    return session
-                else:
-                    logger.info("removing_closed_session",
-                        component="a2a",
-                        operation="get_session",
-                        pool_key=pool_key
-                    )
-                    del self._pools[pool_key]
+                # Enhanced session health check
+                try:
+                    if not session.closed and not session._loop.is_closed():
+                        self._last_used[pool_key] = time.time()
+                        return session
+                except (AttributeError, RuntimeError):
+                    # Session or its event loop is in bad state
+                    pass
+                
+                logger.info("removing_unhealthy_session",
+                    component="a2a",
+                    operation="get_session",
+                    pool_key=pool_key,
+                    session_closed=getattr(session, 'closed', 'unknown'),
+                    loop_closed=getattr(getattr(session, '_loop', None), 'is_closed', lambda: 'unknown')()
+                )
+                del self._pools[pool_key]
             
             # Create new session with optimized settings
             logger.info("creating_new_session",

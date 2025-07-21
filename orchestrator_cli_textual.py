@@ -205,8 +205,8 @@ class ConversationWidget(ScrollableContainer):
             return processing_widget  # Return reference so we can remove it later
         else:
             color = "#8b949e"
-            prefix = "ℹ️ System:"
-            
+            prefix = ""
+
         system_widget = Static(
             f"[{color}]{prefix}[/{color}] [dim]{message}[/dim]"
         )
@@ -268,6 +268,11 @@ class OrchestatorApp(App):
         self.a2a_client = A2AClient()
         self.conversation_history = []
         self.current_task_id = None
+        
+        # GraphInterrupt state management
+        self.interrupted_task_id = None
+        self.interrupt_context = None
+        self.waiting_for_user_response = False
         
         # Initialize widgets as instance variables
         self.conversation_widget = None
@@ -348,13 +353,39 @@ class OrchestatorApp(App):
         """Send user input to the orchestrator via A2A protocol."""
         spinner_widget = None
         try:
-            # Generate task ID
-            task_id = f"task-{uuid.uuid4().hex[:8]}"
-            self.current_task_id = task_id
+            # Check if this is a response to an interrupted task
+            if self.waiting_for_user_response and self.interrupted_task_id:
+                # Resume the interrupted task with user's response
+                task_id = self.interrupted_task_id
+                context = {
+                    "thread_id": self.thread_id,
+                    "resume_from_interrupt": True,
+                    "user_response": user_input,
+                    "interrupt_context": self.interrupt_context
+                }
+                
+                logger.info("resuming_interrupted_task",
+                           task_id=task_id,
+                           user_response=user_input[:100],
+                           has_interrupt_context=bool(self.interrupt_context))
+                
+                # Clear interrupt state
+                self.waiting_for_user_response = False
+                self.interrupted_task_id = None
+                self.interrupt_context = None
+            else:
+                # Generate new task ID for fresh requests
+                task_id = f"task-{uuid.uuid4().hex[:8]}"
+                context = {
+                    "thread_id": self.thread_id,
+                    "conversation_history": self.conversation_history[-5:] if self.conversation_history else []  # Last 5 exchanges for context
+                }
+                
+                logger.info("sending_new_task_to_orchestrator",
+                           task_id=task_id,
+                           user_input=user_input[:100])
             
-            logger.info("sending_task_to_orchestrator",
-                       task_id=task_id,
-                       user_input=user_input[:100])
+            self.current_task_id = task_id
             
             # Show processing spinner
             spinner_widget = await self.conversation_widget.add_system_message(
@@ -368,7 +399,7 @@ class OrchestatorApp(App):
             task = A2ATask(
                 id=task_id,
                 instruction=user_input,
-                context={"thread_id": self.thread_id},
+                context=context,
                 state_snapshot={}
             )
             
@@ -400,16 +431,55 @@ class OrchestatorApp(App):
                     self.plan_widget.update_plan(metadata["plan"])
                     logger.info("plan_updated", plan_steps=len(metadata["plan"]))
             
+            elif response.get("status") == "interrupted":
+                # Handle GraphInterrupt properly using status-based detection
+                metadata = response.get("metadata", {})
+                interrupt_value = metadata.get("interrupt_value", "")
+                
+                # Store interrupt state for resume
+                self.interrupted_task_id = task_id
+                self.interrupt_context = metadata
+                self.waiting_for_user_response = True
+                
+                # Display the clarification request naturally
+                # The interrupt_value should now contain the LLM's natural question
+                if isinstance(interrupt_value, str) and interrupt_value.strip():
+                    # Clean up any escaped newlines and display the natural question
+                    clarification_text = interrupt_value.replace("\\n", "\n").strip()
+                    await self.conversation_widget.add_assistant_message(clarification_text)
+                else:
+                    # Fallback: show artifact content
+                    artifacts = response.get("artifacts", [])
+                    if artifacts and artifacts[0].get("content"):
+                        content = artifacts[0]["content"].replace("\\n", "\n").strip()
+                        await self.conversation_widget.add_assistant_message(content)
+                    else:
+                        await self.conversation_widget.add_assistant_message(
+                            "I need additional information to continue. Please provide your response."
+                        )
+                
+                # Update status to show waiting for user
+                await self.conversation_widget.add_system_message(
+                    "Waiting for your response to continue...", "info"
+                )
+                
+                logger.info("graph_interrupt_detected",
+                           task_id=task_id,
+                           waiting_for_response=True,
+                           interrupt_preview=str(interrupt_value)[:200])
+            
             elif response.get("status") == "failed":
                 error_msg = response.get("error", "Unknown error occurred")
+                # Regular error
                 await self.conversation_widget.add_system_message(error_msg, "error")
             
             else:
                 status = response.get("status", "unknown")
                 await self.conversation_widget.add_system_message(f"Status: {status}")
             
-            # Clear task from status
-            self.status_widget.update_status(connected=True, task_id=None)
+            # Clear task from status only if not waiting for user response
+            if not self.waiting_for_user_response:
+                self.status_widget.update_status(connected=True, task_id=None)
             
         except Exception as e:
             # Remove spinner on error too
