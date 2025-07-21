@@ -172,14 +172,16 @@ class MemoryGraph:
             
             # STRONG recency boost for recent nodes (prioritizes immediate context)
             hours_since_creation = (current_time - node.created_at).total_seconds() / 3600
+            
+            # Continuous recency boost - more recent is always better
             if hours_since_creation < 0.1:  # Less than 6 minutes old
-                recency_boost = 1.0  # Very strong boost for very recent context
+                recency_boost = 1.0 + (0.1 - hours_since_creation) * 10  # Extra boost for very recent (up to +2.0)
             elif hours_since_creation < 0.5:  # Less than 30 minutes old  
-                recency_boost = 0.5  # Strong boost for recent context
+                recency_boost = 0.5 + (0.5 - hours_since_creation) * 1.0  # Scaled boost (0.5 to 1.0)
             elif hours_since_creation < 2:  # Less than 2 hours old
-                recency_boost = 0.2  # Moderate boost for somewhat recent
+                recency_boost = 0.2 + (2.0 - hours_since_creation) * 0.2  # Scaled boost (0.2 to 0.5)
             else:
-                recency_boost = 0.0  # No boost for older context
+                recency_boost = max(0.0, 0.1 - hours_since_creation * 0.01)  # Gradual decay
             
             # Detect positional reference queries (these need maximum recency weighting)
             has_positional_reference = any(phrase in query_text.lower() for phrase in [
