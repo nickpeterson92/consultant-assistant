@@ -177,13 +177,13 @@ class SalesforceCreate(SalesforceWriteTool):
 class SalesforceUpdate(SalesforceWriteTool):
     """Update any Salesforce record."""
     name: str = "salesforce_update"
-    description: str = "Modify existing records - change field values, update status, etc."
+    description: str = "Modify existing records - change field values, update status, etc. For opportunities, use StageName field for status changes."
     
     class Input(BaseModel):
-        object_type: str = Field(description="Type of object to update")
-        record_id: Optional[str] = Field(None, description="ID of record to update")
-        where: Optional[str] = Field(None, description="Condition to find records to update")
-        data: Dict[str, Any] = Field(description="Fields to update")
+        object_type: str = Field(description="Type of object to update (e.g., Opportunity, Account, Contact)")
+        record_id: Optional[str] = Field(None, description="ID of specific record to update (if known)")
+        where: Optional[str] = Field(None, description="SOQL WHERE condition to FIND records to update (e.g., 'Name LIKE \\'%GenePoint%\\''). Do NOT use this for field values!")
+        data: Dict[str, Any] = Field(description="NEW VALUES to set on the record(s). For status updates, use field names like 'StageName'. Example: {'StageName': 'Closed Won'} means SET StageName TO 'Closed Won'. This is REQUIRED!")
     
     args_schema: type = Input
     
@@ -192,6 +192,9 @@ class SalesforceUpdate(SalesforceWriteTool):
         """Execute the update operation."""
         if not record_id and not where:
             return {"error": "Must provide either record_id or where condition"}
+        
+        if not data:
+            return {"error": "data parameter is required - specify fields to update. For opportunity status, use: {'StageName': 'Closed Won'}"}
         
         # Prepare update data
         prepared_data = self._prepare_data(data)

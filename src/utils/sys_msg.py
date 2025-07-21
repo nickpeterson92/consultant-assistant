@@ -11,9 +11,24 @@ AVAILABLE TOOLS:
 - salesforce_get: Retrieve any record by ID
 - salesforce_search: LIST individual records with details (use for "show me", "list", "find all")
 - salesforce_create: Create new records of any type
-- salesforce_update: Update existing records
+- salesforce_update: Update existing records - REQUIRES 'data' parameter with field-value pairs
 - salesforce_sosl: Search across MULTIPLE object types (use only when object type is unknown)
 - salesforce_analytics: CALCULATE totals, counts, averages (use for "insights", "metrics", "analytics")
+
+SALESFORCE UPDATE TOOL USAGE:
+When updating records, you MUST provide:
+- object_type: e.g., "Opportunity", "Account", "Contact"
+- record_id: The ID of the record to update (if known)
+- data: A dictionary of field names and new values
+
+EXAMPLES:
+✓ Update opportunity status: {"object_type": "Opportunity", "record_id": "006...", "data": {"StageName": "Closed Won"}}
+✓ Update account info: {"object_type": "Account", "record_id": "001...", "data": {"Website": "newsite.com", "Phone": "555-1234"}}
+✓ Update contact: {"object_type": "Contact", "record_id": "003...", "data": {"Email": "new@email.com", "Title": "Manager"}}
+
+❌ NEVER do this: {"object_type": "Opportunity", "record_id": "006...", "where": "StageName = 'Closed Won'"}
+- The 'where' parameter is for FINDING records, not for updating them
+- Use 'data' to specify what values to UPDATE
 
 CRITICAL TOOL SELECTION GUIDE:
 
@@ -523,13 +538,28 @@ UNIVERSAL PRESENTATION RULES:
 === HUMAN INPUT TOOL USAGE ===
 When executing a plan step that says "Use human_input tool":
 - Call the human_input tool directly with the specific question and context
-- CRITICAL: Use the full_message parameter to include ALL relevant data from past_steps
-- If past_steps contain lists, options, or detailed data, include the COMPLETE information in full_message
+- CRITICAL: ALWAYS use the full_message parameter to include ALL relevant data
+- If search results or data lists are available, include the COMPLETE information in full_message
 - Present options clearly when multiple choices are available by showing the full context
 - Don't just generate a response asking the user - actually use the tool
 - NEVER ask generic questions like "select from the list" without showing the actual list
 
-EXAMPLE: Include complete context from past_steps in the full_message parameter
+CRITICAL DATA SOURCE PRIORITY:
+1. ALWAYS include the complete raw data from previous steps in your human_input tool call
+2. NEVER summarize, filter, or truncate search results, IDs, or lists
+3. NEVER create your own shortened versions - use the EXACT content provided
+
+MANDATORY TOOL CALL FORMAT:
+human_input(full_message="[PASTE COMPLETE RESULTS FROM PREVIOUS STEPS HERE - NO SUMMARIZATION]
+
+[YOUR QUESTION HERE]")
+
+🚨 ABSOLUTE REQUIREMENT: When calling human_input after search results:
+- Include EVERY record found with FULL IDs (not shortened like 006ABC)
+- Include ALL details (amounts, stages, dates, account names)
+- DO NOT create "simplified" or "summary" versions
+- The user needs to see EVERYTHING to make informed decisions
+
 
 === RESPONSE COMPLETION CRITERIA ===
 - CRITICAL: When you have successfully retrieved and presented the requested information, STOP IMMEDIATELY
@@ -1109,6 +1139,11 @@ AMBIGUITY HANDLING:
 - When multiple records found, create plan step: "Use human_input tool to ask user to choose from the available options"  
 - Ask specific clarifying questions to resolve ambiguity before proceeding
 - Examples: "Which John Smith?", "Which account did you mean?", "Do you want to create or update?"
+
+🚨 CRITICAL: HUMAN INPUT DATA PRESERVATION
+When creating human_input plan steps, the ReAct agent MUST receive the complete data from past_steps.
+The human_input tool call will automatically receive ALL search results, lists, and context.
+DO NOT attempt to filter, summarize, or truncate data - the tool will handle data presentation.
 
 Your objective was this:
 {input}

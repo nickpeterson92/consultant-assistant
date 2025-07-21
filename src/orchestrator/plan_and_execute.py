@@ -30,6 +30,7 @@ class PlanExecute(TypedDict):
     plan: List[str]
     past_steps: Annotated[List[tuple], operator.add]
     response: str
+    user_visible_responses: Annotated[List[str], operator.add]  # Responses that should be shown to user immediately
 
 
 # ================================
@@ -78,6 +79,19 @@ def execute_step(state: PlanExecute):
 
 You are tasked with executing step {1}, {task}."""
     
+    # If user_visible_responses exist and the task involves human_input, include them
+    user_visible_responses = state.get("user_visible_responses", [])
+    if user_visible_responses and "human_input" in task.lower():
+        # Add the user_visible_responses content to the task context
+        visible_content = "\n\n".join(user_visible_responses)
+        task_formatted += f"""
+
+IMPORTANT: The following search results or data should be included in your human_input tool call:
+
+{visible_content}
+
+Use the above content EXACTLY in the full_message parameter of your human_input tool call. Do not summarize or truncate."""
+    
     # Use ReAct agent executor which handles tool execution automatically
     agent_response = asyncio.run(agent_executor.ainvoke(
         {"messages": [("user", task_formatted)]}
@@ -115,7 +129,19 @@ def replan_step(state: PlanExecute):
     if isinstance(output.action, Response):
         return {"response": output.action.response}
     else:
-        return {"plan": output.action.steps}
+        # Check if the new plan includes human_input - if so, show the most recent result to user
+        new_plan = output.action.steps
+        user_visible_responses = []
+        
+        # If any plan step mentions human_input, show the most recent past step result to user
+        if any("human_input" in step.lower() for step in new_plan) and state.get("past_steps"):
+            last_step, last_result = state["past_steps"][-1]
+            user_visible_responses.append(last_result)
+        
+        return {
+            "plan": new_plan,
+            "user_visible_responses": user_visible_responses
+        }
 
 
 @log_execution("orchestrator", "should_end", include_args=True, include_result=True)

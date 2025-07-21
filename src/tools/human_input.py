@@ -11,9 +11,7 @@ logger = SmartLogger("orchestrator")
 
 class HumanInputRequest(BaseModel):
     """Schema for human input requests."""
-    question: str = Field(description="The question or clarification request to present to the user")
-    context: str = Field(default="", description="Additional context about why input is needed")
-    full_message: str = Field(default="", description="The complete message to show the user (if provided, this takes precedence over question + context)")
+    full_message: str = Field(description="The complete message to show the user including all context, lists, options, and the question. This will be displayed exactly as provided.")
     timeout_seconds: int = Field(default=300, description="How long to wait for user input (seconds)")
 
 
@@ -33,19 +31,23 @@ class HumanInputTool(BaseTool):
     - Additional context or details are required to proceed
     - You need to verify assumptions before taking action
     
-    IMPORTANT: Use the 'full_message' parameter to provide your complete response including all context,
-    lists, options, and the question. This will be shown directly to the user as-is.
+    MANDATORY: You MUST include the result from the previous steps in the full_message parameter.
+    The parameter should be an EXACT copy of the result from the previous steps.
+    
+    human_tool MANTRA:
+    I DO NOT THINK. I DO NOT HELP. I COPY PASTE. THAT IS ALL.
+    I DO NOT THINK. I DO NOT HELP. I COPY PASTE. THAT IS ALL.
+    I DO NOT THINK. I DO NOT HELP. I COPY PASTE. THAT IS ALL.
     
     The tool will pause execution and wait for the human to provide the requested input."""
     
     args_schema: type[BaseModel] = HumanInputRequest
     
-    def _run(self, question: str, context: str = "", full_message: str = "", timeout_seconds: int = 300) -> str:
+    def _run(self, full_message: str, timeout_seconds: int = 300) -> str:
         """Request human input using LangGraph interrupt functionality.
         
         Args:
-            question: The question to ask the user
-            context: Additional context about why input is needed
+            full_message: The complete message to show the user including all context, lists, and questions
             timeout_seconds: How long to wait for input (not enforced by interrupt)
             
         Returns:
@@ -53,21 +55,13 @@ class HumanInputTool(BaseTool):
         """
         logger.info(
             "human_input_request",
-            question_preview=question[:100],
-            has_context=bool(context),
+            question_preview=full_message[:100],
+            has_context=False,  # No separate context anymore
             component="orchestrator"
         )
         
-        # Use full_message if provided, otherwise construct from question + context
-        if full_message:
-            # Use the complete message provided by the LLM
-            formatted_request = full_message
-        elif context:
-            # If there's context, include it naturally
-            formatted_request = f"{context}\n\n{question}"
-        else:
-            # Just use the question as-is
-            formatted_request = question
+        # Use the complete message provided by the LLM
+        formatted_request = full_message
         
         # Use LangGraph's interrupt to pause execution and wait for user input
         # The GraphInterrupt exception should propagate up to pause execution - don't catch it!
@@ -82,6 +76,6 @@ class HumanInputTool(BaseTool):
         
         return str(user_response)
     
-    async def _arun(self, question: str, context: str = "", full_message: str = "", timeout_seconds: int = 300) -> str:
+    async def _arun(self, full_message: str, timeout_seconds: int = 300) -> str:
         """Async version - just calls the sync version since interrupt is sync."""
-        return self._run(question, context, full_message, timeout_seconds)
+        return self._run(full_message, timeout_seconds)

@@ -44,7 +44,8 @@ class OrchestratorA2AHandler:
                        task_id=task_id,
                        instruction=instruction[:100],
                        is_resume=is_resume,
-                       has_user_response=bool(user_response))
+                       has_user_response=bool(user_response),
+                       context_thread_id=context.get("thread_id"))
             
             # Create thread ID for the graph
             # CRITICAL: For resume operations, preserve the original thread_id
@@ -64,6 +65,12 @@ class OrchestratorA2AHandler:
                     "user_id": context.get("user_id", "a2a_user")
                 }
             }
+            
+            logger.info("using_thread_id",
+                       component="orchestrator", 
+                       task_id=task_id,
+                       final_thread_id=thread_id,
+                       context_provided_thread_id=context.get("thread_id"))
             
             # Track this task
             self.active_tasks[task_id] = {
@@ -86,44 +93,14 @@ class OrchestratorA2AHandler:
                 from langgraph.types import Command
                 result = await self.graph.ainvoke(Command(resume=user_response), config)
                 
-                # CRITICAL: Clear any residual interrupt state from LangGraph checkpoint
-                # After successful resume, ensure no __interrupt__ remains in checkpoint
-                if isinstance(result, dict) and "__interrupt__" not in result:
-                    # Successful resume - try to clear checkpoint state to prevent re-interruption
-                    try:
-                        if hasattr(self.graph, 'checkpointer') and self.graph.checkpointer:
-                            # Get current checkpoint
-                            checkpoint = await self.graph.checkpointer.aget(config)
-                            if checkpoint and hasattr(checkpoint, 'tasks') and checkpoint.tasks:
-                                # Check if any tasks have interrupt state
-                                for task in checkpoint.tasks:
-                                    if hasattr(task, 'interrupts') and task.interrupts:
-                                        logger.info("clearing_checkpoint_interrupt_state",
-                                                   component="orchestrator",
-                                                   task_id=task_id,
-                                                   thread_id=thread_id)
-                                        # Clear the interrupt state by updating checkpoint without interrupts
-                                        task.interrupts = []
-                                        await self.graph.checkpointer.aput(config, checkpoint)
-                                        break
-                    except Exception as checkpoint_error:
-                        # Don't fail the operation if checkpoint clearing fails
-                        logger.warning("checkpoint_clear_failed",
-                                     component="orchestrator",
-                                     task_id=task_id,
-                                     error=str(checkpoint_error))
-                    
-                    logger.info("resume_successful_interrupt_cleared",
-                               component="orchestrator",
-                               task_id=task_id,
-                               thread_id=thread_id)
             else:
                 # Create initial state for new execution
                 initial_state = {
                     "input": instruction,
                     "plan": [],
                     "past_steps": [],
-                    "response": ""
+                    "response": "",
+                    "user_visible_responses": []
                 }
                 
                 # Execute the graph
@@ -154,13 +131,29 @@ class OrchestratorA2AHandler:
                     self.active_tasks[task_id]["status"] = "interrupted"
                     self.active_tasks[task_id]["interrupt_value"] = interrupt_content
                 
+                # Check if there are user_visible_responses that should be shown before the interrupt
+                artifacts = []
+                
+                # Add any user-visible responses first (like search results)
+                if isinstance(result, dict) and "user_visible_responses" in result:
+                    for i, visible_response in enumerate(result["user_visible_responses"]):
+                        artifacts.append({
+                            "id": f"orchestrator-visible-{task_id}-{i}",
+                            "task_id": task_id,
+                            "content": visible_response,
+                            "content_type": "text/plain"
+                        })
+                
+                # Then add the interrupt/clarification request
+                artifacts.append({
+                    "id": f"orchestrator-interrupt-{task_id}",
+                    "task_id": task_id,
+                    "content": interrupt_content,
+                    "content_type": "text/plain"
+                })
+                
                 return {
-                    "artifacts": [{
-                        "id": f"orchestrator-interrupt-{task_id}",
-                        "task_id": task_id,
-                        "content": interrupt_content,
-                        "content_type": "text/plain"
-                    }],
+                    "artifacts": artifacts,
                     "status": "interrupted",
                     "metadata": {
                         "task_id": task_id,
