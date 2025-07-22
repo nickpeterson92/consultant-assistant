@@ -39,6 +39,36 @@ from src.utils.sys_msg import salesforce_agent_sys_msg
 # Initialize structured logger
 logger = SmartLogger("salesforce")
 
+
+@log_execution(component="salesforce", operation="periodic_cleanup")
+async def periodic_cleanup():
+    """Periodically clean up idle A2A connections."""
+    from src.a2a.protocol import get_connection_pool
+    
+    while True:
+        try:
+            # Wait 60 seconds between cleanups
+            await asyncio.sleep(60)
+            
+            # Clean up idle sessions
+            pool = get_connection_pool()
+            await pool.cleanup_idle_sessions()
+            
+            logger.info("periodic_cleanup_completed",
+                       component="salesforce",
+                       cleanup_type="a2a_connection_pool")
+                       
+        except asyncio.CancelledError:
+            # Task was cancelled, exit gracefully
+            raise
+        except Exception as e:
+            logger.error("periodic_cleanup_error",
+                        component="salesforce",
+                        error=str(e),
+                        error_type=type(e).__name__)
+            # Continue running even if cleanup fails
+            await asyncio.sleep(60)
+
 # Suppress verbose HTTP debug logs
 logging.getLogger('openai._base_client').setLevel(logging.WARNING)
 logging.getLogger('httpcore').setLevel(logging.WARNING)
@@ -368,6 +398,9 @@ async def main():
         operation="ready"
     )
     
+    # Create background tasks
+    cleanup_task = asyncio.create_task(periodic_cleanup())
+    
     try:
         # Keep the server running
         while True:
@@ -378,6 +411,14 @@ async def main():
             agent="salesforce",
             operation="shutdown"
         )
+    finally:
+        # Cancel background tasks
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
+            
         await server.stop(runner)
         
         # Clean up the global connection pool

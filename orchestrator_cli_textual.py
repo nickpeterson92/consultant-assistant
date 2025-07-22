@@ -434,6 +434,7 @@ class OrchestatorApp(App):
         self.orchestrator_url = orchestrator_url
         self.thread_id = thread_id or f"textual-{uuid.uuid4().hex[:8]}"
         self.a2a_client = A2AClient()
+        self._cleanup_done = False
         self.conversation_history = []
         self.current_task_id = None
         
@@ -695,8 +696,17 @@ class OrchestatorApp(App):
     
     async def _connect_sse(self):
         """Connect to SSE stream and handle events."""
-        if self.sse_session is None:
-            self.sse_session = aiohttp.ClientSession()
+        if self.sse_session is None or self.sse_session.closed:
+            # Create new session with proper configuration
+            connector = aiohttp.TCPConnector(
+                limit=10,
+                limit_per_host=5,
+                enable_cleanup_closed=True
+            )
+            self.sse_session = aiohttp.ClientSession(
+                connector=connector,
+                connector_owner=True
+            )
         
         logger.info("sse_connecting", sse_url=self.sse_url)
         
@@ -774,13 +784,38 @@ class OrchestatorApp(App):
         """Quit the application."""
         logger.info("textual_app_quit", thread_id=self.thread_id)
         
-        # Clean up SSE connection
-        if self.sse_task and not self.sse_task.done():
-            self.sse_task.cancel()
-        if self.sse_session:
-            asyncio.create_task(self.sse_session.close())
+        # Schedule async cleanup
+        asyncio.create_task(self._async_cleanup())
         
         self.exit()
+    
+    async def _async_cleanup(self):
+        """Async cleanup of resources."""
+        if self._cleanup_done:
+            return
+        
+        self._cleanup_done = True
+        
+        try:
+            # Cancel SSE task
+            if self.sse_task and not self.sse_task.done():
+                self.sse_task.cancel()
+                try:
+                    await self.sse_task
+                except asyncio.CancelledError:
+                    pass
+            
+            # Close SSE session properly
+            if self.sse_session and not self.sse_session.closed:
+                await self.sse_session.close()
+                logger.info("sse_session_closed")
+            
+            # Close A2A client properly
+            if hasattr(self.a2a_client, 'close'):
+                await self.a2a_client.close()
+                logger.info("a2a_client_closed")
+        except Exception as e:
+            logger.error("cleanup_error", error=str(e))
 
 
 async def run_startup_animation():

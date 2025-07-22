@@ -2,9 +2,9 @@
 
 from typing import List, Dict, Any
 
-from .logging import SmartLogger, log_execution
+from .logging.framework import SmartLogger, log_execution
 
-logger = SmartLogger(component="utils")
+logger = SmartLogger("utils")
 
 
 @log_execution

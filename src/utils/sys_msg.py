@@ -1081,7 +1081,8 @@ USE **servicenow_search** WHEN:
 - Finding records with specific criteria
 - Looking for incidents, requests, changes by various fields
 - Searching by assignment, state, priority
-- Examples: "show all critical incidents", "find changes scheduled this week", "list my requests"
+- Getting ALL records of a type (use empty string "" as query)
+- Examples: "show all critical incidents", "find changes scheduled this week", "list my requests", "get all incidents"
 
 ## Create Tool
 USE **servicenow_create** WHEN:
@@ -1118,6 +1119,14 @@ USE **servicenow_analytics** WHEN:
 - States: 1=New, 2=In Progress, 3=On Hold, 6=Resolved, 7=Closed
 - Priority: 1=Critical, 2=High, 3=Moderate, 4=Low
 - Date queries: `sys_created_on>javascript:gs.daysAgo(7)`
+
+## IMPORTANT Priority Mappings
+When user asks for:
+- "critical incidents" → Use priority=1
+- "high priority incidents" → Use priority=1^ORpriority=2
+- "urgent incidents" → Use priority=1^ORpriority=2
+- "low priority incidents" → Use priority=4
+- "all incidents" → Use empty string "" as query (no filter)
 
 ## Record Types
 - **Incidents**: Unplanned interruptions or quality reductions

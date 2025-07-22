@@ -147,108 +147,127 @@ class SmartLogger:
 logger = SmartLogger()
 
 
-def log_execution(component: Optional[str] = None, operation: Optional[str] = None, 
+def log_execution(func_or_component: Union[Callable, str, None] = None, operation: Optional[str] = None, 
                  include_args: bool = True, include_result: bool = True,
-                 log_errors: bool = True):
+                 log_errors: bool = True, component: Optional[str] = None):
     """Decorator for automatic function/method execution logging.
     
     Args:
-        component: Override component detection
+        func_or_component: Function (when used as @log_execution) or component name
         operation: Operation name (defaults to function name)
         include_args: Whether to log function arguments
         include_result: Whether to log return value
         log_errors: Whether to log exceptions
+        component: Component name (backward compatibility)
     
     Example:
-        @log_execution("salesforce", "search_accounts")
+        @log_execution  # Auto-detect component
+        @log_execution("salesforce", "search_accounts")  # With parameters
+        @log_execution(component="salesforce", operation="search")  # Keyword args
         def search_accounts(self, query: str):
             return self.sf.query(query)
     """
-    def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            # Auto-detect component if not provided
-            func_component = component
-            if not func_component:
-                module_name = func.__module__
-                func_component = _get_component_from_module(module_name)
+    # Handle both @log_execution and @log_execution() syntaxes
+    if callable(func_or_component):
+        # Called as @log_execution (without parentheses)
+        func = func_or_component
+        actual_component = component
+        return _create_wrapper(func, actual_component, operation, include_args, include_result, log_errors)
+    else:
+        # Called as @log_execution(...) (with parentheses)
+        # func_or_component could be a string (component name) or None
+        actual_component = func_or_component or component
+        def decorator(func: Callable) -> Callable:
+            return _create_wrapper(func, actual_component, operation, include_args, include_result, log_errors)
+        return decorator
+
+
+def _create_wrapper(func: Callable, component: Optional[str], operation: Optional[str], 
+                   include_args: bool, include_result: bool, log_errors: bool) -> Callable:
+    """Create the actual wrapper function for logging."""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        # Auto-detect component if not provided
+        func_component = component
+        if not func_component:
+            module_name = func.__module__
+            func_component = _get_component_from_module(module_name)
+        
+        # Get operation name
+        op_name = operation or func.__name__
+        
+        # Create logger for this component
+        func_logger = SmartLogger(func_component)
+        
+        # Generate execution ID
+        exec_id = str(uuid.uuid4())[:8]
+        
+        # Prepare arguments for logging
+        log_args = {}
+        if include_args and args:
+            # Skip 'self' for methods
+            start_idx = 1 if args and hasattr(args[0], func.__name__) else 0
+            log_args['args'] = args[start_idx:]
+        if include_args and kwargs:
+            log_args['kwargs'] = kwargs
+        
+        # Log function start
+        func_logger.info(f"function_start_{op_name}",
+                       operation=op_name,
+                       function=func.__name__,
+                       execution_id=exec_id,
+                       **log_args)
+        
+        start_time = time.time()
+        
+        try:
+            # Execute function
+            result = func(*args, **kwargs)
             
-            # Get operation name
-            op_name = operation or func.__name__
+            # Calculate duration
+            duration = time.time() - start_time
             
-            # Create logger for this component
-            func_logger = SmartLogger(func_component)
+            # Prepare result for logging
+            log_result = {}
+            if include_result:
+                # Be careful with large results
+                result_str = str(result)
+                if len(result_str) > 1000:
+                    log_result['result_preview'] = result_str[:500] + '...'
+                    log_result['result_size'] = len(result_str)
+                else:
+                    log_result['result'] = result
             
-            # Generate execution ID
-            exec_id = str(uuid.uuid4())[:8]
-            
-            # Prepare arguments for logging
-            log_args = {}
-            if include_args and args:
-                # Skip 'self' for methods
-                start_idx = 1 if args and hasattr(args[0], func.__name__) else 0
-                log_args['args'] = args[start_idx:]
-            if include_args and kwargs:
-                log_args['kwargs'] = kwargs
-            
-            # Log function start
-            func_logger.info(f"function_start_{op_name}",
+            # Log successful completion
+            func_logger.info(f"function_complete_{op_name}",
                            operation=op_name,
                            function=func.__name__,
                            execution_id=exec_id,
-                           **log_args)
+                           duration_seconds=round(duration, 3),
+                           success=True,
+                           **log_result)
             
-            start_time = time.time()
+            return result
             
-            try:
-                # Execute function
-                result = func(*args, **kwargs)
-                
-                # Calculate duration
-                duration = time.time() - start_time
-                
-                # Prepare result for logging
-                log_result = {}
-                if include_result:
-                    # Be careful with large results
-                    result_str = str(result)
-                    if len(result_str) > 1000:
-                        log_result['result_preview'] = result_str[:500] + '...'
-                        log_result['result_size'] = len(result_str)
-                    else:
-                        log_result['result'] = result
-                
-                # Log successful completion
-                func_logger.info(f"function_complete_{op_name}",
-                               operation=op_name,
-                               function=func.__name__,
-                               execution_id=exec_id,
-                               duration_seconds=round(duration, 3),
-                               success=True,
-                               **log_result)
-                
-                return result
-                
-            except Exception as e:
-                # Calculate duration
-                duration = time.time() - start_time
-                
-                if log_errors:
-                    # Log error
-                    func_logger.error(f"function_error_{op_name}",
-                                    operation=op_name,
-                                    function=func.__name__,
-                                    execution_id=exec_id,
-                                    duration_seconds=round(duration, 3),
-                                    success=False,
-                                    error=str(e),
-                                    error_type=type(e).__name__)
-                
-                # Re-raise the exception
-                raise
-        
-        return wrapper
-    return decorator
+        except Exception as e:
+            # Calculate duration
+            duration = time.time() - start_time
+            
+            if log_errors:
+                # Log error
+                func_logger.error(f"function_error_{op_name}",
+                                operation=op_name,
+                                function=func.__name__,
+                                execution_id=exec_id,
+                                duration_seconds=round(duration, 3),
+                                success=False,
+                                error=str(e),
+                                error_type=type(e).__name__)
+            
+            # Re-raise the exception
+            raise
+    
+    return wrapper
 
 
 @contextmanager

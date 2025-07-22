@@ -6,9 +6,9 @@ import json
 from typing import Dict, Any, Optional, Callable
 from enum import Enum
 from dataclasses import dataclass
-from src.utils.logging import SmartLogger, log_execution
+from src.utils.logging.framework import SmartLogger, log_execution
 
-logger = SmartLogger(component="a2a")
+logger = SmartLogger("a2a")
 
 class CircuitBreakerState(Enum):
     """Circuit breaker states"""

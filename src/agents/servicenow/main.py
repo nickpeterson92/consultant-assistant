@@ -49,15 +49,15 @@ def create_azure_openai_chat():
     llm_config = config
     llm_kwargs = {
         "azure_endpoint": os.environ["AZURE_OPENAI_ENDPOINT"],
-        "azure_deployment": llm_config.get_secret('azure_openai_deployment'),
-        "openai_api_version": llm_config.get_secret('azure_openai_api_version'),
+        "azure_deployment": os.environ.get("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME", "gpt-4o-mini"),
+        "openai_api_version": os.environ.get("AZURE_OPENAI_API_VERSION", "2024-06-01"),
         "openai_api_key": os.environ["AZURE_OPENAI_API_KEY"],
         "temperature": llm_config.llm_temperature,
         "max_tokens": llm_config.llm_max_tokens,
-        "timeout": llm_config.timeout,
+        "timeout": llm_config.llm_timeout,
     }
-    if llm_config.top_p is not None:
-        llm_kwargs["top_p"] = llm_config.top_p
+    if llm_config.get('llm.top_p') is not None:
+        llm_kwargs["top_p"] = llm_config.get('llm.top_p')
     return AzureChatOpenAI(**llm_kwargs)
 
 def build_servicenow_graph():
@@ -70,10 +70,22 @@ def build_servicenow_graph():
     llm_with_tools = llm.bind_tools(UNIFIED_SERVICENOW_TOOLS)
     
     # Define agent function
+    @log_execution("servicenow", "servicenow_agent", include_args=False, include_result=False)
     def servicenow_agent(state: ServiceNowAgentState):
         """Main agent logic for ServiceNow operations."""
+        # Debug state content
+        logger.info("servicenow_agent_state_debug",
+                   state_keys=list(state.keys()),
+                   messages_type=type(state.get("messages", [])),
+                   messages_len=len(state.get("messages", [])))
+        
         task_id = state.get("task_context", {}).get("task_id", "unknown")
         
+        logger.info("servicenow_agent_processing",
+                   task_id=task_id,
+                   user_message=state["messages"][-1].content if state["messages"] else "No message",
+                   message_count=len(state.get("messages", [])),
+                   has_messages=bool(state.get("messages")))
         
         # Get system message with context
         system_msg = get_servicenow_system_message(
@@ -81,17 +93,29 @@ def build_servicenow_graph():
             external_context=state.get("external_context")
         )
         
+        # Debug system message
+        logger.info("servicenow_system_message_debug",
+                   task_id=task_id,
+                   sys_msg_length=len(system_msg),
+                   sys_msg_preview=system_msg[:200] + "..." if len(system_msg) > 200 else system_msg)
+        
         # Prepare messages
         messages = [SystemMessage(content=system_msg)] + state["messages"]
         
         try:
             # Call LLM with tools
+            logger.info("servicenow_agent_llm_call", task_id=task_id, message_count=len(messages))
             response = llm_with_tools.invoke(messages)
             
+            logger.info("servicenow_agent_llm_response",
+                       task_id=task_id,
+                       response_type=type(response).__name__,
+                       has_tool_calls=bool(getattr(response, 'tool_calls', None)))
             
             return {"messages": [response]}
             
         except Exception as e:
+            logger.error("servicenow_agent_error", task_id=task_id, error=str(e))
             error_msg = AIMessage(content=f"I encountered an error processing your ServiceNow request: {str(e)}")
             return {"messages": [error_msg], "error": str(e)}
     
@@ -125,12 +149,17 @@ def build_servicenow_graph():
 async def handle_a2a_request(params: dict) -> dict:
     """Process a ServiceNow task via A2A protocol."""
     try:
-        # Extract task data from params
-        task_data = params.get("task", {})
-        task_id = task_data.get("id", "unknown")
+        # Extract task data from params (support both wrapped and unwrapped formats)
+        task_data = params.get("task", params)  # Support both wrapped and unwrapped
+        task_id = task_data.get("id", task_data.get("task_id", "unknown"))
         instruction = task_data.get("instruction", "")
         context = task_data.get("context", {})
         
+        
+        logger.info("handle_a2a_request_received",
+                   task_id=task_id,
+                   instruction=instruction,
+                   has_context=bool(context))
         
         # Build the graph
         app = build_servicenow_graph()
@@ -144,6 +173,11 @@ async def handle_a2a_request(params: dict) -> dict:
             "task_context": {"task_id": task_id},
             "external_context": context or {}
         }
+        
+        logger.info("initial_state_prepared",
+                   task_id=task_id,
+                   message_content=initial_state["messages"][0].content,
+                   message_count=len(initial_state["messages"]))
         
         # Configure thread
         config = {

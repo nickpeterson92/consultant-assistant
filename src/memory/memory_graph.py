@@ -8,6 +8,7 @@ import json
 import logging
 
 from .memory_node import MemoryNode, ContextType, create_memory_node
+from .graph_algorithms import GraphAlgorithms
 from src.utils.logging.framework import SmartLogger
 
 logger = SmartLogger("memory")
@@ -42,6 +43,12 @@ class MemoryGraph:
         # Statistics
         self.total_nodes_created = 0
         self.total_nodes_cleaned = 0
+        
+        # Cached graph metrics (invalidated on graph changes)
+        self._pagerank_cache = None
+        self._centrality_cache = None
+        self._community_cache = None
+        self._last_metrics_update = None
         
         logger.info("memory_graph_created", 
                    thread_id=thread_id,
@@ -95,6 +102,9 @@ class MemoryGraph:
         # Update activity timestamp
         self.last_activity = datetime.now()
         
+        # Invalidate cached metrics
+        self._invalidate_metrics_cache()
+        
         logger.info("memory_node_stored",
                    thread_id=self.thread_id,
                    node_id=node.node_id,
@@ -116,6 +126,9 @@ class MemoryGraph:
             # Update node relationship lists
             self.nodes[from_node_id].derived_nodes.append(to_node_id)
             self.nodes[to_node_id].source_nodes.append(from_node_id)
+            
+            # Invalidate cached metrics
+            self._invalidate_metrics_cache()
             
             logger.debug("relationship_added",
                         thread_id=self.thread_id,
@@ -458,6 +471,268 @@ class MemoryGraph:
                    component="memory")
         
         return nodes_decayed
+    
+    def _invalidate_metrics_cache(self):
+        """Invalidate cached graph metrics."""
+        self._pagerank_cache = None
+        self._centrality_cache = None
+        self._community_cache = None
+        self._last_metrics_update = None
+    
+    def _update_metrics_cache(self):
+        """Update cached graph metrics if needed."""
+        # Only update if cache is stale (older than 5 minutes) or invalid
+        if (self._last_metrics_update is None or 
+            datetime.now() - self._last_metrics_update > timedelta(minutes=5)):
+            
+            # Calculate PageRank
+            self._pagerank_cache = GraphAlgorithms.calculate_pagerank(self.graph)
+            
+            # Calculate centrality
+            self._centrality_cache = GraphAlgorithms.calculate_betweenness_centrality(self.graph)
+            
+            # Detect communities
+            self._community_cache = GraphAlgorithms.detect_communities(self.graph)
+            
+            self._last_metrics_update = datetime.now()
+            
+            logger.debug("graph_metrics_updated",
+                        thread_id=self.thread_id,
+                        pagerank_nodes=len(self._pagerank_cache),
+                        communities=len(self._community_cache))
+    
+    def retrieve_with_graph_intelligence(self, query_text: str = "",
+                                       context_filter: Optional[Set[ContextType]] = None,
+                                       max_results: int = 10,
+                                       use_pagerank: bool = True,
+                                       use_centrality: bool = True,
+                                       use_activation_spreading: bool = True,
+                                       initial_nodes: Optional[Set[str]] = None) -> List[MemoryNode]:
+        """Retrieve memories using advanced graph algorithms.
+        
+        This method combines traditional relevance scoring with graph-based
+        metrics for more intelligent retrieval.
+        
+        Args:
+            query_text: Query string for relevance matching
+            context_filter: Filter by context types
+            max_results: Maximum number of results
+            use_pagerank: Weight results by PageRank importance
+            use_centrality: Weight results by betweenness centrality
+            use_activation_spreading: Use spreading activation from initial nodes
+            initial_nodes: Starting nodes for activation spreading
+            
+        Returns:
+            List of relevant MemoryNode objects
+        """
+        # First get traditionally relevant nodes
+        base_results = self.retrieve_relevant(
+            query_text=query_text,
+            context_filter=context_filter,
+            max_results=max_results * 3  # Get more candidates for re-ranking
+        )
+        
+        if not base_results:
+            return []
+        
+        # Update metrics cache if needed
+        self._update_metrics_cache()
+        
+        # Build scoring dict
+        node_scores = {}
+        
+        for node in base_results:
+            base_score = node.current_relevance()
+            
+            # Add PageRank score
+            if use_pagerank and self._pagerank_cache:
+                pagerank_score = self._pagerank_cache.get(node.node_id, 0.0)
+                base_score += pagerank_score * 2.0  # Weight PageRank strongly
+            
+            # Add centrality score
+            if use_centrality and self._centrality_cache:
+                centrality_score = self._centrality_cache.get(node.node_id, 0.0)
+                base_score += centrality_score * 1.5
+            
+            node_scores[node.node_id] = base_score
+        
+        # Apply activation spreading if requested
+        if use_activation_spreading:
+            # Use initial nodes or highest scoring nodes as seeds
+            if initial_nodes:
+                activated_nodes = initial_nodes
+            else:
+                # Use top 3 scoring nodes as seeds
+                top_nodes = sorted(node_scores.items(), key=lambda x: x[1], reverse=True)[:3]
+                activated_nodes = {node_id for node_id, _ in top_nodes}
+            
+            activation_levels = GraphAlgorithms.find_activation_spreading(
+                self.graph,
+                activated_nodes,
+                decay_factor=0.6,
+                max_hops=2
+            )
+            
+            # Boost scores based on activation
+            for node_id, activation in activation_levels.items():
+                if node_id in node_scores:
+                    node_scores[node_id] += activation * 1.5
+        
+        # Sort by final scores and return top results
+        sorted_nodes = sorted(node_scores.items(), key=lambda x: x[1], reverse=True)
+        result_ids = [node_id for node_id, _ in sorted_nodes[:max_results]]
+        
+        # Return nodes in score order
+        results = []
+        for node_id in result_ids:
+            if node_id in self.nodes:
+                results.append(self.nodes[node_id])
+        
+        logger.info("graph_intelligent_retrieval",
+                   thread_id=self.thread_id,
+                   query=query_text[:50],
+                   base_candidates=len(base_results),
+                   final_results=len(results),
+                   used_pagerank=use_pagerank,
+                   used_centrality=use_centrality,
+                   used_activation=use_activation_spreading)
+        
+        return results
+    
+    def find_memory_clusters(self) -> List[List[MemoryNode]]:
+        """Find clusters of related memories using community detection.
+        
+        Returns:
+            List of memory clusters, each cluster is a list of MemoryNodes
+        """
+        self._update_metrics_cache()
+        
+        if not self._community_cache:
+            return []
+        
+        clusters = []
+        for community in self._community_cache:
+            cluster = []
+            for node_id in community:
+                if node_id in self.nodes:
+                    cluster.append(self.nodes[node_id])
+            
+            if len(cluster) > 1:  # Only include clusters with multiple nodes
+                clusters.append(cluster)
+        
+        # Sort clusters by size (largest first)
+        clusters.sort(key=len, reverse=True)
+        
+        logger.info("memory_clusters_found",
+                   thread_id=self.thread_id,
+                   cluster_count=len(clusters),
+                   cluster_sizes=[len(c) for c in clusters])
+        
+        return clusters
+    
+    def find_important_memories(self, top_n: int = 10) -> List[MemoryNode]:
+        """Find the most important memories based on PageRank.
+        
+        Args:
+            top_n: Number of top memories to return
+            
+        Returns:
+            List of important MemoryNodes
+        """
+        self._update_metrics_cache()
+        
+        if not self._pagerank_cache:
+            return []
+        
+        # Sort by PageRank score
+        sorted_nodes = sorted(self._pagerank_cache.items(), 
+                            key=lambda x: x[1], 
+                            reverse=True)
+        
+        results = []
+        for node_id, score in sorted_nodes[:top_n]:
+            if node_id in self.nodes:
+                results.append(self.nodes[node_id])
+        
+        logger.info("important_memories_found",
+                   thread_id=self.thread_id,
+                   requested=top_n,
+                   found=len(results))
+        
+        return results
+    
+    def find_bridge_memories(self, top_n: int = 10) -> List[MemoryNode]:
+        """Find memories that bridge different topics/clusters.
+        
+        These are memories with high betweenness centrality that connect
+        different parts of the memory graph.
+        
+        Args:
+            top_n: Number of bridge memories to return
+            
+        Returns:
+            List of bridge MemoryNodes
+        """
+        self._update_metrics_cache()
+        
+        if not self._centrality_cache:
+            return []
+        
+        # Sort by centrality score
+        sorted_nodes = sorted(self._centrality_cache.items(),
+                            key=lambda x: x[1],
+                            reverse=True)
+        
+        results = []
+        for node_id, score in sorted_nodes[:top_n]:
+            if node_id in self.nodes and score > 0:  # Only include nodes with positive centrality
+                results.append(self.nodes[node_id])
+        
+        logger.info("bridge_memories_found",
+                   thread_id=self.thread_id,
+                   requested=top_n,
+                   found=len(results))
+        
+        return results
+    
+    def get_memory_timeline(self, start_time: Optional[datetime] = None,
+                          end_time: Optional[datetime] = None) -> List[List[MemoryNode]]:
+        """Get memories organized by temporal clusters.
+        
+        Args:
+            start_time: Start of time range (None for all)
+            end_time: End of time range (None for all)
+            
+        Returns:
+            List of temporal clusters
+        """
+        # Filter nodes by time range
+        filtered_nodes = {}
+        for node_id, node in self.nodes.items():
+            if start_time and node.created_at < start_time:
+                continue
+            if end_time and node.created_at > end_time:
+                continue
+            filtered_nodes[node_id] = node
+        
+        # Get temporal clusters
+        clusters = GraphAlgorithms.temporal_clustering(
+            filtered_nodes,
+            time_window=timedelta(minutes=30)
+        )
+        
+        # Convert to MemoryNode lists
+        result = []
+        for cluster_ids in clusters:
+            cluster_nodes = []
+            for node_id in cluster_ids:
+                if node_id in self.nodes:
+                    cluster_nodes.append(self.nodes[node_id])
+            
+            if cluster_nodes:
+                result.append(cluster_nodes)
+        
+        return result
     
     def __str__(self) -> str:
         return f"MemoryGraph(thread={self.thread_id}, nodes={len(self.nodes)}, edges={self.graph.number_of_edges()})"

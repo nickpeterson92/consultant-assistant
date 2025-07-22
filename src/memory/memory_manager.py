@@ -53,6 +53,27 @@ class ConversationalMemoryManager:
         memory = self.get_memory(thread_id)
         return memory.retrieve_relevant(query_text, **kwargs)
     
+    def retrieve_with_intelligence(self, thread_id: str, query_text: str = "",
+                                 **kwargs) -> List[MemoryNode]:
+        """Retrieve using graph algorithms for smarter results."""
+        memory = self.get_memory(thread_id)
+        return memory.retrieve_with_graph_intelligence(query_text, **kwargs)
+    
+    def get_important_memories(self, thread_id: str, top_n: int = 10) -> List[MemoryNode]:
+        """Get the most important memories from a thread based on PageRank."""
+        memory = self.get_memory(thread_id)
+        return memory.find_important_memories(top_n)
+    
+    def get_memory_clusters(self, thread_id: str) -> List[List[MemoryNode]]:
+        """Get memory clusters showing related topics in the conversation."""
+        memory = self.get_memory(thread_id)
+        return memory.find_memory_clusters()
+    
+    def get_bridge_memories(self, thread_id: str, top_n: int = 10) -> List[MemoryNode]:
+        """Get memories that connect different topics in the conversation."""
+        memory = self.get_memory(thread_id)
+        return memory.find_bridge_memories(top_n)
+    
     def cleanup_stale_threads(self, max_idle_hours: int = 24) -> Dict:
         """Clean up threads that haven't been active recently."""
         with self._lock:

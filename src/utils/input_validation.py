@@ -12,9 +12,9 @@ Philosophy:
 
 import re
 
-from .logging import SmartLogger, log_execution
+from .logging.framework import SmartLogger, log_execution
 
-logger = SmartLogger(component="utils")
+logger = SmartLogger("utils")
 
 class ValidationError(Exception):
     """Custom validation error for user input"""

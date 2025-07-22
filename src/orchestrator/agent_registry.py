@@ -13,10 +13,10 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from ..a2a import AgentCard, A2AClient, A2AException
-from ..utils.logging import SmartLogger, log_execution
+from ..utils.logging.framework import SmartLogger, log_execution
 
 # Initialize logger
-logger = SmartLogger(component="orchestrator")
+logger = SmartLogger("orchestrator")
 
 @dataclass
 class RegisteredAgent:

@@ -344,13 +344,28 @@ class A2AConnectionPool:
                 session = self._pools[pool_key]
                 # Enhanced session health check
                 try:
-                    if not session.closed and not session._loop.is_closed():
+                    # Check multiple health indicators
+                    if (not session.closed and 
+                        hasattr(session, '_loop') and 
+                        session._loop and 
+                        not session._loop.is_closed() and
+                        session._loop == asyncio.get_running_loop()):
+                        # Session is healthy and in the correct event loop
                         self._last_used[pool_key] = time.time()
                         return session
-                except (AttributeError, RuntimeError):
+                except (AttributeError, RuntimeError) as e:
                     # Session or its event loop is in bad state
-                    pass
+                    logger.warning("session_health_check_failed",
+                                 pool_key=pool_key,
+                                 error=str(e),
+                                 component="a2a")
                 
+                # Close unhealthy session before removing
+                try:
+                    await session.close()
+                except Exception:
+                    pass
+                    
                 del self._pools[pool_key]
             
             # Create new session with optimized settings

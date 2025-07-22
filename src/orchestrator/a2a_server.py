@@ -18,6 +18,36 @@ logger = get_smart_logger("orchestrator")
 # Global SSE observer instance
 sse_observer: SSEObserver = None
 
+
+@log_execution(component="orchestrator", operation="periodic_cleanup")
+async def periodic_cleanup():
+    """Periodically clean up idle A2A connections."""
+    from src.a2a.protocol import get_connection_pool
+    
+    while True:
+        try:
+            # Wait 60 seconds between cleanups
+            await asyncio.sleep(60)
+            
+            # Clean up idle sessions
+            pool = get_connection_pool()
+            await pool.cleanup_idle_sessions()
+            
+            logger.info("periodic_cleanup_completed",
+                       component="orchestrator",
+                       cleanup_type="a2a_connection_pool")
+                       
+        except asyncio.CancelledError:
+            # Task was cancelled, exit gracefully
+            raise
+        except Exception as e:
+            logger.error("periodic_cleanup_error",
+                        component="orchestrator",
+                        error=str(e),
+                        error_type=type(e).__name__)
+            # Continue running even if cleanup fails
+            await asyncio.sleep(60)
+
 async def handle_sse_stream(request: web.Request) -> StreamResponse:
     """SSE endpoint for streaming plan updates to clients."""
     global sse_observer
@@ -185,9 +215,20 @@ async def main(host: str = "0.0.0.0", port: int = 8000):
                     port=port,
                     endpoint=f"http://{host}:{port}")
         
+        # Create background tasks
+        cleanup_task = asyncio.create_task(periodic_cleanup())
+        
         # Keep the server running
-        while True:
-            await asyncio.sleep(1)
+        try:
+            while True:
+                await asyncio.sleep(1)
+        finally:
+            # Cancel background tasks
+            cleanup_task.cancel()
+            try:
+                await cleanup_task
+            except asyncio.CancelledError:
+                pass
             
     except KeyboardInterrupt:
         logger.info("orchestrator_a2a_shutdown")

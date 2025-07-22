@@ -15,7 +15,7 @@ from langgraph.prebuilt import InjectedState
 from typing import Annotated
 
 from .base import BaseUtilityTool
-from src.utils.logging import SmartLogger, log_execution
+from src.utils.logging.framework import SmartLogger, log_execution
 
 # Import Tavily after checking for package
 try:
@@ -25,7 +25,7 @@ except ImportError:
     TAVILY_AVAILABLE = False
     TavilySearch = None
 
-logger = SmartLogger(component="utility")
+logger = SmartLogger("utility")
 
 
 class WebSearchInput(BaseModel):

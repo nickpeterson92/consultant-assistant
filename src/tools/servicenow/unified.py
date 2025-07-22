@@ -10,6 +10,7 @@ from .base import (
     ServiceNowAnalyticsTool
     )
 from src.utils.glide_query_builder import GlideQueryBuilder
+from src.utils.logging.framework import log_execution
 
 
 class ServiceNowGet(ServiceNowReadTool):
@@ -30,6 +31,7 @@ class ServiceNowGet(ServiceNowReadTool):
     
     args_schema: type = Input
     
+    @log_execution("servicenow", "get_record", include_args=True, include_result=False)
     def _execute(self, table_name: Optional[str] = None, sys_id: Optional[str] = None,
                  number: Optional[str] = None, fields: Optional[List[str]] = None) -> Any:
         """Execute the get operation."""
@@ -97,6 +99,7 @@ class ServiceNowSearch(ServiceNowReadTool):
     
     args_schema: type = Input
     
+    @log_execution("servicenow", "search_records", include_args=True, include_result=False)
     def _execute(self, table_name: str, query: str, fields: Optional[List[str]] = None,
                  limit: int = 100, order_by: Optional[str] = None, 
                  order_desc: bool = True) -> Any:
@@ -157,6 +160,7 @@ class ServiceNowCreate(ServiceNowWriteTool):
     
     args_schema: type = Input
     
+    @log_execution("servicenow", "create_record", include_args=True, include_result=False)
     def _execute(self, table_name: str, data: Dict[str, Any]) -> Any:
         """Execute the create operation."""
         # Validate required fields
@@ -199,6 +203,7 @@ class ServiceNowUpdate(ServiceNowWriteTool):
     
     args_schema: type = Input
     
+    @log_execution("servicenow", "update_record", include_args=True, include_result=False)
     def _execute(self, table_name: str, data: Dict[str, Any],
                  sys_id: Optional[str] = None, number: Optional[str] = None,
                  where: Optional[str] = None) -> Any:
@@ -277,6 +282,7 @@ class ServiceNowWorkflow(ServiceNowWorkflowTool):
     
     args_schema: type = Input
     
+    @log_execution("servicenow", "workflow_operation", include_args=True, include_result=False)
     def _execute(self, table_name: str, sys_id: str, action: str,
                  data: Optional[Dict[str, Any]] = None) -> Any:
         """Execute the workflow operation."""
@@ -358,6 +364,7 @@ class ServiceNowAnalytics(ServiceNowAnalyticsTool):
     
     args_schema: type = Input
     
+    @log_execution("servicenow", "analytics", include_args=True, include_result=False)
     def _execute(self, table_name: str, metric_type: str, 
                  group_by: Optional[str] = None, conditions: Optional[str] = None,
                  time_field: str = "sys_created_on", time_period: Optional[str] = None) -> Any:
