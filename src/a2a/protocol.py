@@ -20,14 +20,14 @@ from src.utils.config import (
 )
 import logging
 
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger, log_execution
 # No input validation needed - trust agent-generated content
 from src.utils.agents.message_processing.unified_serialization import serialize_messages_for_json
 from .circuit_breaker import CircuitBreakerConfig, RetryConfig, resilient_call
 from src.utils.config import config
 
 # Initialize structured logger
-logger = get_logger()
+logger = SmartLogger("a2a")
 
 @dataclass  
 class TimestampedBase:
@@ -738,6 +738,7 @@ class A2AClient:
             )
             raise
     
+    @log_execution("a2a", "call_agent", include_args=False, include_result=False)  # Sensitive data
     async def call_agent(self, endpoint: str, method: str, params: Dict[str, Any], request_id: Optional[str] = None) -> Dict[str, Any]:
         """Make a JSON-RPC call with circuit breaker and retry logic.
         
@@ -910,6 +911,7 @@ class A2AServer:
         """
         self.handlers[method] = handler
     
+    @log_execution("a2a", "handle_agent_card", include_args=True, include_result=True)
     async def _handle_agent_card(self, request: web.Request) -> web.Response:
         """Return agent card for capability discovery.
         
@@ -918,6 +920,7 @@ class A2AServer:
         """
         return web.json_response(self.agent_card.to_dict())
     
+    @log_execution("a2a", "handle_request", include_args=False, include_result=False)  # Sensitive data
     async def _handle_request(self, request: web.Request) -> web.Response:
         """Handle incoming JSON-RPC requests.
         

@@ -4,6 +4,7 @@ Reference: https://langchain-ai.github.io/langgraph/tutorials/plan-and-execute/p
 """
 
 import operator
+import time
 from datetime import datetime
 from typing import Annotated, List, Union
 from typing_extensions import TypedDict
@@ -74,7 +75,7 @@ class Act(BaseModel):
 # Node Functions - EXACT from tutorial
 # ================================
 
-@log_execution("orchestrator", "execute_step", include_args=True, include_result=True)
+@log_execution("orchestrator", "execute_step", include_args=True, include_result=False)  # Don't log full result due to size
 @emit_coordinated_events(["task_lifecycle", "plan_updated"])
 def execute_step(state: PlanExecute):
     import asyncio
@@ -97,9 +98,10 @@ def execute_step(state: PlanExecute):
     
     # Check if plan is empty
     if not plan:
-        logger.error("Empty plan received in execute_step", 
-                    component="orchestrator",
-                    operation="execute_step")
+        logger.error("execute_step_no_plan", 
+                    operation="execute_step",
+                    thread_id=thread_id,
+                    state_keys=list(state.keys()))
         return {"messages": [HumanMessage(content="Error: No plan steps available to execute")]}
     
     plan_str = "\n".join(f"{i + 1}. {step}" for i, step in enumerate(plan))
@@ -107,6 +109,13 @@ def execute_step(state: PlanExecute):
     
     # Calculate current step number dynamically
     current_step_num = len(state.get("past_steps", [])) + 1
+    
+    logger.info("execute_step_start",
+               operation="execute_step", 
+               thread_id=thread_id,
+               current_step=current_step_num,
+               total_plan_steps=len(plan),
+               task_preview=task[:100])
     
     # Include past_steps context (preserve original LangGraph structure)
     past_steps_context = ""
@@ -194,15 +203,45 @@ You are tasked with executing step {current_step_num}: {task}.
         )
     
     logger.info("react_agent_context",
-               component="orchestrator",
                operation="execute_step",
                conversation_messages=len(persistent_messages),
                agent_messages=len(agent_messages),
                current_task=task[:100])
     
-    agent_response = asyncio.run(agent_executor.ainvoke(
-        {"messages": agent_messages}
-    ))
+    # Log ReAct agent invocation start
+    react_start_time = time.time()
+    logger.info("react_agent_start",
+               operation="execute_step",
+               thread_id=thread_id,
+               step_number=current_step_num,
+               agent_input_messages=len(agent_messages),
+               task_description=task[:150])
+    
+    try:
+        agent_response = asyncio.run(agent_executor.ainvoke(
+            {"messages": agent_messages}
+        ))
+        
+        # Log ReAct agent completion  
+        react_duration = time.time() - react_start_time
+        response_messages = agent_response.get("messages", [])
+        logger.info("react_agent_complete",
+                   operation="execute_step",
+                   thread_id=thread_id,
+                   duration_seconds=round(react_duration, 3),
+                   response_messages=len(response_messages),
+                   has_tool_calls=any(hasattr(msg, 'tool_calls') and msg.tool_calls for msg in response_messages),
+                   success=True)
+                   
+    except Exception as e:
+        react_duration = time.time() - react_start_time
+        logger.error("react_agent_error",
+                    operation="execute_step",
+                    thread_id=thread_id,
+                    duration_seconds=round(react_duration, 3),
+                    error=str(e),
+                    error_type=type(e).__name__)
+        raise
     
     # Simple background task check - ReAct agent maintains own message context
     try:
@@ -344,7 +383,7 @@ You are tasked with executing step {current_step_num}: {task}.
 
 
 @log_execution("orchestrator", "plan_step", include_args=True, include_result=True)
-@emit_coordinated_events(["plan_created", "plan_updated"])
+@emit_coordinated_events(["plan_created", "plan_updated"])  
 def plan_step(state: PlanExecute):
     import asyncio
     from langchain_core.messages import HumanMessage
@@ -353,6 +392,13 @@ def plan_step(state: PlanExecute):
     # Get memory for context-aware planning
     thread_id = state.get("thread_id", "default-thread")
     memory = get_thread_memory(thread_id)
+    
+    logger.info("plan_step_start",
+               operation="plan_step",
+               thread_id=thread_id,
+               input_preview=state["input"][:100],
+               has_existing_plan=bool(state.get("plan")),
+               memory_nodes_available=len(memory.nodes))
     
     # Get conversation messages for context and trim if needed
     conversation_messages = state.get("messages", [])
@@ -421,6 +467,13 @@ def replan_step(state: PlanExecute):
     thread_id = state.get("thread_id", "default-thread")
     memory = get_thread_memory(thread_id)
     
+    logger.info("replan_step_start",
+               operation="replan_step",
+               thread_id=thread_id,
+               completed_steps=len(state.get("past_steps", [])),
+               remaining_plan_steps=len(state.get("plan", [])),
+               input_preview=state["input"][:100])
+    
     # Format past_steps for the template
     past_steps_str = ""
     for i, (step, result) in enumerate(state["past_steps"]):
@@ -459,6 +512,15 @@ def replan_step(state: PlanExecute):
     }
     
     output = asyncio.run(replanner.ainvoke(template_vars))
+    
+    # Log critical decision point
+    logger.info("replan_decision",
+               operation="replan_step", 
+               thread_id=thread_id,
+               decision_type="Response" if isinstance(output.action, Response) else "Plan",
+               will_end_workflow=isinstance(output.action, Response),
+               completed_vs_total=f"{len(state.get('past_steps', []))}/{len(state.get('plan', []))}")
+    
     if isinstance(output.action, Response):
         # CRITICAL: Task is completing - trigger memory decay for task-specific context
         try:

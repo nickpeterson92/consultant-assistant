@@ -5,11 +5,11 @@ from typing import Dict, Any
 from datetime import datetime
 
 from langgraph.errors import GraphInterrupt
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger, log_execution
 from src.a2a import AgentCard
 from .plan_and_execute import create_plan_execute_graph
 
-logger = get_logger("orchestrator")
+logger = SmartLogger("orchestrator")
 
 
 class OrchestratorA2AHandler:
@@ -24,6 +24,7 @@ class OrchestratorA2AHandler:
         """Set the plan-execute graph instance."""
         self.graph = graph
     
+    @log_execution("orchestrator", "process_task", include_args=False, include_result=False)  # Sensitive data
     async def process_task(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Process A2A task using plan-execute graph."""
         task_id = "unknown"
@@ -280,6 +281,7 @@ class OrchestratorA2AHandler:
         
         return "Task completed"
     
+    @log_execution("orchestrator", "get_agent_card", include_args=True, include_result=True)
     async def get_agent_card(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Return orchestrator agent card."""
         return {
