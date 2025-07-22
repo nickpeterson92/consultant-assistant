@@ -94,13 +94,17 @@ class OrchestratorA2AHandler:
                 result = await self.graph.ainvoke(Command(resume=user_response), config)
                 
             else:
-                # Create initial state for new execution
+                # For new requests, we want to:
+                # 1. Preserve conversation messages (persistent across requests)
+                # 2. Reset plan state (fresh planning for each request)
+                # 3. Add current user message to conversation
                 initial_state = {
                     "input": instruction,
-                    "plan": [],
-                    "past_steps": [],
+                    "plan": [],  # Fresh plan state
+                    "past_steps": [],  # Fresh execution state
                     "response": "",
                     "user_visible_responses": [],
+                    "messages": [("user", instruction)],  # Current user message (LangGraph will merge with existing)
                     "thread_id": thread_id,  # Add thread_id to state for memory integration
                     "task_id": task_id  # Add actual task_id for SSE events
                 }

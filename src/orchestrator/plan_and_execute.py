@@ -14,7 +14,7 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import tools_condition
 from langgraph.checkpoint.memory import MemorySaver
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate
 from src.utils.logging.framework import SmartLogger, log_execution
 from .event_decorators import emit_coordinated_events
@@ -33,6 +33,7 @@ class PlanExecute(TypedDict):
     past_steps: Annotated[List[tuple], operator.add]
     response: str
     user_visible_responses: Annotated[List[str], operator.add]  # Responses that should be shown to user immediately
+    messages: Annotated[List, add_messages]  # Persistent conversation history across requests
     thread_id: str  # Thread ID for memory context
     task_id: str  # Task ID for SSE event correlation
 
@@ -312,6 +313,25 @@ def plan_step(state: PlanExecute):
     thread_id = state.get("thread_id", "default-thread")
     memory = get_thread_memory(thread_id)
     
+    # Get conversation messages for context and trim if needed
+    conversation_messages = state.get("messages", [])
+    
+    # Trim messages to prevent bloat while preserving context
+    from src.utils.agents.message_processing.helpers import trim_messages_for_context
+    if len(conversation_messages) > 20:  # Only trim if conversation is getting long
+        conversation_messages = trim_messages_for_context(
+            conversation_messages,
+            max_tokens=60000,  # Conservative limit for planning context
+            keep_last_n=20     # Keep recent conversation flow
+        )
+    
+    logger.info("planning_with_conversation_context",
+               component="orchestrator",
+               operation="plan_step",
+               original_length=len(state.get("messages", [])),
+               trimmed_length=len(conversation_messages),
+               current_input=state["input"][:100])
+    
     # Get relevant context for planning
     planning_context = memory.retrieve_relevant(
         query_text=state["input"],
@@ -333,7 +353,7 @@ def plan_step(state: PlanExecute):
                 context_for_planning += f"  Data: {content_preview}{'...' if len(str(memory_node.content)) > 150 else ''}\n"
             context_for_planning += "\n"
     
-    # Enhanced planning prompt with memory context
+    # Enhanced planning prompt with conversation + memory context
     planning_input = f"{state['input']}{context_for_planning}"
     
     logger.info("planning_with_memory_context",
@@ -342,7 +362,11 @@ def plan_step(state: PlanExecute):
                context_items=len(planning_context),
                input_length=len(planning_input))
     
-    plan = asyncio.run(planner.ainvoke({"messages": [HumanMessage(content=planning_input)]}))
+    # Use conversation messages for planning context instead of just current input
+    planning_messages = list(conversation_messages)  # Copy existing conversation
+    planning_messages.append(HumanMessage(content=planning_input))  # Add enhanced planning request
+    
+    plan = asyncio.run(planner.ainvoke({"messages": planning_messages}))
     return {"plan": plan.steps}
 
 
@@ -424,7 +448,34 @@ def replan_step(state: PlanExecute):
                         operation="replan_step", 
                         error=str(e))
         
-        return {"response": output.action.response}
+        # Add AI response to conversation history when task completes
+        ai_response = AIMessage(content=output.action.response)
+        
+        # Trim the overall conversation state to prevent bloat
+        current_messages = state.get("messages", [])
+        from src.utils.agents.message_processing.helpers import trim_messages_for_context
+        
+        # Add the new AI response
+        updated_messages = current_messages + [ai_response]
+        
+        # Trim if conversation is getting too long
+        if len(updated_messages) > 50:  # Trim when conversation exceeds 50 messages
+            updated_messages = trim_messages_for_context(
+                updated_messages,
+                max_tokens=80000,  # Keep substantial conversation history
+                keep_last_n=30     # Preserve recent conversation flow
+            )
+            
+            logger.info("trimmed_conversation_state",
+                       component="orchestrator",
+                       operation="replan_step",
+                       original_count=len(current_messages) + 1,
+                       trimmed_count=len(updated_messages))
+        
+        return {
+            "response": output.action.response,
+            "messages": [ai_response] if len(updated_messages) <= 50 else updated_messages
+        }
     else:
         # Check if the new plan includes human_input - if so, show the most recent result to user
         new_plan = output.action.steps
