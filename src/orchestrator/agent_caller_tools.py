@@ -403,6 +403,15 @@ class SalesforceAgentTool(BaseAgentTool):
                 
                 result = await client.process_task(endpoint=endpoint, task=task)
                 
+                # Log the raw A2A response
+                logger.info("a2a_raw_response",
+                    agent="salesforce-agent",
+                    task_id=task_id,
+                    raw_response=result,
+                    artifacts=result.get("artifacts") if isinstance(result, dict) else None,
+                    state_updates=result.get("state_updates") if isinstance(result, dict) else None
+                )
+                
                 # Process response
                 response_content = self._extract_response_content(result)
                 final_response = self._process_tool_results(result, response_content, task_id)
@@ -410,7 +419,8 @@ class SalesforceAgentTool(BaseAgentTool):
                 logger.info("a2a_response_success",
                     agent="salesforce-agent", 
                     task_id=task_id,
-                    response_length=len(final_response)
+                    response_length=len(final_response),
+                    final_response_preview=final_response[:500] if len(final_response) > 500 else final_response
                 )
                 
                 # Log successful tool completion
@@ -752,6 +762,15 @@ class JiraAgentTool(BaseAgentTool):
                 
                 result = await client.process_task(endpoint=endpoint, task=task)
                 
+                # Log the raw A2A response
+                logger.info("a2a_raw_response",
+                    agent="jira-agent",
+                    task_id=task_id,
+                    raw_response=result,
+                    artifacts=result.get("artifacts") if isinstance(result, dict) else None,
+                    state_updates=result.get("state_updates") if isinstance(result, dict) else None
+                )
+                
                 # Process response
                 response_content = self._extract_response_content(result)
                 final_response = self._process_tool_results(result, response_content, task_id)
@@ -759,7 +778,8 @@ class JiraAgentTool(BaseAgentTool):
                 logger.info("a2a_response_success",
                     agent="jira-agent", 
                     task_id=task_id,
-                    response_length=len(final_response)
+                    response_length=len(final_response),
+                    final_response_preview=final_response[:500] if len(final_response) > 500 else final_response
                 )
                 
                 # Log successful tool completion
@@ -950,6 +970,15 @@ class ServiceNowAgentTool(BaseAgentTool):
                 
                 result = await client.process_task(endpoint=endpoint, task=task)
                 
+                # Log the raw A2A response
+                logger.info("a2a_raw_response",
+                    agent="servicenow-agent",
+                    task_id=task_id,
+                    raw_response=result,
+                    artifacts=result.get("artifacts") if isinstance(result, dict) else None,
+                    state_updates=result.get("state_updates") if isinstance(result, dict) else None
+                )
+                
                 # Process response
                 response_content = self._extract_response_content(result)
                 final_response = self._process_tool_results(result, response_content, task_id)
@@ -957,7 +986,8 @@ class ServiceNowAgentTool(BaseAgentTool):
                 logger.info("a2a_response_success",
                     agent="servicenow-agent", 
                     task_id=task_id,
-                    response_length=len(final_response)
+                    response_length=len(final_response),
+                    final_response_preview=final_response[:500] if len(final_response) > 500 else final_response
                 )
                 
                 # Log successful tool completion

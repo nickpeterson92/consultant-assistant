@@ -37,6 +37,7 @@ class PlanExecute(TypedDict):
     messages: Annotated[List, add_messages]  # Persistent conversation history across requests
     thread_id: str  # Thread ID for memory context
     task_id: str  # Task ID for SSE event correlation
+    plan_step_offset: int  # Track where current plan starts in past_steps
 
 
 # ================================
@@ -79,8 +80,9 @@ class Act(BaseModel):
 @emit_coordinated_events(["task_lifecycle", "plan_updated"])
 def execute_step(state: PlanExecute):
     import asyncio
+    from datetime import datetime
     from .observers import get_observer_registry, SearchResultsEvent
-    from src.memory import get_thread_memory, ContextType, create_memory_node
+    from src.memory import get_thread_memory, ContextType, create_memory_node, RelationshipType
     
     # Get memory for this conversation thread
     thread_id = state.get("thread_id", "default-thread")
@@ -107,16 +109,17 @@ def execute_step(state: PlanExecute):
     plan_str = "\n".join(f"{i + 1}. {step}" for i, step in enumerate(plan))
     task = plan[0]
     
-    # Calculate current step number dynamically
-    current_step_num = len(state.get("past_steps", [])) + 1
+    # Calculate current step number dynamically - relative to current plan
+    plan_offset = state.get("plan_step_offset", 0)
+    current_plan_steps = state.get("past_steps", [])[plan_offset:]
+    current_step_num = len(current_plan_steps) + 1
     
-    # Include past_steps context (preserve original LangGraph structure)
+    # Include past_steps context - only from current plan
     past_steps_context = ""
-    past_steps = state.get("past_steps", [])
     
-    if past_steps:
+    if current_plan_steps:
         past_steps_context = "\n\nPREVIOUS STEPS COMPLETED:\n"
-        for i, (step_desc, result) in enumerate(past_steps, 1):
+        for i, (step_desc, result) in enumerate(current_plan_steps, 1):
             past_steps_context += f"Step {i}: {step_desc}\nResult: {result}\n\n"
     
     # MEMORY ENHANCEMENT: Add intelligent memory context as supplementary information
@@ -254,7 +257,34 @@ You are tasked with executing step {current_step_num}: {task}.
                     operation="execute_step")
         final_response = "Error: No response received from agent"
     else:
-        final_response = messages[-1].content
+        # Extract tool response data if present
+        tool_response_data = None
+        for message in messages:
+            # Check for tool response messages (ToolMessage type)
+            if hasattr(message, 'name') and hasattr(message, 'content'):
+                # This is a tool response message
+                try:
+                    import json
+                    tool_result = json.loads(message.content)
+                    if isinstance(tool_result, dict) and tool_result.get('success', False):
+                        tool_response_data = tool_result.get('data')
+                except:
+                    pass
+        
+        # Get the agent's final message
+        agent_final_message = messages[-1].content
+        
+        # If we have tool response data from a GET operation, include it in the response
+        if tool_response_data and any(word in task.lower() for word in ['get', 'retrieve', 'fetch', 'show', 'display', 'find', 'search']):
+            # Format the data nicely if it's a dict/list
+            if isinstance(tool_response_data, (dict, list)):
+                import json
+                formatted_data = json.dumps(tool_response_data, indent=2)
+                final_response = f"{agent_final_message}\n\nHere's the data:\n```json\n{formatted_data}\n```"
+            else:
+                final_response = f"{agent_final_message}\n\nHere's the data:\n{tool_response_data}"
+        else:
+            final_response = agent_final_message
     
     # Check if any tools used during execution produce user data
     # We need to get the available tools to check their metadata
@@ -309,6 +339,176 @@ You are tasked with executing step {current_step_num}: {task}.
         stop_words = {"the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by"}
         semantic_tags = {tag for tag in semantic_tags if len(tag) > 2 and tag not in stop_words}
         
+        # Find previous nodes to relate to (previous steps in execution)
+        relates_to = []
+        related_entities = []
+        
+        # Get all nodes and find recent execution steps
+        recent_nodes = memory.retrieve_relevant(
+            query_text="",
+            max_age_hours=0.5,  # Last 30 minutes
+            min_relevance=0,
+            max_results=20
+        )
+        
+        # Link to the most recent execution step if any
+        previous_step = None
+        for node in recent_nodes:
+            if node.context_type in {ContextType.COMPLETED_ACTION, ContextType.SEARCH_RESULT}:
+                relates_to.append(node.node_id)
+                previous_step = node
+                break  # Just link to the most recent one
+        
+        # Use intelligent entity extraction
+        from .entity_extractor import extract_entities_intelligently
+        
+        # Determine context from the task
+        extraction_context = {
+            'task': task,
+            'agent': 'unknown'
+        }
+        
+        # Identify which agent was used
+        for message in agent_response.get("messages", []):
+            if hasattr(message, 'tool_calls') and message.tool_calls:
+                for tool_call in message.tool_calls:
+                    tool_name = tool_call.get("name", "").lower()
+                    if 'salesforce' in tool_name:
+                        extraction_context['agent'] = 'salesforce'
+                        extraction_context['system'] = 'salesforce'
+                        break
+                    elif 'jira' in tool_name:
+                        extraction_context['agent'] = 'jira'
+                        extraction_context['system'] = 'jira'
+                        break
+                    elif 'servicenow' in tool_name:
+                        extraction_context['agent'] = 'servicenow'
+                        extraction_context['system'] = 'servicenow'
+                        break
+        
+        # Extract entities from all available data
+        all_data_sources = []
+        
+        # 1. Tool response data
+        if tool_response_data:
+            all_data_sources.append(tool_response_data)
+        
+        # 2. Message contents
+        for message in agent_response.get("messages", []):
+            if hasattr(message, 'content'):
+                try:
+                    import json
+                    content = json.loads(message.content) if isinstance(message.content, str) else message.content
+                    if isinstance(content, dict) and content.get('success'):
+                        if 'data' in content:
+                            all_data_sources.append(content['data'])
+                except:
+                    pass
+        
+        # 3. Even check the final response text for entity IDs
+        all_data_sources.append(final_response)
+        
+        # Extract entities intelligently
+        extracted_entities = []
+        for data_source in all_data_sources:
+            entities = extract_entities_intelligently(data_source, extraction_context)
+            extracted_entities.extend(entities)
+        
+        # Deduplicate by ID
+        entity_map = {}
+        for entity_info in extracted_entities:
+            entity_id = entity_info['id']
+            if entity_id not in entity_map or entity_info['confidence'] > entity_map[entity_id]['confidence']:
+                entity_map[entity_id] = entity_info
+        
+        logger.info("INTELLIGENT_ENTITY_EXTRACTION",
+                   component="orchestrator",
+                   operation="execute_step",
+                   total_entities_found=len(entity_map),
+                   extraction_context=extraction_context,
+                   entity_types=list(set(e['type'] for e in entity_map.values())),
+                   systems=list(set(e['system'] for e in entity_map.values())))
+        
+        # Create or link to domain entity nodes
+        for entity_key, entity_info in entity_map.items():
+            # Check if we already have this entity in memory
+            entity_node = None
+            for node in recent_nodes:
+                if node.context_type == ContextType.DOMAIN_ENTITY:
+                    node_content = node.content if isinstance(node.content, dict) else {}
+                    if (entity_info['id'] and node_content.get('entity_id') == entity_info['id']) or \
+                       (entity_info['name'] and node_content.get('entity_name') == entity_info['name']):
+                        entity_node = node
+                        break
+            
+            if not entity_node and (entity_info['id'] or entity_info['name']):
+                # Create new domain entity node
+                entity_tags = set()
+                if entity_info['name']:
+                    # Extract meaningful words from name for tags
+                    name_words = entity_info['name'].lower().split() if entity_info['name'] else []
+                    entity_tags.update(word for word in name_words if len(word) > 2 and word not in stop_words)
+                if entity_info['type']:
+                    entity_tags.add(entity_info['type'].lower())
+                if entity_info['system']:
+                    entity_tags.add(entity_info['system'])
+                
+                # Add confidence to relevance
+                base_relevance = 0.6 + (entity_info['confidence'] * 0.3)
+                
+                # Debug logging for entity storage
+                logger.info("storing_entity_in_memory",
+                          entity_id=entity_info['id'],
+                          entity_name=entity_info['name'],
+                          entity_type=entity_info['type'],
+                          has_name=bool(entity_info['name']),
+                          data_keys=list(entity_info.get('data', {}).keys()) if isinstance(entity_info.get('data'), dict) else None)
+                
+                entity_node_id = memory.store(
+                    content={
+                        "entity_id": entity_info['id'],
+                        "entity_name": entity_info['name'],
+                        "entity_type": entity_info['type'],
+                        "entity_system": entity_info['system'],
+                        "entity_data": entity_info['data'],
+                        "entity_relationships": entity_info.get('relationships', []),
+                        "extraction_confidence": entity_info['confidence'],
+                        "first_seen": datetime.now().isoformat(),
+                        "last_accessed": datetime.now().isoformat()
+                    },
+                    context_type=ContextType.DOMAIN_ENTITY,
+                    tags=entity_tags,
+                    base_relevance=base_relevance,
+                    summary=f"{entity_info['type']}: {entity_info['name'] or entity_info['id']}"
+                )
+                related_entities.append(entity_node_id)
+                
+                # Create relationships to other entities
+                for related_id, rel_type in entity_info.get('relationships', []):
+                    # Check if related entity exists in our current batch
+                    if related_id in entity_map:
+                        # We'll create this relationship after all entities are stored
+                        pass
+                    else:
+                        # Create a placeholder relationship that can be resolved later
+                        logger.debug("entity_relationship_found",
+                                   from_entity=entity_info['id'],
+                                   to_entity=related_id,
+                                   relationship=rel_type)
+                
+                # Notify about new entity
+                try:
+                    from .memory_observer import notify_memory_update
+                    node = memory.nodes.get(entity_node_id)
+                    if node:
+                        notify_memory_update(thread_id, entity_node_id, node, state.get("task_id"))
+                except:
+                    pass
+            elif entity_node:
+                related_entities.append(entity_node.node_id)
+                # Update last accessed time
+                entity_node.access()
+        
         # Store in memory (auto-summary will be generated from actual content)
         memory_node_id = memory.store(
             content={
@@ -327,8 +527,88 @@ You are tasked with executing step {current_step_num}: {task}.
             context_type=context_type,
             tags=semantic_tags,
             base_relevance=0.9 if produced_user_data else 0.7,
-            auto_summarize=True
+            auto_summarize=True,
+            relates_to=relates_to  # Create relationship to previous step
         )
+        
+        # Create relationships
+        # 1. Led-to relationship with previous step
+        if relates_to and len(relates_to) > 0:
+            memory.add_relationship(
+                relates_to[0],  # Previous step
+                memory_node_id,  # Current step
+                RelationshipType.LED_TO
+            )
+            
+            # Notify observer about the edge
+            try:
+                from .memory_observer import notify_memory_edge
+                notify_memory_edge(
+                    thread_id,
+                    relates_to[0],
+                    memory_node_id,
+                    RelationshipType.LED_TO,
+                    state.get("task_id")
+                )
+            except Exception as e:
+                logger.warning("memory_edge_notification_failed", error=str(e))
+        
+        # 2. Relationships with entities this action interacted with
+        for entity_id in related_entities:
+            # Determine relationship type based on action
+            if produced_user_data:
+                # This action retrieved/searched for the entity
+                rel_type = RelationshipType.ANSWERS  # Action answers query about entity
+                memory.add_relationship(memory_node_id, entity_id, rel_type)
+            else:
+                # This action modified or worked with the entity
+                rel_type = RelationshipType.REFINES  # Action refines/updates entity
+                memory.add_relationship(memory_node_id, entity_id, rel_type)
+            
+            # Also create reverse relationship - entity relates to this action
+            memory.add_relationship(entity_id, memory_node_id, RelationshipType.RELATES_TO)
+            
+            # Notify about relationships
+            try:
+                from .memory_observer import notify_memory_edge
+                notify_memory_edge(thread_id, memory_node_id, entity_id, rel_type, state.get("task_id"))
+                notify_memory_edge(thread_id, entity_id, memory_node_id, RelationshipType.RELATES_TO, state.get("task_id"))
+            except:
+                pass
+        
+        # 3. If we detected tool calls, create tool_output nodes
+        tool_calls = [
+            {"tool": tc.get("name"), "args": tc.get("args", {})} 
+            for msg in agent_response["messages"] 
+            if hasattr(msg, 'tool_calls') and msg.tool_calls
+            for tc in msg.tool_calls
+        ]
+        
+        for tool_call in tool_calls:
+            tool_node_id = memory.store(
+                content={
+                    "tool": tool_call["tool"],
+                    "args": tool_call["args"],
+                    "timestamp": datetime.now().isoformat()
+                },
+                context_type=ContextType.TOOL_OUTPUT,
+                tags={tool_call["tool"].lower()},
+                base_relevance=0.6,
+                summary=f"Tool call: {tool_call['tool']}"
+            )
+            
+            # Tool output depends on the action
+            memory.add_relationship(tool_node_id, memory_node_id, RelationshipType.DEPENDS_ON)
+            
+            # Notify
+            try:
+                from .memory_observer import notify_memory_update, notify_memory_edge
+                node = memory.nodes.get(tool_node_id)
+                if node:
+                    notify_memory_update(thread_id, tool_node_id, node, state.get("task_id"))
+                notify_memory_edge(thread_id, tool_node_id, memory_node_id, RelationshipType.DEPENDS_ON, state.get("task_id"))
+            except:
+                pass
         
         logger.info("stored_execution_result_in_memory",
                    component="orchestrator",
@@ -336,7 +616,17 @@ You are tasked with executing step {current_step_num}: {task}.
                    memory_node_id=memory_node_id,
                    context_type=context_type.value,
                    tags=list(semantic_tags),
-                   produced_user_data=produced_user_data)
+                   produced_user_data=produced_user_data,
+                   linked_to_previous=bool(relates_to))
+        
+        # Notify observers about memory update
+        try:
+            from .memory_observer import notify_memory_update
+            node = memory.nodes.get(memory_node_id)
+            if node:
+                notify_memory_update(thread_id, memory_node_id, node, state.get("task_id"))
+        except Exception as e:
+            logger.warning("memory_observer_notification_failed", error=str(e))
         
     except Exception as e:
         logger.error("failed_to_store_execution_result",
@@ -432,7 +722,22 @@ def plan_step(state: PlanExecute):
     planning_messages.append(HumanMessage(content=planning_input))  # Add enhanced planning request
     
     plan = asyncio.run(planner.ainvoke({"messages": planning_messages}))
-    return {"plan": plan.steps}
+    
+    # Emit memory graph snapshot after plan creation
+    try:
+        from .memory_observer import get_memory_observer
+        observer = get_memory_observer()
+        observer.emit_graph_snapshot(thread_id, state.get("task_id"))
+    except Exception as e:
+        logger.warning("memory_snapshot_emission_failed", error=str(e))
+    
+    # Set the offset to mark where this plan starts in past_steps
+    current_past_steps_length = len(state.get("past_steps", []))
+    
+    return {
+        "plan": plan.steps,
+        "plan_step_offset": current_past_steps_length
+    }
 
 
 @log_execution("orchestrator", "replan_step", include_args=True, include_result=True)
@@ -445,9 +750,12 @@ def replan_step(state: PlanExecute):
     thread_id = state.get("thread_id", "default-thread")
     memory = get_thread_memory(thread_id)
     
-    # Format past_steps for the template
+    # Format past_steps for the template - only include steps from current plan
+    plan_offset = state.get("plan_step_offset", 0)
+    current_plan_steps = state["past_steps"][plan_offset:]  # Only steps from current plan
+    
     past_steps_str = ""
-    for i, (step, result) in enumerate(state["past_steps"]):
+    for i, (step, result) in enumerate(current_plan_steps):
         past_steps_str += f"Step {i + 1}: {step}\nResult: {result}\n\n"
     
     # MEMORY ENHANCEMENT: Add recent context for replanning decisions
@@ -490,7 +798,7 @@ def replan_step(state: PlanExecute):
                thread_id=thread_id,
                decision_type="Response" if isinstance(output.action, Response) else "Plan",
                will_end_workflow=isinstance(output.action, Response),
-               completed_vs_total=f"{len(state.get('past_steps', []))}/{len(state.get('plan', []))}")
+               completed_vs_total=f"{len(current_plan_steps)}/{len(state.get('plan', []))}")
     
     if isinstance(output.action, Response):
         # CRITICAL: Task is completing - trigger memory decay for task-specific context

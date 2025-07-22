@@ -109,6 +109,14 @@ class BaseSalesforceTool(BaseTool, ABC):
         
         return None
     
+    def _log_error(self, error: Exception) -> None:
+        """Log error details using SmartLogger."""
+        logger.error("salesforce_tool_error",
+                    tool_name=self.name,
+                    error_type=type(error).__name__,
+                    error_message=str(error),
+                    error_details=getattr(error, 'content', None))
+    
     def _handle_error(self, error: Exception) -> Dict[str, Any]:
         """Convert exception to standardized error response."""
         self._log_error(error)
@@ -173,20 +181,24 @@ class BaseSalesforceTool(BaseTool, ABC):
                 "operation": self.name
             }
     
-    @log_execution("salesforce", "tool_execute", include_args=False, include_result=False)
+    @log_execution("salesforce", "tool_execute", include_args=True, include_result=True)
     def _run(self, **kwargs) -> Any:
         """Execute tool with automatic logging and error handling."""
         try:
             result = self._execute(**kwargs)
             
             # Wrap successful result in standardized format
-            return {
+            wrapped_response = {
                 "success": True,
                 "data": result,
                 "operation": self.name
             }
+            
+            return wrapped_response
+            
         except Exception as e:
-            return self._handle_error(e)
+            error_response = self._handle_error(e)
+            return error_response
     
     @abstractmethod
     def _execute(self, **kwargs) -> Any:

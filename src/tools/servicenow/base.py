@@ -201,7 +201,7 @@ class BaseServiceNowTool(BaseTool, ABC):
                 "operation": self.name
             }
     
-    @log_execution("servicenow", "tool_execute", include_args=False, include_result=False)
+    @log_execution("servicenow", "tool_execute", include_args=True, include_result=True)
     def _run(self, **kwargs) -> Any:
         """Execute tool with automatic logging and error handling."""
         self._log_call(**kwargs)

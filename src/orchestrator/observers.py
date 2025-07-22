@@ -94,6 +94,28 @@ class PlanUpdatedEvent(WorkflowEvent):
     status: str = "in_progress"  # "in_progress", "completed", "failed"
 
 
+@dataclass
+class MemoryNodeAddedEvent(WorkflowEvent):
+    """Event fired when a memory node is added to the graph."""
+    node_id: str = ""
+    node_data: Dict[str, Any] = field(default_factory=dict)
+    thread_id: str = ""
+
+
+@dataclass
+class MemoryEdgeAddedEvent(WorkflowEvent):
+    """Event fired when an edge is added between memory nodes."""
+    edge_data: Dict[str, Any] = field(default_factory=dict)
+    thread_id: str = ""
+
+
+@dataclass
+class MemoryGraphSnapshotEvent(WorkflowEvent):
+    """Event fired with a full snapshot of the memory graph."""
+    graph_data: Dict[str, Any] = field(default_factory=dict)
+    thread_id: str = ""
+
+
 class PlanExecuteObserver(ABC):
     """Abstract base class for plan-execute workflow observers."""
     
@@ -135,6 +157,18 @@ class PlanExecuteObserver(ABC):
     @abstractmethod
     def on_plan_updated(self, event: PlanUpdatedEvent) -> None:
         """Called with full plan status update."""
+        pass
+    
+    def on_memory_node_added(self, event: MemoryNodeAddedEvent) -> None:
+        """Called when a memory node is added. Default implementation does nothing."""
+        pass
+    
+    def on_memory_edge_added(self, event: MemoryEdgeAddedEvent) -> None:
+        """Called when a memory edge is added. Default implementation does nothing."""
+        pass
+    
+    def on_memory_graph_snapshot(self, event: MemoryGraphSnapshotEvent) -> None:
+        """Called with memory graph snapshot. Default implementation does nothing."""
         pass
 
 
@@ -375,6 +409,31 @@ class SSEObserver(PlanExecuteObserver):
             "failed_steps": event.failed_steps,
             "status": event.status
         })
+    
+    def on_memory_node_added(self, event: MemoryNodeAddedEvent) -> None:
+        """Emit memory_node_added SSE event."""
+        self._emit_sse_threadsafe("memory_node_added", {
+            "task_id": event.task_id,
+            "thread_id": event.thread_id,
+            "node_id": event.node_id,
+            "node_data": event.node_data
+        })
+    
+    def on_memory_edge_added(self, event: MemoryEdgeAddedEvent) -> None:
+        """Emit memory_edge_added SSE event."""
+        self._emit_sse_threadsafe("memory_edge_added", {
+            "task_id": event.task_id,
+            "thread_id": event.thread_id,
+            "edge_data": event.edge_data
+        })
+    
+    def on_memory_graph_snapshot(self, event: MemoryGraphSnapshotEvent) -> None:
+        """Emit memory_graph_snapshot SSE event."""
+        self._emit_sse_threadsafe("memory_graph_snapshot", {
+            "task_id": event.task_id,
+            "thread_id": event.thread_id,
+            "graph_data": event.graph_data
+        })
 
 
 class ObserverRegistry:
@@ -434,6 +493,21 @@ class ObserverRegistry:
         """Notify all observers of plan updates."""
         for observer in self.observers:
             observer.on_plan_updated(event)
+    
+    def notify_memory_node_added(self, event: MemoryNodeAddedEvent):
+        """Notify all observers of memory node addition."""
+        for observer in self.observers:
+            observer.on_memory_node_added(event)
+    
+    def notify_memory_edge_added(self, event: MemoryEdgeAddedEvent):
+        """Notify all observers of memory edge addition."""
+        for observer in self.observers:
+            observer.on_memory_edge_added(event)
+    
+    def notify_memory_graph_snapshot(self, event: MemoryGraphSnapshotEvent):
+        """Notify all observers of memory graph snapshot."""
+        for observer in self.observers:
+            observer.on_memory_graph_snapshot(event)
 
 
 # Global observer registry - will be initialized by the plan-execute workflow

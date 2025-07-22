@@ -489,10 +489,16 @@ class OrchestatorApp(App):
                     classes="input-field"
                 )
             
-            # Right panel - plan status
+            # Right panel - split between plan status and memory graph
             with Vertical(classes="right-panel"):
-                self.plan_widget = PlanStatusWidget(classes="plan-status")
+                # Top half - plan status
+                self.plan_widget = PlanStatusWidget(classes="plan-status half-height")
                 yield self.plan_widget
+                
+                # Bottom half - memory graph
+                from src.utils.ui.memory_graph_widget import MemoryGraphWidget
+                self.memory_graph_widget = MemoryGraphWidget(classes="memory-graph half-height")
+                yield self.memory_graph_widget
         
         yield Footer()
     
@@ -524,9 +530,10 @@ class OrchestatorApp(App):
         # Add user message to conversation
         await self.conversation_widget.add_user_message(user_input)
         
-        # Send to orchestrator
-        await self.send_to_orchestrator(user_input)
+        # Send to orchestrator (runs in background worker)
+        self.send_to_orchestrator(user_input)
     
+    @work(exclusive=False)
     async def send_to_orchestrator(self, user_input: str) -> None:
         """Send user input to the orchestrator via A2A protocol."""
         spinner_widget = None
@@ -774,6 +781,15 @@ class OrchestatorApp(App):
                 self.plan_widget.handle_sse_plan_modified(data)
             elif event_type == "plan_updated":
                 self.plan_widget.handle_sse_plan_updated(data)
+        
+        # Route memory events to memory graph widget
+        if self.memory_graph_widget:
+            if event_type in ["memory_node_added", "memory_edge_added", 
+                            "memory_graph_snapshot", "memory_node_accessed"]:
+                self.memory_graph_widget.handle_sse_memory_update({
+                    "event_type": event_type.replace("memory_", ""),
+                    **data
+                })
     
     def set_plan_task_id(self, task_id: str):
         """Set the current task ID for plan tracking."""
