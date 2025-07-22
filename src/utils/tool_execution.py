@@ -8,12 +8,13 @@ which is the modern LangGraph pattern for state management and tool execution.
 import uuid
 from typing import Dict, Any, List
 from langchain_core.messages import ToolMessage
-from src.utils.logging import get_logger
+from src.utils.logging import get_smart_logger, log_execution
 
 # Initialize logger
-logger = get_logger()
+logger = get_smart_logger("utility")
 
 
+@log_execution(component="utility", operation="execute_command_tools")
 async def execute_command_tools(state: Dict[str, Any], tools: List[Any], component: str = "tools") -> Dict[str, Any]:
     """
     Execute tools that may return Command objects and handle state updates.
@@ -60,10 +61,10 @@ async def execute_command_tools(state: Dict[str, Any], tools: List[Any], compone
                 
                 # Log tool call - IDENTICAL format to orchestrator
                 logger.info("tool_call",
-                    component=component,
                     tool_name=tool_name,
                     tool_args=clean_args,
-                    tool_call_id=tool_call_id
+                    tool_call_id=tool_call_id,
+                    execution_component=component
                 )
                 
                 # Call tool with state injection
@@ -74,11 +75,11 @@ async def execute_command_tools(state: Dict[str, Any], tools: List[Any], compone
                 
                 # Log tool success - IDENTICAL format to orchestrator pattern
                 logger.info("tool_result",
-                    component=component,
                     tool_name=tool_name,
                     tool_call_id=tool_call_id,
                     result_type=type(result).__name__,
-                    result_preview=str(result)[:200] if result else "None"
+                    result_preview=str(result)[:200] if result else "None",
+                    execution_component=component
                 )
                 
                 # Handle Command result
@@ -99,11 +100,11 @@ async def execute_command_tools(state: Dict[str, Any], tools: List[Any], compone
             except Exception as e:
                 # Log tool call error
                 logger.error("tool_call_error",
-                    component=component,
                     tool_name=tool_name,
                     tool_call_id=tool_call_id,
                     error=str(e),
-                    error_type=type(e).__name__
+                    error_type=type(e).__name__,
+                    execution_component=component
                 )
                 
                 # Error handling

@@ -2,11 +2,12 @@
 
 from typing import List, Dict, Any
 
-from .logging import get_logger
+from .logging import SmartLogger, log_execution
 
-logger = get_logger()
+logger = SmartLogger(component="utils")
 
 
+@log_execution
 def serialize_message(message) -> Dict[str, Any]:
     """Serialize a LangChain message to JSON-compatible dict.
     
@@ -42,7 +43,6 @@ def serialize_message(message) -> Dict[str, Any]:
         # Ensure we have at minimum the required fields
         if "type" not in result and "content" not in result:
             logger.warning("serialized_message_incomplete",
-                component="utils",
                 operation="serialize_message",
                 result=result
             )
@@ -54,7 +54,6 @@ def serialize_message(message) -> Dict[str, Any]:
         
     except Exception as e:
         logger.error("message_serialization_failed",
-            component="utils",
             operation="serialize_message",
             message_type=type(message).__name__,
             error=str(e),
@@ -68,6 +67,7 @@ def serialize_message(message) -> Dict[str, Any]:
         }
 
 
+@log_execution
 def serialize_messages(messages: List) -> List[Dict[str, Any]]:
     """
     Serialize a list of LangChain messages to JSON-compatible format.
@@ -81,6 +81,7 @@ def serialize_messages(messages: List) -> List[Dict[str, Any]]:
     return [serialize_message(msg) for msg in messages]
 
 
+@log_execution
 def serialize_recent_messages(messages: List, count: int = 5) -> List[Dict[str, Any]]:
     """
     Serialize the most recent N messages for context passing.

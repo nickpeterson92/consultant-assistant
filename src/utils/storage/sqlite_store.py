@@ -22,10 +22,10 @@ import sqlite3
 import json
 import asyncio
 from langgraph.store.base import BaseStore  # Adjust this import as needed
-from src.utils.logging import get_logger
+from src.utils.logging import get_smart_logger, log_execution
 
 # Initialize logger
-logger = get_logger()
+logger = get_smart_logger("storage")
 
 class SQLiteStore(BaseStore):
     """Thread-safe SQLite key-value store with namespace support.
@@ -63,7 +63,7 @@ class SQLiteStore(BaseStore):
         self.db_path = db_path
         self.conn = sqlite3.connect(self.db_path)
         self._create_table()
-        logger.info("sqlite_init", component="storage", db_path=db_path)
+        logger.info("sqlite_init", db_path=db_path)
 
     def get_connection(self, db_path: str = None):
         """Create a new SQLiteStore instance for thread-safe operations.
@@ -111,6 +111,7 @@ class SQLiteStore(BaseStore):
         )
         self.conn.commit()
 
+    @log_execution(component="storage", operation="get")
     def get(self, namespace, key):
         """Retrieve a value from the store by namespace and key.
         
@@ -136,12 +137,13 @@ class SQLiteStore(BaseStore):
         )
         row = cursor.fetchone()
         result = json.loads(row[0]) if row else None
-        logger.info("sqlite_get", component="storage", 
-                               namespace=namespace, 
-                               key=key, 
-                               found=result is not None)
+        logger.info("sqlite_get", 
+                   namespace=namespace, 
+                   key=key, 
+                   found=result is not None)
         return result
 
+    @log_execution(component="storage", operation="put")
     def put(self, namespace, key, value):
         """Store or update a value in the SQLite store.
         
@@ -198,10 +200,11 @@ class SQLiteStore(BaseStore):
             (json.dumps(namespace), key, json.dumps(value))
         )
         self.conn.commit()
-        logger.info("sqlite_put", component="storage", 
-                               namespace=namespace, 
-                               key=key)
+        logger.info("sqlite_put", 
+                   namespace=namespace, 
+                   key=key)
 
+    @log_execution(component="storage", operation="delete")
     def delete(self, namespace, key):
         """Remove a value from the store by namespace and key.
         
@@ -246,39 +249,19 @@ class SQLiteStore(BaseStore):
             This design choice simplifies error handling and supports
             idempotent operations in distributed systems.
         """
-        # Log database delete start
-        logger.info("database_delete_start",
-            component="storage",
-            operation="delete",
-            namespace=str(namespace),
-            key=key
+        cursor = self.conn.execute(
+            "DELETE FROM store WHERE namespace = ? AND key = ?",
+            (json.dumps(namespace), key)
         )
+        self.conn.commit()
         
-        try:
-            cursor = self.conn.execute(
-                "DELETE FROM store WHERE namespace = ? AND key = ?",
-                (json.dumps(namespace), key)
-            )
-            self.conn.commit()
-            
-            logger.info("database_delete_success",
-                component="storage",
-                operation="delete",
-                namespace=str(namespace),
-                key=key,
-                rows_affected=cursor.rowcount
-            )
-        except Exception as e:
-            logger.error("database_delete_error",
-                component="storage",
-                operation="delete",
-                namespace=str(namespace),
-                key=key,
-                error=str(e),
-                error_type=type(e).__name__
-            )
-            raise
+        logger.info("database_delete_success",
+            namespace=str(namespace),
+            key=key,
+            rows_affected=cursor.rowcount
+        )
 
+    @log_execution(component="storage", operation="batch")
     def batch(self, items: list[tuple]) -> None:
         """Perform multiple storage operations in a single batch.
         
@@ -343,6 +326,7 @@ class SQLiteStore(BaseStore):
         for ns, key, value in items:
             self.put(ns, key, value)
 
+    @log_execution(component="storage", operation="abatch")
     async def abatch(self, items: list[tuple]) -> None:
         """Asynchronously perform multiple storage operations with cooperative yielding.
         

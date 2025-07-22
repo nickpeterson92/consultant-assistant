@@ -5,7 +5,7 @@ import argparse
 from typing import Dict, Any
 
 from src.a2a import A2AServer, AgentCard
-from src.utils.logging import get_logger
+from src.utils.logging import get_smart_logger, log_execution
 from .a2a_handler import OrchestratorA2AHandler
 from .plan_and_execute import create_plan_execute_graph
 from .observers import get_observer_registry, SSEObserver
@@ -13,7 +13,7 @@ import json
 from aiohttp import web
 from aiohttp.web_response import StreamResponse
 
-logger = get_logger("orchestrator")
+logger = get_smart_logger("orchestrator")
 
 # Global SSE observer instance
 sse_observer: SSEObserver = None
@@ -32,7 +32,6 @@ async def handle_sse_stream(request: web.Request) -> StreamResponse:
     await response.prepare(request)
     
     logger.info("sse_client_connected",
-               component="orchestrator", 
                client_ip=request.remote)
     
     # Send any queued messages first
@@ -46,18 +45,15 @@ async def handle_sse_stream(request: web.Request) -> StreamResponse:
                 await response.drain()  # Ensure data is flushed to client
         except Exception as e:
             logger.error("sse_queue_replay_failed",
-                        component="orchestrator", 
                         error=str(e))
     
     # Set up client callback for new messages
     async def send_message(message: Dict):
         logger.info("SSE_CALLBACK_ENTRY",
-                   component="orchestrator",
                    event_type=message.get('event'),
                    message_keys=list(message.keys()))
         try:
             logger.info("sse_callback_triggered",
-                       component="orchestrator",
                        event_type=message.get('event'),
                        response_closed=response._closed if hasattr(response, '_closed') else False)
             
@@ -66,7 +62,6 @@ async def handle_sse_stream(request: web.Request) -> StreamResponse:
             sse_data = f"data: {json.dumps(sse_payload)}\n\n"
             
             logger.info("sse_writing_data",
-                       component="orchestrator",
                        event_type=message.get('event'),
                        data_length=len(sse_data))
             
@@ -74,12 +69,10 @@ async def handle_sse_stream(request: web.Request) -> StreamResponse:
             await response.drain()  # Ensure data is flushed to client
             
             logger.info("sse_message_sent",
-                       component="orchestrator",
                        event_type=message.get('event'),
                        client_count=len(sse_observer._observers) if sse_observer else 0)
         except Exception as e:
             logger.error("sse_message_send_failed",
-                        component="orchestrator",
                         error=str(e),
                         error_type=type(e).__name__)
             # Remove this callback since it's broken
@@ -96,7 +89,6 @@ async def handle_sse_stream(request: web.Request) -> StreamResponse:
             await asyncio.sleep(1)
     except Exception as e:
         logger.info("sse_client_disconnected",
-                   component="orchestrator",
                    client_ip=request.remote,
                    reason=str(e))
     finally:
@@ -107,11 +99,11 @@ async def handle_sse_stream(request: web.Request) -> StreamResponse:
     return response
 
 
+@log_execution(component="orchestrator", operation="create_a2a_server")
 async def create_orchestrator_a2a_server(host: str = "0.0.0.0", port: int = 8000):
     """Create and configure the orchestrator A2A server."""
     
     logger.info("orchestrator_a2a_starting",
-                component="orchestrator",
                 host=host,
                 port=port)
     
@@ -121,21 +113,17 @@ async def create_orchestrator_a2a_server(host: str = "0.0.0.0", port: int = 8000
     registry = get_observer_registry()
     registry.add_observer(sse_observer)
     
-    logger.info("sse_observer_registered",
-               component="orchestrator")
+    logger.info("sse_observer_registered")
     
     # Create the plan-execute graph (with observer already registered)
-    logger.info("creating_plan_execute_graph",
-                component="orchestrator")
+    logger.info("creating_plan_execute_graph")
     
     try:
         graph = await create_plan_execute_graph()
         logger.info("plan_execute_graph_created",
-                    component="orchestrator",
                     success=True)
     except Exception as e:
         logger.error("plan_execute_graph_creation_failed",
-                     component="orchestrator",
                      error=str(e))
         raise
     
@@ -176,12 +164,12 @@ async def create_orchestrator_a2a_server(host: str = "0.0.0.0", port: int = 8000
     server.app.router.add_get("/a2a/stream", handle_sse_stream)
     
     logger.info("orchestrator_a2a_configured",
-                component="orchestrator",
                 endpoints=list(agent_card.endpoints.keys()))
     
     return server
 
 
+@log_execution(component="orchestrator", operation="main_server")
 async def main(host: str = "0.0.0.0", port: int = 8000):
     """Main function to run the orchestrator A2A server."""
     
@@ -193,7 +181,6 @@ async def main(host: str = "0.0.0.0", port: int = 8000):
         runner = await server.start()
         
         logger.info("orchestrator_a2a_started",
-                    component="orchestrator",
                     host=host,
                     port=port,
                     endpoint=f"http://{host}:{port}")
@@ -203,32 +190,30 @@ async def main(host: str = "0.0.0.0", port: int = 8000):
             await asyncio.sleep(1)
             
     except KeyboardInterrupt:
-        logger.info("orchestrator_a2a_shutdown",
-                    component="orchestrator")
+        logger.info("orchestrator_a2a_shutdown")
     finally:
         # Always clean up resources on exit
-        logger.info("cleanup_starting", component="orchestrator")
+        logger.info("cleanup_starting")
         
         try:
             await server.stop(runner)
         except Exception as e:
-            logger.warning("server_stop_error", component="orchestrator", error=str(e))
+            logger.warning("server_stop_error", error=str(e))
         
         # Clean up A2A connection pool
         from src.a2a.protocol import get_connection_pool
         try:
             pool = get_connection_pool()
             await pool.close_all()
-            logger.info("connection_pool_closed", component="orchestrator")
+            logger.info("connection_pool_closed")
         except Exception as e:
             logger.warning("connection_pool_cleanup_error",
-                          component="orchestrator",
                           error=str(e))
         
         # Give a moment for cleanup to complete
         await asyncio.sleep(0.1)
         
-        logger.info("cleanup_complete", component="orchestrator")
+        logger.info("cleanup_complete")
 
 
 if __name__ == "__main__":

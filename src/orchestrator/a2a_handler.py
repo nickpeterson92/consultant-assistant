@@ -187,10 +187,6 @@ class OrchestratorA2AHandler:
                            task_id=task_id,
                            was_resume=is_resume)
             
-            logger.info("a2a_task_complete",
-                       component="orchestrator",
-                       task_id=task_id,
-                       success=True)
             
             return {
                 "artifacts": [{
@@ -239,10 +235,6 @@ class OrchestratorA2AHandler:
             }
             
         except Exception as e:
-            logger.error("a2a_task_error",
-                        component="orchestrator",
-                        task_id=task_id,
-                        error=str(e))
             
             # Mark task as failed
             if task_id in self.active_tasks:

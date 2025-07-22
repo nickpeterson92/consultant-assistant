@@ -2,12 +2,20 @@
 
 import os
 import json
-import logging
 from typing import Dict, Any, Optional, Union
 from pathlib import Path
 
 
-logger = logging.getLogger(__name__)
+# Import logger after class definition to avoid circular imports
+logger = None
+
+def _get_logger():
+    """Lazy logger initialization to avoid circular imports."""
+    global logger
+    if logger is None:
+        from ..logging import get_smart_logger
+        logger = get_smart_logger("system")
+    return logger
 
 
 class ConfigError(Exception):
@@ -37,10 +45,10 @@ class UnifiedConfig:
         self._load_secrets()
         self._apply_env_overrides()
         
-        logger.info("unified_config_loaded", 
-                   config_file=config_file,
-                   secrets_loaded=len(self._secrets),
-                   config_sections=list(self._config.keys()))
+        _get_logger().info("unified_config_loaded", 
+                          config_file=config_file,
+                          secrets_loaded=len(self._secrets),
+                          config_sections=list(self._config.keys()))
     
     def _get_code_defaults(self) -> Dict[str, Any]:
         """Code defaults as fallback."""
@@ -108,18 +116,18 @@ class UnifiedConfig:
                 
                 # Merge with defaults (file config takes precedence)
                 self._config = self._deep_merge(self._defaults, file_config)
-                logger.info("config_file_loaded", 
-                           path=str(config_path),
-                           sections=list(file_config.keys()))
+                _get_logger().info("config_file_loaded", 
+                                  path=str(config_path),
+                                  sections=list(file_config.keys()))
             else:
-                logger.warning("config_file_not_found", 
-                              path=str(config_path),
-                              using_defaults=True)
+                _get_logger().warning("config_file_not_found", 
+                                     path=str(config_path),
+                                     using_defaults=True)
                 self._config = self._defaults.copy()
         except Exception as e:
-            logger.error("config_file_load_error", 
-                        error=str(e),
-                        using_defaults=True)
+            _get_logger().error("config_file_load_error", 
+                               error=str(e),
+                               using_defaults=True)
             self._config = self._defaults.copy()
     
     def _load_secrets(self):
@@ -155,9 +163,9 @@ class UnifiedConfig:
             if value:
                 self._secrets[key] = value
         
-        logger.info("secrets_loaded", 
-                   secret_count=len(self._secrets),
-                   secret_keys=list(self._secrets.keys()))
+        _get_logger().info("secrets_loaded", 
+                          secret_count=len(self._secrets),
+                          secret_keys=list(self._secrets.keys()))
     
     def _apply_env_overrides(self):
         """Apply environment variable overrides for non-sensitive config."""
@@ -187,10 +195,10 @@ class UnifiedConfig:
                 # Convert to appropriate type
                 converted_value = self._convert_env_value(value)
                 self._set_nested_value(self._config, config_path, converted_value)
-                logger.debug("env_override_applied", 
-                           env_var=env_var,
-                           config_path=config_path,
-                           value=converted_value)
+                _get_logger().debug("env_override_applied", 
+                                   env_var=env_var,
+                                   config_path=config_path,
+                                   value=converted_value)
     
     def _convert_env_value(self, value: str) -> Union[str, int, float, bool]:
         """Convert environment variable string to appropriate type."""

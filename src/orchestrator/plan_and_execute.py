@@ -110,29 +110,14 @@ def execute_step(state: PlanExecute):
     # Calculate current step number dynamically
     current_step_num = len(state.get("past_steps", [])) + 1
     
-    logger.info("execute_step_start",
-               operation="execute_step", 
-               thread_id=thread_id,
-               current_step=current_step_num,
-               total_plan_steps=len(plan),
-               task_preview=task[:100])
-    
     # Include past_steps context (preserve original LangGraph structure)
     past_steps_context = ""
     past_steps = state.get("past_steps", [])
-    
-    logger.info(f"DEBUG: past_steps available: {len(past_steps)} steps", 
-               component="orchestrator", operation="execute_step")
     
     if past_steps:
         past_steps_context = "\n\nPREVIOUS STEPS COMPLETED:\n"
         for i, (step_desc, result) in enumerate(past_steps, 1):
             past_steps_context += f"Step {i}: {step_desc}\nResult: {result}\n\n"
-            logger.info(f"DEBUG: Added past step {i}: {step_desc[:50]}...", 
-                       component="orchestrator", operation="execute_step")
-    else:
-        logger.warning("DEBUG: No past_steps found in state!", 
-                      component="orchestrator", operation="execute_step")
     
     # MEMORY ENHANCEMENT: Add intelligent memory context as supplementary information
     memory_context = ""
@@ -393,13 +378,6 @@ def plan_step(state: PlanExecute):
     thread_id = state.get("thread_id", "default-thread")
     memory = get_thread_memory(thread_id)
     
-    logger.info("plan_step_start",
-               operation="plan_step",
-               thread_id=thread_id,
-               input_preview=state["input"][:100],
-               has_existing_plan=bool(state.get("plan")),
-               memory_nodes_available=len(memory.nodes))
-    
     # Get conversation messages for context and trim if needed
     conversation_messages = state.get("messages", [])
     
@@ -466,13 +444,6 @@ def replan_step(state: PlanExecute):
     # Get memory for context-aware replanning
     thread_id = state.get("thread_id", "default-thread")
     memory = get_thread_memory(thread_id)
-    
-    logger.info("replan_step_start",
-               operation="replan_step",
-               thread_id=thread_id,
-               completed_steps=len(state.get("past_steps", [])),
-               remaining_plan_steps=len(state.get("plan", [])),
-               input_preview=state["input"][:100])
     
     # Format past_steps for the template
     past_steps_str = ""

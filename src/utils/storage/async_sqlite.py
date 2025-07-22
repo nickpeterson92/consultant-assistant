@@ -6,7 +6,6 @@ Provides non-blocking database operations with connection pooling
 import aiosqlite
 import asyncio
 import json
-import logging
 from typing import Dict, Any, Optional, List, Union, Tuple
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -14,9 +13,9 @@ from dataclasses import dataclass
 import weakref
 import time
 
-from ..logging import get_logger
+from ..logging import get_smart_logger, log_execution
 
-logger = get_logger()
+logger = get_smart_logger("storage")
 
 @dataclass
 class ConnectionConfig:
@@ -57,7 +56,6 @@ class AsyncSQLitePool:
             
             self._initialized = True
             logger.info("sqlite_pool_initialized",
-                component="storage",
                 operation="init"
             )
     
@@ -123,7 +121,6 @@ class AsyncSQLitePool:
                 await conn.close()
             except Exception as e:
                 logger.warning("connection_close_error",
-                    component="storage",
                     operation="close",
                     error=str(e),
                     error_type=type(e).__name__
@@ -177,6 +174,7 @@ class AsyncSQLiteStore:
         await conn.commit()
         logger.debug("SQLite schema initialized")
     
+    @log_execution(component="storage", operation="async_sqlite_get")
     async def get(self, namespace: Tuple[str, ...], key: str) -> Optional[Any]:
         """Get a value from the store"""
         namespace_str = json.dumps(namespace)
@@ -196,6 +194,7 @@ class AsyncSQLiteStore:
                         return None
                 return None
     
+    @log_execution(component="storage", operation="async_sqlite_put")
     async def put(self, namespace: Tuple[str, ...], key: str, value: Any) -> None:
         """Put a value into the store"""
 # Schema initialization now happens per connection
@@ -211,6 +210,7 @@ class AsyncSQLiteStore:
             )
             await conn.commit()
     
+    @log_execution(component="storage", operation="async_sqlite_delete")
     async def delete(self, namespace: Tuple[str, ...], key: str) -> None:
         """Delete a value from the store"""
         namespace_str = json.dumps(namespace)
@@ -223,6 +223,7 @@ class AsyncSQLiteStore:
             )
             await conn.commit()
     
+    @log_execution(component="storage", operation="list_keys")
     async def list_keys(self, namespace: Tuple[str, ...]) -> List[str]:
         """List all keys in a namespace"""
         namespace_str = json.dumps(namespace)
@@ -236,6 +237,7 @@ class AsyncSQLiteStore:
                 rows = await cursor.fetchall()
                 return [row[0] for row in rows]
     
+    @log_execution(component="storage", operation="list_namespaces")
     async def list_namespaces(self) -> List[Tuple[str, ...]]:
         """List all namespaces"""
 # Schema initialization now happens per connection
@@ -254,6 +256,7 @@ class AsyncSQLiteStore:
                         logger.warning(f"Invalid namespace JSON: {row[0]}")
                 return namespaces
     
+    @log_execution(component="storage", operation="clear_namespace")
     async def clear_namespace(self, namespace: Tuple[str, ...]) -> None:
         """Clear all keys in a namespace"""
         namespace_str = json.dumps(namespace)
@@ -266,6 +269,7 @@ class AsyncSQLiteStore:
             )
             await conn.commit()
     
+    @log_execution(component="storage", operation="batch_get")
     async def batch_get(self, requests: List[Tuple[Tuple[str, ...], str]]) -> List[Optional[Any]]:
         """Get multiple values in a single transaction"""
 # Schema initialization now happens per connection
@@ -293,6 +297,7 @@ class AsyncSQLiteStore:
             
             return results
     
+    @log_execution(component="storage", operation="batch_put")
     async def batch_put(self, requests: List[Tuple[Tuple[str, ...], str, Any]]) -> None:
         """Put multiple values in a single transaction"""
 # Schema initialization now happens per connection
@@ -314,6 +319,7 @@ class AsyncSQLiteStore:
             )
             await conn.commit()
     
+    @log_execution(component="storage", operation="get_stats")
     async def get_stats(self) -> Dict[str, Any]:
         """Get database statistics"""
 # Schema initialization now happens per connection

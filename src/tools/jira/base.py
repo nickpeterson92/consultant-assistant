@@ -14,9 +14,9 @@ import requests
 from requests.auth import HTTPBasicAuth
 
 from langchain.tools import BaseTool
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger, log_execution
 
-logger = get_logger("jira")
+logger = SmartLogger("jira")
 
 
 class JiraConnectionManager:
@@ -173,6 +173,7 @@ class BaseJiraTool(BaseTool, ABC):
                 "operation": self.name
             }
     
+    @log_execution("jira", "tool_execute", include_args=False, include_result=False)
     def _run(self, **kwargs) -> Any:
         """Execute tool with automatic logging and error handling."""
         self._log_call(**kwargs)

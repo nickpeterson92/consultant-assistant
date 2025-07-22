@@ -19,11 +19,11 @@ from typing import Optional, Dict, Any, List, ClassVar
 from langchain.tools import BaseTool
 from simple_salesforce import Salesforce
 
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger, log_execution
 from src.utils.soql_query_builder import SOQLQueryBuilder, SOQLOperator
 
 # Initialize logger
-logger = get_logger("salesforce")
+logger = SmartLogger("salesforce")
 
 
 class SalesforceConnectionManager:
@@ -91,31 +91,8 @@ class BaseSalesforceTool(BaseTool, ABC):
         """Get Salesforce connection."""
         return self._connection_manager.connection
     
-    def _log_call(self, **kwargs):
-        """Log tool call with consistent format."""
-        logger.info("tool_call",
-            component="salesforce",
-            tool_name=self.name,
-            tool_args=kwargs
-        )
     
-    def _log_result(self, result: Any):
-        """Log tool result with consistent format."""
-        logger.info("tool_result",
-            component="salesforce",
-            tool_name=self.name,
-            result_type=type(result).__name__,
-            result_preview=str(result)[:200] if result else "None"
-        )
     
-    def _log_error(self, error: Exception):
-        """Log tool error with consistent format."""
-        logger.error("tool_error",
-            component="salesforce",
-            tool_name=self.name,
-            error=str(error),
-            error_type=type(error).__name__
-        )
     
     def _validate_filter_fields(self, object_type: str, filter_clause: str) -> Optional[str]:
         """Check if filter contains non-filterable fields.
@@ -196,13 +173,11 @@ class BaseSalesforceTool(BaseTool, ABC):
                 "operation": self.name
             }
     
+    @log_execution("salesforce", "tool_execute", include_args=False, include_result=False)
     def _run(self, **kwargs) -> Any:
         """Execute tool with automatic logging and error handling."""
-        self._log_call(**kwargs)
-        
         try:
             result = self._execute(**kwargs)
-            self._log_result(result)
             
             # Wrap successful result in standardized format
             return {

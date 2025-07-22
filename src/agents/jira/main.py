@@ -18,10 +18,10 @@ from langgraph.checkpoint.memory import MemorySaver
 from src.tools.jira import UNIFIED_JIRA_TOOLS
 from src.a2a import A2AServer, A2AArtifact, AgentCard
 from src.utils.config import config
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger, log_execution
 from src.utils.sys_msg import jira_agent_sys_msg
 
-logger = get_logger("jira")
+logger = SmartLogger("jira")
 
 # Unified Jira tools
 jira_tools = UNIFIED_JIRA_TOOLS
@@ -83,6 +83,7 @@ def build_jira_agent():
     # Create workflow
     workflow = StateGraph(JiraAgentState)
     
+    @log_execution("jira", "agent_node", include_args=False, include_result=False)
     def agent_node(state: JiraAgentState):
         """Main agent logic node that processes messages and generates responses.
         
@@ -99,16 +100,6 @@ def build_jira_agent():
         """
         task_id = state.get("current_task", "unknown")
         
-        # Log agent node entry
-        logger.info("jira_agent_node_entry",
-            component="jira",
-            operation="process_messages",
-            task_id=task_id,
-            message_count=len(state.get("messages", [])),
-            has_tool_results=bool(state.get("tool_results")),
-            has_task_context=bool(state.get("task_context")),
-            has_external_context=bool(state.get("external_context"))
-        )
         
         messages = state["messages"]
         
@@ -120,25 +111,10 @@ def build_jira_agent():
         if not messages or messages[0].type != "system":
             messages = [SystemMessage(content=get_jira_system_message(task_context=task_context, external_context=external_context))] + messages
         
-        # Log LLM invocation
-        logger.info("jira_llm_invocation_start",
-            component="jira",
-            operation="invoke_llm",
-            task_id=task_id,
-            message_count=len(messages)
-        )
         
         # Get response from LLM with tool bindings
         response = llm_with_tools.invoke(messages)
         
-        # Log LLM response
-        logger.info("jira_llm_invocation_complete",
-            component="jira",
-            operation="invoke_llm",
-            task_id=task_id,
-            has_tool_calls=bool(hasattr(response, 'tool_calls') and response.tool_calls),
-            response_length=len(str(response.content)) if hasattr(response, 'content') else 0
-        )
         
         return {"messages": [response]}
     
@@ -194,17 +170,6 @@ async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
         instruction = task_data.get("instruction", "")
         context = task_data.get("context", {})
         
-        # Log task processing start
-        logger.info("jira_a2a_task_start",
-            component="jira",
-            operation="process_a2a_task",
-            task_id=task_id,
-            instruction_preview=instruction[:100] if instruction else "",
-            instruction_length=len(instruction) if instruction else 0,
-            has_context=bool(context),
-            context_keys=list(context.keys()) if context else [],
-            context_size=len(str(context)) if context else 0
-        )
         
         # Prepare initial state
         initial_state = {
@@ -216,28 +181,11 @@ async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
             "external_context": context or {}
         }
         
-        # Log agent invocation
-        logger.info("jira_agent_invocation_start",
-            component="jira",
-            operation="invoke_agent",
-            task_id=task_id,
-            message_count=len(initial_state["messages"]),
-            thread_id=task_id
-        )
         
         # Run the agent
         config = {"configurable": {"thread_id": task_id}}
         result = await jira_agent.ainvoke(initial_state, config)
         
-        # Log agent invocation complete
-        logger.info("jira_agent_invocation_complete",
-            component="jira",
-            operation="invoke_agent",
-            task_id=task_id,
-            tool_results_count=len(result.get("tool_results", [])),
-            message_count=len(result.get("messages", [])),
-            has_error=bool(result.get("error"))
-        )
         
         # Extract the final response
         final_message = result["messages"][-1]
@@ -261,16 +209,6 @@ async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
             metadata={"agent": "jira-agent"}
         )
         
-        # Log successful task completion
-        logger.info("jira_a2a_task_complete",
-            component="jira",
-            operation="process_a2a_task",
-            task_id=task_id,
-            success=True,
-            response_length=len(response_content),
-            tool_results_count=len(result.get("tool_results", [])),
-            issue_keys=extract_issue_keys(response_content)
-        )
         
         # Create successful response in JSON-RPC format
         return {
@@ -279,14 +217,6 @@ async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
         }
         
     except Exception as e:
-        # Log task failure
-        logger.error("jira_a2a_task_error",
-            component="jira",
-            operation="process_a2a_task",
-            task_id=task_id,
-            error=str(e),
-            error_type=type(e).__name__
-        )
         # Return error in expected format
         return {
             "artifacts": [],
@@ -311,6 +241,7 @@ def extract_issue_keys(text: str) -> List[str]:
     pattern = r'[A-Z]+-\d+'
     return list(set(re.findall(pattern, text)))
 
+@log_execution("jira", "get_agent_card", include_args=True, include_result=True)
 def get_agent_card() -> Dict[str, Any]:
     """Generate the agent card for A2A protocol capability advertisement.
     

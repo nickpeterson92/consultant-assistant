@@ -12,9 +12,9 @@ Philosophy:
 
 import re
 
-from .logging import get_logger
+from .logging import SmartLogger, log_execution
 
-logger = get_logger()
+logger = SmartLogger(component="utils")
 
 class ValidationError(Exception):
     """Custom validation error for user input"""
@@ -36,6 +36,7 @@ class InputSanitizer:
     ]
     
     @staticmethod
+    @log_execution
     def sanitize_user_input(value: str, max_length: int = 50000) -> str:
         """Sanitize human user input for security.
         
@@ -70,6 +71,7 @@ class InputSanitizer:
         return sanitized
 
 
+@log_execution
 def validate_orchestrator_input(user_input: str) -> str:
     """Validate orchestrator user input - the ONLY validation we need.
     
@@ -105,7 +107,6 @@ def validate_orchestrator_input(user_input: str) -> str:
         # Only log actual errors, not expected validation issues
         if "empty input" not in str(e).lower():
             logger.error("input_validation_failed",
-                component="utils",
                 operation="validate_orchestrator_input",
                 error=str(e),
                 error_type=type(e).__name__

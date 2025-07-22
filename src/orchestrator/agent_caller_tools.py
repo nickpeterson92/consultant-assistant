@@ -16,11 +16,11 @@ from pydantic import BaseModel, Field
 from .agent_registry import AgentRegistry
 from ..a2a import A2AClient, A2ATask, A2AException
 
-# Import unified logger
-from src.utils.logging import get_logger
+# Import smart logger
+from src.utils.logging import get_smart_logger, log_execution
 
 # Initialize structured logger
-logger = get_logger()
+logger = get_smart_logger("orchestrator")
 from src.utils.config import (
     MESSAGES_KEY, MEMORY_KEY, RECENT_MESSAGES_COUNT
 )
@@ -307,7 +307,6 @@ class SalesforceAgentTool(BaseAgentTool):
             
             # Log structured data addition
             logger.info("structured_data_found",
-                component="orchestrator",
                 tool_name="salesforce_agent",
                 data_preview=str(tool_results_data)[:200],
                 data_size=len(json.dumps(tool_results_data)),
@@ -332,6 +331,7 @@ class SalesforceAgentTool(BaseAgentTool):
         finally:
             loop.close()
     
+    @log_execution(component="orchestrator", operation="salesforce_agent_call")
     async def _arun(self, instruction: str, context: Optional[Dict[str, Any]] = None, state: Annotated[Dict[str, Any], InjectedState] = None, **kwargs) -> Command:
         """Execute the Salesforce agent call using Command pattern.
         
@@ -340,7 +340,6 @@ class SalesforceAgentTool(BaseAgentTool):
         """
         # Debug logging to understand state passing
         logger.info("salesforce_tool_debug",
-            component="orchestrator",
             operation="salesforce_agent_tool",
             state_type=type(state).__name__ if state else "None",
             state_keys=list(state.keys()) if state and isinstance(state, dict) else [],
@@ -351,7 +350,6 @@ class SalesforceAgentTool(BaseAgentTool):
         # Log tool invocation start
         tool_call_id = kwargs.get("tool_call_id", None)
         logger.info("tool_invocation_start",
-            component="orchestrator",
             operation="salesforce_agent_tool",
             tool_name="salesforce_agent",
             tool_call_id=tool_call_id,
@@ -368,7 +366,6 @@ class SalesforceAgentTool(BaseAgentTool):
             agent = self._find_salesforce_agent()
             if not agent:
                 logger.error("agent_not_found",
-                    component="orchestrator",
                     operation="salesforce_agent_tool",
                     agent_type="salesforce",
                     tool_call_id=tool_call_id,
@@ -396,7 +393,6 @@ class SalesforceAgentTool(BaseAgentTool):
                 
                 # Log A2A dispatch
                 logger.info("a2a_dispatch", 
-                    component="orchestrator",
                     agent="salesforce-agent",
                     task_id=task_id,
                     instruction_preview=instruction[:100],
@@ -412,7 +408,6 @@ class SalesforceAgentTool(BaseAgentTool):
                 final_response = self._process_tool_results(result, response_content, task_id)
                 
                 logger.info("a2a_response_success",
-                    component="orchestrator",
                     agent="salesforce-agent", 
                     task_id=task_id,
                     response_length=len(final_response)
@@ -420,7 +415,6 @@ class SalesforceAgentTool(BaseAgentTool):
                 
                 # Log successful tool completion
                 logger.info("tool_invocation_complete",
-                    component="orchestrator",
                     operation="salesforce_agent_tool",
                     tool_name="salesforce_agent",
                     tool_call_id=tool_call_id,
@@ -446,7 +440,6 @@ class SalesforceAgentTool(BaseAgentTool):
         
         except A2AException as e:
             logger.error("tool_invocation_error",
-                component="orchestrator",
                 operation="salesforce_agent_tool",
                 tool_name="salesforce_agent",
                 tool_call_id=tool_call_id,
@@ -459,7 +452,6 @@ class SalesforceAgentTool(BaseAgentTool):
             )
         except Exception as e:
             logger.error("tool_invocation_error",
-                component="orchestrator",
                 operation="salesforce_agent_tool",
                 tool_name="salesforce_agent",
                 tool_call_id=tool_call_id,
@@ -664,7 +656,6 @@ class JiraAgentTool(BaseAgentTool):
             
             # Log structured data addition
             logger.info("structured_data_found",
-                component="orchestrator",
                 tool_name="jira_agent",
                 data_preview=str(tool_results_data)[:200],
                 data_size=len(json.dumps(tool_results_data)),
@@ -689,6 +680,7 @@ class JiraAgentTool(BaseAgentTool):
         finally:
             loop.close()
     
+    @log_execution(component="orchestrator", operation="jira_agent_call")
     async def _arun(self, instruction: str, context: Optional[Dict[str, Any]] = None, state: Annotated[Dict[str, Any], InjectedState] = None, **kwargs) -> Command:
         """Execute the Jira agent call using Command pattern.
         
@@ -697,7 +689,6 @@ class JiraAgentTool(BaseAgentTool):
         """
         # Debug logging to understand state passing
         logger.info("jira_tool_debug",
-            component="orchestrator",
             operation="jira_agent_tool",
             state_type=type(state).__name__ if state else "None",
             state_keys=list(state.keys()) if state and isinstance(state, dict) else [],
@@ -708,7 +699,6 @@ class JiraAgentTool(BaseAgentTool):
         # Log tool invocation start
         tool_call_id = kwargs.get("tool_call_id", None)
         logger.info("tool_invocation_start",
-            component="orchestrator",
             operation="jira_agent_tool",
             tool_name="jira_agent",
             tool_call_id=tool_call_id,
@@ -725,7 +715,6 @@ class JiraAgentTool(BaseAgentTool):
             agent = self._find_jira_agent()
             if not agent:
                 logger.error("agent_not_found",
-                    component="orchestrator",
                     operation="jira_agent_tool",
                     agent_type="jira",
                     tool_call_id=tool_call_id,
@@ -753,7 +742,6 @@ class JiraAgentTool(BaseAgentTool):
                 
                 # Log A2A dispatch
                 logger.info("a2a_dispatch", 
-                    component="orchestrator",
                     agent="jira-agent",
                     task_id=task_id,
                     instruction_preview=instruction[:100],
@@ -769,7 +757,6 @@ class JiraAgentTool(BaseAgentTool):
                 final_response = self._process_tool_results(result, response_content, task_id)
                 
                 logger.info("a2a_response_success",
-                    component="orchestrator",
                     agent="jira-agent", 
                     task_id=task_id,
                     response_length=len(final_response)
@@ -777,7 +764,6 @@ class JiraAgentTool(BaseAgentTool):
                 
                 # Log successful tool completion
                 logger.info("tool_invocation_complete",
-                    component="orchestrator",
                     operation="jira_agent_tool",
                     tool_name="jira_agent",
                     tool_call_id=tool_call_id,
@@ -803,7 +789,6 @@ class JiraAgentTool(BaseAgentTool):
         
         except A2AException as e:
             logger.error("tool_invocation_error",
-                component="orchestrator",
                 operation="jira_agent_tool",
                 tool_name="jira_agent",
                 tool_call_id=tool_call_id,
@@ -816,7 +801,6 @@ class JiraAgentTool(BaseAgentTool):
             )
         except Exception as e:
             logger.error("tool_invocation_error",
-                component="orchestrator",
                 operation="jira_agent_tool",
                 tool_name="jira_agent",
                 tool_call_id=tool_call_id,
@@ -888,13 +872,13 @@ class ServiceNowAgentTool(BaseAgentTool):
         finally:
             loop.close()
     
+    @log_execution(component="orchestrator", operation="servicenow_agent_call")
     async def _arun(self, instruction: str, context: Optional[Dict[str, Any]] = None, 
                     state: Annotated[Dict[str, Any], InjectedState] = None, **kwargs) -> Command:
         """Execute the ServiceNow agent call using Command pattern."""
         # Log tool invocation start
         tool_call_id = kwargs.get("tool_call_id", None)
         logger.info("tool_invocation_start",
-            component="orchestrator",
             operation="servicenow_agent_tool",
             tool_name="servicenow_agent",
             tool_call_id=tool_call_id,
@@ -929,7 +913,6 @@ class ServiceNowAgentTool(BaseAgentTool):
             
             if not agent:
                 logger.error("agent_not_found",
-                    component="orchestrator",
                     operation="servicenow_agent_tool",
                     agent_type="servicenow",
                     tool_call_id=tool_call_id,
@@ -957,7 +940,6 @@ class ServiceNowAgentTool(BaseAgentTool):
                 
                 # Log A2A dispatch
                 logger.info("a2a_dispatch", 
-                    component="orchestrator",
                     agent="servicenow-agent",
                     task_id=task_id,
                     instruction_preview=instruction[:100],
@@ -973,7 +955,6 @@ class ServiceNowAgentTool(BaseAgentTool):
                 final_response = self._process_tool_results(result, response_content, task_id)
                 
                 logger.info("a2a_response_success",
-                    component="orchestrator",
                     agent="servicenow-agent", 
                     task_id=task_id,
                     response_length=len(final_response)
@@ -981,7 +962,6 @@ class ServiceNowAgentTool(BaseAgentTool):
                 
                 # Log successful tool completion
                 logger.info("tool_invocation_complete",
-                    component="orchestrator",
                     operation="servicenow_agent_tool",
                     tool_name="servicenow_agent",
                     tool_call_id=tool_call_id,
@@ -1005,7 +985,6 @@ class ServiceNowAgentTool(BaseAgentTool):
         
         except A2AException as e:
             logger.error("tool_invocation_error",
-                component="orchestrator",
                 operation="servicenow_agent_tool",
                 tool_name="servicenow_agent",
                 tool_call_id=tool_call_id,
@@ -1018,7 +997,6 @@ class ServiceNowAgentTool(BaseAgentTool):
             )
         except Exception as e:
             logger.error("tool_invocation_error",
-                component="orchestrator",
                 operation="servicenow_agent_tool",
                 tool_name="servicenow_agent",
                 tool_call_id=tool_call_id,
@@ -1073,7 +1051,6 @@ class ServiceNowAgentTool(BaseAgentTool):
             
             # Log structured data addition
             logger.info("structured_data_found",
-                component="orchestrator",
                 tool_name="servicenow_agent",
                 data_preview=str(tool_results_data)[:200],
                 data_size=len(json.dumps(tool_results_data)),
@@ -1124,6 +1101,7 @@ class AgentRegistryTool(BaseTool):
     def __init__(self, registry: AgentRegistry):
         super().__init__(metadata={"registry": registry})
     
+    @log_execution(component="orchestrator", operation="agent_registry_action")
     async def _arun(self, action: str, agent_name: Optional[str] = None) -> str:
         """Execute registry management action"""
         registry = self.metadata["registry"]

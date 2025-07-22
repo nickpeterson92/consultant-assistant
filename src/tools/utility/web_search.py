@@ -15,7 +15,7 @@ from langgraph.prebuilt import InjectedState
 from typing import Annotated
 
 from .base import BaseUtilityTool
-from src.utils.logging import get_logger
+from src.utils.logging import SmartLogger, log_execution
 
 # Import Tavily after checking for package
 try:
@@ -25,7 +25,7 @@ except ImportError:
     TAVILY_AVAILABLE = False
     TavilySearch = None
 
-logger = get_logger("utility")
+logger = SmartLogger(component="utility")
 
 
 class WebSearchInput(BaseModel):
@@ -102,7 +102,6 @@ class WebSearchTool(BaseUtilityTool):
         
         if not TAVILY_AVAILABLE:
             logger.warning("langchain-tavily package not installed. Install with: pip install langchain-tavily",
-                component="utility",
                 tool_name="web_search",
                 operation="tavily_not_installed"
             )
@@ -110,6 +109,7 @@ class WebSearchTool(BaseUtilityTool):
         # Initialize Tavily search client as None (will be created on demand)
         # We don't store api_key as an attribute due to Pydantic restrictions
     
+    @log_execution
     def _enhance_query_with_context(self, query: str, state: Optional[Dict[str, Any]]) -> str:
         """Enhance the search query with context from conversation state.
         
@@ -143,18 +143,10 @@ class WebSearchTool(BaseUtilityTool):
         
         enhanced_query = " ".join(enhanced_parts)
         
-        if enhanced_query != query:
-            logger.info("Query enhanced with context",
-                component="utility",
-                tool_name="web_search",
-                operation="query_enhanced",
-                original_query=query,
-                enhanced_query=enhanced_query,
-                entities_found=len(entities)
-            )
         
         return enhanced_query
     
+    @log_execution
     def _format_search_results(self, raw_results: Dict[str, Any]) -> Dict[str, Any]:
         """Format raw Tavily results into structured output."""
         # Tavily returns a dict with 'results' key containing the list
@@ -188,6 +180,7 @@ class WebSearchTool(BaseUtilityTool):
         
         return formatted_results
     
+    @log_execution
     def _build_search_params(self, **kwargs) -> Dict[str, Any]:
         """Build parameters for Tavily search based on input."""
         params = {
@@ -217,6 +210,7 @@ class WebSearchTool(BaseUtilityTool):
         
         return params
     
+    @log_execution
     def _execute(self, 
                 query: str,
                 context_enhance: bool = True,
@@ -237,7 +231,6 @@ class WebSearchTool(BaseUtilityTool):
         api_key = os.environ.get("TAVILY_API_KEY")
         if not api_key:
             logger.warning("TAVILY_API_KEY environment variable not set",
-                component="utility",
                 tool_name="web_search",
                 operation="tavily_api_key_missing"
             )
@@ -257,14 +250,6 @@ class WebSearchTool(BaseUtilityTool):
             time_range=time_range
         )
         
-        logger.info("Web search request",
-            component="utility",
-            tool_name="web_search",
-            operation="web_search_request",
-            query=search_query,
-            original_query=query if query != search_query else None,
-            params=search_params
-        )
         
         try:
             # Create a new search instance with updated parameters
@@ -291,24 +276,8 @@ class WebSearchTool(BaseUtilityTool):
             formatted_results = self._format_search_results(raw_results)
             formatted_results["enhanced_query"] = search_query if query != search_query else None
             
-            logger.info("Web search completed successfully",
-                component="utility",
-                tool_name="web_search",
-                operation="web_search_success",
-                query=search_query,
-                result_count=len(formatted_results["results"]),
-                has_summary="summary" in formatted_results
-            )
             
             return formatted_results
             
         except Exception as e:
-            logger.error(f"Web search failed: {str(e)}",
-                component="utility",
-                tool_name="web_search",
-                operation="web_search_error",
-                query=search_query,
-                error=str(e),
-                error_type=type(e).__name__
-            )
             raise  # Let base class handle error formatting

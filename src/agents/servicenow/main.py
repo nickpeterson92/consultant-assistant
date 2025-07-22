@@ -18,10 +18,10 @@ from langgraph.checkpoint.memory import MemorySaver
 from src.tools.servicenow import UNIFIED_SERVICENOW_TOOLS
 from src.a2a import A2AServer, AgentCard
 from src.utils.config import config
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger, log_execution
 from src.utils.sys_msg import servicenow_agent_sys_msg
 
-logger = get_logger("servicenow")
+logger = SmartLogger("servicenow")
 
 # Agent state definition
 class ServiceNowAgentState(TypedDict):
@@ -74,15 +74,6 @@ def build_servicenow_graph():
         """Main agent logic for ServiceNow operations."""
         task_id = state.get("task_context", {}).get("task_id", "unknown")
         
-        # Log agent entry
-        logger.info("servicenow_agent_entry",
-            component="servicenow",
-            operation="process_task",
-            task_id=task_id,
-            message_count=len(state.get("messages", [])),
-            has_task_context=bool(state.get("task_context")),
-            has_external_context=bool(state.get("external_context"))
-        )
         
         # Get system message with context
         system_msg = get_servicenow_system_message(
@@ -97,25 +88,10 @@ def build_servicenow_graph():
             # Call LLM with tools
             response = llm_with_tools.invoke(messages)
             
-            # Log successful response
-            logger.info("servicenow_agent_response",
-                component="servicenow",
-                operation="llm_invoke",
-                task_id=task_id,
-                response_length=len(response.content),
-                has_tool_calls=bool(response.tool_calls) if hasattr(response, 'tool_calls') else False
-            )
             
             return {"messages": [response]}
             
         except Exception as e:
-            logger.error("servicenow_agent_error",
-                component="servicenow",
-                operation="llm_invoke",
-                task_id=task_id,
-                error=str(e),
-                error_type=type(e).__name__
-            )
             error_msg = AIMessage(content=f"I encountered an error processing your ServiceNow request: {str(e)}")
             return {"messages": [error_msg], "error": str(e)}
     
@@ -155,13 +131,6 @@ async def handle_a2a_request(params: dict) -> dict:
         instruction = task_data.get("instruction", "")
         context = task_data.get("context", {})
         
-        logger.info("a2a_task_received",
-            component="servicenow",
-            operation="process_task",
-            task_id=task_id,
-            instruction_preview=instruction[:100] if instruction else "",
-            has_context=bool(context)
-        )
         
         # Build the graph
         app = build_servicenow_graph()
@@ -193,15 +162,6 @@ async def handle_a2a_request(params: dict) -> dict:
         if last_message:
             response_content = last_message.content
             
-            # Log successful completion
-            logger.info("a2a_task_complete",
-                component="servicenow",
-                operation="process_task",
-                task_id=task_id,
-                response_length=len(response_content),
-                tool_calls_made=len(final_state.get("tool_results", [])),
-                success=True
-            )
             
             # Return in expected format
             return {
@@ -215,13 +175,6 @@ async def handle_a2a_request(params: dict) -> dict:
             raise ValueError("No response generated")
             
     except Exception as e:
-        logger.error("a2a_task_error",
-            component="servicenow",
-            operation="process_task",
-            task_id=task_id if 'task_id' in locals() else 'unknown',
-            error=str(e),
-            error_type=type(e).__name__
-        )
         
         # Return error in expected format
         return {

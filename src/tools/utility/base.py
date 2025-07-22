@@ -10,9 +10,9 @@ This module provides the foundation for orchestrator utility tools with:
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, List
 from langchain.tools import BaseTool
-from src.utils.logging import get_logger
+from src.utils.logging.framework import SmartLogger, log_execution
 
-logger = get_logger("utility")
+logger = SmartLogger("utility")
 
 
 class BaseUtilityTool(BaseTool, ABC):
@@ -187,6 +187,7 @@ class BaseUtilityTool(BaseTool, ABC):
         
         return " ".join(context_parts)
     
+    @log_execution("utility", "tool_execute", include_args=False, include_result=False)
     def _run(self, **kwargs) -> Any:
         """Execute tool with automatic logging and error handling."""
         self._log_call(**kwargs)

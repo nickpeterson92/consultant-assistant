@@ -13,10 +13,10 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from ..a2a import AgentCard, A2AClient, A2AException
-from ..utils.logging import get_logger
+from ..utils.logging import SmartLogger, log_execution
 
 # Initialize logger
-logger = get_logger()
+logger = SmartLogger(component="orchestrator")
 
 @dataclass
 class RegisteredAgent:
@@ -87,6 +87,7 @@ class AgentRegistry:
         else:
             logger.info("No agent registry config found, starting with empty registry")
     
+    @log_execution
     def save_config(self):
         """Persist registry state for disaster recovery and GitOps workflows."""
         config = {
@@ -97,18 +98,17 @@ class AgentRegistry:
             with open(self.config_path, 'w') as f:
                 json.dump(config, f, indent=2)
             logger.info("agent_registry_saved",
-                component="orchestrator",
                 operation="save_config",
                 agent_count=len(self.agents)
             )
         except Exception as e:
             logger.error("agent_registry_save_error",
-                component="orchestrator",
                 operation="save_config",
                 error=str(e),
                 error_type=type(e).__name__
             )
     
+    @log_execution
     def register_agent(self, name: str, endpoint: str, agent_card: Optional[AgentCard] = None):
         """Register a service instance with the discovery system.
         
@@ -133,12 +133,11 @@ class AgentRegistry:
         
         self.agents[name] = registered_agent
         
-        logger.info("agent_registered", component="orchestrator",
+        logger.info("agent_registered",
                                 agent_name=name,
                                 endpoint=endpoint,
                                 capabilities=agent_card.capabilities if agent_card else [])
         logger.info("agent_registered_success",
-            component="orchestrator",
             operation="register_agent",
             agent_name=name,
             endpoint=endpoint
@@ -150,7 +149,6 @@ class AgentRegistry:
         if name in self.agents:
             del self.agents[name]
             logger.info("agent_unregistered_success",
-                component="orchestrator",
                 operation="unregister_agent",
                 agent_name=name
             )
@@ -180,6 +178,7 @@ class AgentRegistry:
         """Get all registered agents"""
         return list(self.agents.values())
     
+    @log_execution
     def find_agents_by_capability(self, capability: str) -> List[RegisteredAgent]:
         """Capability-based service discovery for load distribution.
         
@@ -193,16 +192,16 @@ class AgentRegistry:
                 matching_agents.append(agent)
         
         # Log capability query
-        logger.info(json.dumps({
-            "timestamp": time.time(),
-            "operation": "CAPABILITY_QUERY",
-            "capability": capability,
-            "agents_found": len(matching_agents),
-            "agent_names": [agent.name for agent in matching_agents]
-        }))
+        logger.info("capability_query",
+            operation="find_agents_by_capability",
+            capability=capability,
+            agents_found=len(matching_agents),
+            agent_names=[agent.name for agent in matching_agents]
+        )
         
         return matching_agents
     
+    @log_execution
     def find_best_agent_for_task(self, task_description: str, required_capabilities: List[str] = None) -> Optional[RegisteredAgent]:
         """Intelligent service selection using capability matching.
         
@@ -218,15 +217,14 @@ class AgentRegistry:
             
             if candidates:
                 selected = candidates[0]
-                logger.info(json.dumps({
-                    "timestamp": time.time(),
-                    "operation": "AGENT_SELECTED",
-                    "selection_method": "required_capabilities",
-                    "task_description": task_description[:100],
-                    "required_capabilities": required_capabilities,
-                    "selected_agent": selected.name,
-                    "candidates_count": len(candidates)
-                }))
+                logger.info("agent_selected",
+                    operation="find_best_agent_for_task",
+                    selection_method="required_capabilities",
+                    task_description=task_description[:100],
+                    required_capabilities=required_capabilities,
+                    selected_agent=selected.name,
+                    candidates_count=len(candidates)
+                )
                 return selected
         
         task_lower = task_description.lower()
@@ -240,6 +238,7 @@ class AgentRegistry:
         
         return None
     
+    @log_execution
     async def health_check_agent(self, agent_name: str) -> bool:
         """Execute health probe for a specific service instance.
         
@@ -257,7 +256,6 @@ class AgentRegistry:
         
         try:
             logger.info("health_check_start",
-                component="orchestrator",
                 operation="health_check_agent",
                 agent_name=agent_name,
                 endpoint=agent.endpoint,
@@ -276,7 +274,6 @@ class AgentRegistry:
                 
                 elapsed = asyncio.get_event_loop().time() - start_time
                 logger.info("health_check_success",
-                    component="orchestrator",
                     operation="health_check_agent",
                     agent_name=agent_name,
                     duration_seconds=round(elapsed, 3),
@@ -291,7 +288,6 @@ class AgentRegistry:
             agent.status = "error"
             elapsed = asyncio.get_event_loop().time() - start_time
             logger.warning("health_check_failed",
-                component="orchestrator",
                 operation="health_check_agent",
                 agent_name=agent_name,
                 duration_seconds=round(elapsed, 3),
@@ -305,7 +301,6 @@ class AgentRegistry:
             agent.status = "offline"
             elapsed = asyncio.get_event_loop().time() - start_time
             logger.warning("health_check_timeout",
-                component="orchestrator",
                 operation="health_check_agent",
                 agent_name=agent_name,
                 duration_seconds=round(elapsed, 3),
@@ -319,7 +314,6 @@ class AgentRegistry:
             agent.status = "offline"
             elapsed = asyncio.get_event_loop().time() - start_time
             logger.warning("health_check_error",
-                component="orchestrator",
                 operation="health_check_agent",
                 agent_name=agent_name,
                 duration_seconds=round(elapsed, 3),
@@ -330,6 +324,7 @@ class AgentRegistry:
             )
             return False
     
+    @log_execution
     async def health_check_all_agents(self) -> Dict[str, bool]:
         """Concurrent health monitoring for all service instances.
         
@@ -340,7 +335,6 @@ class AgentRegistry:
         results = {}
         
         logger.info("health_check_all_start",
-            component="orchestrator",
             operation="health_check_all_agents",
             agent_count=len(self.agents)
         )
@@ -356,7 +350,6 @@ class AgentRegistry:
                 results[agent_name] = await task
             except Exception as e:
                 logger.error("health_check_unexpected_error",
-                    component="orchestrator",
                     operation="health_check_all_agents",
                     agent_name=agent_name,
                     error=str(e),
@@ -369,7 +362,6 @@ class AgentRegistry:
         elapsed = asyncio.get_event_loop().time() - start_time
         online_count = sum(1 for status in results.values() if status)
         logger.info("health_check_all_complete",
-            component="orchestrator",
             operation="health_check_all_agents",
             duration_seconds=round(elapsed, 2),
             total_agents=len(results),
@@ -380,6 +372,7 @@ class AgentRegistry:
         
         return results
     
+    @log_execution
     async def discover_agent(self, endpoint: str) -> bool:
         """Discover and register a single agent from an endpoint"""
         try:
@@ -397,6 +390,7 @@ class AgentRegistry:
             logger.debug(f"Failed to discover agent at {endpoint}: {e}")
             return False
     
+    @log_execution
     async def discover_agents(self, discovery_endpoints: List[str]) -> int:
         """Dynamic service discovery from potential endpoints.
         
@@ -433,6 +427,7 @@ class AgentRegistry:
         """Get all agents with 'online' status"""
         return [agent for agent in self.agents.values() if agent.status == "online"]
     
+    @log_execution
     def get_registry_stats(self) -> Dict[str, Any]:
         """Service mesh observability metrics for monitoring.
         

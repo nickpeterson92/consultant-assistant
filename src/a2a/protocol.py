@@ -295,11 +295,6 @@ class A2AConnectionPool:
             self._last_used = {}  # endpoint -> timestamp
             a2a_config = config
             self._max_idle_time = a2a_config.get('a2a.connection_pool_max_idle', 300)
-            logger.info("connection_pool_initialized",
-                component="a2a",
-                operation="init",
-                max_idle_time=self._max_idle_time
-            )
     
     async def get_session(self, endpoint: str, timeout: Optional[int] = None) -> aiohttp.ClientSession:
         """Get or create a session for an endpoint.
@@ -321,21 +316,10 @@ class A2AConnectionPool:
         try:
             loop = asyncio.get_running_loop()
             if loop.is_closed():
-                logger.warning("event_loop_closed_detected",
-                    component="a2a",
-                    operation="get_session",
-                    endpoint=endpoint
-                )
                 # Create new session with new event loop context
                 raise RuntimeError("Event loop is closed")
         except RuntimeError as e:
             if "no running event loop" in str(e).lower() or "event loop is closed" in str(e).lower():
-                logger.error("no_event_loop_available",
-                    component="a2a", 
-                    operation="get_session",
-                    endpoint=endpoint,
-                    error=str(e)
-                )
                 raise
         
         a2a_config = config
@@ -367,22 +351,9 @@ class A2AConnectionPool:
                     # Session or its event loop is in bad state
                     pass
                 
-                logger.info("removing_unhealthy_session",
-                    component="a2a",
-                    operation="get_session",
-                    pool_key=pool_key,
-                    session_closed=getattr(session, 'closed', 'unknown'),
-                    loop_closed=getattr(getattr(session, '_loop', None), 'is_closed', lambda: 'unknown')()
-                )
                 del self._pools[pool_key]
             
             # Create new session with optimized settings
-            logger.info("creating_new_session",
-                component="a2a",
-                operation="get_session",
-                base_url=base_url,
-                timeout=timeout
-            )
             
             # Multi-level timeout configuration for fine-grained control:
             # - total: Overall request timeout
@@ -395,15 +366,6 @@ class A2AConnectionPool:
                 sock_connect=a2a_config.get('a2a.sock_connect_timeout', 30)
             )
             
-            # Log the actual timeout values for debugging
-            logger.info("timeout_config",
-                component="a2a",
-                operation="get_session",
-                total_timeout=timeout,
-                connect_timeout=a2a_config.get('a2a.connect_timeout', 30),
-                sock_read_timeout=a2a_config.get('a2a.sock_read_timeout', 60),
-                sock_connect_timeout=a2a_config.get('a2a.sock_connect_timeout', 30)
-            )
             
             # Connection pooling configuration optimized for agent workloads:
             # - High per-host limit supports parallel tool execution (8+ concurrent)
@@ -456,11 +418,6 @@ class A2AConnectionPool:
                     await session.close()
                     del self._pools[endpoint]
                     del self._last_used[endpoint]
-                    logger.info("idle_session_cleaned",
-                        component="a2a",
-                        operation="cleanup_idle_sessions",
-                        endpoint=endpoint
-                    )
     
     async def close_all(self):
         """Close all sessions in the pool.
@@ -472,20 +429,9 @@ class A2AConnectionPool:
         for endpoint, session in list(self._pools.items()):
             try:
                 await session.close()
-                logger.info("session_closed",
-                    component="a2a",
-                    operation="close_all",
-                    endpoint=endpoint
-                )
             except Exception as e:
                 # Log but don't fail - session may already be closed
-                logger.warning("session_close_error",
-                    component="a2a",
-                    operation="close_all",
-                    endpoint=endpoint,
-                    error=str(e),
-                    error_type=type(e).__name__
-                )
+                pass
         self._pools.clear()
         self._last_used.clear()
 
@@ -525,12 +471,6 @@ class A2AClient:
         self.session = None
         self._closed = False
         self._pool = get_connection_pool() if use_pool else None
-        logger.info("a2a_client_initialized",
-            component="a2a",
-            operation="init",
-            timeout=self.timeout,
-            use_pool=use_pool
-        )
     
     async def __aenter__(self):
         if not self.use_pool:
@@ -552,11 +492,6 @@ class A2AClient:
                 timeout=timeout_config,
                 connector=connector
             )
-            logger.info("dedicated_session_created",
-                component="a2a",
-                operation="create_session",
-                timeout=self.timeout
-            )
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -569,12 +504,7 @@ class A2AClient:
                 await self.session.close()
                 logger.info("Closed dedicated A2A client session")
             except Exception as e:
-                logger.warning("client_close_error",
-                    component="a2a",
-                    operation="close",
-                    error=str(e),
-                    error_type=type(e).__name__
-                )
+                pass
             finally:
                 self._closed = True
                 self.session = None
@@ -629,14 +559,6 @@ class A2AClient:
             request_dict = request.to_dict()
 
             start_time = time.time()
-            logger.info("a2a_request_start",
-                component="a2a",
-                operation="make_raw_call",
-                endpoint=endpoint,
-                timeout=self.timeout,
-                pooled=self.use_pool,
-                method=method
-            )
             
             # Make HTTP POST request
             # Note: Timeout is already configured at the session level
@@ -647,46 +569,20 @@ class A2AClient:
                 headers={"Content-Type": "application/json"}
             ) as response:
                 elapsed = time.time() - start_time
-                logger.info("a2a_response_received",
-                    component="a2a",
-                    operation="make_raw_call",
-                    endpoint=endpoint,
-                    elapsed_seconds=round(elapsed, 2),
-                    status_code=response.status
-                )
                 if response.status != 200:
                     error_text = await response.text()
-                    logger.error("a2a_http_error",
-                        component="a2a",
-                        operation="make_raw_call",
-                        status_code=response.status,
-                        error_text=error_text,
-                        endpoint=endpoint
-                    )
                     raise A2AException(f"HTTP {response.status}: {error_text}")
 
                 result = await response.json()
 
                 # Check for JSON-RPC error response
                 if "error" in result:
-                    logger.error("agent_error_response",
-                        component="a2a",
-                        operation="make_raw_call",
-                        error=result['error'],
-                        endpoint=endpoint
-                    )
                     raise A2AException(f"Agent error: {result['error']}")
 
                 final_result = result.get("result", {})
 
                 # Track performance metrics for successful calls
                 duration = None
-                logger.info("a2a_call_success",
-                    component="a2a",
-                    operation="make_raw_call",
-                    method=method,
-                    endpoint=endpoint
-                )
                 # Log completion
                 logger.info("A2A_CALL_SUCCESS".lower(), component="a2a", operation_id=operation_id,
                                 endpoint=endpoint,
@@ -700,27 +596,11 @@ class A2AClient:
             # Timeout errors are common in distributed systems - handle gracefully
             # with clear error messages for debugging
             elapsed = time.time() - start_time if 'start_time' in locals() else 0
-            logger.error("a2a_timeout_error",
-                component="a2a",
-                operation="make_raw_call",
-                endpoint=endpoint,
-                elapsed_seconds=round(elapsed, 2),
-                configured_timeout=self.timeout,
-                session_timeout=session.timeout if 'session' in locals() else 'unknown'
-            )
             raise A2AException(f"Request timed out after {elapsed:.2f}s")
         except aiohttp.ClientError as e:
             # Network errors include connection failures, DNS issues, etc.
             # These are often transient and will be retried by the resilience layer
             elapsed = time.time() - start_time if 'start_time' in locals() else 0
-            logger.error("a2a_network_error",
-                component="a2a",
-                operation="make_raw_call",
-                endpoint=endpoint,
-                elapsed_seconds=round(elapsed, 2),
-                error=str(e),
-                error_type=type(e).__name__
-            )
             
             # Special handling for shutdown scenarios to avoid noisy errors
             if not self.use_pool and self._closed:
@@ -730,12 +610,7 @@ class A2AClient:
                 raise A2AException(f"Network error: {str(e)}")
         except Exception as e:
             # Log unexpected error
-            logger.error("a2a_unexpected_error",
-                component="a2a",
-                operation="make_raw_call",
-                error_type=type(e).__name__,
-                error=str(e)
-            )
+            pass
             raise
     
     @log_execution("a2a", "call_agent", include_args=False, include_result=False)  # Sensitive data
@@ -784,12 +659,6 @@ class A2AClient:
                 endpoint, method, params, request_id
             )
         except Exception as e:
-            logger.error("resilient_call_failed",
-                component="a2a",
-                operation="call_agent",
-                error=str(e),
-                error_type=type(e).__name__
-            )
             raise
     
     async def process_task(self, endpoint: str, task: A2ATask) -> Dict[str, Any]:
@@ -805,17 +674,6 @@ class A2AClient:
         Returns:
             Dictionary with task results and artifacts
         """
-        # Log task processing start
-        logger.info("a2a_task_start",
-            component="a2a",
-            operation="process_task",
-            task_id=task.id,
-            endpoint=endpoint,
-            instruction_preview=task.instruction[:100] if task.instruction else "",
-            context_size=len(str(task.context)) if task.context else 0,
-            has_artifacts=False,  # A2ATask doesn't have artifacts attribute
-            has_state_snapshot=bool(task.state_snapshot)
-        )
         
         try:
             result = await self.call_agent(
@@ -824,27 +682,9 @@ class A2AClient:
                 params={"task": task.to_dict()}
             )
             
-            # Log successful task completion
-            logger.info("a2a_task_complete",
-                component="a2a",
-                operation="process_task",
-                task_id=task.id,
-                endpoint=endpoint,
-                result_keys=list(result.keys()) if isinstance(result, dict) else [],
-                success=True
-            )
             
             return result
         except Exception as e:
-            # Log task failure
-            logger.error("a2a_task_error",
-                component="a2a",
-                operation="process_task",
-                task_id=task.id,
-                endpoint=endpoint,
-                error=str(e),
-                error_type=type(e).__name__
-            )
             raise
     
     async def get_agent_card(self, endpoint: str) -> AgentCard:
@@ -989,14 +829,7 @@ class A2AServer:
             
             except Exception as e:
                 # Handler exceptions are logged but sanitized in response
-                logger.error("handler_error",
-                    component="a2a",
-                    operation="handle_request",
-                    method=method,
-                    error=str(e),
-                    error_type=type(e).__name__,
-                    traceback=traceback.format_exc()
-                )
+                pass
                 response = A2AResponse(
                     error={"code": -32603, "message": "Internal error", "data": str(e)},
                     request_id=request_id
@@ -1011,13 +844,7 @@ class A2AServer:
             )
         except Exception as e:
             # Catch-all for unexpected errors - log but don't leak details
-            logger.error("unexpected_request_error",
-                component="a2a",
-                operation="handle_request",
-                error=str(e),
-                error_type=type(e).__name__,
-                traceback=traceback.format_exc()
-            )
+            pass
             return web.json_response(
                 A2AResponse(error={"code": -32603, "message": "Internal error"}).to_dict(),
                 status=500

@@ -6,9 +6,9 @@ import json
 from typing import Dict, Any, Optional, Callable
 from enum import Enum
 from dataclasses import dataclass
-from src.utils.logging import get_logger
+from src.utils.logging import SmartLogger, log_execution
 
-logger = get_logger('circuit_breaker')
+logger = SmartLogger(component="a2a")
 
 class CircuitBreakerState(Enum):
     """Circuit breaker states"""
@@ -31,6 +31,7 @@ class CircuitBreakerException(Exception):
 class CircuitBreaker:
     """Circuit breaker implementation for protecting against cascading failures"""
     
+    @log_execution
     def __init__(self, name: str, config: CircuitBreakerConfig):
         self.name = name
         self.config = config
@@ -41,6 +42,7 @@ class CircuitBreaker:
         self.half_open_calls = 0
         self._lock = asyncio.Lock()
     
+    @log_execution
     async def call(self, func: Callable, *args, **kwargs) -> Any:
         """Execute a function through the circuit breaker"""
         async with self._lock:
@@ -53,7 +55,6 @@ class CircuitBreaker:
                 self.state = CircuitBreakerState.HALF_OPEN
                 self.half_open_calls = 0
                 logger.info("circuit_breaker_state_change",
-                    component="a2a",
                     operation="state_transition",
                     circuit_name=self.name,
                     from_state="OPEN",
@@ -67,7 +68,6 @@ class CircuitBreaker:
             if self.state == CircuitBreakerState.OPEN:
                 time_since_failure = current_time - self.last_failure_time
                 logger.warning("circuit_breaker_open",
-                    component="a2a",
                     operation="fast_fail",
                     circuit_name=self.name,
                     state="OPEN",
@@ -80,7 +80,6 @@ class CircuitBreaker:
             if (self.state == CircuitBreakerState.HALF_OPEN and 
                 self.half_open_calls >= self.config.half_open_max_calls):
                 logger.warning("circuit_breaker_half_open_limit",
-                    component="a2a",
                     operation="call",
                     circuit_name=self.name,
                     half_open_calls=self.half_open_calls,
@@ -107,6 +106,7 @@ class CircuitBreaker:
                 await self._on_failure()
             raise
     
+    @log_execution
     async def _on_success(self):
         """Handle successful call"""
         if self.state == CircuitBreakerState.HALF_OPEN:
@@ -117,7 +117,6 @@ class CircuitBreaker:
                 self.failure_count = 0
                 self.success_count = 0
                 logger.info("circuit_breaker_state_change",
-                    component="a2a",
                     operation="state_transition",
                     circuit_name=self.name,
                     from_state="HALF_OPEN",
@@ -129,6 +128,7 @@ class CircuitBreaker:
             # Reset failure count on success in closed state
             self.failure_count = 0
     
+    @log_execution
     async def _on_failure(self):
         """Handle failed call"""
         self.failure_count += 1
@@ -138,7 +138,6 @@ class CircuitBreaker:
             if self.failure_count >= self.config.failure_threshold:
                 self.state = CircuitBreakerState.OPEN
                 logger.warning("circuit_breaker_state_change",
-                    component="a2a",
                     operation="state_transition",
                     circuit_name=self.name,
                     from_state="CLOSED",
@@ -153,7 +152,6 @@ class CircuitBreaker:
             self.state = CircuitBreakerState.OPEN
             self.success_count = 0
             logger.warning("circuit_breaker_state_change",
-                component="a2a",
                 operation="state_transition",
                 circuit_name=self.name,
                 from_state="HALF_OPEN",
@@ -180,32 +178,25 @@ class CircuitBreakerRegistry:
         self._breakers: Dict[str, CircuitBreaker] = {}
         self._default_config = CircuitBreakerConfig()
     
+    @log_execution
     def get_breaker(self, name: str, config: Optional[CircuitBreakerConfig] = None) -> CircuitBreaker:
         """Get or create a circuit breaker"""
         if name not in self._breakers:
             breaker_config = config or self._default_config
             self._breakers[name] = CircuitBreaker(name, breaker_config)
-            logger.info("circuit_breaker_created",
-                component="a2a",
-                operation="get_breaker",
-                circuit_name=name
-            )
         return self._breakers[name]
     
+    @log_execution
     def remove_breaker(self, name: str):
         """Remove a circuit breaker"""
         if name in self._breakers:
             del self._breakers[name]
-            logger.info("circuit_breaker_removed",
-                component="a2a",
-                operation="remove_breaker",
-                circuit_name=name
-            )
     
     def get_all_states(self) -> Dict[str, Dict[str, Any]]:
         """Get states of all circuit breakers"""
         return {name: breaker.get_state() for name, breaker in self._breakers.items()}
     
+    @log_execution
     def reset_breaker(self, name: str):
         """Reset a circuit breaker to closed state"""
         if name in self._breakers:
@@ -214,11 +205,6 @@ class CircuitBreakerRegistry:
             breaker.failure_count = 0
             breaker.success_count = 0
             breaker.half_open_calls = 0
-            logger.info("circuit_breaker_reset",
-                component="a2a",
-                operation="reset_breaker",
-                circuit_name=name
-            )
 
 # Global circuit breaker registry
 _registry: Optional[CircuitBreakerRegistry] = None
@@ -246,6 +232,7 @@ class RetryConfig:
         self.exponential_base = exponential_base
         self.jitter = jitter
 
+@log_execution
 async def retry_with_exponential_backoff(func: Callable, config: RetryConfig, 
                                        circuit_breaker: Optional[CircuitBreaker] = None,
                                        *args, **kwargs) -> Any:
@@ -282,24 +269,13 @@ async def retry_with_exponential_backoff(func: Callable, config: RetryConfig,
             if config.jitter:
                 delay *= (0.5 + random.random() * 0.5)
             
-            logger.warning("retry_attempt_failed",
-                component="a2a",
-                operation="retry",
-                attempt=attempt + 1,
-                delay_seconds=round(delay, 2),
-                error_type=type(e).__name__,
-                error=str(e)
-            )
             await asyncio.sleep(delay)
     
     # All attempts failed
-    logger.error("all_retry_attempts_failed",
-        component="a2a",
-        operation="retry",
-        max_attempts=config.max_attempts
-    )
+    pass
     raise last_exception
 
+@log_execution
 async def resilient_call(func: Callable, circuit_breaker_name: str,
                         retry_config: Optional[RetryConfig] = None,
                         circuit_config: Optional[CircuitBreakerConfig] = None,
