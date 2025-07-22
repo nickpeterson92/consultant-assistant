@@ -57,8 +57,9 @@ class Response(BaseModel):
 class Act(BaseModel):
     """Action to perform."""
     action: Union[Response, Plan] = Field(
-        description="Action to perform. If you want to respond to user, use Response. "
-        "If you need to further use tools to get the answer, use Plan."
+        description="CRITICAL: Only use Response when ALL original plan steps are completed. "
+        "Use Plan if ANY steps remain unfinished. "
+        "Count completed steps vs total original plan steps - if completed < total, use Plan."
     )
 
 
@@ -175,9 +176,32 @@ You are tasked with executing step {current_step_num}: {task}.
                has_memory_context=bool(memory_context),
                memory_context_preview=memory_context[:200] if memory_context else "None")
     
-    # Use ReAct agent executor which handles tool execution automatically
+    # Use ReAct agent executor with full conversation context
+    # Merge persistent conversation messages with current task
+    persistent_messages = state.get("messages", [])
+    
+    # Create agent messages by combining conversation history with current task
+    agent_messages = list(persistent_messages)  # Copy conversation history
+    agent_messages.append(("user", task_formatted))  # Add current execution step
+    
+    # Trim for ReAct agent context to prevent bloat
+    from src.utils.agents.message_processing.helpers import trim_messages_for_context
+    if len(agent_messages) > 15:  # Keep ReAct agent context focused
+        agent_messages = trim_messages_for_context(
+            agent_messages,
+            max_tokens=40000,  # Conservative for execution context
+            keep_last_n=15     # Recent conversation + current task
+        )
+    
+    logger.info("react_agent_context",
+               component="orchestrator",
+               operation="execute_step",
+               conversation_messages=len(persistent_messages),
+               agent_messages=len(agent_messages),
+               current_task=task[:100])
+    
     agent_response = asyncio.run(agent_executor.ainvoke(
-        {"messages": [("user", task_formatted)]}
+        {"messages": agent_messages}
     ))
     
     # Simple background task check - ReAct agent maintains own message context
@@ -297,8 +321,25 @@ You are tasked with executing step {current_step_num}: {task}.
                     error=str(e))
         # Don't fail the whole execution if memory storage fails
     
+    # Extract new messages from ReAct agent response to merge with conversation
+    agent_messages = agent_response.get("messages", [])
+    new_messages = []
+    
+    # Find messages that weren't in our original conversation
+    original_count = len(persistent_messages)
+    if len(agent_messages) > original_count + 1:  # More than conversation + current task
+        # Get the new AI messages (tool calls, responses, etc.)
+        new_messages = agent_messages[original_count + 1:]  # Skip conversation + task
+        
+        logger.info("merging_react_agent_messages",
+                   component="orchestrator",
+                   operation="execute_step", 
+                   new_messages_count=len(new_messages),
+                   final_response_preview=final_response[:100])
+    
     return {
         "past_steps": [(task, final_response)],
+        "messages": new_messages  # Merge ReAct agent's new messages into conversation
     }
 
 
@@ -493,8 +534,9 @@ def replan_step(state: PlanExecute):
         }
 
 
-@log_execution("orchestrator", "should_end", include_args=True, include_result=True)
+@log_execution("orchestrator", "should_end", include_args=True, include_result=True)  
 def should_end(state: PlanExecute):
+    # End if replanner decided to provide final response
     if "response" in state and state["response"]:
         return END
     else:

@@ -124,10 +124,20 @@ class PlanStatusWidget(Static):
             return  # Not for our current task
             
         plan_steps = data.get("plan_steps", [])
+        
+        # Preserve completed steps that still exist in the new plan
+        if self.plan_data:  # Only preserve if we had a previous plan
+            preserved_completed = [step for step in self.completed_steps if step in plan_steps]
+            preserved_failed = [step for step in self.failed_steps if step in plan_steps]
+        else:
+            # First plan creation - start fresh
+            preserved_completed = []
+            preserved_failed = []
+        
         self.plan_data = plan_steps
         self.plan_tasks = plan_steps
-        self.completed_steps = []
-        self.failed_steps = []
+        self.completed_steps = preserved_completed
+        self.failed_steps = preserved_failed
         self.plan_status = "in_progress"
         self.update_display()
     
