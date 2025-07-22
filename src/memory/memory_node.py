@@ -44,6 +44,9 @@ class MemoryNode:
     source_nodes: List[str] = field(default_factory=list)  # What led to this
     derived_nodes: List[str] = field(default_factory=list)  # What this led to
     
+    # Semantic embedding (optional, computed on demand)
+    _embedding: Optional[Any] = field(default=None, init=False, repr=False)
+    
     def current_relevance(self) -> float:
         """Calculate current relevance based on time decay."""
         hours_since_creation = (datetime.now() - self.created_at).total_seconds() / 3600
@@ -66,7 +69,8 @@ class MemoryNode:
     
     def add_tag(self, tag: str):
         """Add a semantic tag for better searchability."""
-        self.tags.add(tag.lower())
+        if tag is not None:
+            self.tags.add(tag.lower())
     
     def matches_tags(self, query_tags: Set[str]) -> float:
         """Calculate tag match score for semantic similarity."""
@@ -78,6 +82,47 @@ class MemoryNode:
         
         # Jaccard similarity
         return len(intersection) / len(union) if union else 0.0
+    
+    def get_embedding_text(self) -> str:
+        """Get the text representation for embedding generation."""
+        # Combine summary with key content fields
+        text_parts = []
+        
+        if self.summary:
+            text_parts.append(self.summary)
+            
+        # Add entity-specific information
+        if isinstance(self.content, dict):
+            if 'entity_name' in self.content:
+                text_parts.append(f"Name: {self.content['entity_name']}")
+            if 'entity_type' in self.content:
+                text_parts.append(f"Type: {self.content['entity_type']}")
+            if 'industry' in self.content:
+                text_parts.append(f"Industry: {self.content['industry']}")
+                
+        # Add tags
+        if self.tags:
+            text_parts.append(f"Tags: {', '.join(sorted(self.tags))}")
+            
+        return " | ".join(text_parts)
+    
+    @property
+    def embedding(self):
+        """Get or compute the embedding for this node."""
+        if self._embedding is None:
+            # Lazy load embeddings
+            try:
+                from .semantic_embeddings import get_embeddings
+                embeddings = get_embeddings()
+                if embeddings.is_available():
+                    self._embedding = embeddings.encode_text(self.get_embedding_text())
+            except Exception:
+                pass
+        return self._embedding
+    
+    def clear_embedding(self):
+        """Clear cached embedding (useful if content changes)."""
+        self._embedding = None
     
     def to_dict(self) -> Dict:
         """Serialize to dictionary for storage."""
@@ -154,6 +199,7 @@ def create_memory_node(content: Any, context_type: ContextType,
     )
     
     if tags:
-        node.tags = tags
+        # Filter out None values from tags and ensure lowercase
+        node.tags = {tag.lower() for tag in tags if tag is not None}
     
     return node

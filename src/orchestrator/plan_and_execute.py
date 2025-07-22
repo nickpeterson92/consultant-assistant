@@ -8,7 +8,7 @@ import time
 from datetime import datetime
 from typing import Annotated, List, Union
 from typing_extensions import TypedDict
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
@@ -49,6 +49,12 @@ class Plan(BaseModel):
     steps: List[str] = Field(
         description="different steps to follow, should be in sorted order"
     )
+    
+    @validator('steps', each_item=True)
+    def validate_steps(cls, v):
+        if v is None or v == "":
+            raise ValueError("Plan step cannot be None or empty")
+        return v
 
 
 class Response(BaseModel):
@@ -275,7 +281,7 @@ You are tasked with executing step {current_step_num}: {task}.
         agent_final_message = messages[-1].content
         
         # If we have tool response data from a GET operation, include it in the response
-        if tool_response_data and any(word in task.lower() for word in ['get', 'retrieve', 'fetch', 'show', 'display', 'find', 'search']):
+        if tool_response_data and task and any(word in task.lower() for word in ['get', 'retrieve', 'fetch', 'show', 'display', 'find', 'search']):
             # Format the data nicely if it's a dict/list
             if isinstance(tool_response_data, (dict, list)):
                 import json
@@ -331,8 +337,9 @@ You are tasked with executing step {current_step_num}: {task}.
             context_type = ContextType.COMPLETED_ACTION  # This task is done
         
         # Extract semantic tags from the task and response
-        task_words = set(task.lower().split())
-        input_words = set(state["input"].lower().split())
+        task_words = set(task.lower().split()) if task else set()
+        input_text = state.get("input", "")
+        input_words = set(input_text.lower().split()) if input_text else set()
         semantic_tags = task_words.union(input_words)
         
         # Clean up tags (remove common words)
@@ -448,7 +455,7 @@ You are tasked with executing step {current_step_num}: {task}.
                     # Extract meaningful words from name for tags
                     name_words = entity_info['name'].lower().split() if entity_info['name'] else []
                     entity_tags.update(word for word in name_words if len(word) > 2 and word not in stop_words)
-                if entity_info['type']:
+                if entity_info.get('type'):
                     entity_tags.add(entity_info['type'].lower())
                 if entity_info['system']:
                     entity_tags.add(entity_info['system'])
@@ -592,7 +599,7 @@ You are tasked with executing step {current_step_num}: {task}.
                     "timestamp": datetime.now().isoformat()
                 },
                 context_type=ContextType.TOOL_OUTPUT,
-                tags={tool_call["tool"].lower()},
+                tags={tool_call["tool"].lower()} if tool_call["tool"] else set(),
                 base_relevance=0.6,
                 summary=f"Tool call: {tool_call['tool']}"
             )
@@ -804,10 +811,12 @@ def replan_step(state: PlanExecute):
         # CRITICAL: Task is completing - trigger memory decay for task-specific context
         try:
             # Extract task-related tags from the original input and plan
-            input_words = set(state["input"].lower().split())
+            input_text = state.get("input", "")
+            input_words = set(input_text.lower().split()) if input_text else set()
             plan_words = set()
             for step in state["plan"]:
-                plan_words.update(step.lower().split())
+                if step is not None:  # Guard against None steps
+                    plan_words.update(step.lower().split())
             
             task_tags = input_words.union(plan_words)
             # Clean up tags
@@ -861,11 +870,20 @@ def replan_step(state: PlanExecute):
     else:
         # Check if the new plan includes human_input - if so, show the most recent result to user
         new_plan = output.action.steps
+        
+        # Log if we have None values in the plan
+        if any(step is None for step in new_plan):
+            logger.warning("plan_contains_none_steps",
+                          component="orchestrator",
+                          operation="replan_step",
+                          plan=new_plan,
+                          none_indices=[i for i, step in enumerate(new_plan) if step is None])
+        
         user_visible_responses = []
         
         # If any plan step mentions human_input, show the most recent past step result to user
         past_steps = state.get("past_steps", [])
-        if any("human_input" in step.lower() for step in new_plan) and past_steps:
+        if any("human_input" in step.lower() for step in new_plan if step is not None) and past_steps:
             last_step, last_result = past_steps[-1]
             user_visible_responses.append(last_result)
         
