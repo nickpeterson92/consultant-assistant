@@ -156,9 +156,10 @@ def emit_coordinated_events(event_types: List[str]) -> Callable:
                         new_past_steps = result["past_steps"]
                         if new_past_steps:
                             last_step = new_past_steps[-1]
-                            if isinstance(last_step, tuple) and len(last_step) >= 2:
-                                result_content = str(last_step[1])
-                                if any(error_word in result_content.lower() 
+                            if isinstance(last_step, dict):
+                                result_content = str(last_step.get('result', ''))
+                                status = last_step.get('status', 'completed')
+                                if status != 'failed' and any(error_word in result_content.lower() 
                                        for error_word in ["error", "failed", "exception"]):
                                     status = "failed"
                     
@@ -182,12 +183,12 @@ def emit_coordinated_events(event_types: List[str]) -> Callable:
                     completed_steps = []
                     failed_steps = []
                     for step_data in past_steps:
-                        if isinstance(step_data, tuple) and len(step_data) >= 2:
-                            step_desc, step_result = step_data
-                            if any(error_word in str(step_result).lower() 
-                                   for error_word in ["error", "failed", "exception"]):
+                        if isinstance(step_data, dict):
+                            step_desc = step_data.get('step_description', '')
+                            status = step_data.get('status', 'completed')
+                            if status == 'failed':
                                 failed_steps.append(step_desc)
-                            else:
+                            elif status == 'completed':
                                 completed_steps.append(step_desc)
                     
                     current_step = None
@@ -285,10 +286,10 @@ def emit_task_lifecycle(func: Callable) -> Callable:
                 new_past_steps = result["past_steps"]
                 if new_past_steps:
                     last_step = new_past_steps[-1]
-                    if isinstance(last_step, tuple) and len(last_step) >= 2:
-                        result_content = str(last_step[1])
-                        # Check for error indicators in result
-                        if any(error_word in result_content.lower() 
+                    if isinstance(last_step, dict):
+                        result_content = str(last_step.get('result', ''))
+                        status = last_step.get('status', 'completed')
+                        if status != 'failed' and any(error_word in result_content.lower() 
                                for error_word in ["error", "failed", "exception"]):
                             status = "failed"
             
@@ -416,9 +417,10 @@ def emit_coordinated_events(event_types: List[str]) -> Callable:
                         new_past_steps = result["past_steps"]
                         if new_past_steps:
                             last_step = new_past_steps[-1]
-                            if isinstance(last_step, tuple) and len(last_step) >= 2:
-                                result_content = str(last_step[1])
-                                if any(error_word in result_content.lower() 
+                            if isinstance(last_step, dict):
+                                result_content = str(last_step.get('result', ''))
+                                status = last_step.get('status', 'completed')
+                                if status != 'failed' and any(error_word in result_content.lower() 
                                        for error_word in ["error", "failed", "exception"]):
                                     status = "failed"
                     
@@ -442,12 +444,12 @@ def emit_coordinated_events(event_types: List[str]) -> Callable:
                     completed_steps = []
                     failed_steps = []
                     for step_data in past_steps:
-                        if isinstance(step_data, tuple) and len(step_data) >= 2:
-                            step_desc, step_result = step_data
-                            if any(error_word in str(step_result).lower() 
-                                   for error_word in ["error", "failed", "exception"]):
+                        if isinstance(step_data, dict):
+                            step_desc = step_data.get('step_description', '')
+                            status = step_data.get('status', 'completed')
+                            if status == 'failed':
                                 failed_steps.append(step_desc)
-                            else:
+                            elif status == 'completed':
                                 completed_steps.append(step_desc)
                     
                     current_step = None
@@ -636,9 +638,10 @@ def emit_coordinated_events(event_types: List[str]) -> Callable:
                         new_past_steps = result["past_steps"]
                         if new_past_steps:
                             last_step = new_past_steps[-1]
-                            if isinstance(last_step, tuple) and len(last_step) >= 2:
-                                result_content = str(last_step[1])
-                                if any(error_word in result_content.lower() 
+                            if isinstance(last_step, dict):
+                                result_content = str(last_step.get('result', ''))
+                                status = last_step.get('status', 'completed')
+                                if status != 'failed' and any(error_word in result_content.lower() 
                                        for error_word in ["error", "failed", "exception"]):
                                     status = "failed"
                     
@@ -662,12 +665,12 @@ def emit_coordinated_events(event_types: List[str]) -> Callable:
                     completed_steps = []
                     failed_steps = []
                     for step_data in past_steps:
-                        if isinstance(step_data, tuple) and len(step_data) >= 2:
-                            step_desc, step_result = step_data
-                            if any(error_word in str(step_result).lower() 
-                                   for error_word in ["error", "failed", "exception"]):
+                        if isinstance(step_data, dict):
+                            step_desc = step_data.get('step_description', '')
+                            status = step_data.get('status', 'completed')
+                            if status == 'failed':
                                 failed_steps.append(step_desc)
-                            else:
+                            elif status == 'completed':
                                 completed_steps.append(step_desc)
                     
                     current_step = None
@@ -731,12 +734,12 @@ def emit_plan_updated(func: Callable) -> Callable:
             completed_steps = []
             failed_steps = []
             for step_data in past_steps:
-                if isinstance(step_data, tuple) and len(step_data) >= 2:
-                    step_desc, step_result = step_data
-                    if any(error_word in str(step_result).lower() 
-                           for error_word in ["error", "failed", "exception"]):
+                if isinstance(step_data, dict):
+                    step_desc = step_data.get('step_description', '')
+                    status = step_data.get('status', 'completed')
+                    if status == 'failed':
                         failed_steps.append(step_desc)
-                    else:
+                    elif status == 'completed':
                         completed_steps.append(step_desc)
             
             # Determine current step and overall status
@@ -879,9 +882,10 @@ def emit_coordinated_events(event_types: List[str]) -> Callable:
                         new_past_steps = result["past_steps"]
                         if new_past_steps:
                             last_step = new_past_steps[-1]
-                            if isinstance(last_step, tuple) and len(last_step) >= 2:
-                                result_content = str(last_step[1])
-                                if any(error_word in result_content.lower() 
+                            if isinstance(last_step, dict):
+                                result_content = str(last_step.get('result', ''))
+                                status = last_step.get('status', 'completed')
+                                if status != 'failed' and any(error_word in result_content.lower() 
                                        for error_word in ["error", "failed", "exception"]):
                                     status = "failed"
                     
@@ -905,12 +909,12 @@ def emit_coordinated_events(event_types: List[str]) -> Callable:
                     completed_steps = []
                     failed_steps = []
                     for step_data in past_steps:
-                        if isinstance(step_data, tuple) and len(step_data) >= 2:
-                            step_desc, step_result = step_data
-                            if any(error_word in str(step_result).lower() 
-                                   for error_word in ["error", "failed", "exception"]):
+                        if isinstance(step_data, dict):
+                            step_desc = step_data.get('step_description', '')
+                            status = step_data.get('status', 'completed')
+                            if status == 'failed':
                                 failed_steps.append(step_desc)
-                            else:
+                            elif status == 'completed':
                                 completed_steps.append(step_desc)
                     
                     current_step = None

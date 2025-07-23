@@ -25,13 +25,21 @@ logger = SmartLogger("orchestrator")
 
 
 # ================================
-# State Schema - EXACT from tutorial
+# State Schema - Enhanced with StepExecution
 # ================================
+
+class StepExecution(TypedDict):
+    """Structured representation of a plan step execution."""
+    step_seq_no: int              # Sequential number within the plan
+    step_description: str         # The step text from the plan
+    status: str                   # "pending", "executing", "completed", "failed", "skipped"
+    result: str                   # The execution result (required)
+
 
 class PlanExecute(TypedDict):
     input: str
     plan: List[str]
-    past_steps: Annotated[List[tuple], operator.add]
+    past_steps: Annotated[List[StepExecution], operator.add]
     response: str
     user_visible_responses: Annotated[List[str], operator.add]  # Responses that should be shown to user immediately
     messages: Annotated[List, add_messages]  # Persistent conversation history across requests
@@ -138,8 +146,8 @@ def execute_step(state: PlanExecute):
     
     if current_plan_steps:
         past_steps_context = "\n\nPREVIOUS STEPS COMPLETED:\n"
-        for i, (step_desc, result) in enumerate(current_plan_steps, 1):
-            past_steps_context += f"Step {i}: {step_desc}\nResult: {result}\n\n"
+        for step in current_plan_steps:
+            past_steps_context += f"Step {step['step_seq_no']}: {step['step_description']}\nResult: {step['result']}\n\n"
     
     # MEMORY ENHANCEMENT: Add intelligent memory context as supplementary information
     memory_context = ""
@@ -692,8 +700,16 @@ You are tasked with executing step {current_step_num}: {task}.
                    new_messages_count=len(new_messages),
                    final_response_preview=final_response[:100])
     
+    # Create StepExecution entry
+    step_execution: StepExecution = {
+        "step_seq_no": current_step_num,
+        "step_description": task,
+        "status": "completed",  # Will be updated by event decorators if failed
+        "result": final_response
+    }
+    
     return {
-        "past_steps": [(task, final_response)],
+        "past_steps": [step_execution],
         "messages": new_messages  # Merge ReAct agent's new messages into conversation
     }
 
@@ -824,8 +840,8 @@ def replan_step(state: PlanExecute):
     current_plan_steps = state["past_steps"][plan_offset:]  # Only steps from current plan
     
     past_steps_str = ""
-    for i, (step, result) in enumerate(current_plan_steps):
-        past_steps_str += f"Step {i + 1}: {step}\nResult: {result}\n\n"
+    for step in current_plan_steps:
+        past_steps_str += f"Step {step['step_seq_no']}: {step['step_description']}\nResult: {step['result']}\n\n"
     
     # MEMORY ENHANCEMENT: Add recent context for replanning decisions
     replan_context = memory.retrieve_relevant(
@@ -951,8 +967,8 @@ def replan_step(state: PlanExecute):
         # If any plan step mentions human_input, show the most recent past step result to user
         past_steps = state.get("past_steps", [])
         if any("human_input" in step.lower() for step in new_plan if step is not None) and past_steps:
-            last_step, last_result = past_steps[-1]
-            user_visible_responses.append(last_result)
+            last_step = past_steps[-1]
+            user_visible_responses.append(last_step['result'])
         
         return {
             "plan": new_plan,

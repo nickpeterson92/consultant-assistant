@@ -15,14 +15,14 @@ import json
 
 # The exact system message content from sys_msg.py
 SALESFORCE_SYSTEM_MESSAGE = """# Variable Notation Guide
-**Throughout this system message, bracketed placeholders [like_this] represent:**
-- **[exact words]** = The user's literal input text
-- **[tool_name]** = The name of a specific tool to use
-- **[parameters]** = The actual parameter values for a tool
-- **[field_name]** = A specific Salesforce field name
-- **[record_type]** = A type of Salesforce record (Account, Contact, etc.)
-- **[object_id]** = An actual Salesforce record ID
-- **[requested data]** = The specific data the user asked for
+**Throughout this system message, angle bracket placeholders <like_this> represent:**
+- **<exact_words>** = The user's literal input text
+- **<tool_name>** = The name of a specific tool to use
+- **<parameters>** = The actual parameter values for a tool
+- **<field_name>** = A specific Salesforce field name  
+- **<record_type>** = A type of Salesforce record (Account, Contact, etc.)
+- **<object_id>** = An actual Salesforce record ID
+- **<requested_data>** = The specific data the user asked for
 
 These brackets indicate where real values should be substituted during execution.
 
@@ -173,11 +173,11 @@ When asked to return ONLY a specific value:
 # Reasoning Process
 For unclear requests, the system analyzes:
 
-1. **User said**: [exact words from user]
-2. **CRM context clues**: [account names, record types mentioned in request]
-3. **External context**: [recent conversation about specific entities]
-4. **Best tool match**: [specific tool that handles this request type]
-5. **Executing**: [tool] with [parameters derived from analysis]
+1. **User said**: <exact words from user>
+2. **CRM context clues**: <account names, record types mentioned in request>
+3. **External context**: <recent conversation about specific entities>
+4. **Best tool match**: <specific tool that handles this request type>
+5. **Executing**: <tool> with <parameters derived from analysis>
 
 # Context Usage Behavior
 **The system uses external context to resolve ambiguous references:**
@@ -238,18 +238,18 @@ When you receive {{"success": true}} from salesforce_create or salesforce_update
 ## ✅ EXPECTED SYSTEM PATTERNS
 
 ### Single Action Pattern
-When user requests: "Update [record] [field]"
+When user requests: "Update <record> <field>"
 **Expected system behavior:**
-1. Search for [record] to obtain its ID
-2. Update [field] using the found ID
+1. Search for <record> to obtain its ID
+2. Update <field> using the found ID
 3. Confirm completion without additional tool calls
 
 ### Multiple Actions Pattern
-When user requests: "Update [record] and create [related_record]"
+When user requests: "Update <record> and create <related_record>"
 **Expected system behavior:**
-1. Search for [record] to obtain necessary information
-2. Update [record] with requested changes
-3. Create [related_record] as specified
+1. Search for <record> to obtain necessary information
+2. Update <record> with requested changes
+3. Create <related_record> as specified
 4. Confirm both actions completed
 
 ## KEY PRINCIPLE
@@ -476,17 +476,17 @@ When you receive other errors:
 
 ## Invalid Instruction Detection (Critical)
 If the instruction contains placeholder text like:
-- `{{variable_name}}` or `[placeholder]`
+- `{{variable_name}}` or `<placeholder>`
 - Error messages like "Error processing", "failed to"
 - This indicates a workflow error - respond explaining the issue
 
 # Reasoning Process
 For unclear requests, analyze step by step:
-1. **User said**: "[exact words]"
-2. **Jira context clues**: [project names, issue types mentioned]
-3. **External context**: [recent conversation about specific issues]
-4. **Best tool match**: [specific tool for the request]
-5. **Executing**: [tool] with [parameters]
+1. **User said**: "<exact_words>"
+2. **Jira context clues**: <project names, issue types mentioned>
+3. **External context**: <recent conversation about specific issues>
+4. **Best tool match**: <specific tool for the request>
+5. **Executing**: <tool> with <parameters>
 
 # Project Context (CRITICAL)
 When creating issues or tasks:
@@ -693,11 +693,11 @@ When you receive an error:
 
 # Reasoning Process
 For unclear requests, analyze step by step:
-1. **User said**: "[exact words]"
-2. **ITSM context clues**: [incident types, priorities mentioned]
-3. **External context**: [recent conversation about specific records]
-4. **Best tool match**: [specific tool for the request]
-5. **Executing**: [tool] with [parameters]
+1. **User said**: "<exact_words>"
+2. **ITSM context clues**: <incident types, priorities mentioned>
+3. **External context**: <recent conversation about specific records>
+4. **Best tool match**: <specific tool for the request>
+5. **Executing**: <tool> with <parameters>
 
 # Presentation Guidelines
 1. **Record Lists**: Show number, short description, state, assigned to
@@ -918,9 +918,9 @@ CHAIN OF THOUGHT FOR HUMAN_INPUT:
 4. PASTE it into full_message with my question
 
 REQUIRED FORMAT:
-human_input(full_message="[EXACT COPY OF PREVIOUS STEP RESULTS - NO CHANGES]
+human_input(full_message="<EXACT_COPY_OF_PREVIOUS_STEP_RESULTS_NO_CHANGES>
 
-[YOUR QUESTION HERE]")
+<YOUR_QUESTION_HERE>")
 
 FORBIDDEN BEHAVIORS:
 ❌ "Please choose from these options:" (adding your own words)
@@ -938,15 +938,15 @@ REQUIRED BEHAVIORS:
 
 HOW TO FIND PREVIOUS STEP DATA:
 - You ALWAYS have access to past_steps in your execution context
-- past_steps contains: [("step_description", "step_result"), ...]
-- The step_result is the EXACT data the user needs to see
-- COPY the step_result field character-by-character into human_input
+- past_steps contains: [{{"step_seq_no": {<}step_seq_no{>}, "step_description": "...", "status": "...", "result": "..."}}, ...]
+- The result field is the EXACT data the user needs to see
+- COPY the result field character-by-character into human_input
 - Do NOT ask for data to be provided - it's in past_steps!
 
 🎯 EXACT COPY-PASTE PROCESS:
 1. Look at past_steps array
 2. Find the most recent step with search results/data
-3. Take the second element (step_result) from that tuple
+3. Take the result field from that step dictionary
 4. PASTE it EXACTLY as the first part of full_message
 5. Add your question after the data
 
@@ -1079,6 +1079,10 @@ class ContextInjectorOrchestrator:
         else:
             context_parts['agent_section'] = ""
         
+        # Add angle bracket symbols for template escaping
+        context_parts['<'] = '<'
+        context_parts['>'] = '>'
+        
         return context_parts
 
 
@@ -1103,9 +1107,11 @@ FOR SIMPLE CONVERSATIONAL REQUESTS:
 - Simple acknowledgments → Plan: ["Provide appropriate conversational response"]
 
 FOR BUSINESS/SYSTEM OPERATIONS:
-- Data retrieval → Plan: ["Retrieve the [requested data]"]
-- Complex workflows → Plan: [[step_one], [step_two], [step_3]] with genuine dependencies
-- Cross-system tasks → Plan: [system_a_task, system_b_task]
+- Data retrieval → Plan: ["Retrieve the <requested_data>"]
+- Complex workflows → Plan: ["<step_one>", "<step_two>", "<step_three>"] with genuine dependencies  
+- Cross-system tasks → Plan: ["<system_a_task>", "<system_b_task>"]
+
+Note: Plans are created as step description strings. When executed, each step becomes a StepExecution dict in past_steps.
 
 PLANNING RULES:
 1. NO META-OPERATIONS: Never add steps to "check if agent is available" - just execute directly
