@@ -592,14 +592,13 @@ You are tasked with executing step {current_step_num}: {task}.
                 rel_type = RelationshipType.REFINES  # Action refines/updates entity
                 memory.add_relationship(memory_node_id, entity_id, rel_type)
             
-            # Also create reverse relationship - entity relates to this action
-            memory.add_relationship(entity_id, memory_node_id, RelationshipType.RELATES_TO)
+            # No reverse relationship needed - actions lead to entities, not vice versa
             
             # Notify about relationships
             try:
                 from src.orchestrator.observers.memory_observer import notify_memory_edge
                 notify_memory_edge(thread_id, memory_node_id, entity_id, rel_type, state.get("task_id"))
-                notify_memory_edge(thread_id, entity_id, memory_node_id, RelationshipType.RELATES_TO, state.get("task_id"))
+                # Removed backwards edge - entity shouldn't point back to action
             except:
                 pass
         
@@ -624,8 +623,8 @@ You are tasked with executing step {current_step_num}: {task}.
                 summary=f"Tool call: {tool_call['tool']}"
             )
             
-            # Tool output depends on the action
-            memory.add_relationship(tool_node_id, memory_node_id, RelationshipType.DEPENDS_ON)
+            # Action depends on the tool/agent to execute it
+            memory.add_relationship(memory_node_id, tool_node_id, RelationshipType.DEPENDS_ON)
             
             # Notify
             try:
@@ -633,7 +632,7 @@ You are tasked with executing step {current_step_num}: {task}.
                 node = memory.nodes.get(tool_node_id)
                 if node:
                     notify_memory_update(thread_id, tool_node_id, node, state.get("task_id"))
-                notify_memory_edge(thread_id, tool_node_id, memory_node_id, RelationshipType.DEPENDS_ON, state.get("task_id"))
+                notify_memory_edge(thread_id, memory_node_id, tool_node_id, RelationshipType.DEPENDS_ON, state.get("task_id"))
             except:
                 pass
         
@@ -781,9 +780,30 @@ def plan_step(state: PlanExecute):
     except Exception as e:
         logger.warning("memory_snapshot_emission_failed", error=str(e))
     
-    # Set the offset to mark where this plan starts in past_steps
-    current_past_steps_length = len(state.get("past_steps", []))
+    # Intelligent culling: Keep only recent plan history
+    past_steps = state.get("past_steps", [])
+    current_past_steps_length = len(past_steps)
     
+    # If we have too many steps accumulated, keep only the most recent ones
+    if current_past_steps_length > 50:  # Threshold for culling
+        # Keep last 30 steps (roughly 2-3 plans worth)
+        steps_to_keep = 30
+        past_steps = past_steps[-steps_to_keep:]
+        
+        logger.info("culled_past_steps",
+                   operation="plan_step",
+                   original_count=current_past_steps_length,
+                   new_count=len(past_steps),
+                   culled_count=current_past_steps_length - len(past_steps))
+        
+        # After culling, the new plan starts at the current length
+        return {
+            "plan": plan.steps,
+            "plan_step_offset": len(past_steps),  # New plan starts after culled steps
+            "past_steps": past_steps
+        }
+    
+    # No culling needed
     return {
         "plan": plan.steps,
         "plan_step_offset": current_past_steps_length
