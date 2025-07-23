@@ -1,9 +1,7 @@
 """Intelligent summary generation from memory content."""
 
-from typing import Any, Dict, List, Optional
-from datetime import datetime
+from typing import Any, Optional
 import json
-import re
 
 from .memory_node import ContextType
 
@@ -227,7 +225,7 @@ def _detect_entity_type(content: dict, tags: set) -> str:
         return "contact" 
     elif "subject" in content and "status" in content:
         return "case"
-    elif "company" in content and not "amount" in content:
+    elif "company" in content and "amount" not in content:
         return "lead"
     
     return "entity"

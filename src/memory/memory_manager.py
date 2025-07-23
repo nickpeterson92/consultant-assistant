@@ -1,9 +1,8 @@
 """Thread-scoped memory management for conversational AI."""
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, Optional, List
 import threading
-import asyncio
 
 from .memory_graph import MemoryGraph
 from .memory_node import MemoryNode, ContextType

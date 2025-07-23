@@ -4,8 +4,6 @@ import networkx as nx
 from datetime import datetime, timedelta
 from typing import Dict, List, Set, Optional, Any, Tuple
 from collections import defaultdict
-import json
-import logging
 
 from .memory_node import MemoryNode, ContextType, create_memory_node
 from .graph_algorithms import GraphAlgorithms

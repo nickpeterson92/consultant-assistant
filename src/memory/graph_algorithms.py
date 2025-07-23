@@ -8,13 +8,11 @@ This module implements graph-based algorithms to enhance memory retrieval:
 """
 
 import networkx as nx
-from typing import Dict, List, Set, Optional, Tuple, Any
+from typing import Dict, List, Set, Optional
 from collections import defaultdict
-import numpy as np
-from datetime import datetime, timedelta
-import logging
+from datetime import timedelta
 
-from .memory_node import MemoryNode, ContextType
+from .memory_node import MemoryNode
 from src.utils.logging.framework import SmartLogger
 
 logger = SmartLogger("memory")

@@ -1,7 +1,7 @@
 """Memory Node implementation for conversational context."""
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, Set, List, Optional
 from dataclasses import dataclass, field
 from enum import Enum
