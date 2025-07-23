@@ -176,6 +176,8 @@ Event-driven architecture for real-time updates:
 
 ## Quick Start
 
+For a complete walkthrough of setup, architecture, and hands-on exploration, see our [**🚀 Comprehensive Onboarding Guide**](docs/guides/comprehensive-onboarding-guide.md).
+
 ```bash
 # 1. Clone the repository
 git clone https://github.com/your-org/consultant-assistant.git

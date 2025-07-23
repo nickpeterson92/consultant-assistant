@@ -712,4 +712,274 @@ except Exception as e:
 - Always validate input - don't trust incoming data
 - Always log errors for debugging
 - Always clean up resources - use context managers
+
+## Extended Protocol Features
+
+### Server-Sent Events (SSE)
+
+The orchestrator provides an SSE endpoint for real-time streaming of plan execution updates, memory graph changes, and task progress to UI clients.
+
+#### SSE Endpoint
+
+```
+GET /sse
+```
+
+#### Connection Example
+
+```javascript
+const eventSource = new EventSource('http://localhost:8000/sse');
+
+eventSource.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    console.log('SSE Event:', data.event, data.data);
+};
+
+eventSource.onerror = (error) => {
+    console.error('SSE Error:', error);
+};
+```
+
+#### Event Types
+
+##### Plan Updates
+```json
+{
+    "event": "plan_update",
+    "data": {
+        "task_id": "550e8400-e29b-41d4-a716-446655440000",
+        "thread_id": "thread-123",
+        "plan": {
+            "steps": [
+                {
+                    "step": 1,
+                    "description": "Search for account information",
+                    "status": "completed"
+                },
+                {
+                    "step": 2,
+                    "description": "Update account details",
+                    "status": "executing"
+                }
+            ]
+        }
+    }
+}
+```
+
+##### Task Progress
+```json
+{
+    "event": "task_progress",
+    "data": {
+        "task_id": "550e8400-e29b-41d4-a716-446655440000",
+        "status": "executing",
+        "progress": 0.5,
+        "message": "Processing account updates..."
+    }
+}
+```
+
+##### Memory Graph Updates
+```json
+{
+    "event": "memory_update",
+    "data": {
+        "thread_id": "thread-123",
+        "graph_stats": {
+            "total_nodes": 42,
+            "total_edges": 38,
+            "new_nodes": ["account_001", "contact_003"]
+        },
+        "visualization": "ASCII graph representation..."
+    }
+}
+```
+
+##### Interrupt Notifications
+```json
+{
+    "event": "interrupt_requested",
+    "data": {
+        "thread_id": "thread-123",
+        "interrupt_type": "user_escape",
+        "message": "User requested plan modification"
+    }
+}
+```
+
+#### SSE Implementation Details
+
+- **Queue-based**: Messages are queued to ensure delivery even if client briefly disconnects
+- **Auto-reconnect**: Clients automatically reconnect on connection loss
+- **CORS enabled**: Allows cross-origin connections for web UIs
+- **Keep-alive**: Periodic heartbeat messages prevent timeout
+
+### WebSocket Support
+
+The orchestrator provides a WebSocket endpoint for bidirectional communication, primarily used for interrupt handling and interactive features.
+
+#### WebSocket Endpoint
+
+```
+WS /ws
+```
+
+#### Connection Example
+
+```javascript
+const ws = new WebSocket('ws://localhost:8000/ws');
+
+ws.onopen = () => {
+    console.log('WebSocket connected');
+};
+
+ws.onmessage = (event) => {
+    const message = JSON.parse(event.data);
+    console.log('WebSocket message:', message);
+};
+
+// Send interrupt request
+ws.send(JSON.stringify({
+    type: 'interrupt',
+    payload: {
+        thread_id: 'thread-123',
+        reason: 'user_interrupt'
+    },
+    id: 'msg-001'
+}));
+```
+
+#### Message Types
+
+##### Interrupt Request
+```json
+{
+    "type": "interrupt",
+    "payload": {
+        "thread_id": "thread-123",
+        "reason": "user_interrupt"
+    },
+    "id": "msg-001"
+}
+```
+
+##### Interrupt Acknowledgment
+```json
+{
+    "type": "interrupt_ack",
+    "payload": {
+        "success": true,
+        "thread_id": "thread-123",
+        "message": "Task interrupted successfully"
+    },
+    "id": "msg-001"
+}
+```
+
+##### Resume Request
+```json
+{
+    "type": "resume",
+    "payload": {
+        "thread_id": "thread-123",
+        "user_input": "Let's modify the plan to include data validation"
+    },
+    "id": "msg-002"
+}
+```
+
+##### Resume Acknowledgment
+```json
+{
+    "type": "resume_ack",
+    "payload": {
+        "success": true,
+        "thread_id": "thread-123",
+        "message": "Task resumed with updated plan"
+    },
+    "id": "msg-002"
+}
+```
+
+#### WebSocket Features
+
+- **Bidirectional**: Enables real-time interaction between UI and orchestrator
+- **Interrupt handling**: Primary channel for user interrupts and plan modifications
+- **State persistence**: Interrupt context preserved across reconnections
+- **Error handling**: Graceful degradation on connection issues
+
+### Integration Example
+
+Here's how SSE and WebSocket work together in a typical UI implementation:
+
+```javascript
+class OrchestratorClient {
+    constructor(baseUrl) {
+        this.baseUrl = baseUrl;
+        this.eventSource = null;
+        this.websocket = null;
+    }
+
+    connect() {
+        // Connect SSE for updates
+        this.eventSource = new EventSource(`${this.baseUrl}/sse`);
+        this.eventSource.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            this.handleSSEEvent(data);
+        };
+
+        // Connect WebSocket for interactions
+        this.websocket = new WebSocket(`ws://${this.baseUrl.replace('http://', '')}/ws`);
+        this.websocket.onmessage = (event) => {
+            const message = JSON.parse(event.data);
+            this.handleWebSocketMessage(message);
+        };
+    }
+
+    handleSSEEvent(data) {
+        switch(data.event) {
+            case 'plan_update':
+                this.updatePlanDisplay(data.data);
+                break;
+            case 'memory_update':
+                this.updateMemoryGraph(data.data);
+                break;
+            case 'interrupt_requested':
+                this.showInterruptDialog(data.data);
+                break;
+        }
+    }
+
+    interruptTask(threadId, reason) {
+        this.websocket.send(JSON.stringify({
+            type: 'interrupt',
+            payload: { thread_id: threadId, reason },
+            id: crypto.randomUUID()
+        }));
+    }
+
+    resumeTask(threadId, userInput) {
+        this.websocket.send(JSON.stringify({
+            type: 'resume',
+            payload: { thread_id: threadId, user_input: userInput },
+            id: crypto.randomUUID()
+        }));
+    }
+}
+```
+
+### Protocol Coordination
+
+The standard A2A protocol (JSON-RPC), SSE, and WebSocket work together:
+
+1. **A2A Protocol**: Task submission and agent communication
+2. **SSE**: One-way streaming of updates from server to client
+3. **WebSocket**: Two-way communication for interactive features
+
+This combination provides:
+- Reliable task execution (A2A)
+- Real-time updates (SSE)
+- Interactive control (WebSocket)
+- Graceful degradation if any component fails
 - Always handle timeouts - network calls can fail

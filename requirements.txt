@@ -1,9 +1,7 @@
 # Core AI and LangGraph dependencies
 langchain==0.3.26
 langgraph==0.4.8
-langsmith==0.4.1
 langchain-openai==0.3.24
-openai==1.90.0
 
 # A2A Protocol dependencies
 aiohttp==3.12.13
@@ -17,12 +15,14 @@ trustcall==0.0.39
 pydantic==2.11.7
 
 # Database and storage
-SQLAlchemy==2.0.41
 aiosqlite==0.21.0
 
-# OCR capabilities
-pytesseract==0.3.13
-pillow==11.1.0
+# Memory and graph processing
+networkx==3.4.2
+numpy==1.26.4
+
+# UI dependencies
+textual==4.0.0
 
 # Utilities
 python-dotenv==1.0.1
