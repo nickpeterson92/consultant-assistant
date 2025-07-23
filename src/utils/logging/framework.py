@@ -141,6 +141,18 @@ class SmartLogger:
         """Log debug message with auto-context."""
         self._log('debug', message, **kwargs)
     
+    def isEnabledFor(self, level: int) -> bool:
+        """Check if logger is enabled for given level.
+        
+        Args:
+            level: Logging level (10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR)
+            
+        Returns:
+            bool: True if logging is enabled for this level
+        """
+        # Check the underlying logger's effective level
+        return self._logger.isEnabledFor(level)
+    
 
 
 # Global smart logger instance
@@ -254,15 +266,27 @@ def _create_wrapper(func: Callable, component: Optional[str], operation: Optiona
             duration = time.time() - start_time
             
             if log_errors:
-                # Log error
-                func_logger.error(f"function_error_{op_name}",
-                                operation=op_name,
-                                function=func.__name__,
-                                execution_id=exec_id,
-                                duration_seconds=round(duration, 3),
-                                success=False,
-                                error=str(e),
-                                error_type=type(e).__name__)
+                # Check if this is a GraphInterrupt (expected behavior)
+                from langgraph.errors import GraphInterrupt
+                if isinstance(e, GraphInterrupt):
+                    # Log as INFO, not ERROR - this is expected behavior
+                    func_logger.info(f"function_interrupt_{op_name}",
+                                   operation=op_name,
+                                   function=func.__name__,
+                                   execution_id=exec_id,
+                                   duration_seconds=round(duration, 3),
+                                   interrupt_type="GraphInterrupt",
+                                   interrupt_value=str(e.args[0]) if e.args else "")
+                else:
+                    # Log actual error
+                    func_logger.error(f"function_error_{op_name}",
+                                    operation=op_name,
+                                    function=func.__name__,
+                                    execution_id=exec_id,
+                                    duration_seconds=round(duration, 3),
+                                    success=False,
+                                    error=str(e),
+                                    error_type=type(e).__name__)
             
             # Re-raise the exception
             raise

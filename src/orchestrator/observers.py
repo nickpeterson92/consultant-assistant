@@ -262,6 +262,23 @@ class SSEObserver(PlanExecuteObserver):
         self.sse_queue: List[Dict] = []  # Queue of SSE messages
         self._observers = []  # SSE clients listening
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="sse-observer")
+        self._main_loop = None  # Will store reference to main event loop
+    
+    def set_main_loop(self, loop=None):
+        """Set the main event loop to use for SSE emissions.
+        
+        Args:
+            loop: The asyncio event loop to use. If None, captures current running loop.
+        """
+        if loop is None:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                from src.utils.logging.framework import SmartLogger
+                logger = SmartLogger("orchestrator")
+                logger.warning("SSE_OBSERVER_no_loop_to_capture")
+                return
+        self._main_loop = loop
     
     def add_client(self, client_callback):
         """Add an SSE client callback."""
@@ -277,9 +294,11 @@ class SSEObserver(PlanExecuteObserver):
         from src.utils.logging.framework import SmartLogger
         logger = SmartLogger("orchestrator")
         
-        logger.info("SSE_OBSERVER_emit_threadsafe", 
-                   event_type=event_type,
-                   connected_clients=len(self._observers))
+        # Only log if we have debug logging enabled
+        if logger.isEnabledFor(10):  # DEBUG level
+            logger.debug("SSE_OBSERVER_emit_threadsafe", 
+                       event_type=event_type,
+                       connected_clients=len(self._observers))
         
         # Format to match main branch: {"event": "type", "data": {...}}
         sse_payload = {
@@ -301,23 +320,22 @@ class SSEObserver(PlanExecuteObserver):
         if len(self.sse_queue) > 50:
             self.sse_queue.pop(0)
         
-        # Send to all connected clients using the executor
-        def run_callbacks():
-            """Run callbacks in the executor thread with its own event loop."""
-            # Create a new event loop for this thread
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
+        # Use stored main event loop, or try to get the current running loop
+        if self._main_loop is None:
             try:
-                # Run the async emission
-                loop.run_until_complete(self._emit_sse_async(sse_message))
-            except Exception as e:
-                logger.error("SSE_OBSERVER_callback_execution_failed", error=str(e))
-            finally:
-                loop.close()
+                self._main_loop = asyncio.get_running_loop()
+                logger.info("SSE_OBSERVER_captured_loop")
+            except RuntimeError:
+                # No running loop - this might happen when called from thread
+                logger.warning("SSE_OBSERVER_no_running_loop")
+                return
         
-        # Submit to thread pool
-        self._executor.submit(run_callbacks)
+        # Schedule the callbacks to run in the main event loop
+        # This ensures we write to aiohttp responses in the correct event loop
+        asyncio.run_coroutine_threadsafe(
+            self._emit_sse_async(sse_message),
+            self._main_loop
+        )
     
     async def _emit_sse_async(self, sse_message: Dict):
         """Async method to actually send SSE messages to connected clients."""
@@ -325,15 +343,18 @@ class SSEObserver(PlanExecuteObserver):
         logger = SmartLogger("orchestrator")
         
         event_type = sse_message.get("event", "unknown")
-        logger.info("SSE_OBSERVER_sending_to_clients", 
-                   event_type=event_type, 
-                   connected_clients=len(self._observers))
+        # Only log if we have debug logging enabled
+        if logger.isEnabledFor(10):  # DEBUG level
+            logger.debug("SSE_OBSERVER_sending_to_clients", 
+                       event_type=event_type, 
+                       connected_clients=len(self._observers))
         
         # Send to all connected clients
         for callback in self._observers[:]:  # Copy to avoid modification during iteration
             try:
                 await callback(sse_message)  # Await the async callback
-                logger.info("SSE_OBSERVER_callback_success", event_type=event_type)
+                # Success - no need to log unless debugging
+                pass
             except Exception as e:
                 logger.error("SSE_OBSERVER_callback_failed", event_type=event_type, error=str(e))
                 # Remove dead clients

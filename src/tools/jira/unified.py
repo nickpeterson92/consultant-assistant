@@ -108,6 +108,7 @@ class JiraCreate(JiraWriteTool):
     
     Simple creation tool that works with any issue type.
     The LLM provides the issue data and this tool handles the creation.
+    NOTE: Assignee requires account ID - use jira_list_resources with resource_type='users' to find valid account IDs.
     """
     produces_user_data: bool = False  # Create operations don't require user selection
     name: str = "jira_create"
@@ -119,7 +120,7 @@ class JiraCreate(JiraWriteTool):
         summary: str = Field(description="Issue summary/title")
         description: Optional[str] = Field(None, description="Issue description")
         parent_key: Optional[str] = Field(None, description="Parent issue key for subtasks")
-        assignee: Optional[str] = Field(None, description="Assignee username")
+        assignee_account_id: Optional[str] = Field(None, description="Assignee account ID (not username - use jira_list_resources to find)")
         priority: Optional[str] = Field(None, description="Priority name")
         labels: Optional[List[str]] = Field(None, description="Issue labels")
         components: Optional[List[str]] = Field(None, description="Component names")
@@ -130,7 +131,7 @@ class JiraCreate(JiraWriteTool):
     @log_execution("jira", "create_issue", include_args=True, include_result=False)
     def _execute(self, project_key: str, issue_type: str, summary: str,
                  description: Optional[str] = None, parent_key: Optional[str] = None,
-                 assignee: Optional[str] = None, priority: Optional[str] = None,
+                 assignee_account_id: Optional[str] = None, priority: Optional[str] = None,
                  labels: Optional[List[str]] = None, components: Optional[List[str]] = None,
                  custom_fields: Optional[Dict[str, Any]] = None) -> Any:
         """Execute the create operation."""
@@ -150,8 +151,9 @@ class JiraCreate(JiraWriteTool):
         if parent_key:
             issue_data["fields"]["parent"] = {"key": parent_key}
         
-        if assignee:
-            issue_data["fields"]["assignee"] = {"name": assignee}
+        if assignee_account_id:
+            # Use accountId for Jira Cloud
+            issue_data["fields"]["assignee"] = {"accountId": assignee_account_id}
         
         if priority:
             issue_data["fields"]["priority"] = {"name": priority}
@@ -184,6 +186,7 @@ class JiraUpdate(JiraWriteTool):
     """Update Jira issues including field updates, transitions, and assignments.
     
     Comprehensive update tool that handles all types of issue modifications.
+    NOTE: Assignee requires account ID - use jira_list_resources with resource_type='users' to find valid account IDs.
     """
     name: str = "jira_update"
     produces_user_data: bool = False  # Update operations don't require user selection
@@ -193,27 +196,36 @@ class JiraUpdate(JiraWriteTool):
         issue_key: str = Field(description="Jira issue key to update")
         fields: Optional[Dict[str, Any]] = Field(None, description="Fields to update")
         transition_to: Optional[str] = Field(None, description="Status to transition to")
-        assignee: Optional[str] = Field(None, description="New assignee username")
+        assignee_account_id: Optional[str] = Field(None, description="New assignee account ID (not username - use jira_list_resources to find)")
         comment: Optional[str] = Field(None, description="Comment to add with update")
     
     args_schema: type = Input
     
     @log_execution("jira", "update_issue", include_args=True, include_result=False)
     def _execute(self, issue_key: str, fields: Optional[Dict[str, Any]] = None,
-                 transition_to: Optional[str] = None, assignee: Optional[str] = None,
+                 transition_to: Optional[str] = None, assignee_account_id: Optional[str] = None,
                  comment: Optional[str] = None) -> Any:
         """Execute the update operation."""
         results = []
         
         # Handle field updates
-        if fields or assignee:
+        if fields or assignee_account_id:
             update_data = {"fields": {}}
             
             if fields:
-                update_data["fields"].update(fields)
+                # Process fields to ensure proper format for assignee if present
+                processed_fields = {}
+                for key, value in fields.items():
+                    if key == "assignee" and isinstance(value, str):
+                        # Convert string assignee to proper format
+                        processed_fields["assignee"] = {"accountId": value}
+                    else:
+                        processed_fields[key] = value
+                update_data["fields"].update(processed_fields)
             
-            if assignee:
-                update_data["fields"]["assignee"] = {"name": assignee}
+            if assignee_account_id:
+                # Use accountId for Jira Cloud
+                update_data["fields"]["assignee"] = {"accountId": assignee_account_id}
             
             response = self._make_request("PUT", f"/issue/{issue_key}", json=update_data)
             results.append({"operation": "field_update", "status": "success"})
@@ -341,38 +353,45 @@ class JiraProjectCreate(JiraWriteTool):
     """Create a new Jira project.
     
     Creates a project in Jira Cloud. Requires Administer Jira global permission.
+    IMPORTANT: Project lead is required - use jira_list_resources with resource_type='users' to find valid user account IDs.
     """
     name: str = "jira_project_create"
-    description: str = "Create a new Jira project"
+    description: str = "Create a new Jira project (requires project lead - search users first)"
     produces_user_data: bool = False
     
     class Input(BaseModel):
         key: str = Field(description="Project key (2-10 uppercase letters)")
         name: str = Field(description="Project name")
+        lead_account_id: str = Field(description="Project lead account ID (required - use jira_list_resources to find users)")
         project_type_key: str = Field("software", description="Project type: software, service_desk, business")
         template_key: Optional[str] = Field(None, description="Template key")
         description: Optional[str] = Field(None, description="Project description")
-        lead_account_id: Optional[str] = Field(None, description="Project lead account ID")
         
     args_schema: type = Input
     
     @log_execution("jira", "project_create", include_args=True, include_result=False)
-    def _execute(self, key: str, name: str, project_type_key: str = "software", 
-                 template_key: Optional[str] = None, description: Optional[str] = None,
-                 lead_account_id: Optional[str] = None) -> Any:
+    def _execute(self, key: str, name: str, lead_account_id: str, project_type_key: str = "software", 
+                 template_key: Optional[str] = None, description: Optional[str] = None) -> Any:
         """Execute project creation."""
+        # Validate required fields
+        if not lead_account_id:
+            return {
+                "success": False,
+                "error": "Project lead is required",
+                "guidance": "Use jira_list_resources with resource_type='users' to find valid user account IDs"
+            }
+        
         project_data = {
             "key": key.upper(),
             "name": name,
-            "projectTypeKey": project_type_key
+            "projectTypeKey": project_type_key,
+            "leadAccountId": lead_account_id  # Required field
         }
         
         if template_key:
             project_data["projectTemplateKey"] = template_key
         if description:
             project_data["description"] = description
-        if lead_account_id:
-            project_data["leadAccountId"] = lead_account_id
             
         response = self._make_request("POST", "/project", json=project_data)
         return response.json()
@@ -498,7 +517,30 @@ class JiraListResources(JiraReadTool):
     def _search_users(self, query: str, max_results: int = 50) -> Dict[str, Any]:
         """Search for users."""
         response = self._make_request("GET", f"/user/search?query={query}&maxResults={max_results}")
-        return response.json()
+        users = response.json()
+        
+        # Format the response to make it more helpful
+        if isinstance(users, list):
+            formatted_users = []
+            for user in users:
+                formatted_user = {
+                    "accountId": user.get("accountId"),
+                    "displayName": user.get("displayName"),
+                    "emailAddress": user.get("emailAddress", "Not available"),
+                    "active": user.get("active", True)
+                }
+                # Only include active users
+                if formatted_user["active"]:
+                    formatted_users.append(formatted_user)
+            
+            return {
+                "users": formatted_users,
+                "total": len(formatted_users),
+                "query": query,
+                "note": "Use the accountId field when assigning issues or setting project lead"
+            }
+        
+        return users
     
     def _list_boards(self, project_key: Optional[str] = None, max_results: int = 50, start_at: int = 0) -> Dict[str, Any]:
         """List boards, optionally filtered by project."""

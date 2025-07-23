@@ -172,6 +172,20 @@ CREATE TABLE store (
 
 ## 🚨 Common Gotchas (Read This First!)
 
+### Two Types of Interrupts
+**HumanInputTool Interrupts** (Model-initiated):
+- Model calls HumanInputTool when it needs clarification
+- Raises standard GraphInterrupt with question as value
+- Handled by LangGraph's built-in interrupt mechanism
+- Resume with: `Command(resume=user_response)`
+
+**Escape Key Interrupts** (User-initiated):
+- User presses Escape key in Textual UI during execution
+- Sets `user_interrupted` flag in state via WebSocket
+- plan_and_execute checks flag and raises GraphInterrupt with special marker
+- Distinguishable by: `interrupt_value.get("type") == "user_escape"`
+- Resume with modified plan after user edits
+
 ### Message Serialization 
 **Problem**: LangChain messages break when saved directly to storage
 ```python

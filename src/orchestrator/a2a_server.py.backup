@@ -148,155 +148,131 @@ async def handle_websocket(request: web.Request) -> web.WebSocketResponse:
         async for msg in ws:
             if msg.type == web.WSMsgType.TEXT:
                 try:
-                    data = json.loads(msg.data)
-                    msg_type = data.get("type")
-                    payload = data.get("payload", {})
-                    msg_id = data.get("id")
+                data = json.loads(msg.data)
+                msg_type = data.get("type")
+                payload = data.get("payload", {})
+                msg_id = data.get("id")
+                
+                logger.info("websocket_message_received",
+                           msg_type=msg_type,
+                           msg_id=msg_id,
+                           thread_id=payload.get("thread_id"))
+                
+                if msg_type == "interrupt":
+                    # Handle interrupt request
+                    thread_id = payload.get("thread_id")
+                    reason = payload.get("reason", "user_interrupt")
                     
-                    logger.info("websocket_message_received",
-                               msg_type=msg_type,
-                               msg_id=msg_id,
-                               thread_id=payload.get("thread_id"))
+                    logger.info("interrupt_request_received",
+                               thread_id=thread_id,
+                               reason=reason)
                     
-                    if msg_type == "interrupt":
-                        # Handle interrupt request
-                        thread_id = payload.get("thread_id")
-                        reason = payload.get("reason", "user_interrupt")
-                        
-                        logger.info("interrupt_request_received",
-                                   thread_id=thread_id,
-                                   reason=reason)
-                        
-                        # Call the handler's interrupt method
-                        result = await orchestrator_handler.interrupt_task(thread_id, reason)
-                        
-                        # Send acknowledgment
-                        await ws.send_json({
-                            "type": "interrupt_ack",
-                            "payload": {
-                                "success": result.get("success", False),
-                                "thread_id": thread_id,
-                                "message": result.get("message", "")
-                            },
-                            "id": msg_id
-                        })
-                        
-                    elif msg_type == "resume":
-                        # Handle resume request
-                        thread_id = payload.get("thread_id")
-                        user_input = payload.get("user_input")
-                        
-                        logger.info("resume_request_received",
-                                   thread_id=thread_id,
-                                   user_input=user_input[:100] if user_input else "")
-                        
-                        # Resume the interrupted graph execution
-                        if orchestrator_handler and thread_id:
-                            try:
-                                # Check the interrupt type
-                                config = {"configurable": {"thread_id": thread_id}}
-                                current_state = orchestrator_handler.graph.get_state(config)
-                                interrupt_type = "human_input"  # default
-                                
-                                # Check if this was a user escape interrupt
-                                if current_state.values.get("user_interrupted", False):
-                                    interrupt_type = "user_escape"
-                                
-                                # Import the interrupt handler
-                                from .interrupt_handler import InterruptHandler
-                                
-                                # Get state updates based on interrupt type
-                                state_updates = InterruptHandler.handle_resume(
-                                    current_state.values,
-                                    user_input,
-                                    interrupt_type
+                    # Call the handler's interrupt method
+                    result = await orchestrator_handler.interrupt_task(thread_id, reason)
+                    
+                    # Send acknowledgment
+                    await ws.send_json({
+                        "type": "interrupt_ack",
+                        "payload": {
+                            "success": result.get("success", False),
+                            "thread_id": thread_id,
+                            "message": result.get("message", "")
+                        },
+                        "id": msg_id
+                    })
+                    
+                elif msg_type == "resume":
+                    # Handle resume request
+                    thread_id = payload.get("thread_id")
+                    user_input = payload.get("user_input")
+                    
+                    logger.info("resume_request_received",
+                               thread_id=thread_id,
+                               user_input=user_input[:100] if user_input else "")
+                    
+                    # Resume the interrupted graph execution
+                    if orchestrator_handler and thread_id:
+                        try:
+                            # Clear user interrupt flag first
+                            config = {"configurable": {"thread_id": thread_id}}
+                            orchestrator_handler.graph.update_state(
+                                config,
+                                {
+                                    "user_interrupted": False,
+                                    "interrupt_reason": None,
+                                    "interrupt_timestamp": None
+                                }
+                            )
+                            
+                            # Now resume the graph with the user's input
+                            # This is the proper way to resume after GraphInterrupt
+                            from langgraph.types import Command
+                            
+                            logger.info("resuming_graph_with_command",
+                                       thread_id=thread_id,
+                                       user_input=user_input[:100] if user_input else "")
+                            
+                            # Resume the graph execution in the background
+                            asyncio.create_task(
+                                orchestrator_handler.graph.ainvoke(
+                                    Command(resume=user_input),
+                                    config
                                 )
-                                
-                                # Apply state updates if any
-                                if state_updates:
-                                    orchestrator_handler.graph.update_state(config, state_updates)
-                                
-                                # Now resume the graph with the user's input
-                                # This is the proper way to resume after GraphInterrupt
-                                from langgraph.types import Command
-                                
-                                logger.info("resuming_graph_with_command",
-                                           thread_id=thread_id,
-                                           user_input=user_input[:100] if user_input else "",
-                                           interrupt_type=interrupt_type)
-                                
-                                # Resume the graph execution in the background
-                                asyncio.create_task(
-                                    orchestrator_handler.graph.ainvoke(
-                                        Command(resume=user_input),
-                                        config
-                                    )
-                                )
-                                
-                                logger.info("graph_resume_triggered",
-                                           thread_id=thread_id)
-                                
-                                # Send acknowledgment
-                                await ws.send_json({
-                                    "type": "resume_ack",
-                                    "payload": {
-                                        "success": True,
-                                        "thread_id": thread_id,
-                                        "message": "Execution resumed with modifications"
-                                    },
-                                    "id": msg_id
-                                })
-                                
-                            except Exception as e:
-                                logger.error("resume_error", error=str(e))
-                                await ws.send_json({
-                                    "type": "resume_ack",
-                                    "payload": {
-                                        "success": False,
-                                        "thread_id": thread_id,
-                                        "message": f"Failed to resume: {str(e)}"
-                                    },
-                                    "id": msg_id
-                                })
-                        else:
+                            )
+                            
+                            logger.info("graph_resume_triggered",
+                                       thread_id=thread_id)
+                            
+                            # Send acknowledgment
+                            await ws.send_json({
+                                "type": "resume_ack",
+                                "payload": {
+                                    "success": True,
+                                    "thread_id": thread_id,
+                                    "message": "Execution resumed with modifications"
+                                },
+                                "id": msg_id
+                            })
+                            
+                        except Exception as e:
+                            logger.error("resume_error", error=str(e))
                             await ws.send_json({
                                 "type": "resume_ack",
                                 "payload": {
                                     "success": False,
                                     "thread_id": thread_id,
-                                    "message": "No handler available or missing thread_id"
+                                    "message": f"Failed to resume: {str(e)}"
                                 },
                                 "id": msg_id
                             })
-                    
                     else:
-                        logger.warning("unknown_websocket_message_type",
-                                     msg_type=msg_type)
-                        
-                except json.JSONDecodeError as e:
-                    logger.error("websocket_json_decode_error",
-                               error=str(e))
-                except Exception as e:
-                    logger.error("websocket_message_error",
-                               error=str(e))
+                        await ws.send_json({
+                            "type": "resume_ack",
+                            "payload": {
+                                "success": False,
+                                "thread_id": thread_id,
+                                "message": "No handler available or missing thread_id"
+                            },
+                            "id": msg_id
+                        })
                     
-            elif msg.type == web.WSMsgType.ERROR:
-                logger.error("websocket_error",
-                           error=ws.exception())
+                else:
+                    logger.warning("unknown_websocket_message_type",
+                                 msg_type=msg_type)
+                    
+            except json.JSONDecodeError as e:
+                logger.error("websocket_json_decode_error",
+                           error=str(e))
+            except Exception as e:
+                logger.error("websocket_message_error",
+                           error=str(e))
+                
+        elif msg.type == web.WSMsgType.ERROR:
+            logger.error("websocket_error",
+                       error=ws.exception())
             
-    except Exception as e:
-        logger.error("websocket_handler_error",
-                    error=str(e))
-    finally:
-        # Clean up background tasks
-        if background_tasks:
-            for task in background_tasks:
-                if not task.done():
-                    task.cancel()
-            await asyncio.gather(*background_tasks, return_exceptions=True)
-        
-        logger.info("websocket_client_disconnected",
-                   client_ip=request.remote)
+    logger.info("websocket_client_disconnected",
+               client_ip=request.remote)
     
     return ws
 
@@ -312,10 +288,6 @@ async def create_orchestrator_a2a_server(host: str = "0.0.0.0", port: int = 8000
     # Initialize SSE observer BEFORE creating the graph
     global sse_observer
     sse_observer = SSEObserver()
-    
-    # Capture the main event loop for SSE emissions from threads
-    sse_observer.set_main_loop()
-    
     registry = get_observer_registry()
     registry.add_observer(sse_observer)
     

@@ -89,6 +89,19 @@ def execute_step(state: PlanExecute):
     from datetime import datetime
     from .observers import get_observer_registry, SearchResultsEvent
     from src.memory import get_thread_memory, ContextType, create_memory_node, RelationshipType
+    from langgraph.errors import GraphInterrupt
+    
+    # Check for user-initiated interrupt flag (escape key) FIRST
+    # This takes precedence over any agent interrupts
+    if state.get("user_interrupted", False):
+        interrupt_reason = state.get("interrupt_reason", "User requested plan modification")
+        logger.info("execution_interrupted_by_user",
+                   component="orchestrator",
+                   operation="execute_step",
+                   reason=interrupt_reason,
+                   note="User interrupt takes precedence over agent interrupts")
+        # Raise GraphInterrupt with special marker for user interrupts
+        raise GraphInterrupt({"type": "user_escape", "reason": interrupt_reason})
     
     # Get memory for this conversation thread
     thread_id = state.get("thread_id", "default-thread")
@@ -212,6 +225,14 @@ You are tasked with executing step {current_step_num}: {task}.
                task_description=task[:150])
     
     try:
+        # Final check for user interrupt before agent execution
+        if state.get("user_interrupted", False):
+            logger.info("user_interrupt_preempts_agent",
+                       component="orchestrator",
+                       operation="execute_step",
+                       note="User interrupt detected - skipping agent execution")
+            raise GraphInterrupt({"type": "user_escape", "reason": state.get("interrupt_reason", "User requested modification")})
+        
         agent_response = asyncio.run(agent_executor.ainvoke(
             {"messages": agent_messages}
         ))
@@ -229,12 +250,25 @@ You are tasked with executing step {current_step_num}: {task}.
                    
     except Exception as e:
         react_duration = time.time() - react_start_time
-        logger.error("react_agent_error",
-                    operation="execute_step",
-                    thread_id=thread_id,
-                    duration_seconds=round(react_duration, 3),
-                    error=str(e),
-                    error_type=type(e).__name__)
+        
+        # Check if this is a GraphInterrupt (agent asking for clarification)
+        from langgraph.errors import GraphInterrupt
+        if isinstance(e, GraphInterrupt):
+            # This is expected behavior - log as INFO, not ERROR
+            logger.info("react_agent_interrupt",
+                       operation="execute_step",
+                       thread_id=thread_id,
+                       duration_seconds=round(react_duration, 3),
+                       interrupt_value=str(e.args[0]) if e.args else "",
+                       interrupt_type="clarification_needed")
+        else:
+            # This is an actual error
+            logger.error("react_agent_error",
+                        operation="execute_step",
+                        thread_id=thread_id,
+                        duration_seconds=round(react_duration, 3),
+                        error=str(e),
+                        error_type=type(e).__name__)
         raise
     
     # Simple background task check - ReAct agent maintains own message context
@@ -670,6 +704,17 @@ def plan_step(state: PlanExecute):
     import asyncio
     from langchain_core.messages import HumanMessage
     from src.memory import get_thread_memory, ContextType
+    from langgraph.errors import GraphInterrupt
+    
+    # Check for user-initiated interrupt flag (escape key)
+    if state.get("user_interrupted", False):
+        interrupt_reason = state.get("interrupt_reason", "User requested plan modification")
+        logger.info("planning_interrupted_by_user",
+                   component="orchestrator",
+                   operation="plan_step",
+                   reason=interrupt_reason)
+        # Raise GraphInterrupt with special marker for user interrupts
+        raise GraphInterrupt({"type": "user_escape", "reason": interrupt_reason})
     
     # Get memory for context-aware planning
     thread_id = state.get("thread_id", "default-thread")
@@ -752,6 +797,23 @@ def plan_step(state: PlanExecute):
 def replan_step(state: PlanExecute):
     import asyncio
     from src.memory import get_thread_memory, ContextType
+    from .interrupt_handler import InterruptHandler
+    
+    # Check if this is a user-initiated replan (escape key)
+    is_user_replan = state.get("should_force_replan", False) or state.get("user_interrupted", False)
+    user_modification_request = state.get("user_modification_request", "")
+    
+    if is_user_replan:
+        logger.info("user_initiated_replan",
+                   component="orchestrator",
+                   operation="replan_step",
+                   reason=state.get("interrupt_reason", "User requested modification"),
+                   user_request=user_modification_request[:100] if user_modification_request else "")
+        
+        # Clear the flags after logging
+        state["user_interrupted"] = False
+        state["interrupt_reason"] = None
+        state["should_force_replan"] = False
     
     # Get memory for context-aware replanning
     thread_id = state.get("thread_id", "default-thread")
@@ -790,9 +852,14 @@ def replan_step(state: PlanExecute):
                context_items=len(replan_context),
                thread_id=thread_id)
     
+    # Add user modification context if this is a user-initiated replan
+    additional_context = ""
+    if user_modification_request:
+        additional_context = InterruptHandler.prepare_replan_context(state)
+    
     # Format the template variables with memory context
     template_vars = {
-        "input": state["input"] + memory_context,
+        "input": state["input"] + memory_context + additional_context,
         "plan": "\n".join(f"{i + 1}. {step}" for i, step in enumerate(state["plan"])),
         "past_steps": past_steps_str.strip()
     }

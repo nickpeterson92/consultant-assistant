@@ -207,7 +207,19 @@ class BaseJiraTool(BaseTool, ABC):
             headers=self.jira['headers'],
             **kwargs
         )
-        response.raise_for_status()
+        
+        # Check for errors and include response body in exception
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as e:
+            # Try to get error details from response
+            try:
+                error_details = response.json()
+                error_msg = f"{str(e)} - {error_details}"
+            except:
+                error_msg = str(e)
+            raise requests.HTTPError(error_msg, response=response)
+        
         return response
     
     def _escape_jql(self, value: str) -> str:

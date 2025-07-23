@@ -207,28 +207,60 @@ class OrchestratorA2AHandler:
             
         except GraphInterrupt as gi:
             # This is an expected interrupt - not an error
+            from .interrupt_handler import InterruptHandler
+            
+            # Get current state to check for interrupt clashes
+            current_state = self.graph.get_state(config)
+            
+            # Check if this is a clash between user and agent interrupts
+            if InterruptHandler.detect_interrupt_clash(current_state.values, gi):
+                # User interrupt takes precedence
+                interrupt_type = "user_escape"
+                interrupt_content = current_state.values.get("interrupt_reason", "User requested plan modification")
+                is_user_interrupt = True
+                logger.info("interrupt_clash_resolved_user_wins",
+                           component="orchestrator",
+                           task_id=task_id,
+                           note="User interrupt takes precedence over agent interrupt")
+            else:
+                # Normal interrupt handling
+                interrupt_value = gi.value
+                is_user_interrupt = False
+                interrupt_type = "model"
+                
+                if isinstance(interrupt_value, dict) and interrupt_value.get("type") == "user_escape":
+                    is_user_interrupt = True
+                    interrupt_type = "user_escape"
+                    interrupt_content = interrupt_value.get("reason", "User requested plan modification")
+                else:
+                    # This is a HumanInputTool interrupt
+                    interrupt_content = str(interrupt_value)
+            
             logger.info("graph_interrupted",
                        component="orchestrator",
                        task_id=task_id,
-                       interrupt_value=str(gi.value)[:200])
+                       interrupt_type=interrupt_type,
+                       interrupt_value=interrupt_content[:200])
             
             # Mark task as interrupted
             if task_id in self.active_tasks:
                 self.active_tasks[task_id]["status"] = "interrupted"
-                self.active_tasks[task_id]["interrupt_value"] = gi.value
+                self.active_tasks[task_id]["interrupt_value"] = interrupt_content
+                self.active_tasks[task_id]["interrupt_type"] = interrupt_type
             
             return {
                 "artifacts": [{
                     "id": f"orchestrator-interrupt-{task_id}",
                     "task_id": task_id,
-                    "content": str(gi.value),
+                    "content": interrupt_content,
                     "content_type": "text/plain"
                 }],
                 "status": "interrupted",
                 "metadata": {
                     "task_id": task_id,
                     "thread_id": thread_id,
-                    "interrupt_value": gi.value,
+                    "interrupt_value": interrupt_content,
+                    "interrupt_type": interrupt_type,
                     "resumable": True
                 },
                 "error": None
@@ -313,3 +345,58 @@ class OrchestratorA2AHandler:
             "data": self.active_tasks[task_id],
             "message": "Task status retrieved"
         }
+    
+    async def interrupt_task(self, thread_id: str, reason: str = "user_escape") -> Dict[str, Any]:
+        """Interrupt a running task thread using LangGraph's state update."""
+        try:
+            if not thread_id:
+                return {
+                    "success": False,
+                    "message": "thread_id is required"
+                }
+            
+            logger.info("interrupt_task_request",
+                       thread_id=thread_id,
+                       reason=reason)
+            
+            # Use LangGraph's interrupt mechanism
+            config = {"configurable": {"thread_id": thread_id}}
+            
+            # Check current state to see if there's already an interrupt
+            current_state = self.graph.get_state(config)
+            if current_state.values.get("user_interrupted", False):
+                logger.info("interrupt_already_pending",
+                           thread_id=thread_id,
+                           existing_reason=current_state.values.get("interrupt_reason"))
+                return {
+                    "success": True,
+                    "message": "Interrupt already pending"
+                }
+            
+            # Update the thread state to set user interrupt flag
+            # This distinguishes user interrupts from HumanInputTool interrupts
+            self.graph.update_state(
+                config,
+                {
+                    "user_interrupted": True,
+                    "interrupt_reason": reason,
+                    "interrupt_timestamp": datetime.now().isoformat()
+                }
+            )
+            
+            logger.info("interrupt_task_success",
+                       thread_id=thread_id)
+            
+            return {
+                "success": True,
+                "message": "Task interrupted successfully"
+            }
+            
+        except Exception as e:
+            logger.error("interrupt_task_error",
+                        error=str(e),
+                        thread_id=thread_id)
+            return {
+                "success": False,
+                "message": f"Error interrupting task: {str(e)}"
+            }

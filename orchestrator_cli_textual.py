@@ -35,6 +35,171 @@ from src.utils.logging.framework import SmartLogger
 logger = SmartLogger("client")
 
 
+class TextualWebSocketController:
+    """WebSocket controller for interrupt handling."""
+    
+    def __init__(self, orchestrator_url: str, thread_id: str):
+        self.orchestrator_url = orchestrator_url.replace("http://", "ws://").replace("https://", "wss://")
+        self.thread_id = thread_id
+        self.ws = None
+        self.connected = False
+        self.client_id = str(uuid.uuid4())[:8]
+        
+    async def connect(self):
+        """Connect to WebSocket endpoint."""
+        try:
+            ws_url = f"{self.orchestrator_url}/ws"
+            logger.info("websocket_connecting", url=ws_url, thread_id=self.thread_id)
+            
+            session = aiohttp.ClientSession()
+            self.ws = await session.ws_connect(ws_url)
+            self.connected = True
+            
+            logger.info("websocket_connected", client_id=self.client_id)
+            return True
+            
+        except Exception as e:
+            logger.error("websocket_connect_error", error=str(e))
+            return False
+    
+    async def send_interrupt(self, reason="user_escape"):
+        """Send interrupt command via WebSocket."""
+        logger.info("websocket_interrupt_attempt",
+                   connected=self.connected,
+                   has_ws=bool(self.ws),
+                   thread_id=self.thread_id,
+                   reason=reason)
+        
+        if not self.connected or not self.ws:
+            logger.warning("websocket_not_connected_for_interrupt")
+            return False
+        
+        try:
+            message_id = str(uuid.uuid4())[:8]
+            interrupt_msg = {
+                "type": "interrupt",
+                "payload": {
+                    "thread_id": self.thread_id,
+                    "reason": reason
+                },
+                "id": message_id
+            }
+            
+            await self.ws.send_str(json.dumps(interrupt_msg))
+            logger.info("websocket_interrupt_sent_successfully", message_id=message_id)
+            
+            # Wait for acknowledgment
+            async def wait_for_interrupt_ack():
+                async for msg in self.ws:
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        data = json.loads(msg.data)
+                        if data.get("type") == "interrupt_ack":
+                            return data.get("payload", {}).get("success", False)
+                    elif msg.type == aiohttp.WSMsgType.ERROR:
+                        return False
+                return False
+            
+            try:
+                result = await asyncio.wait_for(wait_for_interrupt_ack(), timeout=5.0)
+                return result
+            except asyncio.TimeoutError:
+                logger.warning("websocket_interrupt_timeout")
+                return False
+                
+        except Exception as e:
+            logger.error("websocket_interrupt_error", error=str(e))
+            return False
+    
+    async def send_resume(self, user_input):
+        """Send resume command with user modifications."""
+        if not self.connected or not self.ws:
+            logger.warning("websocket_not_connected_for_resume")
+            return False
+        
+        try:
+            message_id = str(uuid.uuid4())[:8]
+            await self.ws.send_str(json.dumps({
+                "type": "resume",
+                "payload": {
+                    "thread_id": self.thread_id,
+                    "user_input": user_input
+                },
+                "id": message_id
+            }))
+            
+            logger.info("websocket_resume_sent", message_id=message_id)
+            return True
+            
+        except Exception as e:
+            logger.error("websocket_resume_error", error=str(e))
+            return False
+    
+    async def close(self):
+        """Close WebSocket connection."""
+        if self.ws:
+            await self.ws.close()
+        self.connected = False
+        logger.info("websocket_disconnected", client_id=self.client_id)
+
+
+class PlanModificationScreen(ModalScreen):
+    """Modal screen for plan modification during interrupts."""
+    
+    def __init__(self, current_plan):
+        super().__init__()
+        self.current_plan = current_plan
+        self.user_input = ""
+    
+    def compose(self) -> ComposeResult:
+        """Compose the modal screen layout."""
+        with Container(classes="modal-container"):
+            yield Static("[bold red]Plan Execution Interrupted[/bold red]")
+            yield Static("")
+            
+            # Show current plan
+            yield Static("[bold]Current Plan:[/bold]")
+            if self.current_plan:
+                for i, task in enumerate(self.current_plan, 1):
+                    # Handle both string and dict formats
+                    if isinstance(task, dict):
+                        task_content = task.get('content', 'Unknown task')
+                    else:
+                        task_content = str(task)
+                    yield Static(f"{i}. {task_content}")
+            else:
+                yield Static("No plan available")
+                
+            yield Static("")
+            yield Input(
+                placeholder="Enter your modifications or press Enter to continue...",
+                id="modification-input"
+            )
+            
+            yield Static("")
+            yield Static("[dim]Press Enter to submit, Escape to cancel[/dim]")
+    
+    def on_mount(self) -> None:
+        """Focus the input when the modal opens."""
+        self.query_one("#modification-input", Input).focus()
+    
+    @on(Input.Submitted)
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle user input submission."""
+        self.user_input = event.value.strip()
+        logger.info("plan_modification_input_submitted",
+                   user_input=self.user_input,
+                   input_length=len(self.user_input))
+        self.dismiss(self.user_input)
+        # Prevent event from bubbling up
+        event.stop()
+    
+    def on_key(self, event: Key) -> None:
+        """Handle key events."""
+        if event.key == "escape":
+            logger.info("plan_modification_cancelled_via_escape")
+            self.dismiss("")
+
+
 class StatusWidget(Static):
     """Widget to display connection and system status."""
     
@@ -429,6 +594,12 @@ class OrchestatorApp(App):
     
     CSS_PATH = "textual_styles.tcss"
     
+    BINDINGS = [
+        ("ctrl+c", "quit", "Quit"),
+        ("ctrl+q", "quit", "Quit"),
+        ("escape", "interrupt", "Interrupt"),
+    ]
+    
     def __init__(self, orchestrator_url: str = "http://localhost:8000", thread_id: Optional[str] = None):
         super().__init__()
         self.orchestrator_url = orchestrator_url
@@ -452,6 +623,12 @@ class OrchestatorApp(App):
         self.sse_session = None
         self.sse_task = None
         self.sse_url = f"{orchestrator_url}/a2a/stream"
+        
+        # WebSocket controller for interrupts
+        self.ws_controller = None
+        self.is_processing = False
+        self.interrupt_requested = False
+        self.processing_done = asyncio.Event()
         
         logger.info("textual_app_initialized", 
                    orchestrator_url=orchestrator_url,
@@ -580,6 +757,14 @@ class OrchestatorApp(App):
                 "", "processing"
             )
             
+            # Set processing state
+            self.is_processing = True
+            
+            # Initialize WebSocket controller if not already done
+            if not self.ws_controller:
+                self.ws_controller = TextualWebSocketController(self.orchestrator_url, self.thread_id)
+                await self.ws_controller.connect()
+            
             # Update status
             self.status_widget.update_status(connected=True, task_id=task_id)
             
@@ -623,33 +808,43 @@ class OrchestatorApp(App):
                 # Handle GraphInterrupt properly using status-based detection
                 metadata = response.get("metadata", {})
                 interrupt_value = metadata.get("interrupt_value", "")
+                interrupt_type = metadata.get("interrupt_type", "model")
                 
-                # Store interrupt state for resume
-                self.interrupted_task_id = task_id
-                self.interrupt_context = metadata
-                self.waiting_for_user_response = True
-                
-                # Display the clarification request naturally
-                # The interrupt_value should now contain the LLM's natural question
-                if isinstance(interrupt_value, str) and interrupt_value.strip():
-                    # Clean up any escaped newlines and display the natural question
-                    clarification_text = interrupt_value.replace("\\n", "\n").strip()
-                    await self.conversation_widget.add_assistant_message(clarification_text)
+                if interrupt_type == "user_escape":
+                    # This is a user-initiated interrupt (escape key)
+                    # The interrupt flow has already been handled by handle_interrupt
+                    logger.info("user_escape_interrupt_acknowledged",
+                               task_id=task_id,
+                               interrupt_value=interrupt_value)
+                    # Don't set waiting_for_user_response since we're handling it differently
                 else:
-                    # Fallback: show artifact content
-                    artifacts = response.get("artifacts", [])
-                    if artifacts and artifacts[0].get("content"):
-                        content = artifacts[0]["content"].replace("\\n", "\n").strip()
-                        await self.conversation_widget.add_assistant_message(content)
+                    # This is a model-initiated interrupt (HumanInputTool)
+                    # Store interrupt state for resume
+                    self.interrupted_task_id = task_id
+                    self.interrupt_context = metadata
+                    self.waiting_for_user_response = True
+                    
+                    # Display the clarification request naturally
+                    # The interrupt_value should now contain the LLM's natural question
+                    if isinstance(interrupt_value, str) and interrupt_value.strip():
+                        # Clean up any escaped newlines and display the natural question
+                        clarification_text = interrupt_value.replace("\\n", "\n").strip()
+                        await self.conversation_widget.add_assistant_message(clarification_text)
                     else:
-                        await self.conversation_widget.add_assistant_message(
-                            "I need additional information to continue. Please provide your response."
-                        )
-                
-                # Update status to show waiting for user
-                await self.conversation_widget.add_system_message(
-                    "Waiting for your response to continue...", "info"
-                )
+                        # Fallback: show artifact content
+                        artifacts = response.get("artifacts", [])
+                        if artifacts and artifacts[0].get("content"):
+                            content = artifacts[0]["content"].replace("\\n", "\n").strip()
+                            await self.conversation_widget.add_assistant_message(content)
+                        else:
+                            await self.conversation_widget.add_assistant_message(
+                                "I need additional information to continue. Please provide your response."
+                            )
+                    
+                    # Update status to show waiting for user
+                    await self.conversation_widget.add_system_message(
+                        "Waiting for your response to continue...", "info"
+                    )
                 
                 logger.info("graph_interrupt_detected",
                            task_id=task_id,
@@ -668,6 +863,8 @@ class OrchestatorApp(App):
             # Clear task from status only if not waiting for user response
             if not self.waiting_for_user_response:
                 self.status_widget.update_status(connected=True, task_id=None)
+                # Reset processing state
+                self.is_processing = False
             
         except Exception as e:
             # Remove spinner on error too
@@ -684,6 +881,9 @@ class OrchestatorApp(App):
             
             # Update status to show disconnected
             self.status_widget.update_status(connected=False, task_id=None)
+            
+            # Reset processing state on error
+            self.is_processing = False
     
     def start_sse_connection(self):
         """Start SSE connection for live plan updates."""
@@ -708,17 +908,27 @@ class OrchestatorApp(App):
             connector = aiohttp.TCPConnector(
                 limit=10,
                 limit_per_host=5,
-                enable_cleanup_closed=True
+                enable_cleanup_closed=True,
+                force_close=True  # Force connection close on error
+            )
+            timeout = aiohttp.ClientTimeout(
+                total=None,  # No total timeout for SSE
+                connect=30,  # 30 second connection timeout
+                sock_read=60  # 60 second read timeout (covers heartbeat)
             )
             self.sse_session = aiohttp.ClientSession(
                 connector=connector,
-                connector_owner=True
+                connector_owner=True,
+                timeout=timeout
             )
         
         logger.info("sse_connecting", sse_url=self.sse_url)
         
         try:
-            async with self.sse_session.get(self.sse_url) as response:
+            async with self.sse_session.get(
+                self.sse_url,
+                headers={'Accept': 'text/event-stream'}
+            ) as response:
                 logger.info("sse_connected", status=response.status, headers=dict(response.headers))
                 
                 if response.status != 200:
@@ -755,10 +965,25 @@ class OrchestatorApp(App):
                             except json.JSONDecodeError as e:
                                 logger.error("sse_json_decode_error", error=str(e), data=data_json[:100])
                             
-                except Exception as stream_e:
-                    logger.error("sse_stream_reading_error", error=str(stream_e))
+                except asyncio.TimeoutError:
+                    # Read timeout - this is OK, we have heartbeats
+                    logger.debug("sse_read_timeout_normal")
+                    # Don't need continue here - timeout means we'll reconnect
+                except (aiohttp.ClientError, aiohttp.ClientPayloadError) as e:
+                    # Connection error - will reconnect
+                    logger.info("sse_connection_lost", error=str(e))
                     raise
+                except Exception as stream_e:
+                    # Only log unexpected errors
+                    if "Not enough data" not in str(stream_e):
+                        logger.error("sse_stream_reading_error", error=str(stream_e))
+                    raise
+        except (aiohttp.ClientError, aiohttp.ClientPayloadError):
+            # Expected connection errors - will reconnect
+            logger.info("sse_disconnected_will_reconnect")
+            raise
         except Exception as e:
+            # Unexpected errors
             logger.error("sse_stream_error", error=str(e))
             raise
     
@@ -805,6 +1030,122 @@ class OrchestatorApp(App):
         
         self.exit()
     
+    def action_interrupt(self) -> None:
+        """Handle interrupt action (ESC key) using Textual's action system."""
+        logger.info("escape_key_pressed",
+                   is_processing=self.is_processing,
+                   has_plan=bool(self.plan_widget and self.plan_widget.plan_tasks),
+                   has_ws_controller=bool(self.ws_controller))
+        
+        if self.is_processing and self.plan_widget and self.plan_widget.plan_tasks:
+            self.interrupt_requested = True
+            logger.info("interrupt_requested_via_key")
+            # Use Textual's work decorator for async handling
+            self.handle_interrupt()
+        else:
+            # Show status if interrupt not available
+            if not self.is_processing:
+                logger.warning("interrupt_unavailable_not_processing")
+                self.status_widget.update("No active plan to interrupt")
+            else:
+                logger.warning("interrupt_unavailable_no_plan")
+                self.status_widget.update("No plan currently executing")
+    
+    @work(exclusive=True)
+    async def handle_interrupt(self):
+        """Handle interrupt request using Textual's work decorator."""
+        try:
+            logger.info("handle_interrupt_start")
+            
+            # Reset processing state first to prevent UI lock
+            self.is_processing = False
+            self.status_widget.update("⏸ Execution interrupted - gathering modifications...")
+            
+            # Show plan modification screen
+            current_plan = self.plan_widget.plan_tasks if self.plan_widget else []
+            logger.info("showing_plan_modification_modal", 
+                       plan_task_count=len(current_plan))
+            
+            modification_input = await self.push_screen_wait(PlanModificationScreen(current_plan))
+            
+            logger.info("plan_modification_modal_result",
+                       component="client", 
+                       modification_input=modification_input,
+                       has_input=bool(modification_input))
+            
+            if modification_input:
+                # Send interrupt and resume via WebSocket
+                try:
+                    logger.info("sending_websocket_interrupt")
+                    # Send interrupt first
+                    interrupt_success = await self.ws_controller.send_interrupt("user_escape")
+                    
+                    logger.info("websocket_interrupt_result", 
+                               success=interrupt_success)
+                    
+                    if interrupt_success:
+                        self.status_widget.update("⏸ Execution interrupted successfully")
+                        
+                        logger.info("sending_websocket_resume", 
+                                   modification_input=modification_input)
+                        
+                        # Send resume with modifications
+                        resume_success = await self.ws_controller.send_resume(modification_input)
+                        
+                        logger.info("websocket_resume_result",
+                                   component="client", 
+                                   success=resume_success)
+                        
+                        if resume_success:
+                            self.status_widget.update("▶ Resume request sent successfully")
+                            await self.conversation_widget.add_system_message(
+                                "💡 Plan modification applied successfully!"
+                            )
+                            
+                            # The orchestrator should now continue execution
+                            # We don't need to make a new request - the graph will resume
+                            # when the interrupt flag is cleared
+                            logger.info("interrupt_resume_complete",
+                                       task_id=self.current_task_id,
+                                       thread_id=self.thread_id)
+                            
+                            # Reset interrupt flag
+                            self.interrupt_requested = False
+                            
+                            # Keep processing state true since execution continues
+                            self.is_processing = True
+                        else:
+                            self.status_widget.update("⚠ Failed to send resume request")
+                            await self.conversation_widget.add_system_message(
+                                "⚠ Failed to apply plan modifications. Please try again."
+                            )
+                    else:
+                        self.status_widget.update("⚠ Failed to interrupt execution")
+                        await self.conversation_widget.add_system_message(
+                            "⚠ Failed to interrupt execution. The plan may continue running."
+                        )
+                        
+                except Exception as e:
+                    logger.error("websocket_interrupt_error", error=str(e))
+                    self.status_widget.update(f"⚠ Error: {str(e)}")
+                    await self.conversation_widget.add_system_message(
+                        f"⚠ Error during interrupt: {str(e)}"
+                    )
+            else:
+                # User cancelled the modification
+                logger.info("interrupt_cancelled_by_user")
+                self.status_widget.update("▶ Execution continuing...")
+                self.is_processing = True
+                
+        except Exception as e:
+            logger.error("handle_interrupt_error", 
+                        error=str(e),
+                        traceback=True)
+            self.status_widget.update(f"⚠ Interrupt error: {str(e)}")
+        finally:
+            # Reset interrupt flag
+            self.interrupt_requested = False
+    
     async def _async_cleanup(self):
         """Async cleanup of resources."""
         if self._cleanup_done:
@@ -830,6 +1171,11 @@ class OrchestatorApp(App):
             if hasattr(self.a2a_client, 'close'):
                 await self.a2a_client.close()
                 logger.info("a2a_client_closed")
+            
+            # Close WebSocket controller
+            if self.ws_controller:
+                await self.ws_controller.close()
+                logger.info("websocket_controller_closed")
         except Exception as e:
             logger.error("cleanup_error", error=str(e))
 

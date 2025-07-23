@@ -126,6 +126,17 @@ class StructuredLogger:
         """Log critical message."""
         self._log(logging.CRITICAL, message, **kwargs)
     
+    def isEnabledFor(self, level: int) -> bool:
+        """Check if logger is enabled for given level.
+        
+        Args:
+            level: Logging level (10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR)
+            
+        Returns:
+            bool: True if logging is enabled for this level
+        """
+        return self.logger.isEnabledFor(level)
+    
     @contextmanager
     def track_performance(self, operation: str, **context):
         """Context manager for tracking operation performance.
