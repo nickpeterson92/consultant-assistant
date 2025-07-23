@@ -1144,16 +1144,11 @@ def setup_canonical_plan_execute(llm_with_tools, llm_for_planning, agent_registr
                 agent_context = f"=== AVAILABLE AGENT TOOLS ===\n" + "\n".join(agent_tools)
     
     # Import centralized prompt functions
-    from src.utils.sys_msg import planner_sys_msg, replanner_sys_msg
+    from src.utils.prompt_templates import create_planner_prompt, create_replanner_prompt
     
     # Create prompts with dynamic agent context  
-    planner_prompt = ChatPromptTemplate.from_messages([
-        ("system", planner_sys_msg(agent_context)),
-        ("placeholder", "{messages}")
-    ])
-    replanner_prompt = ChatPromptTemplate.from_template(
-        replanner_sys_msg()
-    )
+    planner_prompt = create_planner_prompt(agent_context)
+    replanner_prompt = create_replanner_prompt()
     
     # Create planner and replanner with structured output and agent context
     planner = planner_prompt | llm_for_planning.with_structured_output(Plan)

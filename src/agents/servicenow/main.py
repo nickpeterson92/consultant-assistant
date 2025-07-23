@@ -19,7 +19,7 @@ from src.tools.servicenow import UNIFIED_SERVICENOW_TOOLS
 from src.a2a import A2AServer, AgentCard
 from src.utils.config import config
 from src.utils.logging.framework import SmartLogger, log_execution
-from src.utils.sys_msg import servicenow_agent_sys_msg
+from src.utils.prompt_templates import create_servicenow_agent_prompt, ContextInjectorServiceNow
 
 logger = SmartLogger("servicenow")
 
@@ -33,16 +33,8 @@ class ServiceNowAgentState(TypedDict):
     task_context: Dict[str, Any]
     external_context: Dict[str, Any]
 
-def get_servicenow_system_message(task_context: dict = None, external_context: dict = None) -> str:
-    """Generate the system message that defines the ServiceNow agent's behavior and capabilities.
-    
-    Returns a comprehensive system prompt that:
-    - Defines the agent's role as an IT Service Management specialist
-    - Lists all available tools and their capabilities
-    - Provides guidance on natural language understanding
-    - Sets expectations for response formatting
-    """
-    return servicenow_agent_sys_msg(task_context, external_context)
+# Create the prompt template once at module level
+servicenow_prompt = create_servicenow_agent_prompt()
 
 def create_azure_openai_chat():
     """Create Azure OpenAI chat instance using global config"""
@@ -72,13 +64,7 @@ def build_servicenow_graph():
     # Define agent function
     @log_execution("servicenow", "servicenow_agent", include_args=False, include_result=False)
     def servicenow_agent(state: ServiceNowAgentState):
-        """Main agent logic for ServiceNow operations."""
-        # Debug state content
-        logger.info("servicenow_agent_state_debug",
-                   state_keys=list(state.keys()),
-                   messages_type=type(state.get("messages", [])),
-                   messages_len=len(state.get("messages", [])))
-        
+        """Main agent logic for ServiceNow operations using LangChain prompt templates."""
         task_id = state.get("task_context", {}).get("task_id", "unknown")
         
         logger.info("servicenow_agent_processing",
@@ -87,22 +73,23 @@ def build_servicenow_graph():
                    message_count=len(state.get("messages", [])),
                    has_messages=bool(state.get("messages")))
         
-        # Get system message with context
-        system_msg = get_servicenow_system_message(
-            task_context=state.get("task_context"),
-            external_context=state.get("external_context")
-        )
-        
-        # Debug system message
-        logger.info("servicenow_system_message_debug",
-                   task_id=task_id,
-                   sys_msg_length=len(system_msg),
-                   sys_msg_preview=system_msg[:200] + "..." if len(system_msg) > 200 else system_msg)
-        
-        # Prepare messages
-        messages = [SystemMessage(content=system_msg)] + state["messages"]
-        
         try:
+            task_context = state.get("task_context", {})
+            external_context = state.get("external_context", {})
+            
+            # Prepare context using the new ContextInjector for ServiceNow
+            context_dict = ContextInjectorServiceNow.prepare_context(task_context, external_context)
+            
+            # Use the prompt template to format messages
+            # This leverages LangChain's prompt template features
+            formatted_prompt = servicenow_prompt.format_prompt(
+                messages=state["messages"],
+                **context_dict
+            )
+            
+            # Convert to messages for the LLM
+            messages = formatted_prompt.to_messages()
+            
             # Call LLM with tools
             logger.info("servicenow_agent_llm_call", task_id=task_id, message_count=len(messages))
             response = llm_with_tools.invoke(messages)

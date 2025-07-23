@@ -19,7 +19,7 @@ from src.tools.jira import UNIFIED_JIRA_TOOLS
 from src.a2a import A2AServer, A2AArtifact, AgentCard
 from src.utils.config import config
 from src.utils.logging.framework import SmartLogger, log_execution
-from src.utils.sys_msg import jira_agent_sys_msg
+from src.utils.prompt_templates import create_jira_agent_prompt, ContextInjector
 
 logger = SmartLogger("jira")
 
@@ -36,22 +36,8 @@ class JiraAgentState(TypedDict):
     task_context: Dict[str, Any]
     external_context: Dict[str, Any]
 
-def get_jira_system_message(task_context: dict = None, external_context: dict = None) -> str:
-    """Generate the system message that defines the Jira agent's behavior and capabilities.
-    
-    Args:
-        task_context: Optional task-specific context to include
-        external_context: Optional external context from orchestrator
-    
-    Returns:
-        str: Comprehensive system prompt including capabilities, best practices,
-             and JQL examples for effective Jira operations.
-             
-    Note:
-        This message is injected at the start of each conversation to ensure
-        consistent behavior and proper tool usage guidance.
-    """
-    return jira_agent_sys_msg(task_context=task_context, external_context=external_context)
+# Create the prompt template once at module level
+jira_prompt = create_jira_agent_prompt()
 
 def build_jira_agent():
     """Build and compile the Jira agent LangGraph workflow.
@@ -94,29 +80,36 @@ def build_jira_agent():
             dict: Updated state with new AI response message
             
         Processing Flow:
-            1. Ensures system message is present for consistent behavior
+            1. Uses LangChain prompt template for consistent behavior
             2. Invokes LLM with bound tools for function calling
             3. Returns response for conditional routing to tools or end
         """
         task_id = state.get("current_task", "unknown")
         
-        
-        messages = state["messages"]
-        
-        # Get contexts for system message
-        task_context = state.get("task_context", {})
-        external_context = state.get("external_context", {})
-        
-        # Add system message with contexts
-        if not messages or messages[0].type != "system":
-            messages = [SystemMessage(content=get_jira_system_message(task_context=task_context, external_context=external_context))] + messages
-        
-        
-        # Get response from LLM with tool bindings
-        response = llm_with_tools.invoke(messages)
-        
-        
-        return {"messages": [response]}
+        try:
+            task_context = state.get("task_context", {})
+            external_context = state.get("external_context", {})
+            
+            # Prepare context using the new ContextInjector
+            context_dict = ContextInjector.prepare_salesforce_context(task_context, external_context)
+            
+            # Use the prompt template to format messages
+            # This leverages LangChain's prompt template features
+            formatted_prompt = jira_prompt.format_prompt(
+                messages=state["messages"],
+                **context_dict
+            )
+            
+            # Convert to messages for the LLM
+            messages = formatted_prompt.to_messages()
+            
+            # Get response from LLM with tool bindings
+            response = llm_with_tools.invoke(messages)
+            
+            return {"messages": [response]}
+            
+        except Exception as e:
+            raise
     
     # Build graph following 2024 best practices
     graph_builder = StateGraph(JiraAgentState)

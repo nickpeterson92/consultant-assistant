@@ -34,7 +34,7 @@ os.environ["LANGCHAIN_TRACING_V2"] = "false"
 # Import SmartLogger framework
 from src.utils.logging.framework import SmartLogger, log_execution
 from src.utils.config import config
-from src.utils.sys_msg import salesforce_agent_sys_msg
+from src.utils.prompt_templates import create_salesforce_agent_prompt, ContextInjector
 
 # Initialize structured logger
 logger = SmartLogger("salesforce")
@@ -112,10 +112,13 @@ def build_salesforce_graph():
     llm = create_azure_openai_chat()
     llm_with_tools = llm.bind_tools(tools)
     
+    # Create the prompt template once at module level
+    salesforce_prompt = create_salesforce_agent_prompt()
+    
     # Simplified agent node following 2024 patterns
     @log_execution("salesforce", "salesforce_agent", include_args=False, include_result=False)
     def salesforce_agent(state: SalesforceState, config: RunnableConfig):
-        """Modern Salesforce agent node"""
+        """Modern Salesforce agent node using LangChain prompt templates"""
         task_id = state.get("task_context", {}).get("task_id", "unknown")
         
         
@@ -123,14 +126,21 @@ def build_salesforce_graph():
             task_context = state.get("task_context", {})
             external_context = state.get("external_context", {})
             
-            # Create system message
-            system_message_content = salesforce_agent_sys_msg(task_context, external_context)
-            messages = [SystemMessage(content=system_message_content)] + state["messages"]
+            # Prepare context using the new ContextInjector
+            context_dict = ContextInjector.prepare_salesforce_context(task_context, external_context)
             
+            # Use the prompt template to format messages
+            # This leverages LangChain's prompt template features
+            formatted_prompt = salesforce_prompt.format_prompt(
+                messages=state["messages"],
+                **context_dict
+            )
+            
+            # Convert to messages for the LLM
+            messages = formatted_prompt.to_messages()
             
             # Invoke LLM with tools
             response = llm_with_tools.invoke(messages)
-            
             
             # Cost tracking removed - activity logger no longer exists
             

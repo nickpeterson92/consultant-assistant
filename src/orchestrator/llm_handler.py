@@ -7,7 +7,7 @@ from langchain_openai import AzureChatOpenAI
 from trustcall import create_extractor
 
 from src.utils.config import config, DETERMINISTIC_TEMPERATURE, DETERMINISTIC_TOP_P
-from src.utils.sys_msg import orchestrator_chatbot_sys_msg
+from src.utils.prompt_templates import create_orchestrator_prompt, ContextInjectorOrchestrator
 from src.utils.storage.memory_schemas import SimpleMemory
 from .state import OrchestratorState
 
@@ -85,7 +85,6 @@ def create_llm_instances(tools: List[Any]):
 def get_orchestrator_system_message(state: OrchestratorState, agent_registry) -> str:
     """Generate dynamic system message with current context."""
     summary = state.get("summary", "No summary available")
-    memory_val = state.get("memory", "No memory available")
     active_agents = state.get("active_agents", [])
     
     registry_stats = agent_registry.get_registry_stats()
@@ -103,4 +102,24 @@ ORCHESTRATOR TOOLS:
 5. web_search: Search the web for information about entities, companies, people, or topics
 6. human_input: Request human clarification when requests are ambiguous or need additional context"""
     
-    return orchestrator_chatbot_sys_msg(summary, memory_val, agent_context)
+    # Create the prompt template
+    orchestrator_prompt = create_orchestrator_prompt()
+    
+    # Prepare context using the new ContextInjectorOrchestrator
+    context_dict = ContextInjectorOrchestrator.prepare_context(
+        summary=summary,
+        memory=None,  # Memory context is handled in plan_and_execute.py
+        agent_context=agent_context
+    )
+    
+    # Format the system message and extract it
+    # Since we just need the system message content, we create a dummy message list
+    from langchain_core.messages import HumanMessage
+    formatted_prompt = orchestrator_prompt.format_prompt(
+        messages=[HumanMessage(content="dummy")],  # Just to satisfy the template
+        **context_dict
+    )
+    
+    # Extract the system message content
+    system_message = formatted_prompt.to_messages()[0]
+    return system_message.content
