@@ -15,14 +15,14 @@
 ```
 
 <div align="center">
-  <h3>🚀 Multi-Agent Orchestrator for Enterprise AI Operations 🚀</h3>
+  <h3>🚀 Multi-Agent Orchestrator with Plan-and-Execute Architecture 🚀</h3>
   
   [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
   [![LangGraph](https://img.shields.io/badge/LangGraph-0.2.69-green.svg)](https://github.com/langchain-ai/langgraph)
   [![A2A Protocol](https://img.shields.io/badge/A2A%20Protocol-JSON--RPC%202.0-orange.svg)](https://github.com/google-a2a/A2A)
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
   
-  <p><em>A production-grade, multi-agent AI system implementing Agent-to-Agent (A2A) protocol for enterprise automation, featuring resilient distributed architecture, intelligent orchestration, and seamless integration with Salesforce, Jira, and ServiceNow.</em></p>
+  <p><em>A production-grade, multi-agent AI system implementing Plan-and-Execute workflows with real-time interrupts, conversational memory graphs, and seamless integration with Salesforce, Jira, and ServiceNow.</em></p>
 </div>
 
 ---
@@ -35,31 +35,31 @@
 - [System Requirements](#system-requirements)
 - [Configuration](#configuration)
 - [Usage Examples](#usage-examples)
+- [Advanced Features](#advanced-features)
 - [Development](#development)
-- [Production Deployment](#production-deployment)
 - [Monitoring & Observability](#monitoring--observability)
 - [Contributing](#contributing)
 - [License](#license)
 
 ## Overview
 
-The Enterprise Multi-Agent Assistant represents the cutting edge of AI agent orchestration, combining:
+The Enterprise Multi-Agent Assistant implements a sophisticated plan-and-execute workflow architecture that enables:
 
-- **A2A Protocol**: Industry-standard agent communication using JSON-RPC 2.0
-- **LangGraph Integration**: State-of-the-art conversation orchestration with built-in persistence
-- **Enterprise Resilience**: Circuit breakers, connection pooling, and graceful degradation
-- **Intelligent Memory**: Context-aware data persistence with automated summarization
-- **Cost Optimization**: Aggressive summarization and memory-first retrieval strategies
+- **Plan-and-Execute Workflow**: Based on LangGraph's canonical tutorial, creates and executes multi-step plans with dynamic replanning
+- **Real-time Interrupts**: User can modify plans mid-execution via ESC key, agents can request clarification via HumanInputTool
+- **Conversational Memory Graph**: NetworkX-based graph structure for intelligent context retrieval and relationship tracking
+- **A2A Protocol**: Industry-standard agent communication using JSON-RPC 2.0 with circuit breakers and connection pooling
+- **Rich Terminal UI**: Split-screen interface with conversation history, plan execution status, and live memory graph visualization
 
 ### Why This Architecture?
 
-Traditional single-agent systems hit scalability walls. This architecture solves enterprise challenges:
+This system solves key enterprise automation challenges:
 
-1. **Specialization at Scale**: Each agent focuses on its domain (CRM, ITSM, project management, etc.)
-2. **Resilient Communication**: Network failures don't cascade through the system
-3. **Dynamic Discovery**: Agents can join/leave without system reconfiguration
-4. **Memory Efficiency**: Structured extraction prevents context explosion
-5. **Cost Control**: Token usage optimization through intelligent summarization
+1. **Transparency**: Users see the execution plan and can modify it in real-time
+2. **Context Awareness**: Memory graph maintains relationships between entities and actions
+3. **Resilient Communication**: Circuit breakers prevent cascade failures in distributed agent network
+4. **Interactive Execution**: Agents can request human input when encountering ambiguity
+5. **Visual Feedback**: Real-time plan status and memory graph provide operational visibility
 
 ## Architecture
 
@@ -98,84 +98,81 @@ Traditional single-agent systems hit scalability walls. This architecture solves
             ▼                          ▼                          ▼
     ┌────────────────────┐     ┌────────────────────┐     ┌────────────────────┐
     │ SALESFORCE AGENT   │     │   JIRA AGENT       │     │ SERVICENOW AGENT   │
-    │ - 6 Unified Tools  │     │ - 11 Unified Tools │     │ - 6 Unified Tools  │
-    │ - SOQL Builder     │     │ - JQL Search       │     │ - Incident Mgmt    │
-    │ - Lead Management  │     │ - Sprint Mgmt      │     │ - Change Mgmt      │
-    │ - Opportunity Mgmt │     │ - Epic Tracking    │     │ - Problem Mgmt     │
-    │ - LangGraph State  │     │ - LangGraph State  │     │ - CMDB Operations  │
+    │ - 6 Unified Tools  │     │ - 11 Tools         │     │ - 6 Unified Tools  │
+    │ - Natural Language │     │ - JQL Search       │     │ - NLQ Support      │
+    │ - SOQL Generation  │     │ - Sprint Mgmt      │     │ - Workflow Mgmt    │
+    │ - Auto ID Detection│     │ - Project Creation │     │ - Analytics        │
+    │ - Cross-Object SOSL│     │ - Issue Lifecycle  │     │ - Auto Table Detect│
     └────────────────────┘     └────────────────────┘     └────────────────────┘
 ```
 
 ### Core Components
 
-#### 1. **Orchestrator** (`src/orchestrator/main.py`)
-The central nervous system implementing:
-- LangGraph state machine for conversation flow
-- Intelligent agent selection based on capabilities
-- Background tasks for non-blocking operations (3 tool calls, 2 agent calls, or 180 seconds)
-- Smart message preservation during summarization
-- Memory-first retrieval to minimize API calls
+#### 1. **Plan-and-Execute Orchestrator** (`src/orchestrator/plan_and_execute.py`)
+The heart of the system implementing:
+- **Planner**: Generates multi-step execution plans from user requests
+- **Executor**: Runs each step with full context injection
+- **Replanner**: Dynamically adjusts plans based on results or interrupts
+- **Interrupt Handler**: Manages user escapes and agent clarification requests
+- **Memory Integration**: Provides relevant context to each execution step
 
-#### 2. **A2A Protocol** (`src/a2a/protocol.py`)
-Enterprise-grade implementation of Agent-to-Agent standard:
-- **Connection Pooling**: 50+ concurrent connections with per-host limits
-- **Circuit Breakers**: Netflix-style failure protection
-- **Retry Logic**: Exponential backoff with jitter
-- **Async Architecture**: Non-blocking I/O for maximum throughput
-- **Standards Compliance**: Full JSON-RPC 2.0 implementation
+#### 2. **Conversational Memory Graph** (`src/memory/memory_graph.py`)
+Sophisticated context management system:
+- **Node Types**: Users, entities, actions, search results, plans, clarifications
+- **Edge Relationships**: led_to, relates_to, belongs_to, depends_on, produces
+- **Intelligent Retrieval**: Relevance-based search with recency weighting
+- **Entity Extraction**: Pattern-based detection of Salesforce, Jira, ServiceNow IDs
+- **Visualization**: Real-time ASCII graph with force-directed layout
 
-#### 3. **Agent Registry** (`src/orchestrator/agent_registry.py`)
-Service discovery inspired by Consul/Kubernetes:
-- Dynamic agent registration and health monitoring
-- Capability-based routing for intelligent task distribution
-- Concurrent health checks with circuit breaker integration
-- Real-time availability tracking with graceful degradation
+#### 3. **Rich Terminal UI** (`orchestrator_cli_textual.py`)
+Interactive interface built with Textual:
+- **Split Layout**: Conversation history (left), plan status and memory graph (right)
+- **Plan Visualization**: Color-coded steps (pending ⚪, executing 🔵, completed ✅, failed ❌)
+- **Memory Graph**: Live ASCII visualization with entity relationships
+- **Interrupt Modal**: ESC key brings up plan modification dialog
+- **SSE Integration**: Real-time updates via Server-Sent Events
 
-#### 4. **Specialized Agents**
+#### 4. **A2A Protocol Layer** (`src/a2a/`)
+Enterprise-grade agent communication:
+- **Connection Pooling**: 50 total connections, 20 per host
+- **Circuit Breakers**: 5 failure threshold, 60s timeout
+- **Retry Logic**: 3 attempts with exponential backoff
+- **Health Monitoring**: Concurrent agent availability checks
 
-**Salesforce Agent** (`src/agents/salesforce/main.py`)
-- 6 unified tools covering all major CRM operations
-- Advanced analytics with SOQL aggregations
-- Security-first design with SOQL injection prevention
-- Auto-detection of object types from ID prefixes
-
-**Jira Agent** (`src/agents/jira/main.py`)
-- 6 unified tools for complete issue lifecycle management
-- JQL search with natural language support
-- Sprint and epic management capabilities
-- Agile workflow automation
-
-**ServiceNow Agent** (`src/agents/servicenow/main.py`)
-- 15 specialized ITSM tools across 5 operational categories
-- Incident, change, and problem management
-- CMDB integration for configuration items
-- GlideQuery builder for secure, complex queries
+#### 5. **Observer System** (`src/orchestrator/observers/`)
+Event-driven architecture for real-time updates:
+- **SSE Observer**: Broadcasts plan changes, task progress, memory updates
+- **Memory Observer**: Tracks conversation flow and entity relationships
+- **Interrupt Observer**: Manages interrupt state persistence
+- **WebSocket Handler**: Bidirectional communication for interrupts
 
 ## Key Features
 
-### 🛡️ Enterprise Security
-- **Input Validation**: Comprehensive sanitization at all entry points
-- **SOQL Injection Prevention**: Parameterized queries with character escaping
-- **Authentication**: Environment-based credential management
-- **Error Sanitization**: No sensitive data in error responses
+### 🎯 Plan-and-Execute Workflow
+- **Intelligent Planning**: LLM generates contextual multi-step plans
+- **Step Execution**: Each step runs with full conversation context
+- **Dynamic Replanning**: Adjusts plan based on results or failures
+- **Past Steps Culling**: Intelligent trimming to prevent unbounded growth
+- **Plan Persistence**: Full state checkpointing for resumability
 
-### 🔄 Resilience Patterns
-- **Circuit Breakers**: Prevent cascading failures (5 failures → 60s cooldown)
-- **Connection Pooling**: Reuse expensive TLS connections
-- **Graceful Degradation**: System continues with reduced functionality
-- **Timeout Management**: Multi-level timeouts prevent hanging
+### 🔄 Interactive Interrupts
+- **User Escape (ESC)**: Modify plan mid-execution with natural language
+- **Agent Clarification**: HumanInputTool for ambiguous requests
+- **Interrupt Priority**: User escapes take precedence over agent requests
+- **State Preservation**: Seamless resume after interrupt handling
 
-### 🧠 Intelligent Memory
-- **AsyncStoreAdapter**: Simplified SQLite storage (167 lines - 69% reduction)
-- **Thread Persistence**: Full state snapshots with serialized messages
-- **Memory-First Retrieval**: Check memory before making API calls
-- **Namespace Isolation**: User-specific memory boundaries
+### 🧠 Conversational Memory
+- **Graph Structure**: NetworkX-based relationship tracking
+- **Entity Recognition**: Automatic extraction of business entities
+- **Contextual Retrieval**: Relevance + recency scoring
+- **Relationship Types**: Multiple edge types for rich context
+- **Memory Decay**: Task completion triggers context cleanup
 
-### 📊 Observability
-- **Structured JSON Logging**: Machine-readable logs for all components
-- **Multi-File Logging**: Component-separated logs for focused debugging
-- **Performance Metrics**: Operation duration and throughput analysis
-- **Cost Analytics**: Token usage tracking per operation
+### 📊 Visual Feedback
+- **Plan Status**: Real-time step execution tracking
+- **Memory Visualization**: ASCII graph with spring layout
+- **Progress Indicators**: Animated spinners and status updates
+- **Error Display**: Clear error messages with recovery options
 
 ## Quick Start
 
@@ -194,31 +191,25 @@ cp .env.example .env
 # 4. Start the system
 python3 start_system.py
 
-# 5. Interact via CLI
-# In the orchestrator terminal:
-> get all records for GenePoint account      # Salesforce
-> show me all critical incidents             # ServiceNow
-> find all open bugs in project PROJ-123    # Jira
-> create a change request for server upgrade # ServiceNow
+# 5. In a new terminal, launch the UI
+python3 orchestrator_cli_textual.py
 ```
 
 ## System Requirements
 
 - **Python**: 3.11+ (async/await support required)
 - **Memory**: 2GB RAM minimum, 4GB recommended
-- **Storage**: 500MB for logs and SQLite database
+- **Terminal**: Modern terminal with Unicode support
 - **Network**: Stable internet for API calls
-- **OS**: Linux, macOS, or Windows with WSL
 
 ### Python Dependencies
 
 Core framework stack:
 - `langchain==0.3.17` - Agent framework
 - `langgraph==0.2.69` - State machine orchestration
-- `langchain-openai==0.3.3` - LLM integration
-- `pydantic==2.6.4` - Data validation
-
-See `requirements.txt` for complete list.
+- `textual==0.47.1` - Terminal UI framework
+- `networkx==3.2.1` - Graph data structures
+- `pydantic==2.10.3` - Data validation
 
 ## Configuration
 
@@ -248,132 +239,72 @@ SNOW_PASS=your-password
 
 # Optional Configuration
 DEBUG_MODE=true
-ENVIRONMENT=development
+TAVILY_API_KEY=your-api-key  # For web search
 ```
-
-### System Configuration (system_config.json)
-
-The system uses a hierarchical configuration with intelligent defaults:
-
-```json
-{
-  "conversation": {
-    "typing_effect_enabled": true,          // Animated UI effects
-    "animated_capabilities_enabled": true   // Banner animations
-  },
-  "a2a": {
-    "connection_pool_size": 50,             // Total connection limit
-    "circuit_breaker_threshold": 5,         // Failures before circuit opens
-    "timeout": 30                           // Request timeout in seconds
-  },
-  "llm": {
-    "temperature": 0.1,                     // Conservative temperature
-    "max_tokens": 4000                      // Response token limit
-  }
-}
-```
-
-Configuration precedence: Runtime → Environment → JSON → Defaults
 
 ## Usage Examples
 
-### Basic Account Retrieval
+### Basic CRM Operations
 ```
-USER: get the genepoint account
-ASSISTANT: Here are the details for the Genepoint account:
-- Account ID: 001bm00000SA8pSAAT
-- Name: GenePoint
-```
+USER: update the SLA opportunity
+ASSISTANT: I found 6 opportunities with "SLA" in their name. Please specify which one:
+1. Express Logistics SLA
+2. GenePoint SLA
+3. United Oil SLA
+...
 
-### Comprehensive Data Retrieval
-```
-USER: get all records for Express Logistics
-ASSISTANT: Here are all records for Express Logistics and Transport:
-
-Account: Express Logistics and Transport (ID: 001bm00000SA8pOAAT)
-
-Contacts:
-- Babara Levy (003bm000004Nn4IAAS)
-- Josh Davis (003bm000004Nn4JAAS)
-
-Opportunities:
-- Standby Generator - $20.7T - Proposal/Price Quote
-- Portable Truck Generators - Closed Won
-- SLA - $650K - Closed Won
-
-Cases:
-- Malfunctioning Generator
-- Easy installation process
-
-Tasks:
-- Send Edible Arrangement to Edna Frank
-- Send Edible Arrangement to Frank Clark
+USER: the last one
+ASSISTANT: ✅ Successfully updated GenePoint SLA opportunity to Closed Won
 ```
 
-### Intelligent Updates
+### Plan Modification via Interrupt
 ```
-USER: update the last opportunity for Lundgren, double the opportunity value
-ASSISTANT: I've successfully updated the opportunity "Website Buildout" for Lundgren Karate and Chemistry Academy. The amount has been doubled from $100,000.00 to $200,000.00.
-```
-
-### ServiceNow ITSM Operations
-```
-USER: show me all critical incidents
-ASSISTANT: Found 2 critical incidents:
-
-| Number      | Short Description        | State       | Priority    | Assigned To  |
-|-------------|-------------------------|-------------|-------------|--------------|
-| INC0010023  | Email server down       | In Progress | 1 - Critical| john.smith   |
-| INC0010024  | Database connection fail| New         | 1 - Critical| Unassigned   |
+USER: update the SLA opportunity
+[Plan shows: 1. Search for SLA opportunities, 2. Update the opportunity]
+USER: [Presses ESC]
+[Modal appears with current plan]
+USER: let's get it updated to closed won and start onboarding
+[Plan updates to include onboarding steps]
 ```
 
-### Cross-Platform Workflow
+### Cross-System Workflow
 ```
-USER: create a Jira ticket for the email server incident
-ASSISTANT: Created Jira issue INFRA-456 linked to ServiceNow incident INC0010023. 
-The issue has been assigned to the Infrastructure team with high priority.
+USER: create enterprise onboarding for GenePoint
+ASSISTANT: I'll create a comprehensive onboarding workflow:
+
+📋 Execution Plan:
+1. ✅ Update GenePoint opportunity to Closed Won
+2. ✅ Create onboarding case in Salesforce
+3. ✅ Create company record in ServiceNow
+4. ✅ Create Jira project for onboarding
+5. ✅ Create task for buyer meeting (Josh)
+6. ✅ Create task for design workshop (Larry)
+
+All onboarding tasks completed successfully!
 ```
 
-## Advanced Capabilities
+## Advanced Features
 
-### Salesforce CRM Integration
-The system features a specialized Salesforce agent with 6 unified tools covering:
+### Memory Graph Intelligence
+The system maintains a sophisticated knowledge graph:
+- **Entity Extraction**: Automatic detection of business entities with confidence scoring
+- **Relationship Mapping**: Tracks how entities relate to each other
+- **Contextual Search**: Uses embeddings for semantic similarity
+- **Decay Mechanism**: Cleans up task-specific context after completion
 
-- **CRUD Operations**: Complete management of Accounts, Contacts, Opportunities, Leads, Cases, and Tasks
-- **Advanced Analytics**: Pipeline analysis, performance metrics, and business intelligence
-- **Cross-Object Search**: SOSL-powered global search across all Salesforce objects
-- **Security-First Design**: SOQL injection prevention and comprehensive input validation
+### Interrupt Architecture
+Two-tier interrupt system:
+- **User Interrupts**: ESC key allows plan modification at any time
+- **Agent Interrupts**: Tools can request human input for clarification
+- **State Management**: Interrupt observer tracks state across resume cycles
+- **Priority Handling**: User interrupts take precedence
 
-For detailed Salesforce capabilities, examples, and API reference, see the [Salesforce Agent README](src/agents/salesforce/README.md).
-
-### Jira Project Management Integration
-The system features a specialized Jira agent with 6 unified tools covering:
-
-- **Issue Management**: Create, read, update, and transition issues across all types (bug, story, task, epic)
-- **Advanced Search**: JQL-powered queries for complex filtering and reporting
-- **Agile Workflows**: Sprint tracking, epic management, kanban/scrum board operations
-- **Project Analytics**: Team velocity, burndown charts, cycle time analysis
-- **Security-First Design**: JQL injection prevention and comprehensive input validation
-
-For detailed Jira capabilities, examples, and API reference, see the [Jira Agent README](src/agents/jira/README.md).
-
-### ServiceNow ITSM Integration
-The system features a specialized ServiceNow agent with 15 specialized tools covering:
-
-- **Incident Management**: Create, track, and resolve IT service disruptions
-- **Change Management**: Plan and execute infrastructure changes with approval workflows
-- **Problem Management**: Root cause analysis and permanent fix tracking
-- **CMDB Operations**: Configuration item discovery and relationship mapping
-- **GlideQuery Builder**: Secure, complex query construction with injection prevention
-
-For detailed ServiceNow capabilities, examples, and API reference, see the [ServiceNow Agent README](src/agents/servicenow/README.md).
-
-### Multi-Agent Extensibility
-The architecture supports adding new specialized agents for:
-- Travel management and expense processing
-- HR operations and employee onboarding
-- Document processing with OCR capabilities
-- Financial reporting and approval workflows
+### Plan Optimization
+Intelligent plan management:
+- **Past Steps Culling**: Keeps last 30 steps when exceeding 50
+- **Context Injection**: Each step receives relevant memory context
+- **Error Recovery**: Automatic replanning on step failures
+- **Completion Detection**: Recognizes when tasks are fully complete
 
 ## Development
 
@@ -381,185 +312,168 @@ The architecture supports adding new specialized agents for:
 
 ```
 consultant-assistant/
+├── orchestrator_cli_textual.py   # Rich terminal UI with split-screen
+├── orchestrator.py               # Main A2A server entry point
+├── start_system.py              # System startup orchestration
+├── salesforce_agent.py          # Salesforce agent entry point
+├── jira_agent.py                # Jira agent entry point
+├── servicenow_agent.py          # ServiceNow agent entry point
 ├── src/
-│   ├── orchestrator/             # Central coordination
-│   │   ├── main.py              # LangGraph implementation
-│   │   ├── graph_builder.py     # Workflow construction
-│   │   ├── state.py             # State schema
-│   │   ├── conversation_handler.py # Message processing
-│   │   ├── background_tasks.py  # Async operations
-│   │   ├── llm_handler.py       # Azure OpenAI integration
-│   │   ├── agent_registry.py    # Service discovery
-│   │   └── agent_caller_tools.py # A2A delegation
-│   ├── agents/                  # Specialized agents
-│   │   ├── salesforce/          # CRM agent
-│   │   ├── jira/               # Issue tracking agent
-│   │   └── servicenow/         # ITSM agent
-│   ├── a2a/                     # Protocol layer
-│   │   ├── protocol.py          # A2A implementation
-│   │   └── circuit_breaker.py   # Resilience patterns
-│   ├── tools/                   # Agent capabilities
-│   │   ├── salesforce_unified.py # 6 unified CRM tools
-│   │   ├── jira_unified.py      # 6 unified issue tools
-│   │   └── servicenow_tools.py  # 15 specialized ITSM tools
-│   └── utils/                   # Shared utilities
-│       ├── config/              # Configuration management
-│       ├── storage/             # SQLite adapter
-│       ├── logging/             # Multi-file logging
-│       └── message_serialization.py # LangChain serialization
-├── logs/                        # Component-separated logs
-├── memory_store.db             # SQLite persistence
-└── system_config.json          # System configuration
+│   ├── orchestrator/
+│   │   ├── plan_and_execute.py # Core plan-execute workflow
+│   │   ├── core/               # Core orchestrator components
+│   │   │   ├── agent_registry.py    # Dynamic agent discovery
+│   │   │   ├── llm_handler.py       # LLM integration
+│   │   │   └── state.py             # State management
+│   │   ├── observers/          # Event-driven observer pattern
+│   │   │   ├── base.py              # Base observer class
+│   │   │   ├── sse_observer.py      # Server-sent events
+│   │   │   ├── memory_observer.py    # Memory graph updates
+│   │   │   ├── interrupt_observer.py # Interrupt state tracking
+│   │   │   └── registry.py          # Observer registration
+│   │   ├── workflow/           # Workflow components
+│   │   │   ├── entity_extractor.py  # Pattern-based entity detection
+│   │   │   ├── event_decorators.py  # Workflow event emission
+│   │   │   └── interrupt_handler.py # Interrupt management
+│   │   ├── tools/              # Orchestrator tools
+│   │   │   ├── agent_caller_tools.py # Agent communication tools
+│   │   │   ├── base.py              # Base tool class
+│   │   │   ├── human_input.py       # Human input tool
+│   │   │   └── web_search.py        # Web search tool
+│   │   └── a2a/                # A2A server components
+│   │       ├── server.py            # WebSocket & SSE server
+│   │       └── handler.py           # Request handlers
+│   ├── agents/                 # Specialized agents
+│   │   ├── salesforce/
+│   │   │   ├── main.py              # Salesforce LangGraph agent
+│   │   │   └── tools/               # Salesforce-specific tools
+│   │   │       ├── base.py          # Tool implementations
+│   │   │       └── unified.py       # Unified tool interface
+│   │   ├── jira/
+│   │   │   ├── main.py              # Jira LangGraph agent
+│   │   │   └── tools/               # Jira-specific tools
+│   │   │       ├── base.py          # Tool implementations
+│   │   │       └── unified.py       # Unified tool interface
+│   │   └── servicenow/
+│   │       ├── main.py              # ServiceNow LangGraph agent
+│   │       └── tools/               # ServiceNow-specific tools
+│   │           ├── base.py          # Tool implementations
+│   │           └── unified.py       # Unified tool interface
+│   ├── a2a/                    # A2A protocol implementation
+│   │   ├── protocol.py              # JSON-RPC 2.0 protocol
+│   │   └── circuit_breaker.py       # Circuit breaker pattern
+│   ├── memory/                 # Memory system
+│   │   ├── memory_manager.py        # Memory management
+│   │   ├── memory_graph.py          # NetworkX graph structure
+│   │   ├── memory_node.py           # Node definitions
+│   │   ├── graph_algorithms.py      # Graph algorithms
+│   │   ├── semantic_embeddings.py   # Embedding generation
+│   │   └── summary_generator.py     # Summarization
+│   └── utils/                  # Shared utilities
+│       ├── config/
+│       │   ├── constants.py         # System-wide constants
+│       │   └── unified_config.py    # Configuration management
+│       ├── storage/
+│       │   ├── async_store_adapter.py # SQLite async wrapper
+│       │   ├── async_sqlite.py       # Async SQLite operations
+│       │   ├── memory_schemas.py     # Memory data schemas
+│       │   └── sqlite_store.py       # SQLite store
+│       ├── logging/
+│       │   ├── framework.py         # Logging framework
+│       │   ├── logger.py            # Logger implementation
+│       │   └── multi_file_logger.py # Multi-file logging
+│       ├── ui/
+│       │   ├── memory_graph_widget.py   # Memory graph widget
+│       │   ├── clean_graph_renderer.py  # Graph rendering
+│       │   ├── advanced_graph_renderer.py # Advanced rendering
+│       │   ├── animations.py         # UI animations
+│       │   ├── colors.py            # Color schemes
+│       │   └── terminal.py          # Terminal utilities
+│       ├── agents/
+│       │   └── message_processing/
+│       │       ├── helpers.py       # Message helpers
+│       │       ├── serialization.py # Message serialization
+│       │       └── unified_serialization.py
+│       ├── message_serialization.py # LangChain msg handling
+│       ├── helpers.py               # General helpers
+│       ├── tool_execution.py        # Tool execution utilities
+│       ├── input_validation.py      # Input validation
+│       ├── soql_query_builder.py    # SOQL query building
+│       └── glide_query_builder.py   # ServiceNow queries
+├── docs/                       # Documentation
+│   ├── architecture/          # Architecture docs
+│   ├── components/            # Component docs
+│   ├── guides/                # User guides
+│   ├── operations/            # Operational docs
+│   └── protocols/             # Protocol specs
+├── logs/                       # Component-separated logs
+│   ├── orchestrator.log       # Main workflow logs
+│   ├── salesforce.log         # CRM operations
+│   ├── jira.log               # Project management
+│   ├── servicenow.log         # ITSM operations
+│   ├── a2a_protocol.log       # Network operations
+│   ├── storage.log            # Database operations
+│   ├── system.log             # Startup/config
+│   ├── client.log             # Client operations
+│   ├── extraction.log         # Entity extraction
+│   └── errors.log             # Aggregated errors
+├── memory_store.db            # SQLite persistence
+├── system_config.json         # System configuration
+├── agent_registry.json        # Agent capabilities
+├── textual_styles.tcss        # UI styling
+├── CLAUDE.md                  # AI assistant guide
+├── README.md                  # This file
+└── requirements.txt           # Python dependencies
 ```
 
-### Adding New Agents
+### Adding New Features
 
-1. Create agent module in `src/agents/your_agent/`
-2. Implement A2A server with agent card
-3. Define specialized tools
-4. Register in `agent_registry.json`
-5. Add orchestrator tool wrapper
-
-See [Component Documentation](docs/components/) for details.
-
-### Code Style
-
-- Follow PEP 8 with 100-character line limit
-- Use type hints for all public functions
-- Write concise docstrings focusing on purpose
-- Focus comments on "why" not "what"
-
-## Production Deployment
-
-### Docker Deployment
-
-```bash
-# Build images
-docker-compose build
-
-# Run services
-docker-compose up -d
-
-# Scale agents
-docker-compose scale salesforce-agent=3
-```
-
-### Kubernetes Deployment
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: orchestrator
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: orchestrator
-  template:
-    spec:
-      containers:
-      - name: orchestrator
-        image: consultant-assistant:latest
-        env:
-        - name: AZURE_OPENAI_ENDPOINT
-          valueFrom:
-            secretKeyRef:
-              name: azure-credentials
-              key: endpoint
-```
-
-### Performance Tuning
-
-- **Connection Pools**: Tune based on concurrent users
-- **Summary Threshold**: Lower for better context, higher for cost
-- **Circuit Breakers**: Adjust based on network reliability
-- **Memory Cache**: Consider Redis for distributed deployments
+1. **New Agent**: Implement A2A protocol, create tools, register capabilities
+2. **New Observer**: Extend base observer, register in workflow
+3. **New UI Component**: Add Textual widget, integrate with SSE events
+4. **New Memory Type**: Add to ContextType enum, implement extraction
 
 ## Monitoring & Observability
 
-### Log Analysis
+### Multi-File Logging System
 
-All components generate structured JSON logs:
-
-```json
-{
-  "timestamp": "2025-06-26T23:45:00.123Z",
-  "component": "orchestrator",
-  "operation_type": "A2A_TASK_COMPLETE",
-  "task_id": "abc123",
-  "duration_ms": 1234,
-  "agent": "salesforce"
-}
+```bash
+logs/
+├── orchestrator.log      # Main workflow and LLM operations
+├── salesforce.log        # CRM operations
+├── jira.log              # Project management
+├── servicenow.log        # ITSM operations
+├── a2a_protocol.log      # Network and circuit breakers
+├── storage.log           # Database operations
+├── system.log            # Startup and configuration
+└── errors.log            # Aggregated errors
 ```
 
-### Metrics to Monitor
-
-1. **System Health**
-   - Agent availability percentage
-   - Circuit breaker status
-   - Connection pool utilization
-
-2. **Performance**
-   - P95 response times
-   - Token usage per operation
-   - Summary/memory trigger rates
-
-3. **Business Metrics**
-   - CRM operations per hour
-   - Success/failure rates
-   - Cost per conversation
-
-### Integration with APM Tools
-
-The system supports OpenTelemetry for integration with:
-- Datadog
-- New Relic
-- Prometheus/Grafana
-- CloudWatch
+### Key Metrics
+- Plan execution success rate
+- Average steps per plan
+- Memory graph size and growth
+- Interrupt frequency and types
+- Agent response times
 
 ## Contributing
 
-We welcome contributions! Please follow these guidelines:
+We welcome contributions! Please:
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Development Setup
-
-```bash
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # or `venv\Scripts\activate` on Windows
-
-# Install dev dependencies
-pip install -r requirements.txt
-
-# Run pre-commit hooks (if available)
-pre-commit install
-```
+2. Create a feature branch
+3. Add tests for new functionality
+4. Ensure all tests pass
+5. Submit a pull request
 
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
----
-
 ## Acknowledgments
 
-This system implements enterprise patterns and standards from:
-- Agent-to-Agent (A2A) Protocol for agent interoperability
-- Netflix's circuit breaker pattern for resilience
-- LangChain/LangGraph for agent orchestration
-- OpenAI/Azure for LLM capabilities
-
-Special thanks to the open-source community for the foundational libraries that make this system possible.
-
-## Support
-
-For issues and feature requests, please use the GitHub issue tracker.
-
-For enterprise support inquiries, contact: enterprise@your-company.com
+Built on foundational work from:
+- LangGraph's plan-and-execute tutorial
+- A2A Protocol specification
+- Textual framework for rich TUIs
+- The open-source community

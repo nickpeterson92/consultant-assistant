@@ -28,6 +28,10 @@ class ObserverRegistry:
         """Add an observer to the registry."""
         self.observers.append(observer)
     
+    def register(self, observer: PlanExecuteObserver):
+        """Register an observer (alias for add_observer)."""
+        self.add_observer(observer)
+    
     def remove_observer(self, observer: PlanExecuteObserver):
         """Remove an observer from the registry."""
         if observer in self.observers:
@@ -90,6 +94,18 @@ class ObserverRegistry:
         """Notify all observers of memory graph snapshot."""
         for observer in self.observers:
             observer.on_memory_graph_snapshot(event)
+    
+    def notify_interrupt(self, event):
+        """Notify all observers of interrupt event."""
+        for observer in self.observers:
+            if hasattr(observer, 'on_interrupt'):
+                observer.on_interrupt(event)
+    
+    def notify_interrupt_resume(self, event):
+        """Notify all observers of interrupt resume event."""
+        for observer in self.observers:
+            if hasattr(observer, 'on_interrupt_resume'):
+                observer.on_interrupt_resume(event)
 
 
 # Global observer registry - will be initialized by the plan-execute workflow

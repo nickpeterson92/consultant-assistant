@@ -827,11 +827,6 @@ def replan_step(state: PlanExecute):
                    operation="replan_step",
                    reason=state.get("interrupt_reason", "User requested modification"),
                    user_request=user_modification_request[:100] if user_modification_request else "")
-        
-        # Clear the flags after logging
-        state["user_interrupted"] = False
-        state["interrupt_reason"] = None
-        state["should_force_replan"] = False
     
     # Get memory for context-aware replanning
     thread_id = state.get("thread_id", "default-thread")
@@ -952,10 +947,18 @@ def replan_step(state: PlanExecute):
                        original_count=len(current_messages) + 1,
                        trimmed_count=len(updated_messages))
         
-        return {
+        state_updates = {
             "response": output.action.response,
             "messages": [ai_response] if len(updated_messages) <= 50 else updated_messages
         }
+        
+        # Clear interrupt flags if they were set
+        if is_user_replan:
+            state_updates["user_interrupted"] = False
+            state_updates["interrupt_reason"] = None
+            state_updates["should_force_replan"] = False
+        
+        return state_updates
     else:
         # Check if the new plan includes human_input - if so, show the most recent result to user
         new_plan = output.action.steps
@@ -976,10 +979,18 @@ def replan_step(state: PlanExecute):
             last_step = past_steps[-1]
             user_visible_responses.append(last_step['result'])
         
-        return {
+        state_updates = {
             "plan": new_plan,
             "user_visible_responses": user_visible_responses
         }
+        
+        # Clear interrupt flags if they were set
+        if is_user_replan:
+            state_updates["user_interrupted"] = False
+            state_updates["interrupt_reason"] = None
+            state_updates["should_force_replan"] = False
+        
+        return state_updates
 
 
 @log_execution("orchestrator", "should_end", include_args=True, include_result=True)  

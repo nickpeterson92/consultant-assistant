@@ -135,12 +135,22 @@ def emit_coordinated_events(event_types: List[str]) -> Callable:
                 if "plan_modified" in event_types and isinstance(result, dict) and "plan" in result:
                     new_plan = result["plan"]
                     if new_plan != original_plan:
+                        # Determine modification type
+                        if len(new_plan) > len(original_plan):
+                            mod_type = "add"
+                        elif len(new_plan) < len(original_plan):
+                            mod_type = "remove"
+                        elif new_plan != original_plan:
+                            mod_type = "replace"
+                        else:
+                            mod_type = "reorder"
+                        
                         event = PlanModifiedEvent(
                             step_name="plan_modification",
                             task_id=task_id,
-                            old_plan=original_plan,
-                            new_plan=new_plan,
-                            modification_reason="replanning"
+                            plan_steps=new_plan,
+                            modification_type=mod_type,
+                            details=f"Plan modified from {len(original_plan)} to {len(new_plan)} steps"
                         )
                         registry.notify_plan_modified(event)
                         events_emitted.append("plan_modified")
@@ -398,12 +408,22 @@ def emit_coordinated_events(event_types: List[str]) -> Callable:
                 if "plan_modified" in event_types and isinstance(result, dict) and "plan" in result:
                     new_plan = result["plan"]
                     if new_plan != original_plan:
+                        # Determine modification type
+                        if len(new_plan) > len(original_plan):
+                            mod_type = "add"
+                        elif len(new_plan) < len(original_plan):
+                            mod_type = "remove"
+                        elif new_plan != original_plan:
+                            mod_type = "replace"
+                        else:
+                            mod_type = "reorder"
+                        
                         event = PlanModifiedEvent(
                             step_name="plan_modification",
                             task_id=task_id,
-                            old_plan=original_plan,
-                            new_plan=new_plan,
-                            modification_reason="replanning"
+                            plan_steps=new_plan,
+                            modification_type=mod_type,
+                            details=f"Plan modified from {len(original_plan)} to {len(new_plan)} steps"
                         )
                         registry.notify_plan_modified(event)
                         events_emitted.append("plan_modified")
@@ -621,12 +641,22 @@ def emit_coordinated_events(event_types: List[str]) -> Callable:
                 if "plan_modified" in event_types and isinstance(result, dict) and "plan" in result:
                     new_plan = result["plan"]
                     if new_plan != original_plan:
+                        # Determine modification type
+                        if len(new_plan) > len(original_plan):
+                            mod_type = "add"
+                        elif len(new_plan) < len(original_plan):
+                            mod_type = "remove"
+                        elif new_plan != original_plan:
+                            mod_type = "replace"
+                        else:
+                            mod_type = "reorder"
+                        
                         event = PlanModifiedEvent(
                             step_name="plan_modification",
                             task_id=task_id,
-                            old_plan=original_plan,
-                            new_plan=new_plan,
-                            modification_reason="replanning"
+                            plan_steps=new_plan,
+                            modification_type=mod_type,
+                            details=f"Plan modified from {len(original_plan)} to {len(new_plan)} steps"
                         )
                         registry.notify_plan_modified(event)
                         events_emitted.append("plan_modified")
@@ -869,12 +899,22 @@ def emit_coordinated_events(event_types: List[str]) -> Callable:
                 if "plan_modified" in event_types and isinstance(result, dict) and "plan" in result:
                     new_plan = result["plan"]
                     if new_plan != original_plan:
+                        # Determine modification type
+                        if len(new_plan) > len(original_plan):
+                            mod_type = "add"
+                        elif len(new_plan) < len(original_plan):
+                            mod_type = "remove"
+                        elif new_plan != original_plan:
+                            mod_type = "replace"
+                        else:
+                            mod_type = "reorder"
+                        
                         event = PlanModifiedEvent(
                             step_name="plan_modification",
                             task_id=task_id,
-                            old_plan=original_plan,
-                            new_plan=new_plan,
-                            modification_reason="replanning"
+                            plan_steps=new_plan,
+                            modification_type=mod_type,
+                            details=f"Plan modified from {len(original_plan)} to {len(new_plan)} steps"
                         )
                         registry.notify_plan_modified(event)
                         events_emitted.append("plan_modified")

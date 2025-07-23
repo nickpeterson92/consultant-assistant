@@ -1099,10 +1099,10 @@ class MemoryGraph:
         
         # Follow-up query detection
         follow_up_indicators = ['that', 'this', 'same', 'previous', 'last', 'above', 
-                               'mentioned', 'again', 'also', 'another']
+                               'mentioned', 'again', 'also', 'another', 'these', 'those']
         
         # Strong follow-up indicators
-        strong_follow_up = ['that', 'this', 'same']
+        strong_follow_up = ['that', 'this', 'same', 'these', 'those']
         
         if any(indicator in query_lower for indicator in follow_up_indicators):
             if was_accessed and access_recency < 10:

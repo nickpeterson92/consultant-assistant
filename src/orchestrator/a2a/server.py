@@ -196,11 +196,26 @@ async def handle_websocket(request: web.Request) -> web.WebSocketResponse:
                                 # Check the interrupt type
                                 config = {"configurable": {"thread_id": thread_id}}
                                 current_state = orchestrator_handler.graph.get_state(config)
-                                interrupt_type = "human_input"  # default
                                 
-                                # Check if this was a user escape interrupt
-                                if current_state.values.get("user_interrupted", False):
-                                    interrupt_type = "user_escape"
+                                # Use interrupt observer to get persistent interrupt context
+                                from src.orchestrator.observers.interrupt_observer import get_interrupt_observer
+                                interrupt_observer = get_interrupt_observer()
+                                interrupt_context = interrupt_observer.get_interrupt_context(thread_id)
+                                
+                                # Determine interrupt type from observer or state
+                                if interrupt_context:
+                                    interrupt_type = interrupt_context.get("interrupt_type", "human_input")
+                                    logger.info("resume_using_observer_context",
+                                               thread_id=thread_id,
+                                               interrupt_type=interrupt_type,
+                                               interrupt_time=interrupt_context.get("interrupt_time"))
+                                else:
+                                    # Fallback to state check
+                                    interrupt_type = "user_escape" if current_state.values.get("user_interrupted", False) else "human_input"
+                                    logger.info("resume_using_state_check",
+                                               thread_id=thread_id,
+                                               interrupt_type=interrupt_type,
+                                               user_interrupted=current_state.values.get("user_interrupted"))
                                 
                                 # Import the interrupt handler
                                 from src.orchestrator.workflow.interrupt_handler import InterruptHandler
@@ -212,10 +227,6 @@ async def handle_websocket(request: web.Request) -> web.WebSocketResponse:
                                     interrupt_type
                                 )
                                 
-                                # Apply state updates if any
-                                if state_updates:
-                                    orchestrator_handler.graph.update_state(config, state_updates)
-                                
                                 # Now resume the graph with the user's input
                                 # This is the proper way to resume after GraphInterrupt
                                 from langgraph.types import Command
@@ -223,18 +234,36 @@ async def handle_websocket(request: web.Request) -> web.WebSocketResponse:
                                 logger.info("resuming_graph_with_command",
                                            thread_id=thread_id,
                                            user_input=user_input[:100] if user_input else "",
-                                           interrupt_type=interrupt_type)
+                                           interrupt_type=interrupt_type,
+                                           has_state_updates=bool(state_updates))
+                                
+                                # Create Command with both resume value and state updates
+                                if state_updates:
+                                    # For user_escape, include state updates in the Command
+                                    resume_command = Command(
+                                        resume=user_input,
+                                        update=state_updates
+                                    )
+                                else:
+                                    # For human_input, just resume with the input
+                                    resume_command = Command(resume=user_input)
                                 
                                 # Resume the graph execution in the background
                                 asyncio.create_task(
                                     orchestrator_handler.graph.ainvoke(
-                                        Command(resume=user_input),
+                                        resume_command,
                                         config
                                     )
                                 )
                                 
                                 logger.info("graph_resume_triggered",
                                            thread_id=thread_id)
+                                
+                                # Record resume in observer
+                                interrupt_observer.record_resume(thread_id, user_input, interrupt_type)
+                                
+                                # Clear interrupt state after successful resume
+                                interrupt_observer.clear_interrupt(thread_id)
                                 
                                 # Send acknowledgment
                                 await ws.send_json({

@@ -223,3 +223,25 @@ class SSEObserver(PlanExecuteObserver):
             "thread_id": event.thread_id,
             "graph_data": event.graph_data
         })
+    
+    def on_interrupt(self, event) -> None:
+        """Emit interrupt SSE event."""
+        self._emit_sse_threadsafe("interrupt", {
+            "task_id": event.task_id,
+            "interrupt_type": event.interrupt_type,
+            "interrupt_reason": event.interrupt_reason,
+            "thread_id": event.thread_id,
+            "current_plan": event.current_plan,
+            "completed_steps": event.completed_steps,
+            "total_steps": event.total_steps
+        })
+    
+    def on_interrupt_resume(self, event) -> None:
+        """Emit interrupt_resume SSE event."""
+        self._emit_sse_threadsafe("interrupt_resume", {
+            "task_id": event.task_id,
+            "interrupt_type": event.interrupt_type,
+            "thread_id": event.thread_id,
+            "user_input": event.user_input,
+            "was_modified": event.was_modified
+        })

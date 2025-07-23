@@ -248,6 +248,25 @@ class OrchestratorA2AHandler:
                 self.active_tasks[task_id]["interrupt_value"] = interrupt_content
                 self.active_tasks[task_id]["interrupt_type"] = interrupt_type
             
+            # Record interrupt in observer
+            from src.orchestrator.observers.interrupt_observer import get_interrupt_observer
+            interrupt_observer = get_interrupt_observer()
+            
+            # Get current state for context
+            config = {"configurable": {"thread_id": thread_id}}
+            current_state = self.graph.get_state(config)
+            
+            # Determine the actual interrupt type for the observer
+            observer_interrupt_type = "user_escape" if is_user_interrupt else "human_input"
+            
+            interrupt_observer.record_interrupt(
+                thread_id=thread_id,
+                interrupt_type=observer_interrupt_type,
+                reason=interrupt_content,
+                current_plan=current_state.values.get("plan", []),
+                state=current_state.values
+            )
+            
             return {
                 "artifacts": [{
                     "id": f"orchestrator-interrupt-{task_id}",
@@ -382,6 +401,17 @@ class OrchestratorA2AHandler:
                     "interrupt_reason": reason,
                     "interrupt_timestamp": datetime.now().isoformat()
                 }
+            )
+            
+            # Record interrupt in observer for persistent tracking
+            from src.orchestrator.observers.interrupt_observer import get_interrupt_observer
+            interrupt_observer = get_interrupt_observer()
+            interrupt_observer.record_interrupt(
+                thread_id=thread_id,
+                interrupt_type="user_escape",
+                reason=reason,
+                current_plan=current_state.values.get("plan", []),
+                state=current_state.values
             )
             
             logger.info("interrupt_task_success",

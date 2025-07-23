@@ -524,6 +524,14 @@ class ConversationWidget(ScrollableContainer):
             color = "#f85149"
             prefix = "❌ Error:"
         elif message_type == "processing":
+            # Check if a spinner already exists and remove it
+            try:
+                existing_spinner = self.query_one("#processing-spinner")
+                if existing_spinner:
+                    existing_spinner.remove()
+            except:
+                pass  # No existing spinner, that's fine
+            
             # Create a subtle inline processing message with ASCII spinner
             processing_widget = Static(
                 "[dim #7dd3fc]⠋[/dim #7dd3fc] [dim #8b949e]Processing...[/dim #8b949e]",
@@ -1007,6 +1015,18 @@ class OrchestatorApp(App):
             elif event_type == "plan_updated":
                 self.plan_widget.handle_sse_plan_updated(data)
         
+        # Handle human input requested events
+        if event_type == "human_input_requested":
+            # Reset processing state when human input is needed
+            self.is_processing = False
+            # Remove any existing spinner
+            try:
+                existing_spinner = self.query_one("#processing-spinner")
+                if existing_spinner:
+                    existing_spinner.remove()
+            except:
+                pass
+            
         # Route memory events to memory graph widget
         if self.memory_graph_widget:
             if event_type in ["memory_node_added", "memory_edge_added", 
