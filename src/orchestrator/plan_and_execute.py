@@ -16,34 +16,11 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from langchain_core.messages import HumanMessage, AIMessage
 from src.utils.logging.framework import SmartLogger, log_execution
-from .event_decorators import emit_coordinated_events
+from src.orchestrator.workflow.event_decorators import emit_coordinated_events
+from src.orchestrator.core.state import PlanExecute, StepExecution
 
 # Initialize logger
 logger = SmartLogger("orchestrator")
-
-
-# ================================
-# State Schema - Enhanced with StepExecution
-# ================================
-
-class StepExecution(TypedDict):
-    """Structured representation of a plan step execution."""
-    step_seq_no: int              # Sequential number within the plan
-    step_description: str         # The step text from the plan
-    status: str                   # "pending", "executing", "completed", "failed", "skipped"
-    result: str                   # The execution result (required)
-
-
-class PlanExecute(TypedDict):
-    input: str
-    plan: List[str]
-    past_steps: Annotated[List[StepExecution], operator.add]
-    response: str
-    user_visible_responses: Annotated[List[str], operator.add]  # Responses that should be shown to user immediately
-    messages: Annotated[List, add_messages]  # Persistent conversation history across requests
-    thread_id: str  # Thread ID for memory context
-    task_id: str  # Task ID for SSE event correlation
-    plan_step_offset: int  # Track where current plan starts in past_steps
 
 
 # ================================
@@ -92,7 +69,7 @@ class Act(BaseModel):
 @emit_coordinated_events(["task_lifecycle", "plan_updated"])
 def execute_step(state: PlanExecute):
     import asyncio
-    from .observers import get_observer_registry, SearchResultsEvent
+    from src.orchestrator.observers import get_observer_registry, SearchResultsEvent
     from src.memory import get_thread_memory, ContextType, RelationshipType
     from langgraph.errors import GraphInterrupt
     
@@ -337,9 +314,9 @@ You are tasked with executing step {current_step_num}: {task}.
     
     # Check if any tools used during execution produce user data
     # We need to get the available tools to check their metadata
-    from src.tools.salesforce import UNIFIED_SALESFORCE_TOOLS
-    from src.tools.jira import UNIFIED_JIRA_TOOLS
-    from src.tools.servicenow import UNIFIED_SERVICENOW_TOOLS
+    from src.agents.salesforce.tools.unified import UNIFIED_SALESFORCE_TOOLS
+    from src.agents.jira.tools.unified import UNIFIED_JIRA_TOOLS
+    from src.agents.servicenow.tools.unified import UNIFIED_SERVICENOW_TOOLS
     
     # Build a lookup of all available tools using the unified constants
     all_tools = list(UNIFIED_SALESFORCE_TOOLS) + list(UNIFIED_JIRA_TOOLS) + list(UNIFIED_SERVICENOW_TOOLS)
@@ -410,7 +387,7 @@ You are tasked with executing step {current_step_num}: {task}.
                 break  # Just link to the most recent one
         
         # Use intelligent entity extraction
-        from .entity_extractor import extract_entities_intelligently
+        from src.orchestrator.workflow.entity_extractor import extract_entities_intelligently
         
         # Determine context from the task
         extraction_context = {
@@ -548,7 +525,7 @@ You are tasked with executing step {current_step_num}: {task}.
                 
                 # Notify about new entity
                 try:
-                    from .memory_observer import notify_memory_update
+                    from src.orchestrator.observers.memory_observer import notify_memory_update
                     node = memory.nodes.get(entity_node_id)
                     if node:
                         notify_memory_update(thread_id, entity_node_id, node, state.get("task_id"))
@@ -592,7 +569,7 @@ You are tasked with executing step {current_step_num}: {task}.
             
             # Notify observer about the edge
             try:
-                from .memory_observer import notify_memory_edge
+                from src.orchestrator.observers.memory_observer import notify_memory_edge
                 notify_memory_edge(
                     thread_id,
                     relates_to[0],
@@ -620,7 +597,7 @@ You are tasked with executing step {current_step_num}: {task}.
             
             # Notify about relationships
             try:
-                from .memory_observer import notify_memory_edge
+                from src.orchestrator.observers.memory_observer import notify_memory_edge
                 notify_memory_edge(thread_id, memory_node_id, entity_id, rel_type, state.get("task_id"))
                 notify_memory_edge(thread_id, entity_id, memory_node_id, RelationshipType.RELATES_TO, state.get("task_id"))
             except:
@@ -652,7 +629,7 @@ You are tasked with executing step {current_step_num}: {task}.
             
             # Notify
             try:
-                from .memory_observer import notify_memory_update, notify_memory_edge
+                from src.orchestrator.observers.memory_observer import notify_memory_update, notify_memory_edge
                 node = memory.nodes.get(tool_node_id)
                 if node:
                     notify_memory_update(thread_id, tool_node_id, node, state.get("task_id"))
@@ -671,7 +648,7 @@ You are tasked with executing step {current_step_num}: {task}.
         
         # Notify observers about memory update
         try:
-            from .memory_observer import notify_memory_update
+            from src.orchestrator.observers.memory_observer import notify_memory_update
             node = memory.nodes.get(memory_node_id)
             if node:
                 notify_memory_update(thread_id, memory_node_id, node, state.get("task_id"))
@@ -798,7 +775,7 @@ def plan_step(state: PlanExecute):
     
     # Emit memory graph snapshot after plan creation
     try:
-        from .memory_observer import get_memory_observer
+        from src.orchestrator.observers.memory_observer import get_memory_observer
         observer = get_memory_observer()
         observer.emit_graph_snapshot(thread_id, state.get("task_id"))
     except Exception as e:
@@ -818,7 +795,7 @@ def plan_step(state: PlanExecute):
 def replan_step(state: PlanExecute):
     import asyncio
     from src.memory import get_thread_memory, ContextType
-    from .interrupt_handler import InterruptHandler
+    from src.orchestrator.workflow.interrupt_handler import InterruptHandler
     
     # Check if this is a user-initiated replan (escape key)
     is_user_replan = state.get("should_force_replan", False) or state.get("user_interrupted", False)
@@ -1092,11 +1069,11 @@ async def trigger_background_summary_if_needed(messages: list, llm):
 
 async def create_plan_execute_graph():
     """Create a simple plan-execute graph for A2A usage."""
-    from src.orchestrator.llm_handler import get_orchestrator_system_message
-    from src.orchestrator.agent_registry import AgentRegistry
-    from src.orchestrator.agent_caller_tools import SalesforceAgentTool, JiraAgentTool, ServiceNowAgentTool, AgentRegistryTool
-    from src.tools.utility import WebSearchTool
-    from src.tools.human_input import HumanInputTool
+    from src.orchestrator.core.llm_handler import get_orchestrator_system_message
+    from src.orchestrator.core.agent_registry import AgentRegistry
+    from src.orchestrator.tools.agent_caller_tools import SalesforceAgentTool, JiraAgentTool, ServiceNowAgentTool, AgentRegistryTool
+    from src.orchestrator.tools.web_search import WebSearchTool
+    from src.orchestrator.tools.human_input import HumanInputTool
     from langgraph.prebuilt import create_react_agent
     from langchain_openai import AzureChatOpenAI
     import os
@@ -1105,7 +1082,7 @@ async def create_plan_execute_graph():
     agent_registry = AgentRegistry()
     
     # Initialize the UX observer for tracking user-visible data
-    from .observers import get_observer_registry, UXObserver
+    from src.orchestrator.observers import get_observer_registry, UXObserver
     registry = get_observer_registry()
     ux_observer = UXObserver()
     registry.add_observer(ux_observer)
@@ -1147,7 +1124,7 @@ def setup_canonical_plan_execute(llm_with_tools, llm_for_planning, agent_registr
     # Get agent context from orchestrator system message generation (reuse existing logic)
     agent_context = ""
     if agent_registry:
-        from .llm_handler import get_orchestrator_system_message
+        from src.orchestrator.core.llm_handler import get_orchestrator_system_message
         
         # Create mock state to get agent context from orchestrator
         mock_state = {"summary": "", "memory": "", "active_agents": []}

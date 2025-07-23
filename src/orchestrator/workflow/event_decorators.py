@@ -8,7 +8,7 @@ from functools import wraps
 from typing import Any, Callable, Dict, List
 from datetime import datetime
 
-from .observers import (
+from src.orchestrator.observers import (
     get_observer_registry, 
     PlanCreatedEvent, 
     TaskStartedEvent, 
@@ -170,7 +170,7 @@ def emit_coordinated_events(event_types: List[str]) -> Callable:
                         step_number=current_step_num,
                         total_steps=total_steps,
                         result=result_content,
-                        status=status
+                        success=(status != "failed")
                     )
                     registry.notify_task_completed(complete_event)
                     events_emitted.append("task_completed")
@@ -209,7 +209,9 @@ def emit_coordinated_events(event_types: List[str]) -> Callable:
                         completed_steps=completed_steps,
                         current_step=current_step,
                         failed_steps=failed_steps,
-                        status=overall_status
+                        total_steps=len(plan),
+                        completed_count=len(completed_steps),
+                        failed_count=len(failed_steps)
                     )
                     registry.notify_plan_updated(update_event)
                     events_emitted.append("plan_updated")
@@ -431,7 +433,7 @@ def emit_coordinated_events(event_types: List[str]) -> Callable:
                         step_number=current_step_num,
                         total_steps=total_steps,
                         result=result_content,
-                        status=status
+                        success=(status != "failed")
                     )
                     registry.notify_task_completed(complete_event)
                     events_emitted.append("task_completed")
@@ -470,7 +472,9 @@ def emit_coordinated_events(event_types: List[str]) -> Callable:
                         completed_steps=completed_steps,
                         current_step=current_step,
                         failed_steps=failed_steps,
-                        status=overall_status
+                        total_steps=len(plan),
+                        completed_count=len(completed_steps),
+                        failed_count=len(failed_steps)
                     )
                     registry.notify_plan_updated(update_event)
                     events_emitted.append("plan_updated")
@@ -652,7 +656,7 @@ def emit_coordinated_events(event_types: List[str]) -> Callable:
                         step_number=current_step_num,
                         total_steps=total_steps,
                         result=result_content,
-                        status=status
+                        success=(status != "failed")
                     )
                     registry.notify_task_completed(complete_event)
                     events_emitted.append("task_completed")
@@ -691,7 +695,9 @@ def emit_coordinated_events(event_types: List[str]) -> Callable:
                         completed_steps=completed_steps,
                         current_step=current_step,
                         failed_steps=failed_steps,
-                        status=overall_status
+                        total_steps=len(plan),
+                        completed_count=len(completed_steps),
+                        failed_count=len(failed_steps)
                     )
                     registry.notify_plan_updated(update_event)
                     events_emitted.append("plan_updated")
@@ -763,7 +769,9 @@ def emit_plan_updated(func: Callable) -> Callable:
                 completed_steps=completed_steps,
                 current_step=current_step,
                 failed_steps=failed_steps,
-                status=overall_status
+                total_steps=len(plan),
+                completed_count=len(completed_steps),
+                failed_count=len(failed_steps)
             )
             registry.notify_plan_updated(event)
             
@@ -896,7 +904,7 @@ def emit_coordinated_events(event_types: List[str]) -> Callable:
                         step_number=current_step_num,
                         total_steps=total_steps,
                         result=result_content,
-                        status=status
+                        success=(status != "failed")
                     )
                     registry.notify_task_completed(complete_event)
                     events_emitted.append("task_completed")
@@ -935,7 +943,9 @@ def emit_coordinated_events(event_types: List[str]) -> Callable:
                         completed_steps=completed_steps,
                         current_step=current_step,
                         failed_steps=failed_steps,
-                        status=overall_status
+                        total_steps=len(plan),
+                        completed_count=len(completed_steps),
+                        failed_count=len(failed_steps)
                     )
                     registry.notify_plan_updated(update_event)
                     events_emitted.append("plan_updated")

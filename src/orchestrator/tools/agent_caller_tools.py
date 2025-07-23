@@ -13,8 +13,8 @@ from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
-from .agent_registry import AgentRegistry
-from ..a2a import A2AClient, A2ATask, A2AException
+from src.orchestrator.core.agent_registry import AgentRegistry
+from src.a2a import A2AClient, A2ATask, A2AException
 
 # Import smart logger
 from src.utils.logging import get_smart_logger, log_execution

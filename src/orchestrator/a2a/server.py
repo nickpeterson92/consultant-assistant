@@ -6,9 +6,9 @@ from typing import Dict, Any
 
 from src.a2a import A2AServer, AgentCard
 from src.utils.logging import get_smart_logger, log_execution
-from .a2a_handler import OrchestratorA2AHandler
-from .plan_and_execute import create_plan_execute_graph
-from .observers import get_observer_registry, SSEObserver
+from src.orchestrator.a2a.handler import OrchestratorA2AHandler
+from src.orchestrator.plan_and_execute import create_plan_execute_graph
+from src.orchestrator.observers import get_observer_registry, SSEObserver
 import json
 from aiohttp import web
 from aiohttp.web_response import StreamResponse
@@ -203,7 +203,7 @@ async def handle_websocket(request: web.Request) -> web.WebSocketResponse:
                                     interrupt_type = "user_escape"
                                 
                                 # Import the interrupt handler
-                                from .interrupt_handler import InterruptHandler
+                                from src.orchestrator.workflow.interrupt_handler import InterruptHandler
                                 
                                 # Get state updates based on interrupt type
                                 state_updates = InterruptHandler.handle_resume(

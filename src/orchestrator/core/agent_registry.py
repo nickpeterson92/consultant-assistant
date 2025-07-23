@@ -12,8 +12,8 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime
 
-from ..a2a import AgentCard, A2AClient, A2AException
-from ..utils.logging.framework import SmartLogger, log_execution
+from src.a2a import AgentCard, A2AClient, A2AException
+from src.utils.logging.framework import SmartLogger, log_execution
 
 # Initialize logger
 logger = SmartLogger("orchestrator")
@@ -58,7 +58,7 @@ class AgentRegistry:
     
     def __init__(self, config_path: Optional[str] = None):
         self.agents: Dict[str, RegisteredAgent] = {}
-        from ..utils.config import config
+        from src.utils.config import config
         self.config_path = config_path or config.get('agent_registry_path', 'agent_registry.json')
         self.client = None
         self._load_config()

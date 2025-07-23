@@ -15,7 +15,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.memory import MemorySaver
 
-from src.tools.servicenow import UNIFIED_SERVICENOW_TOOLS
+from src.agents.servicenow.tools.unified import UNIFIED_SERVICENOW_TOOLS
 from src.a2a import A2AServer, AgentCard
 from src.utils.config import config
 from src.utils.logging.framework import SmartLogger, log_execution

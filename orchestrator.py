@@ -22,5 +22,5 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    from src.orchestrator.a2a_server import main
+    from src.orchestrator.a2a.server import main
     asyncio.run(main(args.host, args.port))

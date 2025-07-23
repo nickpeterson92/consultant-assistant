@@ -7,7 +7,7 @@ from datetime import datetime
 from langgraph.errors import GraphInterrupt
 from src.utils.logging.framework import SmartLogger, log_execution
 from src.a2a import AgentCard
-from .plan_and_execute import create_plan_execute_graph
+from src.orchestrator.plan_and_execute import create_plan_execute_graph
 
 logger = SmartLogger("orchestrator")
 
@@ -207,7 +207,7 @@ class OrchestratorA2AHandler:
             
         except GraphInterrupt as gi:
             # This is an expected interrupt - not an error
-            from .interrupt_handler import InterruptHandler
+            from src.orchestrator.workflow.interrupt_handler import InterruptHandler
             
             # Get current state to check for interrupt clashes
             current_state = self.graph.get_state(config)

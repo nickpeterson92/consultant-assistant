@@ -1196,11 +1196,17 @@ STEP COUNTING LOGIC:
 - Count completed steps vs. total original plan steps
 - If completed < total → Continue with Plan
 - Only if completed = total → End with Response
-
 COMMON MISTAKES TO AVOID:
-❌ Ending after step 1 of a 5-step plan
+❌ Ending after step 1 of a multi-step plan
 ❌ Interpreting "initiated" or "started" as "completed"
 ❌ Stopping when intermediate steps finish successfully
+
+🚨 CRITICAL RESPONSE RULE:
+- When using Response, you MUST return the ACTUAL RESULTS from the executed steps.
+    - DO NOT summarize or paraphrase the results
+    - DO NOT create your own interpretation
+    - COPY the exact output from the relevant step's result field
+- The user needs to see the ACTUAL DATA, not your summary
 
 🔍 CRITICAL: DETECT QUESTIONS IN EXECUTE RESULTS
 When execute step results contain questions (ending with "?" or containing interrogative words like "what", "which", "how"), the system recognizes that user input is needed and creates appropriate human_input plan steps.
@@ -1232,7 +1238,7 @@ CONTEXT USAGE:
 - The ReAct agent executing the step will include the raw data from past_steps
 - Plan steps should reference the source: "Use human_input tool to ask user to choose from the search results found in the previous step"
 
-Focus on PERSISTENCE - keep working until the full objective is achieved."""
+Focus on PERSISTENCE - keep working until the overall objective is achieved."""
 
 
 def create_planner_prompt(agent_context: str = "") -> ChatPromptTemplate:

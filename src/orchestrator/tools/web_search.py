@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from langgraph.prebuilt import InjectedState
 from typing import Annotated
 
-from .base import BaseUtilityTool
+from src.orchestrator.tools.base import BaseUtilityTool
 from src.utils.logging.framework import SmartLogger, log_execution
 
 # Import Tavily after checking for package

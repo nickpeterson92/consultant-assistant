@@ -15,7 +15,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.memory import MemorySaver
 
-from src.tools.jira import UNIFIED_JIRA_TOOLS
+from src.agents.jira.tools.unified import UNIFIED_JIRA_TOOLS
 from src.a2a import A2AServer, A2AArtifact, AgentCard
 from src.utils.config import config
 from src.utils.logging.framework import SmartLogger, log_execution

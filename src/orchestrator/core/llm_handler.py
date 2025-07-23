@@ -9,7 +9,7 @@ from trustcall import create_extractor
 from src.utils.config import config, DETERMINISTIC_TEMPERATURE, DETERMINISTIC_TOP_P
 from src.utils.prompt_templates import create_orchestrator_prompt, ContextInjectorOrchestrator
 from src.utils.storage.memory_schemas import SimpleMemory
-from .state import OrchestratorState
+from src.orchestrator.core.state import OrchestratorState
 
 
 def create_llm_instances(tools: List[Any]):
