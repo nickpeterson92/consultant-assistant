@@ -63,47 +63,51 @@ This system solves key enterprise automation challenges:
 
 ## Architecture
 
-```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                              USER INTERFACE                                │
-│                     (orchestrator_cli_textual.py)                          │
-└──────────────────────────────────────┬─────────────────────────────────────┘
-                                       │
-                                 A2A Interface
-                                (JSON-RPC 2.0)
-                                       │
-                                       ▼
-┌────────────────────────────────────────────────────────────────────────────┐ 
-│                        PLAN-AND-EXECUTE ORCHESTRATOR                       │           ┌────────────────────┐
-│  ┌─────────────────┐  ┌───────────────────┐  ┌─────────────────────────┐   │           │ ORCHESTRATOR TOOLS │
-│  │  LangGraph      │  │  Plan Generation  │  │  Execution Engine       │   │           │ - Web Search       │
-│  │  State Machine  │  │  & Modification   │  │  Task Context Injection │   │ ────────► │ - Agent Registry   │
-│  └─────────────────┘  └───────────────────┘  └─────────────────────────┘   │           │ - Health Monitoring│
-│  ┌─────────────────┐  ┌───────────────────┐  ┌─────────────────────────┐   │           │ (Internal Access)  │
-│  │  Agent Registry │  │  Conversation     │  │  Simplified State       │   │           └────────────────────┘
-│  │  Service Disc.  │  │  Summarization    │  │  Public/Private Schema  │   │
-│  └─────────────────┘  └───────────────────┘  └─────────────────────────┘   │
-│                     Intelligent Task Orchestration                         │
-└──────────────────────────────────────┬─────────────────────────────────────┘
-                                       │
-                          ┌────────────┴────────────┐
-                          │   A2A Protocol Layer    │
-                          │  JSON-RPC 2.0 + HTTP    │
-                          │  Circuit Breakers       │
-                          │  Connection Pooling     │
-                          └────────────┬────────────┘
-                                       │
-            ┌──────────────────────────┼──────────────────────────┐
-            │                          │                          │
-            ▼                          ▼                          ▼
-    ┌────────────────────┐     ┌────────────────────┐     ┌────────────────────┐
-    │ SALESFORCE AGENT   │     │   JIRA AGENT       │     │ SERVICENOW AGENT   │
-    │ - 6 Unified Tools  │     │ - 11 Tools         │     │ - 6 Unified Tools  │
-    │ - Natural Language │     │ - JQL Search       │     │ - NLQ Support      │
-    │ - SOQL Generation  │     │ - Sprint Mgmt      │     │ - Workflow Mgmt    │
-    │ - Auto ID Detection│     │ - Project Creation │     │ - Analytics        │
-    │ - Cross-Object SOSL│     │ - Issue Lifecycle  │     │ - Auto Table Detect│
-    └────────────────────┘     └────────────────────┘     └────────────────────┘
+```mermaid
+flowchart TB
+    %% Define styles with gradients and shadows for GitHub
+    classDef uiClass fill:#0288d1,stroke:#01579b,stroke-width:4px,color:#ffffff,font-weight:bold
+    classDef orchestratorClass fill:#7b1fa2,stroke:#4a148c,stroke-width:4px,color:#ffffff,font-weight:bold
+    classDef protocolClass fill:#f57c00,stroke:#e65100,stroke-width:4px,color:#ffffff,font-weight:bold
+    classDef agentClass fill:#388e3c,stroke:#1b5e20,stroke-width:4px,color:#ffffff,font-weight:bold
+    classDef toolClass fill:#c2185b,stroke:#880e4f,stroke-width:4px,color:#ffffff,font-weight:bold
+    classDef componentClass fill:#9c27b0,stroke:#6a1b9a,stroke-width:2px,color:#ffffff
+    
+    %% User Interface Layer with icon
+    UI[🖥️ USER INTERFACE<br/>orchestrator_cli_textual.py]:::uiClass
+    
+    %% Main flow with custom arrow
+    UI ==>|"JSON-RPC 2.0"| ORCH[🧠 PLAN-AND-EXECUTE ORCHESTRATOR<br/>━━━━━━━━━━━━━━━━━━━━━━━━━━<br/>Intelligent Task Orchestration]:::orchestratorClass
+    
+    %% Orchestrator Components in styled subgraph
+    subgraph orchestrator["<b>🔧 Core Components</b>"]
+        direction TB
+        LG[📊 LangGraph<br/>State Machine]:::componentClass
+        PG[📝 Plan Generation<br/>& Modification]:::componentClass
+        EE[⚡ Execution Engine<br/>Task Context Injection]:::componentClass
+        AR[🔍 Agent Registry<br/>Service Discovery]:::componentClass
+        CS[💬 Conversation<br/>Summarization]:::componentClass
+        SS[🔒 Simplified State<br/>Public/Private Schema]:::componentClass
+    end
+    
+    %% Orchestrator connections
+    ORCH -.->|manages| orchestrator
+    
+    %% Tools connection
+    ORCH ==>|"uses"| TOOLS[🛠️ ORCHESTRATOR TOOLS<br/>━━━━━━━━━━━━━━━━━━━<br/>🔎 Web Search<br/>📋 Agent Registry<br/>❤️ Health Monitoring<br/>🔐 Internal Access]:::toolClass
+    
+    %% Protocol Layer
+    ORCH ==>|"coordinates via"| PROTOCOL[🌐 A2A PROTOCOL LAYER<br/>━━━━━━━━━━━━━━━━━━━━<br/>📡 JSON-RPC 2.0 + HTTP<br/>🛡️ Circuit Breakers<br/>🔄 Connection Pooling]:::protocolClass
+    
+    %% Agents with rich formatting
+    PROTOCOL ==>|"routes to"| SF[☁️ SALESFORCE AGENT<br/>━━━━━━━━━━━━━━━━━<br/>🔧 6 Unified Tools<br/>💬 Natural Language<br/>🔍 SOQL Generation<br/>🆔 Auto ID Detection<br/>🔎 Cross-Object SOSL]:::agentClass
+    
+    PROTOCOL ==>|"routes to"| JIRA[📋 JIRA AGENT<br/>━━━━━━━━━━━<br/>🔧 11 Tools<br/>🔍 JQL Search<br/>🏃 Sprint Mgmt<br/>📁 Project Creation<br/>🔄 Issue Lifecycle]:::agentClass
+    
+    PROTOCOL ==>|"routes to"| SN[🎫 SERVICENOW AGENT<br/>━━━━━━━━━━━━━━━━━<br/>🔧 6 Unified Tools<br/>💭 NLQ Support<br/>⚙️ Workflow Mgmt<br/>📊 Analytics<br/>🔍 Auto Table Detect]:::agentClass
+    
+    %% Add some styling to the subgraph
+    style orchestrator fill:#f3e5f5,stroke:#4a148c,stroke-width:3px,stroke-dasharray: 5 5
 ```
 
 ### Core Components
