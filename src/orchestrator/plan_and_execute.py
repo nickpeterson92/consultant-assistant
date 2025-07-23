@@ -12,11 +12,9 @@ from pydantic import BaseModel, Field, validator
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
-from langgraph.prebuilt import tools_condition
 from langgraph.checkpoint.memory import MemorySaver
 
 from langchain_core.messages import HumanMessage, AIMessage
-from langchain_core.prompts import ChatPromptTemplate
 from src.utils.logging.framework import SmartLogger, log_execution
 from .event_decorators import emit_coordinated_events
 
@@ -94,9 +92,8 @@ class Act(BaseModel):
 @emit_coordinated_events(["task_lifecycle", "plan_updated"])
 def execute_step(state: PlanExecute):
     import asyncio
-    from datetime import datetime
     from .observers import get_observer_registry, SearchResultsEvent
-    from src.memory import get_thread_memory, ContextType, create_memory_node, RelationshipType
+    from src.memory import get_thread_memory, ContextType, RelationshipType
     from langgraph.errors import GraphInterrupt
     
     # Check for user-initiated interrupt flag (escape key) FIRST
@@ -241,6 +238,10 @@ You are tasked with executing step {current_step_num}: {task}.
                        note="User interrupt detected - skipping agent execution")
             raise GraphInterrupt({"type": "user_escape", "reason": state.get("interrupt_reason", "User requested modification")})
         
+        agent_executor = globals().get('agent_executor')
+        if not agent_executor:
+            raise RuntimeError("Agent executor not initialized")
+        
         agent_response = asyncio.run(agent_executor.ainvoke(
             {"messages": agent_messages}
         ))
@@ -316,7 +317,7 @@ You are tasked with executing step {current_step_num}: {task}.
                     tool_result = json.loads(message.content)
                     if isinstance(tool_result, dict) and tool_result.get('success', False):
                         tool_response_data = tool_result.get('data')
-                except:
+                except (json.JSONDecodeError, ValueError, TypeError):
                     pass
         
         # Get the agent's final message
@@ -451,7 +452,7 @@ You are tasked with executing step {current_step_num}: {task}.
                     if isinstance(content, dict) and content.get('success'):
                         if 'data' in content:
                             all_data_sources.append(content['data'])
-                except:
+                except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
                     pass
         
         # 3. Even check the final response text for entity IDs
@@ -789,6 +790,10 @@ def plan_step(state: PlanExecute):
     planning_messages = list(conversation_messages)  # Copy existing conversation
     planning_messages.append(HumanMessage(content=planning_input))  # Add enhanced planning request
     
+    planner = globals().get('planner')
+    if not planner:
+        raise RuntimeError("Planner not initialized")
+    
     plan = asyncio.run(planner.ainvoke({"messages": planning_messages}))
     
     # Emit memory graph snapshot after plan creation
@@ -879,6 +884,10 @@ def replan_step(state: PlanExecute):
         "plan": "\n".join(f"{i + 1}. {step}" for i, step in enumerate(state["plan"])),
         "past_steps": past_steps_str.strip()
     }
+    
+    replanner = globals().get('replanner')
+    if not replanner:
+        raise RuntimeError("Replanner not initialized")
     
     output = asyncio.run(replanner.ainvoke(template_vars))
     
@@ -1034,8 +1043,6 @@ def create_graph(agent_executor, planner, replanner):
 # Factory function for easy setup
 # ================================
 
-import time
-
 # Background task tracking - simple approach
 _last_summary_time = 0
 _last_summary_message_count = 0
@@ -1085,7 +1092,7 @@ async def trigger_background_summary_if_needed(messages: list, llm):
 
 async def create_plan_execute_graph():
     """Create a simple plan-execute graph for A2A usage."""
-    from src.orchestrator.llm_handler import create_llm_instances, get_orchestrator_system_message
+    from src.orchestrator.llm_handler import get_orchestrator_system_message
     from src.orchestrator.agent_registry import AgentRegistry
     from src.orchestrator.agent_caller_tools import SalesforceAgentTool, JiraAgentTool, ServiceNowAgentTool, AgentRegistryTool
     from src.tools.utility import WebSearchTool

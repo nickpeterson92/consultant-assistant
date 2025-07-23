@@ -299,9 +299,9 @@ class SalesforceWriteTool(BaseSalesforceTool):
                         dt = datetime.strptime(cleaned['CloseDate'], fmt)
                         cleaned['CloseDate'] = dt.strftime('%Y-%m-%d')
                         break
-                    except:
+                    except (ValueError, TypeError):
                         continue
-            except:
+            except (ValueError, TypeError, AttributeError):
                 pass  # Keep original if parsing fails
         
         return cleaned

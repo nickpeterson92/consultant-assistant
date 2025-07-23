@@ -66,37 +66,44 @@ Traditional single-agent systems hit scalability walls. This architecture solves
 ```
 ┌────────────────────────────────────────────────────────────────────────────┐
 │                              USER INTERFACE                                │
-│                           (orchestrator.py CLI)                            │
-└────────────────────────────────────────────────────────────────────────────┘
-                                         │
-                                         ▼
-┌────────────────────────────────────────────────────────────────────────────┐
-│                             ORCHESTRATOR AGENT                             │
-│  ┌─────────────────┐  ┌───────────────────┐  ┌─────────────────────────┐   │
-│  │  LangGraph      │  │  Agent Registry   │  │  Memory & State Mgmt    │   │
-│  │  State Machine  │  │  Service Discovery│  │  Auto Summarization     │   │
+│                     (orchestrator_cli_textual.py)                          │
+└──────────────────────────────────────┬─────────────────────────────────────┘
+                                       │
+                                 A2A Interface
+                                (JSON-RPC 2.0)
+                                       │
+                                       ▼
+┌────────────────────────────────────────────────────────────────────────────┐ 
+│                        PLAN-AND-EXECUTE ORCHESTRATOR                       │           ┌────────────────────┐
+│  ┌─────────────────┐  ┌───────────────────┐  ┌─────────────────────────┐   │           │ ORCHESTRATOR TOOLS │
+│  │  LangGraph      │  │  Plan Generation  │  │  Execution Engine       │   │           │ - Web Search       │
+│  │  State Machine  │  │  & Modification   │  │  Task Context Injection │   │ ────────► │ - Agent Registry   │
+│  └─────────────────┘  └───────────────────┘  └─────────────────────────┘   │           │ - Health Monitoring│
+│  ┌─────────────────┐  ┌───────────────────┐  ┌─────────────────────────┐   │           │ (Internal Access)  │
+│  │  Agent Registry │  │  Conversation     │  │  Simplified State       │   │           └────────────────────┘
+│  │  Service Disc.  │  │  Summarization    │  │  Public/Private Schema  │   │
 │  └─────────────────┘  └───────────────────┘  └─────────────────────────┘   │
-│                          Coordination & Intelligence                       │
-└────────────────────────────────────┬───────────────────────────────────────┘
-                                     │
-                        ┌────────────┴────────────┐
-                        │   A2A Protocol Layer    │
-                        │  JSON-RPC 2.0 + HTTP    │
-                        │  Circuit Breakers       │
-                        │  Connection Pooling     │
-                        └────────────┬────────────┘
-                                     │
- ┌───────────────────────────┬────────────────────────────┬──────────────────────┐
- │                           │                            │                      │
- ▼                           ▼                            ▼                      ▼
-┌────────────────────┐ ┌────────────────────┐ ┌────────────────────┐ ┌────────────────────┐
-│ SALESFORCE AGENT   │ │   JIRA AGENT       │ │ SERVICENOW AGENT   │ │ EXTENSIBLE AGENTS  │
-│ - 6 Unified Tools  │ │ - 6 Unified Tools  │ │ - 6 Unified Tools  │ │ - Travel Mgmt      │
-│ - SOQL Builder     │ │ - JQL Search       │ │ - Incident Mgmt    │ │ - Expense Process  │
-│ - Lead Management  │ │ - Sprint Mgmt      │ │ - Change Mgmt      │ │ - HR Operations    │
-│ - Opportunity Mgmt │ │ - Epic Tracking    │ │ - Problem Mgmt     │ │ - Document Process │
-│ - LangGraph State  │ │ - LangGraph State  │ │ - CMDB Operations  │ │ - Custom Domains   │
-└────────────────────┘ └────────────────────┘ └────────────────────┘ └────────────────────┘
+│                     Intelligent Task Orchestration                         │
+└──────────────────────────────────────┬─────────────────────────────────────┘
+                                       │
+                          ┌────────────┴────────────┐
+                          │   A2A Protocol Layer    │
+                          │  JSON-RPC 2.0 + HTTP    │
+                          │  Circuit Breakers       │
+                          │  Connection Pooling     │
+                          └────────────┬────────────┘
+                                       │
+            ┌──────────────────────────┼──────────────────────────┐
+            │                          │                          │
+            ▼                          ▼                          ▼
+    ┌────────────────────┐     ┌────────────────────┐     ┌────────────────────┐
+    │ SALESFORCE AGENT   │     │   JIRA AGENT       │     │ SERVICENOW AGENT   │
+    │ - 6 Unified Tools  │     │ - 11 Unified Tools │     │ - 6 Unified Tools  │
+    │ - SOQL Builder     │     │ - JQL Search       │     │ - Incident Mgmt    │
+    │ - Lead Management  │     │ - Sprint Mgmt      │     │ - Change Mgmt      │
+    │ - Opportunity Mgmt │     │ - Epic Tracking    │     │ - Problem Mgmt     │
+    │ - LangGraph State  │     │ - LangGraph State  │     │ - CMDB Operations  │
+    └────────────────────┘     └────────────────────┘     └────────────────────┘
 ```
 
 ### Core Components
