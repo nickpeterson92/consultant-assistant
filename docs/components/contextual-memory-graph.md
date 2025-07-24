@@ -411,9 +411,9 @@ graph TD
     classDef temporalClass fill:#f5f5f5,stroke:#616161,stroke-width:1px,color:#424242
     
     %% Core Business Entities
-    ACC1[🏢 Acme Corp<br>Industry: Technology<br>Revenue: $50M]:::entityClass
-    ACC2[🏢 TechStart Inc<br>Industry: SaaS<br>Revenue: $10M]:::entityClass
-    ACC3[🏢 Global Systems<br>Industry: Consulting<br>Revenue: $100M]:::entityClass
+    ACC1[🏢 Acme Corp<br>Industry: Technology<br>Revenue: 50M USD]:::entityClass
+    ACC2[🏢 TechStart Inc<br>Industry: SaaS<br>Revenue: 10M USD]:::entityClass
+    ACC3[🏢 Global Systems<br>Industry: Consulting<br>Revenue: 100M USD]:::entityClass
     
     %% Contacts
     CONT1[👤 Sarah Chen<br>CEO @ Acme<br>sarah@acme.com]:::entityClass
@@ -421,8 +421,8 @@ graph TD
     CONT3[👤 Lisa Park<br>VP Sales @ Global<br>lisa@global.com]:::entityClass
     
     %% Opportunities
-    OPP1[💰 Acme Enterprise Deal<br>Amount: $500K<br>Stage: Negotiation]:::entityClass
-    OPP2[💰 TechStart Expansion<br>Amount: $250K<br>Stage: Qualification]:::entityClass
+    OPP1[💰 Acme Enterprise Deal<br>Amount: 500K USD<br>Stage: Negotiation]:::entityClass
+    OPP2[💰 TechStart Expansion<br>Amount: 250K USD<br>Stage: Qualification]:::entityClass
     
     %% Support Cases
     CASE1[🎫 P1: System Outage<br>Acme Corp<br>Status: Escalated]:::entityClass
@@ -433,9 +433,9 @@ graph TD
     JIRA2[📋 PROJ-456<br>Bug: Performance Issue<br>Priority: High]:::entityClass
     
     %% Search Results
-    SEARCH1[🔍 Search: enterprise customers<br>Found: 15 accounts<br>Top: Acme, Global Systems]:::searchClass
-    SEARCH2[🔍 Search: active support cases<br>Found: 8 cases<br>Critical: 2]:::searchClass
-    SEARCH3[🔍 Search: Q4 opportunities<br>Found: 12 opps<br>Total: $3.2M]:::searchClass
+    SEARCH1[Search Enterprise Customers<br>Found: 15 accounts<br>Top: Acme, Global Systems]:::searchClass
+    SEARCH2[Search Support Cases<br>Found: 8 cases<br>Critical: 2]:::searchClass
+    SEARCH3[Search Q4 Opportunities<br>Found: 12 opps<br>Total: 3.2M USD]:::searchClass
     
     %% Completed Actions
     ACTION1[✅ Updated Opp Stage<br>Acme Deal → Negotiation<br>Time: 10:30 AM]:::actionClass
