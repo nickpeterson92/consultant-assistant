@@ -433,9 +433,9 @@ graph TD
     JIRA2[📋 PROJ-456<br>Bug: Performance Issue<br>Priority: High]:::entityClass
     
     %% Search Results
-    SEARCH1[🔍 Search: "enterprise customers"<br>Found: 15 accounts<br>Top: Acme, Global Systems]:::searchClass
-    SEARCH2[🔍 Search: "active support cases"<br>Found: 8 cases<br>Critical: 2]:::searchClass
-    SEARCH3[🔍 Search: "Q4 opportunities"<br>Found: 12 opps<br>Total: $3.2M]:::searchClass
+    SEARCH1[🔍 Search: enterprise customers<br>Found: 15 accounts<br>Top: Acme, Global Systems]:::searchClass
+    SEARCH2[🔍 Search: active support cases<br>Found: 8 cases<br>Critical: 2]:::searchClass
+    SEARCH3[🔍 Search: Q4 opportunities<br>Found: 12 opps<br>Total: $3.2M]:::searchClass
     
     %% Completed Actions
     ACTION1[✅ Updated Opp Stage<br>Acme Deal → Negotiation<br>Time: 10:30 AM]:::actionClass
@@ -448,9 +448,9 @@ graph TD
     SELECT2[🎯 Selected: Sarah Chen<br>Context: Case Escalation<br>Time: 10:40 AM]:::selectionClass
     
     %% Conversation Facts
-    CONV1[💬 Fact: Q4 Target<br>"Focus on enterprise deals"<br>Persistent Context]:::conversationClass
-    CONV2[💬 Fact: Acme Preference<br>"Prefers email over calls"<br>Customer Insight]:::conversationClass
-    CONV3[💬 Fact: Integration Priority<br>"SSO is critical for enterprise"<br>Product Requirement]:::conversationClass
+    CONV1[💬 Fact: Q4 Target<br>Focus on enterprise deals<br>Persistent Context]:::conversationClass
+    CONV2[💬 Fact: Acme Preference<br>Prefers email over calls<br>Customer Insight]:::conversationClass
+    CONV3[💬 Fact: Integration Priority<br>SSO is critical for enterprise<br>Product Requirement]:::conversationClass
     
     %% Derived Insights
     INSIGHT1[💡 Pattern: Deal Velocity<br>Enterprise deals: 45 days avg<br>Confidence: High]:::insightClass
