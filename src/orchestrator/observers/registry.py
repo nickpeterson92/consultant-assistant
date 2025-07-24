@@ -14,7 +14,8 @@ from .base import (
     PlanUpdatedEvent,
     MemoryNodeAddedEvent,
     MemoryEdgeAddedEvent,
-    MemoryGraphSnapshotEvent
+    MemoryGraphSnapshotEvent,
+    LLMContextEvent
 )
 
 
@@ -106,6 +107,11 @@ class ObserverRegistry:
         for observer in self.observers:
             if hasattr(observer, 'on_interrupt_resume'):
                 observer.on_interrupt_resume(event)
+    
+    def notify_llm_context(self, event: LLMContextEvent):
+        """Notify all observers of LLM context event."""
+        for observer in self.observers:
+            observer.on_llm_context(event)
 
 
 # Global observer registry - will be initialized by the plan-execute workflow

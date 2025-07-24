@@ -12,13 +12,14 @@ class CleanGraphRenderer:
     MIN_WIDTH = 70
     
     @classmethod
-    def render(cls, nodes: Dict, edges: List[Tuple], width: Optional[int] = None) -> List[str]:
+    def render(cls, nodes: Dict, edges: List[Tuple], width: Optional[int] = None, llm_context: Optional[Dict] = None) -> List[str]:
         """Render a clean graph visualization.
         
         Args:
             nodes: Dictionary of node data
             edges: List of edge tuples
             width: Optional width for the graph (defaults to DEFAULT_WIDTH)
+            llm_context: Optional LLM context data to display
         """
         if not nodes:
             return ["No data to display"]
@@ -48,7 +49,7 @@ class CleanGraphRenderer:
         lines.extend(cls._render_relationships(edges, nodes, width))
         
         # Render model context section
-        lines.extend(cls._render_model_context(nodes, width))
+        lines.extend(cls._render_model_context(nodes, width, llm_context))
         
         # Close the box
         lines.append("╚" + "═" * width + "╝")
@@ -469,7 +470,7 @@ class CleanGraphRenderer:
         return lines
     
     @classmethod
-    def _render_model_context(cls, nodes: Dict, width: int) -> List[str]:
+    def _render_model_context(cls, nodes: Dict, width: int, llm_context: Optional[Dict] = None) -> List[str]:
         """Render the model context section showing what will be sent to LLM."""
         lines = []
         
@@ -479,34 +480,75 @@ class CleanGraphRenderer:
         lines.append("║" + "  ─────────────────────────────────".ljust(width) + "║")
         lines.append("║" + " " * width + "║")
         
-        # Filter nodes by relevance (simulating what would be sent to LLM)
-        # In reality, this would come from the actual memory retrieval
-        relevant_nodes = []
-        for node_id, node_data in nodes.items():
-            # Check if node has high relevance or was recently accessed
-            relevance = node_data.get('relevance', 0.0)
-            node_data.get('last_accessed', '')
+        # Check if we have actual LLM context data
+        if llm_context and llm_context.get("context_text"):
+            # Show the actual context being sent to LLM
+            context_type = llm_context.get("context_type", "unknown")
+            metadata = llm_context.get("metadata", {})
+            context_text = llm_context.get("context_text", "")
             
-            # Only include nodes that would actually be sent to LLM
-            # This should match the server-side logic which uses max_results=5-8
-            # and filters by actual relevance scores
-            if relevance > 0.5:  # Only nodes with actual relevance
-                relevant_nodes.append((node_id, node_data, relevance))
-        
-        # Sort by relevance
-        relevant_nodes.sort(key=lambda x: x[2], reverse=True)
-        
-        # Limit to match server-side behavior (typically 5-8 items)
-        relevant_nodes = relevant_nodes[:8]  # Max that server sends to LLM
-        
-        if not relevant_nodes:
-            lines.append("║" + "  No context selected yet (awaiting query)".ljust(width) + "║")
-        else:
-            # Show what would be included
-            # More accurate description of what's shown
-            total_available = len([n for n in nodes.values() if n.get('relevance', 0.0) > 0.5])
-            lines.append("║" + f"  Included in context: {len(relevant_nodes)} items (from {total_available} with relevance > 0.5)".ljust(width) + "║")
+            # Add context type with emoji
+            type_emoji = {
+                "execution": "⚡",
+                "planning": "📋",
+                "replanning": "🔄"
+            }.get(context_type, "📝")
+            
+            lines.append("║" + f"  {type_emoji} {context_type.title()} Context".ljust(width) + "║")
+            
+            # Add metadata stats
+            if metadata:
+                stats_line = "  "
+                if "relevant_count" in metadata:
+                    stats_line += f"Relevant: {metadata['relevant_count']} • "
+                if "important_count" in metadata:
+                    stats_line += f"Important: {metadata['important_count']} • "
+                if "cluster_count" in metadata:
+                    stats_line += f"Clusters: {metadata['cluster_count']} • "
+                if "bridge_count" in metadata:
+                    stats_line += f"Bridges: {metadata['bridge_count']}"
+                lines.append("║" + stats_line.rstrip(" • ").ljust(width) + "║")
+            
             lines.append("║" + " " * width + "║")
+            
+            # Show the actual context content (wrapped)
+            context_lines = context_text.split('\n')
+            max_lines = 20  # Limit display
+            shown_lines = 0
+            
+            for line in context_lines:
+                if shown_lines >= max_lines:
+                    lines.append("║" + f"  ... ({len(context_lines) - shown_lines} more lines)".ljust(width) + "║")
+                    break
+                # Wrap long lines
+                if len(line) > width - 4:
+                    wrapped = cls._wrap_text(line, width - 4)
+                    for wline in wrapped:
+                        lines.append("║" + f"  {wline}".ljust(width) + "║")
+                        shown_lines += 1
+                        if shown_lines >= max_lines:
+                            break
+                else:
+                    lines.append("║" + f"  {line}".ljust(width) + "║")
+                    shown_lines += 1
+                    
+        else:
+            # Fallback to simulated view when no actual context
+            relevant_nodes = []
+            for node_id, node_data in nodes.items():
+                relevance = node_data.get('relevance', 0.0)
+                if relevance > 0.5:
+                    relevant_nodes.append((node_id, node_data, relevance))
+            
+            relevant_nodes.sort(key=lambda x: x[2], reverse=True)
+            relevant_nodes = relevant_nodes[:8]
+            
+            if not relevant_nodes:
+                lines.append("║" + "  No context selected yet (awaiting query)".ljust(width) + "║")
+            else:
+                total_available = len([n for n in nodes.values() if n.get('relevance', 0.0) > 0.5])
+                lines.append("║" + f"  Simulated view: {len(relevant_nodes)} items (from {total_available} with relevance > 0.5)".ljust(width) + "║")
+                lines.append("║" + " " * width + "║")
             
             # Group by type for better display
             entities = []
@@ -555,3 +597,30 @@ class CleanGraphRenderer:
         lines.append("║" + " " * width + "║")
         
         return lines
+    
+    @classmethod
+    def _wrap_text(cls, text: str, max_width: int) -> List[str]:
+        """Wrap text to fit within max_width."""
+        if not text:
+            return [""]
+        
+        words = text.split(' ')
+        lines = []
+        current_line = []
+        current_length = 0
+        
+        for word in words:
+            word_length = len(word)
+            if current_length + word_length + len(current_line) <= max_width:
+                current_line.append(word)
+                current_length += word_length
+            else:
+                if current_line:
+                    lines.append(' '.join(current_line))
+                current_line = [word]
+                current_length = word_length
+        
+        if current_line:
+            lines.append(' '.join(current_line))
+        
+        return lines if lines else [""]

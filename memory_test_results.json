@@ -1,0 +1,116 @@
+[
+  {
+    "test": "Basic storage and retrieval",
+    "passed": true,
+    "details": "Found 1 results, target found: True",
+    "timestamp": "2025-07-24T07:53:34.025923"
+  },
+  {
+    "test": "Relevance scoring",
+    "passed": true,
+    "details": "Most relevant result returned first",
+    "timestamp": "2025-07-24T07:53:34.025940"
+  },
+  {
+    "test": "Find critical items in polluted graph",
+    "passed": false,
+    "details": "Found 9/10 items, 9 in top 3 results, Graph size: 502",
+    "timestamp": "2025-07-24T07:53:37.151825"
+  },
+  {
+    "test": "Time decay affects ranking",
+    "passed": true,
+    "details": "New position: 0, Old position: 6",
+    "timestamp": "2025-07-24T07:53:37.246987"
+  },
+  {
+    "test": "Relationship chain navigation",
+    "passed": true,
+    "details": "Found 4 of 4 related entities",
+    "timestamp": "2025-07-24T07:53:37.274079"
+  },
+  {
+    "test": "Concurrent access handling",
+    "passed": true,
+    "details": "Expected 250 nodes added, got 250",
+    "timestamp": "2025-07-24T07:53:38.367957"
+  },
+  {
+    "test": "Semantic search accuracy",
+    "passed": true,
+    "details": "Semantic search working correctly",
+    "timestamp": "2025-07-24T07:53:38.427680"
+  },
+  {
+    "test": "Memory cleanup preservation",
+    "passed": true,
+    "details": "Removed 20 old nodes, important items preserved: True",
+    "timestamp": "2025-07-24T07:53:38.428587"
+  },
+  {
+    "test": "Cross-system entity linking",
+    "passed": true,
+    "details": "Found entities from 3 of 3 systems",
+    "timestamp": "2025-07-24T07:53:38.559860"
+  },
+  {
+    "test": "Time window retrieval accuracy",
+    "passed": true,
+    "details": "Time windows filter results correctly",
+    "timestamp": "2025-07-24T07:53:38.647016"
+  },
+  {
+    "test": "Graph algorithms (PageRank, clustering, bridges)",
+    "passed": true,
+    "details": "Hub important: True, Multiple clusters: True, Bridge found: True",
+    "timestamp": "2025-07-24T07:53:38.650343"
+  },
+  {
+    "test": "Extreme scale performance",
+    "passed": true,
+    "details": "Created 10k nodes in 0.28s, found 5/5 needles in 0.09s",
+    "timestamp": "2025-07-24T07:53:39.020311"
+  },
+  {
+    "test": "False positive prevention",
+    "passed": true,
+    "details": "All queries returned relevant results with NO false positives",
+    "timestamp": "2025-07-24T07:54:42.160631"
+  },
+  {
+    "test": "Entity type diversity in results",
+    "passed": true,
+    "details": "Found 6 different entity types in results",
+    "timestamp": "2025-07-24T07:54:42.845813"
+  },
+  {
+    "test": "Real conversation flow retrieval",
+    "passed": true,
+    "details": "Conversation context retrieved correctly",
+    "timestamp": "2025-07-24T07:54:42.934147"
+  },
+  {
+    "test": "Technical troubleshooting workflow",
+    "passed": true,
+    "details": "Debugging context retrieved correctly",
+    "timestamp": "2025-07-24T07:54:43.040612"
+  },
+  {
+    "test": "Project management workflow",
+    "passed": true,
+    "details": "Project context and dependencies retrieved correctly",
+    "timestamp": "2025-07-24T07:54:43.129475"
+  },
+  {
+    "test": "Customer support interaction",
+    "passed": true,
+    "details": "Support history and escalation tracked correctly",
+    "timestamp": "2025-07-24T07:54:43.218623"
+  },
+  {
+    "test": "Code review discussion",
+    "passed": true,
+    "details": "Code review context and iterations tracked correctly",
+    "timestamp": "2025-07-24T07:54:43.279174"
+  }
+]

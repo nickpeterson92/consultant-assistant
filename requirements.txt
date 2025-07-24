@@ -20,6 +20,7 @@ aiosqlite==0.21.0
 # Memory and graph processing
 networkx==3.4.2
 numpy==1.26.4
+sentence-transformers==2.2.2
 
 # UI dependencies
 textual==4.0.0

@@ -14,6 +14,7 @@ from .base import (
     MemoryNodeAddedEvent,
     MemoryEdgeAddedEvent,
     MemoryGraphSnapshotEvent,
+    LLMContextEvent,
     PlanExecuteObserver,
     UXObserver
 )
@@ -38,6 +39,7 @@ __all__ = [
     'MemoryNodeAddedEvent',
     'MemoryEdgeAddedEvent',
     'MemoryGraphSnapshotEvent',
+    'LLMContextEvent',
     # Observers
     'PlanExecuteObserver',
     'UXObserver',

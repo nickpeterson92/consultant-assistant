@@ -3,7 +3,7 @@
 from typing import Any, Optional
 import json
 
-from .memory_node import ContextType
+from ..core.memory_node import ContextType
 
 
 def auto_generate_summary(content: Any, context_type: ContextType, 

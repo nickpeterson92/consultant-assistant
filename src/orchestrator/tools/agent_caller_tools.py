@@ -432,18 +432,66 @@ class SalesforceAgentTool(BaseAgentTool):
                     success=True
                 )
                 
-                # Return Command with processed response
+                # Handle state merging from agent
+                state_update = {}
+                
+                # Check for agent state to merge back
+                if isinstance(result, dict) and "state_updates" in result:
+                    state_updates = result["state_updates"]
+                    if "agent_final_state" in state_updates:
+                        agent_state = state_updates["agent_final_state"]
+                        
+                        # Extract tool results from agent messages for entity extraction
+                        if "messages" in agent_state:
+                            tool_results = []
+                            for msg in agent_state["messages"]:
+                                # Handle both serialized (dict) and non-serialized (object) messages
+                                msg_name = None
+                                msg_content = None
+                                msg_tool_call_id = None
+                                
+                                if isinstance(msg, dict):
+                                    # Serialized message
+                                    msg_name = msg.get('name')
+                                    msg_content = msg.get('content', '')
+                                    msg_tool_call_id = msg.get('tool_call_id')
+                                else:
+                                    # Non-serialized message object
+                                    msg_name = getattr(msg, 'name', None)
+                                    msg_content = getattr(msg, 'content', '')
+                                    msg_tool_call_id = getattr(msg, 'tool_call_id', None)
+                                
+                                # Extract tool response messages
+                                if msg_name and msg_content and msg_tool_call_id:
+                                    try:
+                                        import json
+                                        if msg_content.startswith('{') or msg_content.startswith('['):
+                                            tool_data = json.loads(msg_content)
+                                            if isinstance(tool_data, dict) and tool_data.get('success'):
+                                                tool_results.append({
+                                                    'tool_name': msg_name,
+                                                    'data': tool_data.get('data'),
+                                                    'success': tool_data.get('success')
+                                                })
+                                    except (json.JSONDecodeError, ValueError, AttributeError):
+                                        pass
+                            
+                            if tool_results:
+                                state_update["tool_results"] = tool_results
+                                logger.info("merged_agent_tool_results",
+                                           task_id=task_id,
+                                           tool_results_count=len(tool_results),
+                                           agent="salesforce-agent")
+                
+                # Return Command with processed response and merged state
                 # If we have a tool_call_id, return a ToolMessage, otherwise return the content directly
                 if tool_call_id:
-                    return Command(
-                        update={
-                            "messages": [ToolMessage(
-                                content=final_response,
-                                tool_call_id=tool_call_id,
-                                name="salesforce_agent"
-                            )]
-                        }
-                    )
+                    state_update["messages"] = [ToolMessage(
+                        content=final_response,
+                        tool_call_id=tool_call_id,
+                        name="salesforce_agent"
+                    )]
+                    return Command(update=state_update)
                 else:
                     # Return plain response when called without tool_call_id
                     return final_response
@@ -791,18 +839,66 @@ class JiraAgentTool(BaseAgentTool):
                     success=True
                 )
                 
-                # Return Command with processed response
+                # Handle state merging from agent
+                state_update = {}
+                
+                # Check for agent state to merge back
+                if isinstance(result, dict) and "state_updates" in result:
+                    state_updates = result["state_updates"]
+                    if "agent_final_state" in state_updates:
+                        agent_state = state_updates["agent_final_state"]
+                        
+                        # Extract tool results from agent messages for entity extraction
+                        if "messages" in agent_state:
+                            tool_results = []
+                            for msg in agent_state["messages"]:
+                                # Handle both serialized (dict) and non-serialized (object) messages
+                                msg_name = None
+                                msg_content = None
+                                msg_tool_call_id = None
+                                
+                                if isinstance(msg, dict):
+                                    # Serialized message
+                                    msg_name = msg.get('name')
+                                    msg_content = msg.get('content', '')
+                                    msg_tool_call_id = msg.get('tool_call_id')
+                                else:
+                                    # Non-serialized message object
+                                    msg_name = getattr(msg, 'name', None)
+                                    msg_content = getattr(msg, 'content', '')
+                                    msg_tool_call_id = getattr(msg, 'tool_call_id', None)
+                                
+                                # Extract tool response messages
+                                if msg_name and msg_content and msg_tool_call_id:
+                                    try:
+                                        import json
+                                        if msg_content.startswith('{') or msg_content.startswith('['):
+                                            tool_data = json.loads(msg_content)
+                                            if isinstance(tool_data, dict) and tool_data.get('success'):
+                                                tool_results.append({
+                                                    'tool_name': msg_name,
+                                                    'data': tool_data.get('data'),
+                                                    'success': tool_data.get('success')
+                                                })
+                                    except (json.JSONDecodeError, ValueError, AttributeError):
+                                        pass
+                            
+                            if tool_results:
+                                state_update["tool_results"] = tool_results
+                                logger.info("merged_agent_tool_results",
+                                           task_id=task_id,
+                                           tool_results_count=len(tool_results),
+                                           agent="jira-agent")
+                
+                # Return Command with processed response and merged state
                 # If we have a tool_call_id, return a ToolMessage, otherwise return the content directly
                 if tool_call_id:
-                    return Command(
-                        update={
-                            "messages": [ToolMessage(
-                                content=final_response,
-                                tool_call_id=tool_call_id,
-                                name="jira_agent"
-                            )]
-                        }
-                    )
+                    state_update["messages"] = [ToolMessage(
+                        content=final_response,
+                        tool_call_id=tool_call_id,
+                        name="jira_agent"
+                    )]
+                    return Command(update=state_update)
                 else:
                     # Return plain response when called without tool_call_id
                     return final_response
@@ -876,8 +972,164 @@ class ServiceNowAgentTool(BaseAgentTool):
     
     Returns structured ITSM data with record numbers for downstream processing."""
     
+    # Note: Removed args_schema to fix InjectedState detection bug in LangGraph
+    # See: https://github.com/langchain-ai/langgraph/issues/2220
+    
     def __init__(self, registry: AgentRegistry):
         super().__init__(metadata={"registry": registry})
+    
+    def _extract_conversation_context(self, state: Optional[Dict[str, Any]], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Extract and serialize conversation context from LangGraph state.
+        
+        Args:
+            state: LangGraph injected state containing messages, memory, etc.
+            context: Additional context to merge
+            
+        Returns:
+            Dictionary of serialized context ready for A2A transmission
+        """
+        messages = state.get("messages", []) if state else []
+        memory = state.get("memory", {}) if state else {}
+        
+        extracted_context = {}
+        
+        # Include recent messages using centralized serialization
+        if messages:
+            recent_messages = serialize_messages_for_json(messages, limit=5)
+            if recent_messages:
+                extracted_context["recent_messages"] = recent_messages
+        
+        # Include memory data
+        if memory:
+            extracted_context["memory"] = memory
+        
+        # Include conversation summary if available  
+        if state and "summary" in state:
+            extracted_context["conversation_summary"] = state["summary"]
+        
+        # Merge any additional context
+        if context:
+            extracted_context.update(context)
+        
+        return extracted_context
+    
+    def _serialize_state_snapshot(self, state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Serialize LangGraph state for A2A transmission.
+        
+        Args:
+            state: Raw LangGraph state that may contain LangChain objects
+            
+        Returns:
+            JSON-serializable state snapshot
+        """
+        serialized_state = {}
+        if state:
+            for key, value in state.items():
+                if key == "messages" and isinstance(value, list):
+                    # Serialize messages using centralized utility
+                    serialized_state[key] = serialize_messages_for_json(value, limit=5)
+                else:
+                    # Keep other state as-is
+                    serialized_state[key] = value
+        return serialized_state
+    
+    def _find_servicenow_agent(self):
+        """Locate the ServiceNow agent in the registry.
+        
+        Returns:
+            Agent instance or None if not found
+        """
+        registry = self.metadata["registry"]
+        agent = registry.find_agents_by_capability("servicenow_operations")
+        
+        if not agent:
+            logger.warning("ServiceNow agent not found by capability, trying by name...")
+            agent = registry.get_agent("servicenow-agent")
+        
+        # Handle list return from find_agents_by_capability
+        if isinstance(agent, list) and agent:
+            agent = agent[0]
+        
+        return agent
+    
+    def _create_error_command(self, error_message: str, tool_call_id: Optional[str] = None):
+        """Create a standardized error Command response.
+        
+        Args:
+            error_message: Error description for the user
+            tool_call_id: Optional tool call identifier for response tracking
+            
+        Returns:
+            Command object with error message or plain error string
+        """
+        if tool_call_id:
+            return Command(
+                update={
+                    "messages": [ToolMessage(
+                        content=error_message,
+                        tool_call_id=tool_call_id
+                    )]
+                }
+            )
+        else:
+            # Return plain error message when no tool_call_id
+            return error_message
+    
+    def _extract_response_content(self, result: Dict[str, Any]) -> str:
+        """Extract response content from A2A result.
+        
+        Args:
+            result: Raw A2A response result
+            
+        Returns:
+            Extracted content string
+        """
+        response_content = ""
+        
+        if "artifacts" in result:
+            response = result["artifacts"]
+            
+            if isinstance(response, list) and len(response) > 0:
+                response = response[0]
+                
+            if isinstance(response, dict) and "content" in response:
+                response_content = response["content"]
+            else:
+                response_content = str(response)
+        
+        return response_content
+    
+    def _process_tool_results(self, result: Dict[str, Any], response_content: str, task_id: str) -> str:
+        """Process and augment response with structured tool data.
+        
+        Args:
+            result: A2A response containing potential tool results
+            response_content: Base response content
+            task_id: Task identifier for logging
+            
+        Returns:
+            Final response content with structured data if available
+        """
+        # Check for tool results in state_updates
+        tool_results_data = None
+        if "state_updates" in result and "tool_results" in result["state_updates"]:
+            tool_results_data = result["state_updates"]["tool_results"]
+        
+        if tool_results_data:
+            final_response = response_content + "\n\n[STRUCTURED_TOOL_DATA]:\n" + json.dumps(tool_results_data, indent=2)
+            
+            # Log structured data addition
+            logger.info("structured_data_found",
+                tool_name="servicenow_agent",
+                data_preview=str(tool_results_data)[:200],
+                data_size=len(json.dumps(tool_results_data)),
+                record_count=len(tool_results_data) if isinstance(tool_results_data, list) else 1,
+                agent="servicenow-agent",
+                task_id=task_id
+            )
+            return final_response
+        else:
+            return response_content
     
     def _run(self, instruction: str, context: Optional[Dict[str, Any]] = None, 
             state: Annotated[Dict[str, Any], InjectedState] = None, **kwargs) -> Union[str, Command]:
@@ -895,7 +1147,20 @@ class ServiceNowAgentTool(BaseAgentTool):
     @log_execution(component="orchestrator", operation="servicenow_agent_call")
     async def _arun(self, instruction: str, context: Optional[Dict[str, Any]] = None, 
                     state: Annotated[Dict[str, Any], InjectedState] = None, **kwargs) -> Command:
-        """Execute the ServiceNow agent call using Command pattern."""
+        """Execute the ServiceNow agent call using Command pattern.
+        
+        This method orchestrates the entire flow but delegates specific responsibilities
+        to focused helper methods for better maintainability.
+        """
+        # Debug logging to understand state passing
+        logger.info("servicenow_tool_debug",
+            operation="servicenow_agent_tool",
+            state_type=type(state).__name__ if state else "None",
+            state_keys=list(state.keys()) if state and isinstance(state, dict) else [],
+            has_messages=bool(state and "messages" in state) if isinstance(state, dict) else False,
+            message_count=len(state.get("messages", [])) if state and isinstance(state, dict) else 0
+        )
+        
         # Log tool invocation start
         tool_call_id = kwargs.get("tool_call_id", None)
         logger.info("tool_invocation_start",
@@ -908,29 +1173,11 @@ class ServiceNowAgentTool(BaseAgentTool):
         )
         
         try:
-            # Extract relevant context
-            extracted_context = self._extract_relevant_context(
-                state, 
-                filter_keywords=["incident", "change", "problem", "task", "cmdb", "user"],
-                message_count=5
-            )
-            
-            # Merge with provided context
-            if context:
-                extracted_context.update(context)
+            # Extract and serialize conversation context
+            extracted_context = self._extract_conversation_context(state, context)
             
             # Find the ServiceNow agent
-            registry = self.metadata["registry"]
-            agent = registry.find_agents_by_capability("servicenow_operations")
-            
-            if not agent:
-                logger.warning("ServiceNow agent not found by capability, trying by name...")
-                agent = registry.get_agent("servicenow-agent")
-            
-            # Handle list return from find_agents_by_capability
-            if isinstance(agent, list) and agent:
-                agent = agent[0]
-            
+            agent = self._find_servicenow_agent()
             if not agent:
                 logger.error("agent_not_found",
                     operation="servicenow_agent_tool",
@@ -943,15 +1190,15 @@ class ServiceNowAgentTool(BaseAgentTool):
                     tool_call_id
                 )
             
-            # Create A2A task
+            # Create A2A task with serialized state
             task_id = str(uuid.uuid4())
-            state_snapshot = self._create_state_snapshot(state) if state else {}
+            serialized_state = self._serialize_state_snapshot(state)
             
             task = A2ATask(
                 id=task_id,
                 instruction=instruction,
                 context=extracted_context,
-                state_snapshot=state_snapshot
+                state_snapshot=serialized_state
             )
             
             # Execute A2A call using connection pool
@@ -999,18 +1246,68 @@ class ServiceNowAgentTool(BaseAgentTool):
                     success=True
                 )
                 
-                # Return Command with processed response
+                # Handle state merging from agent
+                state_update = {}
+                
+                # Check for agent state to merge back
+                if isinstance(result, dict) and "state_updates" in result:
+                    state_updates = result["state_updates"]
+                    if "agent_final_state" in state_updates:
+                        agent_state = state_updates["agent_final_state"]
+                        
+                        # Extract tool results from agent messages for entity extraction
+                        if "messages" in agent_state:
+                            tool_results = []
+                            for msg in agent_state["messages"]:
+                                # Handle both serialized (dict) and non-serialized (object) messages
+                                msg_name = None
+                                msg_content = None
+                                msg_tool_call_id = None
+                                
+                                if isinstance(msg, dict):
+                                    # Serialized message
+                                    msg_name = msg.get('name')
+                                    msg_content = msg.get('content', '')
+                                    msg_tool_call_id = msg.get('tool_call_id')
+                                else:
+                                    # Non-serialized message object
+                                    msg_name = getattr(msg, 'name', None)
+                                    msg_content = getattr(msg, 'content', '')
+                                    msg_tool_call_id = getattr(msg, 'tool_call_id', None)
+                                
+                                # Extract tool response messages
+                                if msg_name and msg_content and msg_tool_call_id:
+                                    try:
+                                        import json
+                                        if msg_content.startswith('{') or msg_content.startswith('['):
+                                            tool_data = json.loads(msg_content)
+                                            if isinstance(tool_data, dict) and tool_data.get('success'):
+                                                tool_results.append({
+                                                    'tool_name': msg_name,
+                                                    'data': tool_data.get('data'),
+                                                    'success': tool_data.get('success')
+                                                })
+                                    except (json.JSONDecodeError, ValueError, AttributeError):
+                                        pass
+                            
+                            if tool_results:
+                                state_update["tool_results"] = tool_results
+                                logger.info("merged_agent_tool_results",
+                                           task_id=task_id,
+                                           tool_results_count=len(tool_results),
+                                           agent="servicenow-agent")
+                
+                # Return Command with processed response and merged state
+                # If we have a tool_call_id, return a ToolMessage, otherwise return the content directly
                 if tool_call_id:
-                    return Command(
-                        update={
-                            "messages": [ToolMessage(
-                                content=final_response,
-                                tool_call_id=tool_call_id,
-                                name="servicenow_agent"
-                            )]
-                        }
-                    )
+                    state_update["messages"] = [ToolMessage(
+                        content=final_response,
+                        tool_call_id=tool_call_id,
+                        name="servicenow_agent"
+                    )]
+                    return Command(update=state_update)
                 else:
+                    # Return plain response when called without tool_call_id
                     return final_response
         
         except A2AException as e:
@@ -1038,59 +1335,6 @@ class ServiceNowAgentTool(BaseAgentTool):
                 tool_call_id
             )
     
-    def _create_error_command(self, error_message: str, tool_call_id: Optional[str] = None):
-        """Create a standardized error Command response."""
-        if tool_call_id:
-            return Command(
-                update={
-                    "messages": [ToolMessage(
-                        content=error_message,
-                        tool_call_id=tool_call_id
-                    )]
-                }
-            )
-        else:
-            return error_message
-    
-    def _extract_response_content(self, result: Dict[str, Any]) -> str:
-        """Extract response content from A2A result."""
-        response_content = ""
-        
-        if "artifacts" in result:
-            response = result["artifacts"]
-            
-            if isinstance(response, list) and len(response) > 0:
-                response = response[0]
-                
-            if isinstance(response, dict) and "content" in response:
-                response_content = response["content"]
-            else:
-                response_content = str(response)
-        
-        return response_content
-    
-    def _process_tool_results(self, result: Dict[str, Any], response_content: str, task_id: str) -> str:
-        """Process and augment response with structured tool data."""
-        # Check for tool results in state_updates
-        tool_results_data = None
-        if "state_updates" in result and "tool_results" in result["state_updates"]:
-            tool_results_data = result["state_updates"]["tool_results"]
-        
-        if tool_results_data:
-            final_response = response_content + "\n\n[STRUCTURED_TOOL_DATA]:\n" + json.dumps(tool_results_data, indent=2)
-            
-            # Log structured data addition
-            logger.info("structured_data_found",
-                tool_name="servicenow_agent",
-                data_preview=str(tool_results_data)[:200],
-                data_size=len(json.dumps(tool_results_data)),
-                record_count=len(tool_results_data) if isinstance(tool_results_data, list) else 1,
-                agent="servicenow-agent",
-                task_id=task_id
-            )
-            return final_response
-        else:
-            return response_content
 
 
 class AgentRegistryTool(BaseTool):

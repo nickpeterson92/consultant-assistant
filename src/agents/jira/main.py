@@ -34,6 +34,7 @@ class JiraAgentState(TypedDict):
     error: str
     task_context: Dict[str, Any]
     external_context: Dict[str, Any]
+    orchestrator_state: Dict[str, Any]  # Include orchestrator state for merging
 
 # Create the prompt template once at module level
 jira_prompt = create_jira_agent_prompt()
@@ -161,16 +162,18 @@ async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
         task_id = task_data.get("id", "unknown")
         instruction = task_data.get("instruction", "")
         context = task_data.get("context", {})
+        state_snapshot = task_data.get("state_snapshot", {})
         
         
-        # Prepare initial state
+        # Prepare initial state with orchestrator state
         initial_state = {
             "messages": [HumanMessage(content=instruction)],
             "current_task": task_id,
             "tool_results": [],
             "error": "",
             "task_context": {"task_id": task_id, "instruction": instruction},
-            "external_context": context or {}
+            "external_context": context or {},
+            "orchestrator_state": state_snapshot  # Include for state merging
         }
         
         
@@ -202,11 +205,26 @@ async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
         )
         
         
-        # Create successful response in JSON-RPC format
-        return {
+        # Create successful response with state merging capability
+        response = {
             "artifacts": [artifact.to_dict()],
             "status": "completed"
         }
+        
+        # Include final agent state for orchestrator merging
+        if result:
+            # Serialize messages before including in response
+            serialized_result = dict(result)
+            if "messages" in serialized_result:
+                from src.utils.agents.message_processing.unified_serialization import serialize_messages_for_json
+                serialized_result["messages"] = serialize_messages_for_json(serialized_result["messages"])
+            
+            response["state_updates"] = {
+                "agent_final_state": serialized_result,
+                "orchestrator_state": result.get("orchestrator_state", {})
+            }
+        
+        return response
         
     except Exception as e:
         # Return error in expected format

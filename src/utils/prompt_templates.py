@@ -4,7 +4,12 @@ Preserves exact prompt content while leveraging framework features.
 """
 
 from typing import Dict, Any, Optional
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.prompts import (
+    ChatPromptTemplate, 
+    MessagesPlaceholder,
+    SystemMessagePromptTemplate,
+    HumanMessagePromptTemplate
+)
 import json
 
 
@@ -1297,6 +1302,73 @@ class AgentPromptFactory:
 
 
 # =============================================================================
+# =============================================================================
+# CONVERSATION SUMMARY PROMPT TEMPLATE
+# =============================================================================
+
+CONVERSATION_SUMMARY_PROMPT = """# Instructions
+Generate a structured summary of this conversation following this EXACT format:
+
+```
+**Topics Discussed**: [Bullet list of main topics]
+**Entities**: [List of companies, people, or systems mentioned]
+**Actions Taken**: [List of operations performed via agents]
+**Key Information**: [Important facts, numbers, or decisions]
+**Recommendations**: [Any suggestions or next steps discussed]
+```
+
+## Previous Context
+{previous_summary}
+
+## Formatting Requirements
+1. Use EXACTLY the headers shown above with double asterisks
+2. Each section should have bullet points starting with "- "
+3. Be specific about entities (include IDs if mentioned)
+4. List actual agent operations performed
+5. Keep each bullet point concise but complete
+6. If a section has no content, write "None" after the header
+
+## Critical Rule
+Your response must start with "**Topics Discussed**:" and follow the exact format above.
+
+## Conversation to summarize:
+{conversation_messages}"""
+
+def create_conversation_summary_prompt() -> ChatPromptTemplate:
+    """Create the conversation summary prompt template using ChatPromptTemplate."""
+    system_template = """# Instructions
+Generate a structured summary of this conversation following this EXACT format:
+
+```
+**Topics Discussed**: [Bullet list of main topics]
+**Entities**: [List of companies, people, or systems mentioned]
+**Actions Taken**: [List of operations performed via agents]
+**Key Information**: [Important facts, numbers, or decisions]
+**Recommendations**: [Any suggestions or next steps discussed]
+```
+
+## Previous Context
+{previous_summary}
+
+## Formatting Requirements
+1. Use EXACTLY the headers shown above with double asterisks
+2. Each section should have bullet points starting with "- "
+3. Be specific about entities (include IDs if mentioned)
+4. List actual agent operations performed
+5. Keep each bullet point concise but complete
+6. If a section has no content, write "None" after the header
+
+## Critical Rule
+Your response must start with "**Topics Discussed**:" and follow the exact format above."""
+    
+    human_template = "Please summarize the above conversation following the specified format."
+    
+    return ChatPromptTemplate.from_messages([
+        SystemMessagePromptTemplate.from_template(system_template),
+        MessagesPlaceholder(variable_name="messages"),
+        HumanMessagePromptTemplate.from_template(human_template)
+    ])
+
 # USAGE EXAMPLE
 # =============================================================================
 

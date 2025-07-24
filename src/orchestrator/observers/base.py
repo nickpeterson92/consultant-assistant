@@ -108,6 +108,16 @@ class MemoryGraphSnapshotEvent(WorkflowEvent):
     thread_id: str = ""
 
 
+@dataclass
+class LLMContextEvent(WorkflowEvent):
+    """Event fired when context is built for LLM requests."""
+    context_type: str = ""  # "execution", "planning", "replanning"
+    context_text: str = ""  # The actual context that will be sent
+    metadata: Dict[str, Any] = field(default_factory=dict)  # Stats about the context
+    full_prompt: Optional[str] = None  # The complete prompt if available
+    thread_id: Optional[str] = None
+
+
 class PlanExecuteObserver(ABC):
     """Abstract base class for plan-execute workflow observers."""
     
@@ -161,6 +171,10 @@ class PlanExecuteObserver(ABC):
     
     def on_memory_graph_snapshot(self, event: MemoryGraphSnapshotEvent) -> None:
         """Called with memory graph snapshot. Default implementation does nothing."""
+        pass
+    
+    def on_llm_context(self, event: LLMContextEvent) -> None:
+        """Called when LLM context is built. Default implementation does nothing."""
         pass
 
 

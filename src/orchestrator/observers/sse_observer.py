@@ -17,7 +17,8 @@ from .base import (
     PlanUpdatedEvent,
     MemoryNodeAddedEvent,
     MemoryEdgeAddedEvent,
-    MemoryGraphSnapshotEvent
+    MemoryGraphSnapshotEvent,
+    LLMContextEvent
 )
 
 
@@ -244,4 +245,16 @@ class SSEObserver(PlanExecuteObserver):
             "thread_id": event.thread_id,
             "user_input": event.user_input,
             "was_modified": event.was_modified
+        })
+    
+    def on_llm_context(self, event: LLMContextEvent) -> None:
+        """Emit LLM context event showing what will be sent to the model."""
+        self._emit_sse_threadsafe("llm_context", {
+            "task_id": event.task_id,
+            "context_type": event.context_type,
+            "context_text": event.context_text,
+            "metadata": event.metadata,
+            "full_prompt": event.full_prompt,
+            "thread_id": event.thread_id,
+            "timestamp": event.timestamp or datetime.now().isoformat()
         })

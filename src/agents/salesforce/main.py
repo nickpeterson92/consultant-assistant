@@ -105,6 +105,7 @@ def build_salesforce_graph():
         messages: Annotated[list, add_messages]
         task_context: Dict[str, Any]
         external_context: Dict[str, Any]
+        orchestrator_state: Dict[str, Any]  # Include orchestrator state for merging
     
     # Using new unified Salesforce tools (reduced from 23 to 6 tools)
     tools = UNIFIED_SALESFORCE_TOOLS
@@ -186,13 +187,15 @@ class SalesforceA2AHandler:
             task_id = task_data.get("id", "unknown")
             instruction = task_data.get("instruction", "")
             context = task_data.get("context", {})
+            state_snapshot = task_data.get("state_snapshot", {})
             
             
-            # Simple state preparation - modern LangGraph prefers minimal state
+            # Merge orchestrator state with agent state
             initial_state = {
                 "messages": [HumanMessage(content=instruction)],
                 "task_context": {"task_id": task_id, "instruction": instruction},
-                "external_context": context
+                "external_context": context,
+                "orchestrator_state": state_snapshot  # Include for state merging
             }
             
             # Modern config - no need for complex setup
@@ -224,8 +227,8 @@ class SalesforceA2AHandler:
                                                tool_args=tool_call.get("args", {}))
             
             
-            # Modern simplified response
-            return {
+            # Modern response with state merging capability
+            response = {
                 "artifacts": [{
                     "id": f"sf-response-{task_id}",
                     "task_id": task_id,
@@ -234,6 +237,22 @@ class SalesforceA2AHandler:
                 }],
                 "status": "completed"
             }
+            
+            # Include final agent state for orchestrator merging
+            # This allows the orchestrator to access tool results and other agent state
+            if result:
+                # Serialize messages before including in response
+                serialized_result = dict(result)
+                if "messages" in serialized_result:
+                    from src.utils.agents.message_processing.unified_serialization import serialize_messages_for_json
+                    serialized_result["messages"] = serialize_messages_for_json(serialized_result["messages"])
+                
+                response["state_updates"] = {
+                    "agent_final_state": serialized_result,
+                    "orchestrator_state": result.get("orchestrator_state", {})
+                }
+            
+            return response
             
         except Exception as e:
             error_msg = str(e)

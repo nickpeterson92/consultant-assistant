@@ -26,6 +26,7 @@ class MemoryGraphWidget(Static):
         self.display_buffer = []
         self.max_width = 80
         self.max_height = 20
+        self.llm_context_data = None  # Store the actual LLM context
         
     def compose(self) -> ComposeResult:
         """Compose the widget layout."""
@@ -111,6 +112,27 @@ class MemoryGraphWidget(Static):
         # Re-render after update
         self.render_graph()
     
+    def handle_llm_context_update(self, data: Dict):
+        """Handle LLM context update events."""
+        try:
+            # Store the LLM context data
+            self.llm_context_data = {
+                "context_type": data.get("context_type", "unknown"),
+                "context_text": data.get("context_text", ""),
+                "metadata": data.get("metadata", {}),
+                "full_prompt": data.get("full_prompt", ""),
+                "timestamp": data.get("timestamp", "")
+            }
+            
+            # Re-render the graph to update the "What LLM Sees" section
+            self.render_graph()
+            
+            logger.info("llm_context_updated_in_widget",
+                       context_type=self.llm_context_data["context_type"],
+                       has_context=bool(self.llm_context_data["context_text"]))
+        except Exception as e:
+            logger.error("llm_context_update_error", error=str(e))
+    
     def _create_graph_visualization(self) -> List[str]:
         """Create an ASCII art visualization of the graph with nodes and edges."""
         try:
@@ -119,7 +141,7 @@ class MemoryGraphWidget(Static):
             # Use clean renderer with dynamic width for horizontal scrolling
             # Calculate a width that can accommodate the content
             width = None  # Let the renderer calculate optimal width
-            return CleanGraphRenderer.render(self.nodes, self.edges, width)
+            return CleanGraphRenderer.render(self.nodes, self.edges, width, llm_context=self.llm_context_data)
         except ImportError:
             try:
                 from .advanced_graph_renderer import AdvancedGraphRenderer

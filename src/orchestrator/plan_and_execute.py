@@ -14,6 +14,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import HumanMessage, AIMessage
 from src.utils.logging.framework import SmartLogger, log_execution
 from src.orchestrator.workflow.event_decorators import emit_coordinated_events
+from src.orchestrator.workflow.memory_context_builder import MemoryContextBuilder
 from src.orchestrator.core.state import PlanExecute, StepExecution
 
 # Initialize logger
@@ -86,13 +87,24 @@ def execute_step(state: PlanExecute):
     thread_id = state.get("thread_id", "default-thread")
     memory = get_thread_memory(thread_id)
     
+    # Get conversation summary from SQLite if available and not already in state
+    if "summary" not in state:
+        from src.utils.storage import get_global_sqlite_store
+        global_sqlite_store = get_global_sqlite_store()
+        if global_sqlite_store:
+            namespace = ("memory", thread_id)
+            key = "conversation_summary"
+            summary_data = global_sqlite_store.get(namespace, key)
+            if summary_data and isinstance(summary_data, dict):
+                state["summary"] = summary_data.get("summary")
+    
     # DEBUG: Log memory integration
     logger.info("MEMORY_INTEGRATION_DEBUG",
                component="orchestrator",
                operation="execute_step",
                thread_id=thread_id,
                using_memory_system=True,
-               memory_nodes_count=len(memory.nodes))
+               memory_nodes_count=memory.node_manager.get_node_count())
     
     plan = state["plan"]
     
@@ -120,40 +132,45 @@ def execute_step(state: PlanExecute):
         for step in current_plan_steps:
             past_steps_context += f"Step {step['step_seq_no']}: {step['step_description']}\nResult: {step['result']}\n\n"
     
-    # MEMORY ENHANCEMENT: Add intelligent memory context as supplementary information
-    memory_context = ""
-    
-    # Retrieve relevant context from memory for this task
-    relevant_memories = memory.retrieve_relevant(
+    # MEMORY ENHANCEMENT: Use advanced memory context builder
+    memory_context, memory_metadata = MemoryContextBuilder.build_enhanced_context(
+        thread_id=thread_id,
         query_text=f"{task} {state['input']}",
-        max_age_hours=2,  # Recent context only
+        context_type="execution",
+        max_age_hours=2,
         min_relevance=0.3,
-        max_results=5
+        max_results=10
     )
     
-    logger.info("MEMORY_RETRIEVAL_DEBUG",
-               component="orchestrator", 
+    logger.info("memory_context_built",
+               component="orchestrator",
                operation="execute_step",
-               thread_id=thread_id,
-               relevant_memories_count=len(relevant_memories),
-               query_text=f"{task} {state['input']}"[:100])
+               relevant_count=memory_metadata.get('relevant_count', 0),
+               important_count=memory_metadata.get('important_count', 0),
+               cluster_count=memory_metadata.get('cluster_count', 0),
+               bridge_count=memory_metadata.get('bridge_count', 0),
+               thread_id=thread_id)
     
-    if relevant_memories:
-        memory_context = "\n\nCONVERSATION CONTEXT:\n"
+    # Get execution insights using memory analyzer
+    try:
+        from src.orchestrator.workflow.memory_analyzer import MemoryAnalyzer
+        execution_insights = MemoryAnalyzer.get_execution_insights(thread_id, task)
         
-        for i, memory_node in enumerate(relevant_memories, 1):
-            relevance = memory_node.current_relevance()
-            memory_context += f"{i}. {memory_node.summary}\n"
-            
-            # Include actual content only for high-relevance items  
-            if relevance > 0.7:
-                content_preview = str(memory_node.content)[:200]
-                memory_context += f"   {content_preview}{'...' if len(str(memory_node.content)) > 200 else ''}\n"
+        if execution_insights["potential_pitfalls"]:
+            memory_context += "\n\nCAUTION:\n"
+            for pitfall in execution_insights["potential_pitfalls"]:
+                memory_context += f"- {pitfall['warning']}\n"
         
-        memory_context += "\nGUIDANCE: When user requests are ambiguous, connect them to recent conversation context above - they likely reference items they just discussed.\n"
-    else:
-        logger.info("DEBUG: No relevant memory context found for this task", 
-                   component="orchestrator", operation="execute_step")
+        if execution_insights["similar_past_tasks"]:
+            memory_context += "\n\nSIMILAR PAST TASKS:\n"
+            for past_task in execution_insights["similar_past_tasks"][:2]:
+                memory_context += f"- {past_task['task']} ({past_task['time_ago']})\n"
+        
+        logger.info("execution_insights_added",
+                   pitfalls=len(execution_insights["potential_pitfalls"]),
+                   similar_tasks=len(execution_insights["similar_past_tasks"]))
+    except Exception as e:
+        logger.warning("execution_insights_failed", error=str(e))
     
     task_formatted = f"""For the following plan:
 {plan_str}
@@ -161,6 +178,21 @@ def execute_step(state: PlanExecute):
 You are tasked with executing step {current_step_num}: {task}.
 {memory_context}
 {past_steps_context}"""
+    
+    # Emit LLM context event for UI visualization
+    try:
+        from src.orchestrator.workflow.emit_llm_context import emit_llm_context
+        emit_llm_context(
+            context_type="execution",
+            context_text=memory_context,
+            metadata=memory_metadata,
+            full_prompt=task_formatted,
+            task_id=state.get("task_id"),
+            thread_id=thread_id,
+            step_name="execute_step"
+        )
+    except Exception as e:
+        logger.warning("llm_context_emission_failed", error=str(e))
     
     logger.info("TASK_FORMATTING_DEBUG",
                component="orchestrator", 
@@ -282,16 +314,33 @@ You are tasked with executing step {current_step_num}: {task}.
     else:
         # Extract tool response data if present
         tool_response_data = None
+        tool_response_full = None
         for message in messages:
             # Check for tool response messages (ToolMessage type)
             if hasattr(message, 'name') and hasattr(message, 'content'):
                 # This is a tool response message
                 try:
                     import json
-                    tool_result = json.loads(message.content)
-                    if isinstance(tool_result, dict) and tool_result.get('success', False):
-                        tool_response_data = tool_result.get('data')
-                except (json.JSONDecodeError, ValueError, TypeError):
+                    # First try to parse as JSON
+                    if message.content.startswith('{') or message.content.startswith('['):
+                        try:
+                            tool_result = json.loads(message.content)
+                            if isinstance(tool_result, dict):
+                                if tool_result.get('success', False):
+                                    tool_response_data = tool_result.get('data')
+                                    tool_response_full = tool_result
+                        except (json.JSONDecodeError, ValueError):
+                            # If not JSON, it might be plain text response
+                            pass
+                    
+                    # For agent tool responses, the content might be a string representation
+                    # Let's save the raw content for entity extraction
+                    if 'salesforce_agent' in getattr(message, 'name', '') or \
+                       'jira_agent' in getattr(message, 'name', '') or \
+                       'servicenow_agent' in getattr(message, 'name', ''):
+                        # This is an agent response, save it for entity extraction
+                        tool_response_full = message.content
+                except (AttributeError, TypeError):
                     pass
         
         # Get the agent's final message
@@ -411,24 +460,18 @@ You are tasked with executing step {current_step_num}: {task}.
         # Extract entities from all available data
         all_data_sources = []
         
-        # 1. Tool response data
-        if tool_response_data:
-            all_data_sources.append(tool_response_data)
-        
-        # 2. Message contents
-        for message in agent_response.get("messages", []):
-            if hasattr(message, 'content'):
-                try:
-                    import json
-                    content = json.loads(message.content) if isinstance(message.content, str) else message.content
-                    if isinstance(content, dict) and content.get('success'):
-                        if 'data' in content:
-                            all_data_sources.append(content['data'])
-                except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
-                    pass
-        
-        # 3. Even check the final response text for entity IDs
-        all_data_sources.append(final_response)
+        # Check for tool results merged from agent state
+        if hasattr(state, 'get') and state.get("tool_results"):
+            tool_results = state["tool_results"]
+            logger.info("found_merged_tool_results",
+                       component="orchestrator",
+                       operation="execute_step",
+                       tool_results_count=len(tool_results),
+                       tools_used=[tr.get('tool_name') for tr in tool_results])
+            
+            for tool_result in tool_results:
+                if 'data' in tool_result and tool_result['data']:
+                    all_data_sources.append(tool_result['data'])
         
         # Extract entities intelligently
         extracted_entities = []
@@ -500,7 +543,7 @@ You are tasked with executing step {current_step_num}: {task}.
                     },
                     context_type=ContextType.DOMAIN_ENTITY,
                     tags=entity_tags,
-                    base_relevance=base_relevance,
+                    confidence=base_relevance,  # Changed from base_relevance to confidence
                     summary=f"{entity_info['type']}: {entity_info['name'] or entity_info['id']}"
                 )
                 related_entities.append(entity_node_id)
@@ -521,7 +564,7 @@ You are tasked with executing step {current_step_num}: {task}.
                 # Notify about new entity
                 try:
                     from src.orchestrator.observers.memory_observer import notify_memory_update
-                    node = memory.nodes.get(entity_node_id)
+                    node = memory.node_manager.get_node(entity_node_id)
                     if node:
                         notify_memory_update(thread_id, entity_node_id, node, state.get("task_id"))
                 except Exception as e:
@@ -548,9 +591,9 @@ You are tasked with executing step {current_step_num}: {task}.
                 ]
             },
             context_type=context_type,
+            summary=f"Step {current_step_num}: {task[:50]}{'...' if len(task) > 50 else ''} - {context_type.value}",
             tags=semantic_tags,
-            base_relevance=0.9 if produced_user_data else 0.7,
-            auto_summarize=True,
+            confidence=0.9 if produced_user_data else 0.7,
             relates_to=relates_to  # Create relationship to previous step
         )
         
@@ -616,7 +659,7 @@ You are tasked with executing step {current_step_num}: {task}.
                 },
                 context_type=ContextType.TOOL_OUTPUT,
                 tags={tool_call["tool"].lower()} if tool_call["tool"] else set(),
-                base_relevance=0.6,
+                confidence=0.6,
                 summary=f"Tool call: {tool_call['tool']}"
             )
             
@@ -626,7 +669,7 @@ You are tasked with executing step {current_step_num}: {task}.
             # Notify
             try:
                 from src.orchestrator.observers.memory_observer import notify_memory_update, notify_memory_edge
-                node = memory.nodes.get(tool_node_id)
+                node = memory.node_manager.get_node(tool_node_id)
                 if node:
                     notify_memory_update(thread_id, tool_node_id, node, state.get("task_id"))
                 notify_memory_edge(thread_id, memory_node_id, tool_node_id, RelationshipType.DEPENDS_ON, state.get("task_id"))
@@ -646,7 +689,7 @@ You are tasked with executing step {current_step_num}: {task}.
         # Notify observers about memory update
         try:
             from src.orchestrator.observers.memory_observer import notify_memory_update
-            node = memory.nodes.get(memory_node_id)
+            node = memory.node_manager.get_node(memory_node_id)
             if node:
                 notify_memory_update(thread_id, memory_node_id, node, state.get("task_id"))
         except Exception as e:
@@ -694,7 +737,7 @@ You are tasked with executing step {current_step_num}: {task}.
 def plan_step(state: PlanExecute):
     import asyncio
     from langchain_core.messages import HumanMessage
-    from src.memory import get_thread_memory, ContextType
+    from src.memory import get_thread_memory
     from langgraph.errors import GraphInterrupt
     
     # Check for user-initiated interrupt flag (escape key)
@@ -710,6 +753,26 @@ def plan_step(state: PlanExecute):
     # Get memory for context-aware planning
     thread_id = state.get("thread_id", "default-thread")
     memory = get_thread_memory(thread_id)
+    
+    # Get conversation summary from SQLite if available
+    conversation_summary = None
+    from src.utils.storage import get_global_sqlite_store
+    global_sqlite_store = get_global_sqlite_store()
+    if global_sqlite_store:
+        namespace = ("memory", thread_id)
+        key = "conversation_summary"
+        summary_data = global_sqlite_store.get(namespace, key)
+        if summary_data and isinstance(summary_data, dict):
+            conversation_summary = summary_data.get("summary")
+            logger.info("retrieved_conversation_summary",
+                       component="orchestrator",
+                       thread_id=thread_id,
+                       summary_length=len(conversation_summary) if conversation_summary else 0,
+                       summary_timestamp=summary_data.get("timestamp"))
+    
+    # Update state with summary for agent context
+    if conversation_summary:
+        state["summary"] = conversation_summary
     
     # Get conversation messages for context and trim if needed
     conversation_messages = state.get("messages", [])
@@ -730,26 +793,30 @@ def plan_step(state: PlanExecute):
                trimmed_length=len(conversation_messages),
                current_input=state["input"][:100])
     
-    # Get relevant context for planning
-    planning_context = memory.retrieve_relevant(
+    # Use enhanced memory context for planning
+    planning_context, planning_metadata = MemoryContextBuilder.build_enhanced_context(
+        thread_id=thread_id,
         query_text=state["input"],
-        max_age_hours=4,  # Broader context for planning
+        context_type="planning",
+        max_age_hours=4,
         min_relevance=0.2,
-        max_results=8
+        max_results=15
     )
+    
+    # Get conversation summary using important memories
+    if memory.node_manager.get_node_count() > 5:
+        conversation_summary = MemoryContextBuilder.get_conversation_summary(thread_id)
     
     # Format memory context for planner
     context_for_planning = ""
+    
+    # Add conversation summary if available
+    if conversation_summary:
+        context_for_planning = "\n\n" + conversation_summary + "\n"
+    
+    # Add enhanced planning context
     if planning_context:
-        context_for_planning = "\n\nRELEVANT CONTEXT:\n"
-        for memory_node in planning_context:
-            context_for_planning += f"- {memory_node.summary}\n"
-            
-            # Include domain entities and recent search results for better planning
-            if memory_node.context_type in {ContextType.DOMAIN_ENTITY, ContextType.SEARCH_RESULT}:
-                content_preview = str(memory_node.content)[:150]
-                context_for_planning += f"  Data: {content_preview}{'...' if len(str(memory_node.content)) > 150 else ''}\n"
-            context_for_planning += "\n"
+        context_for_planning += planning_context
     
     # Enhanced planning prompt with conversation + memory context
     planning_input = f"{state['input']}{context_for_planning}"
@@ -757,8 +824,26 @@ def plan_step(state: PlanExecute):
     logger.info("planning_with_memory_context",
                component="orchestrator",
                operation="plan_step",
-               context_items=len(planning_context),
+               relevant_count=planning_metadata.get('relevant_count', 0),
+               important_count=planning_metadata.get('important_count', 0),
+               cluster_count=planning_metadata.get('cluster_count', 0),
+               has_conversation_summary=bool(conversation_summary),
                input_length=len(planning_input))
+    
+    # Emit LLM context event for UI visualization
+    try:
+        from src.orchestrator.workflow.emit_llm_context import emit_llm_context
+        emit_llm_context(
+            context_type="planning",
+            context_text=context_for_planning,
+            metadata=planning_metadata,
+            full_prompt=planning_input,
+            task_id=state.get("task_id"),
+            thread_id=thread_id,
+            step_name="plan_step"
+        )
+    except Exception as e:
+        logger.warning("llm_context_emission_failed", error=str(e))
     
     # Use conversation messages for planning context instead of just current input
     planning_messages = list(conversation_messages)  # Copy existing conversation
@@ -812,7 +897,6 @@ def plan_step(state: PlanExecute):
 @emit_coordinated_events(["plan_modified", "plan_updated"])
 def replan_step(state: PlanExecute):
     import asyncio
-    from src.memory import get_thread_memory
     from src.orchestrator.workflow.interrupt_handler import InterruptHandler
     
     # Check if this is a user-initiated replan (escape key)
@@ -828,7 +912,7 @@ def replan_step(state: PlanExecute):
     
     # Get memory for context-aware replanning
     thread_id = state.get("thread_id", "default-thread")
-    memory = get_thread_memory(thread_id)
+    # Memory is accessed through MemoryContextBuilder
     
     # Format past_steps for the template - only include steps from current plan
     plan_offset = state.get("plan_step_offset", 0)
@@ -838,29 +922,23 @@ def replan_step(state: PlanExecute):
     for step in current_plan_steps:
         past_steps_str += f"Step {step['step_seq_no']}: {step['step_description']}\nResult: {step['result']}\n\n"
     
-    # MEMORY ENHANCEMENT: Add recent context for replanning decisions
-    replan_context = memory.retrieve_relevant(
+    # MEMORY ENHANCEMENT: Use advanced context for replanning
+    memory_context, replan_metadata = MemoryContextBuilder.build_enhanced_context(
+        thread_id=thread_id,
         query_text=f"{state['input']} plan replan",
-        max_age_hours=1,  # Recent context for replanning
+        context_type="replanning",
+        max_age_hours=1,
         min_relevance=0.3,
-        max_results=6
+        max_results=10
     )
-    
-    # Format memory context for replanner
-    memory_context = ""
-    if replan_context:
-        memory_context = "\n\nRECENT CONTEXT:\n"
-        for memory_node in replan_context:
-            memory_context += f"- {memory_node.summary}\n"
-            # Include high-relevance content details
-            if memory_node.current_relevance() > 0.7:
-                content_preview = str(memory_node.content)[:100]
-                memory_context += f"  Details: {content_preview}{'...' if len(str(memory_node.content)) > 100 else ''}\n"
     
     logger.info("replan_with_memory_context",
                component="orchestrator",
-               operation="replan_step", 
-               context_items=len(replan_context),
+               operation="replan_step",
+               relevant_count=replan_metadata.get('relevant_count', 0),
+               important_count=replan_metadata.get('important_count', 0),
+               cluster_count=replan_metadata.get('cluster_count', 0),
+               bridge_count=replan_metadata.get('bridge_count', 0),
                thread_id=thread_id)
     
     # Add user modification context if this is a user-initiated replan
@@ -874,6 +952,22 @@ def replan_step(state: PlanExecute):
         "plan": "\n".join(f"{i + 1}. {step}" for i, step in enumerate(state["plan"])),
         "past_steps": past_steps_str.strip()
     }
+    
+    # Emit LLM context event for UI visualization
+    try:
+        from src.orchestrator.workflow.emit_llm_context import emit_llm_context
+        replan_prompt = f"Original request: {state['input']}{memory_context}{additional_context}\n\nCurrent plan:\n{template_vars['plan']}\n\nPast steps:\n{template_vars['past_steps']}"
+        emit_llm_context(
+            context_type="replanning",
+            context_text=memory_context,
+            metadata=replan_metadata,
+            full_prompt=replan_prompt,
+            task_id=state.get("task_id"),
+            thread_id=thread_id,
+            step_name="replan_step"
+        )
+    except Exception as e:
+        logger.warning("llm_context_emission_failed", error=str(e))
     
     replanner = globals().get('replanner')
     if not replanner:
@@ -905,15 +999,16 @@ def replan_step(state: PlanExecute):
             stop_words = {"the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by", "step"}
             task_tags = {tag for tag in task_tags if len(tag) > 2 and tag not in stop_words}
             
-            # Mark task as completed to trigger decay
-            decayed_nodes = memory.mark_task_completed(task_related_tags=task_tags)
+            # TODO: Implement task completion decay in new memory API
+            # The old API had mark_task_completed() which would decay relevance
+            # of nodes related to completed tasks. The new API handles decay
+            # automatically based on time, but we could enhance it with task-based decay.
             
             logger.info("task_completion_detected",
                        component="orchestrator",
                        operation="replan_step",
                        thread_id=thread_id,
-                       task_tags=list(task_tags),
-                       decayed_nodes=decayed_nodes)
+                       task_tags=list(task_tags))
             
         except Exception as e:
             logger.error("failed_to_mark_task_completed",
@@ -1089,12 +1184,84 @@ async def trigger_background_summary_if_needed(messages: list, llm):
     # Update tracking
     update_background_summary_tracking(len(messages))
     
-    # Simple background summary - could be enhanced later
-    # For now, just log that we would summarize
-    logger.info("background_summary_triggered",
-               component="orchestrator", 
-               message_count=len(messages),
-               note="ReAct agent maintains own context - summary would be stored externally")
+    try:
+        # Get thread_id from the first message's additional_kwargs if available
+        thread_id = "default-thread"
+        if messages and hasattr(messages[0], 'additional_kwargs'):
+            thread_id = messages[0].additional_kwargs.get('thread_id', 'default-thread')
+        
+        # Get existing summary for context
+        existing_summary = None
+        from src.utils.storage import get_global_sqlite_store
+        global_sqlite_store = get_global_sqlite_store()
+        if global_sqlite_store:
+            namespace = ("memory", thread_id)
+            key = "conversation_summary"
+            existing_data = global_sqlite_store.get(namespace, key)
+            if existing_data:
+                existing_summary = existing_data.get("summary")
+        
+        # Use the conversation summary prompt from our framework
+        from src.utils.prompt_templates import CONVERSATION_SUMMARY_PROMPT
+        from langchain_core.messages import HumanMessage
+        
+        # Format recent messages as text (matching old_main approach)
+        # Take last 10 messages for the prompt
+        recent_messages = messages[-10:] if len(messages) > 10 else messages
+        formatted_messages = []
+        for msg in recent_messages:
+            role = "User" if msg.type == "human" else "Assistant"
+            content = str(msg.content)[:500]  # Truncate long messages
+            formatted_messages.append(f"{role}: {content}")
+        
+        recent_conversation_text = "\n".join(formatted_messages)
+        
+        # Create the summary prompt with formatted conversation text
+        summary_prompt = CONVERSATION_SUMMARY_PROMPT.format(
+            previous_summary=existing_summary if existing_summary else "None",
+            recent_conversation=recent_conversation_text
+        )
+        
+        # Generate summary using LLM with ONLY the summary prompt (matching old_main)
+        # This is more token-efficient than sending all messages
+        summary_response = await llm.ainvoke([HumanMessage(content=summary_prompt)])
+        summary_text = summary_response.content if hasattr(summary_response, 'content') else str(summary_response)
+        
+        # Store summary in SQLite for persistence across threads
+        from src.utils.storage import get_global_sqlite_store
+        global_sqlite_store = get_global_sqlite_store()
+        if global_sqlite_store:
+            namespace = ("memory", thread_id)
+            key = "conversation_summary"
+            
+            # Get existing summary to potentially merge
+            existing_summary = global_sqlite_store.get(namespace, key)
+            
+            # Store the new summary with metadata
+            summary_data = {
+                "summary": summary_text,
+                "message_count": len(messages),
+                "timestamp": time.time(),
+                "previous_summary": existing_summary.get("summary") if existing_summary else None
+            }
+            
+            global_sqlite_store.put(namespace, key, summary_data)
+            
+            logger.info("conversation_summary_stored",
+                       component="orchestrator",
+                       thread_id=thread_id,
+                       summary_length=len(summary_text),
+                       message_count=len(messages))
+        else:
+            logger.warning("no_sqlite_store_for_summary",
+                          component="orchestrator",
+                          note="Summary generated but not stored")
+            
+    except Exception as e:
+        logger.error("background_summary_error",
+                    component="orchestrator",
+                    error=str(e),
+                    error_type=type(e).__name__)
 
 async def create_plan_execute_graph():
     """Create a simple plan-execute graph for A2A usage."""

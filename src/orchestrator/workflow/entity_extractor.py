@@ -481,6 +481,7 @@ class IntelligentEntityExtractor:
                             
         return entities
     
+    
     @classmethod
     def _create_minimal_entity(cls, entity_id: str, context: Optional[Dict[str, Any]], 
                               system: Optional[str] = None) -> Optional[ExtractedEntity]:

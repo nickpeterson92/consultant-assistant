@@ -98,9 +98,9 @@ class MemoryObserverIntegration:
             nodes = {}
             edges = []
             
-            # Convert nodes
-            for node_id, node in memory.nodes.items():
-                nodes[node_id] = {
+            # Convert nodes using the new API
+            for node in memory.get_all_nodes():
+                nodes[node.node_id] = {
                     "node_id": node.node_id,
                     "summary": node.summary,
                     "context_type": node.context_type.value,
@@ -111,8 +111,8 @@ class MemoryObserverIntegration:
                     "content": None  # Removed to reduce snapshot size - UI only needs summaries
                 }
             
-            # Convert edges
-            for u, v, data in memory.graph.edges(data=True):
+            # Convert edges using the new API
+            for u, v, data in memory.get_all_edges():
                 edges.append({
                     "from_id": u,
                     "to_id": v,
@@ -122,7 +122,7 @@ class MemoryObserverIntegration:
             graph_data = {
                 "nodes": nodes,
                 "edges": edges,
-                "stats": memory.get_stats()
+                "stats": memory.get_statistics()
             }
             
             event = MemoryGraphSnapshotEvent(

@@ -33,7 +33,7 @@ class MemoryNode:
     
     # Relevance and decay
     base_relevance: float = 1.0               # Initial importance score
-    decay_rate: float = 0.1                   # How quickly relevance decays (per hour)
+    decay_rate: float = 0.2                   # INCREASED: How quickly relevance decays (per hour)
     min_relevance: float = 0.05               # Minimum relevance before cleanup
     
     # Semantic metadata
@@ -52,12 +52,27 @@ class MemoryNode:
         hours_since_creation = (datetime.now() - self.created_at).total_seconds() / 3600
         hours_since_access = (datetime.now() - self.last_accessed).total_seconds() / 3600
         
-        # Decay based on creation time and last access
-        creation_decay = max(0, self.base_relevance - (hours_since_creation * self.decay_rate))
-        access_boost = max(0, 0.2 - (hours_since_access * self.decay_rate * 0.5))  # Recent access boosts relevance
+        # IMPROVED: Context-aware exponential decay with different half-lives
+        half_life_hours = {
+            ContextType.SEARCH_RESULT: 6,      # Fast decay (6 hour half-life)
+            ContextType.TEMPORARY_STATE: 3,    # Very fast decay
+            ContextType.DOMAIN_ENTITY: 48,     # Slow decay (2 day half-life)
+            ContextType.CONVERSATION_FACT: 24, # Medium decay (1 day half-life)
+            ContextType.COMPLETED_ACTION: 12,  # Medium-fast decay
+            ContextType.TOOL_OUTPUT: 8,        # Fast decay
+            ContextType.USER_SELECTION: 36    # Slower decay for user choices
+        }.get(self.context_type, 12)  # Default 12 hour half-life
         
-        current_relevance = max(self.min_relevance, creation_decay + access_boost)
-        return min(1.0, current_relevance)  # Cap at 1.0
+        # Exponential decay formula
+        decay_factor = 0.5 ** (hours_since_creation / half_life_hours)
+        
+        # Recent access boost (decays quickly with 2-hour half-life)
+        access_boost = 0
+        if hours_since_access < 24:  # Only boost if accessed in last day
+            access_boost = 0.3 * (0.5 ** (hours_since_access / 2))
+        
+        current_relevance = self.base_relevance * decay_factor + access_boost
+        return max(self.min_relevance, min(1.0, current_relevance))
     
     def access(self):
         """Mark this node as accessed, boosting its relevance."""
@@ -112,7 +127,7 @@ class MemoryNode:
         if self._embedding is None:
             # Lazy load embeddings
             try:
-                from .semantic_embeddings import get_embeddings
+                from ..algorithms.semantic_embeddings import get_embeddings
                 embeddings = get_embeddings()
                 if embeddings.is_available():
                     self._embedding = embeddings.encode_text(self.get_embedding_text())
@@ -187,13 +202,13 @@ def create_memory_node(content: Any, context_type: ContextType,
                       base_relevance: float = 1.0) -> MemoryNode:
     """Factory function to create appropriately configured memory nodes."""
     
-    # Use predefined decay rate for context type
-    decay_rate = CONTEXT_DECAY_RATES.get(context_type, 0.1)
+    # DON'T use predefined decay rate - let exponential decay in current_relevance() handle it
+    # decay_rate = CONTEXT_DECAY_RATES.get(context_type, 0.1)
     
     node = MemoryNode(
         content=content,
         context_type=context_type,
-        decay_rate=decay_rate,
+        # decay_rate=decay_rate,  # Use default from class
         base_relevance=base_relevance,
         summary=summary
     )

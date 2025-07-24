@@ -12,7 +12,7 @@ from typing import Dict, List, Set, Optional
 from collections import defaultdict
 from datetime import timedelta
 
-from .memory_node import MemoryNode
+from ..core.memory_node import MemoryNode
 from src.utils.logging.framework import SmartLogger
 
 logger = SmartLogger("memory")

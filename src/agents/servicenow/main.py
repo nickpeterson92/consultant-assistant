@@ -31,6 +31,7 @@ class ServiceNowAgentState(TypedDict):
     error: str
     task_context: Dict[str, Any]
     external_context: Dict[str, Any]
+    orchestrator_state: Dict[str, Any]  # Include orchestrator state for merging
 
 # Create the prompt template once at module level
 servicenow_prompt = create_servicenow_agent_prompt()
@@ -140,6 +141,7 @@ async def handle_a2a_request(params: dict) -> dict:
         task_id = task_data.get("id", task_data.get("task_id", "unknown"))
         instruction = task_data.get("instruction", "")
         context = task_data.get("context", {})
+        state_snapshot = task_data.get("state_snapshot", {})
         
         
         logger.info("handle_a2a_request_received",
@@ -150,14 +152,15 @@ async def handle_a2a_request(params: dict) -> dict:
         # Build the graph
         app = build_servicenow_graph()
         
-        # Prepare initial state
+        # Prepare initial state with orchestrator state
         initial_state = {
             "messages": [HumanMessage(content=instruction)],
             "current_task": instruction,
             "tool_results": [],
             "error": "",
             "task_context": {"task_id": task_id},
-            "external_context": context or {}
+            "external_context": context or {},
+            "orchestrator_state": state_snapshot  # Include for state merging
         }
         
         logger.info("initial_state_prepared",
@@ -183,14 +186,29 @@ async def handle_a2a_request(params: dict) -> dict:
             response_content = last_message.content
             
             
-            # Return in expected format
-            return {
+            # Return with state merging capability
+            response = {
                 "artifacts": [{
                     "type": "text",
                     "content": response_content
                 }],
                 "status": "completed"
             }
+            
+            # Include final agent state for orchestrator merging
+            if final_state:
+                # Serialize messages before including in response
+                serialized_state = dict(final_state)
+                if "messages" in serialized_state:
+                    from src.utils.agents.message_processing.unified_serialization import serialize_messages_for_json
+                    serialized_state["messages"] = serialize_messages_for_json(serialized_state["messages"])
+                
+                response["state_updates"] = {
+                    "agent_final_state": serialized_state,
+                    "orchestrator_state": final_state.get("orchestrator_state", {})
+                }
+            
+            return response
         else:
             raise ValueError("No response generated")
             

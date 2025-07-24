@@ -266,7 +266,7 @@ from src.utils.config import NEW_CONSTANT
 
 1. **Duplicate spinner widget**: Check for existing spinner before creating
 2. **Dictionary iteration error**: Return state updates, don't modify directly
-3. **Import errors after reorg**: Update paths to use new structure
+3. **Import errors after reorg**: Run ruff check .
 4. **Memory not showing**: Check event emission and graph relationships
 5. **Interrupt not working**: Ensure Command object includes state updates
 

@@ -116,7 +116,7 @@ class ConversationalMemoryManager:
                 cleanup_stats['total_nodes_cleaned'] += nodes_cleaned
                 cleanup_stats['per_thread_stats'][thread_id] = {
                     'nodes_cleaned': nodes_cleaned,
-                    'nodes_remaining': len(memory.nodes)
+                    'nodes_remaining': memory.node_manager.get_node_count()
                 }
         
         self.last_cleanup = datetime.now()
@@ -151,12 +151,12 @@ class ConversationalMemoryManager:
     def get_global_stats(self) -> Dict:
         """Get statistics across all memory graphs."""
         with self._lock:
-            total_nodes = sum(len(memory.nodes) for memory in self.thread_memories.values())
+            total_nodes = sum(memory.node_manager.get_node_count() for memory in self.thread_memories.values())
             total_edges = sum(memory.graph.number_of_edges() for memory in self.thread_memories.values())
             
             thread_stats = {}
             for thread_id, memory in self.thread_memories.items():
-                thread_stats[thread_id] = memory.get_stats()
+                thread_stats[thread_id] = memory.get_statistics()
             
             return {
                 'total_threads': len(self.thread_memories),

@@ -1030,6 +1030,19 @@ class OrchestatorApp(App):
                     "event_type": event_type.replace("memory_", ""),
                     **data
                 })
+        
+        # Handle LLM context events
+        if event_type == "llm_context":
+            logger.info("llm_context_event_received", 
+                       context_type=data.get("context_type"),
+                       metadata=data.get("metadata"))
+            
+            # Route to memory graph widget which has the "What LLM Sees" section
+            if self.memory_graph_widget:
+                self.memory_graph_widget.handle_llm_context_update({
+                    "event_type": "llm_context",
+                    **data
+                })
     
     def set_plan_task_id(self, task_id: str):
         """Set the current task ID for plan tracking."""
