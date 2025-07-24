@@ -282,7 +282,7 @@ flowchart TB
         end
         
         %% Agent Tools (via A2A)
-        subgraph agents["&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Agent Tools (via A2A)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"]
+        subgraph agents["Agent Tools - A2A Protocol"]
             SFT[☁️ Salesforce Agent Tool]:::agentToolClass
             JT[📋 Jira Agent Tool]:::agentToolClass
             SNT[🎫 ServiceNow Agent Tool]:::agentToolClass
