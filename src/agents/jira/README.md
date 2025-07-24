@@ -30,51 +30,79 @@ The Jira agent is built on:
 - **Unified Tools**: 11 tools covering all Jira operations
 - **Smart Features**: JQL search, sprint management, project creation, resource discovery
 
-```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                               JIRA AGENT                                   │
-│  ┌──────────────────┐  ┌─────────────────┐  ┌─────────────────────────┐    │
-│  │   A2A Handler    │  │   LangGraph     │  │   Security Layer        │    │
-│  │   JSON-RPC 2.0   │  │   State Mgmt    │  │   Input Validation      │    │
-│  │   (/a2a endpoint)│  │   Memory        │  │   JQL Query Building    │    │
-│  └──────────────────┘  └─────────────────┘  └─────────────────────────┘    │
-│                                   │                                        │
-│  ┌────────────────────────────────┴────────────────────────────────────┐   │
-│  │                      UNIFIED TOOL EXECUTION LAYER                   │   │
-│  │                                                                     │   │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐  │   │
-│  │  │    JiraGet      │  │   JiraSearch    │  │    JiraCreate       │  │   │
-│  │  │ Issue by Key    │  │ JQL & Natural   │  │ Issues & Subtasks   │  │   │
-│  │  │ Full Details    │  │ Language Search │  │ All Issue Types     │  │   │
-│  │  └─────────────────┘  └─────────────────┘  └─────────────────────┘  │   │
-│  │                                                                     │   │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐  │   │
-│  │  │   JiraUpdate    │  │JiraCollaboration│  │   JiraAnalytics     │  │   │
-│  │  │ Fields & Status │  │Comments & Links │  │ History & Metrics   │  │   │
-│  │  │ Bulk Updates    │  │ Team Features   │  │ Project Stats       │  │   │
-│  │  └─────────────────┘  └─────────────────┘  └─────────────────────┘  │   │
-│  │                                                                     │   │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐  │   │
-│  │  │JiraProjectCreate│  │ JiraGetResource │  │ JiraListResources   │  │   │
-│  │  │ New Projects    │  │ Get Any Resource│  │ List & Search       │  │   │
-│  │  │ With Lead       │  │ Universal Getter│  │ Universal Listing   │  │   │
-│  │  └─────────────────┘  └─────────────────┘  └─────────────────────┘  │   │
-│  │                                                                     │   │
-│  │  ┌──────────────────┐  ┌─────────────────┐                          │   │
-│  │  │JiraUpdateResource│  │JiraSprintOps    │                          │   │
-│  │  │ Update Any Res.  │  │Sprint Management│                          │   │
-│  │  │ Project/Board    │  │ Full Lifecycle  │                          │   │
-│  │  └──────────────────┘  └─────────────────┘                          │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                   │                                        │
-│  ┌────────────────────────────────┴────────────────────────────────────┐   │
-│  │                          JIRA API LAYER                             │   │
-│  │                                                                     │   │
-│  │  • REST API v3 Integration    • Agile API Support                   │   │
-│  │  • User Account ID Handling   • Rate Limiting                       │   │
-│  │  • JQL Query Processing       • Pagination Support                  │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-└────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    %% Define styles
+    classDef agentClass fill:#2196f3,stroke:#0d47a1,stroke-width:4px,color:#ffffff,font-weight:bold
+    classDef handlerClass fill:#4caf50,stroke:#2e7d32,stroke-width:2px,color:#ffffff
+    classDef toolClass fill:#ff9800,stroke:#e65100,stroke-width:2px,color:#ffffff
+    classDef apiClass fill:#00bcd4,stroke:#006064,stroke-width:2px,color:#ffffff
+    classDef securityClass fill:#f44336,stroke:#b71c1c,stroke-width:2px,color:#ffffff
+    
+    %% Main agent
+    AGENT[📋 JIRA AGENT<br/>━━━━━━━━━━━━━<br/>11 Tools • JQL Search • Sprint Mgmt • Analytics]:::agentClass
+    
+    %% Top layer components
+    subgraph handlers[" "]
+        A2A[🌐 A2A Handler<br/>━━━━━━━━━━━━<br/>JSON-RPC 2.0<br/>/a2a endpoint]:::handlerClass
+        LG[📊 LangGraph<br/>━━━━━━━━━━<br/>State Mgmt<br/>Memory]:::handlerClass
+        SEC[🔒 Security Layer<br/>━━━━━━━━━━━━━━<br/>Input Validation<br/>JQL Query Building]:::securityClass
+    end
+    
+    %% Unified tools layer
+    subgraph tools["🛠️ UNIFIED TOOL EXECUTION LAYER"]
+        subgraph row1[" "]
+            GET[📥 JiraGet<br/>━━━━━━━━━<br/>Issue by Key<br/>Full Details]:::toolClass
+            SEARCH[🔍 JiraSearch<br/>━━━━━━━━━━━<br/>JQL & Natural<br/>Language Search]:::toolClass
+            CREATE[➕ JiraCreate<br/>━━━━━━━━━━━<br/>Issues & Subtasks<br/>All Issue Types]:::toolClass
+        end
+        
+        subgraph row2[" "]
+            UPDATE[✏️ JiraUpdate<br/>━━━━━━━━━━━<br/>Fields & Status<br/>Bulk Updates]:::toolClass
+            COLLAB[💬 JiraCollaboration<br/>━━━━━━━━━━━━━━━━<br/>Comments & Links<br/>Team Features]:::toolClass
+            ANALYTICS[📊 JiraAnalytics<br/>━━━━━━━━━━━━━<br/>History & Metrics<br/>Project Stats]:::toolClass
+        end
+        
+        subgraph row3[" "]
+            PROJ[🗂️ JiraProjectCreate<br/>━━━━━━━━━━━━━━━<br/>New Projects<br/>With Lead]:::toolClass
+            GETRES[📄 JiraGetResource<br/>━━━━━━━━━━━━━━<br/>Get Any Resource<br/>Universal Getter]:::toolClass
+            LISTRES[📋 JiraListResources<br/>━━━━━━━━━━━━━━━━<br/>List & Search<br/>Universal Listing]:::toolClass
+        end
+        
+        subgraph row4[" "]
+            UPDATERES[🔧 JiraUpdateResource<br/>━━━━━━━━━━━━━━━━━<br/>Update Any Resource<br/>Project/Board]:::toolClass
+            SPRINT[🏃 JiraSprintOps<br/>━━━━━━━━━━━━━<br/>Sprint Management<br/>Full Lifecycle]:::toolClass
+        end
+    end
+    
+    %% API layer
+    API[🌐 JIRA API LAYER<br/>━━━━━━━━━━━━━━<br/>REST API v3 Integration • Agile API Support<br/>User Account ID Handling • Rate Limiting<br/>JQL Query Processing • Pagination Support]:::apiClass
+    
+    %% Connections
+    AGENT --> handlers
+    A2A --> tools
+    LG --> tools
+    SEC --> tools
+    
+    GET --> API
+    SEARCH --> API
+    CREATE --> API
+    UPDATE --> API
+    COLLAB --> API
+    ANALYTICS --> API
+    PROJ --> API
+    GETRES --> API
+    LISTRES --> API
+    UPDATERES --> API
+    SPRINT --> API
+    
+    %% Style the subgraphs
+    style handlers fill:rgba(33,150,243,0.1),stroke:#2196f3,stroke-width:2px
+    style tools fill:rgba(255,152,0,0.1),stroke:#ff9800,stroke-width:2px,stroke-dasharray: 5 5
+    style row1 fill:none,stroke:none
+    style row2 fill:none,stroke:none
+    style row3 fill:none,stroke:none
+    style row4 fill:none,stroke:none
 ```
 
 ## Tools Overview

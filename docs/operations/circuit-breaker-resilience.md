@@ -12,27 +12,32 @@ Circuit breakers are used **exclusively for network operations** in this system:
 
 ## Circuit Breaker States
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Circuit Breaker States                       │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  ┌────────────┐     failures >= threshold     ┌────────────┐    │
-│  │            │──────────────────────────────>│            │    │
-│  │   CLOSED   │                               │    OPEN    │    │
-│  │  (Normal)  │<──────────────────────────────│   (Fail)   │    │
-│  └─────┬──────┘        success                └──────┬─────┘    │
-│        │ ^                                           │          │
-│        │ │                                           │          │
-│        │ │ success           timeout elapsed         │          │
-│        │ └───────────────┐                           │          │
-│        │                 │                           ▼          │
-│        │                 │                   ┌──────────────┐   │
-│        │ failure         │                   │  HALF_OPEN   │   │
-│        └─────────────────┴───────────────────│   (Test)     │   │
-│                                              └──────────────┘   │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+stateDiagram-v2
+    %% Define state styles
+    [*] --> CLOSED: Initial State
+    
+    %% State definitions with descriptions
+    CLOSED: CLOSED<br/>━━━━━━━━<br/>Normal Operation<br/>All requests allowed
+    OPEN: OPEN<br/>━━━━━━<br/>Circuit Broken<br/>Requests rejected
+    HALF_OPEN: HALF_OPEN<br/>━━━━━━━━━━━<br/>Testing Recovery<br/>Limited requests
+    
+    %% State transitions
+    CLOSED --> OPEN: failures >= threshold<br/>(5 failures)
+    CLOSED --> CLOSED: Request Success
+    
+    OPEN --> HALF_OPEN: Timeout Elapsed<br/>(60 seconds)
+    OPEN --> OPEN: Reject Requests<br/>(fail immediately)
+    
+    HALF_OPEN --> CLOSED: Test Success<br/>(3 successful calls)
+    HALF_OPEN --> OPEN: Test Failure<br/>(any failure)
+    
+    %% Add visual indicators
+    note right of CLOSED: ✅ Healthy State<br/>━━━━━━━━━━━━<br/>• Normal latency<br/>• Full throughput<br/>• Monitor failures
+    
+    note right of OPEN: ❌ Protection Mode<br/>━━━━━━━━━━━━━━<br/>• Fast fail<br/>• No network calls<br/>• Wait for timeout
+    
+    note right of HALF_OPEN: 🔄 Recovery Test<br/>━━━━━━━━━━━━━<br/>• Limited calls<br/>• Check health<br/>• Careful monitoring
 ```
 
 - **CLOSED**: Normal operation, requests pass through

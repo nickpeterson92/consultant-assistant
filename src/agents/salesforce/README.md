@@ -37,48 +37,67 @@ The Salesforce agent is built on:
 - **Unified Tools**: 6 comprehensive tools replacing 15+ legacy tools
 - **Smart Features**: Auto ID detection, natural language queries, cross-object search
 
-```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                           SALESFORCE AGENT                                 │
-│  ┌──────────────────┐  ┌─────────────────┐  ┌─────────────────────────┐    │
-│  │   A2A Handler    │  │   LangGraph     │  │   Security Layer        │    │
-│  │   JSON-RPC 2.0   │  │   State Mgmt    │  │   Input Validation      │    │
-│  │   (/a2a endpoint)│  │   Memory        │  │   SOQL Injection Prev   │    │
-│  └──────────────────┘  └─────────────────┘  └─────────────────────────┘    │
-│                                   │                                        │
-│  ┌────────────────────────────────┴────────────────────────────────────┐   │
-│  │                      UNIFIED TOOL EXECUTION LAYER                   │   │
-│  │                                                                     │   │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐  │   │
-│  │  │ SalesforceGet   │  │SalesforceSearch │  │ SalesforceCreate    │  │   │
-│  │  │ Record by ID    │  │Natural Language │  │ Any Object Type     │  │   │
-│  │  │ Auto-detection  │  │ & Structured    │  │ Field Validation    │  │   │
-│  │  └─────────────────┘  └─────────────────┘  └─────────────────────┘  │   │
-│  │                                                                     │   │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐  │   │
-│  │  │SalesforceUpdate │  │ SalesforceSOSL  │  │SalesforceAnalytics  │  │   │
-│  │  │ Any Record      │  │Cross-obj Search │  │ Metrics & Aggreg    │  │   │
-│  │  │ By ID/Criteria  │  │ Global Results  │  │ Business Intel      │  │   │
-│  │  └─────────────────┘  └─────────────────┘  └─────────────────────┘  │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                   │                                        │
-│  ┌────────────────────────────────┴────────────────────────────────────┐   │
-│  │                       SOQL QUERY BUILDER                            │   │
-│  │                                                                     │   │
-│  │  • Fluent Interface     • Aggregate Functions  • Security Features  │   │
-│  │  • Query Templates      • Relationship Queries • Performance Opts   │   │
-│  │  • SOSL Support        • Subquery Building    • Error Handling      │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                   │                                        │
-│  ┌────────────────────────────────┴────────────────────────────────────┐   │
-│  │                        SALESFORCE API LAYER                         │   │
-│  │                                                                     │   │
-│  │  • REST API Integration                                             │   │
-│  │  • Connection Management                                            │   │
-│  │  • Rate Limiting & Retries                                          │   │
-│  │  • Result Processing                                                │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-└────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    %% Define styles
+    classDef agentClass fill:#1565c0,stroke:#0d47a1,stroke-width:4px,color:#ffffff,font-weight:bold
+    classDef handlerClass fill:#2e7d32,stroke:#1b5e20,stroke-width:2px,color:#ffffff
+    classDef toolClass fill:#ff6f00,stroke:#e65100,stroke-width:2px,color:#ffffff
+    classDef builderClass fill:#6a1b9a,stroke:#4a0080,stroke-width:2px,color:#ffffff
+    classDef apiClass fill:#00838f,stroke:#006064,stroke-width:2px,color:#ffffff
+    classDef securityClass fill:#c62828,stroke:#8b0000,stroke-width:2px,color:#ffffff
+    
+    %% Main agent
+    AGENT[☁️ SALESFORCE AGENT<br/>━━━━━━━━━━━━━━━━━━<br/>6 Unified Tools • Natural Language • Smart Detection]:::agentClass
+    
+    %% Top layer components
+    subgraph handlers[" "]
+        A2A[🌐 A2A Handler<br/>━━━━━━━━━━━━<br/>JSON-RPC 2.0<br/>/a2a endpoint]:::handlerClass
+        LG[📊 LangGraph<br/>━━━━━━━━━━<br/>State Mgmt<br/>Memory]:::handlerClass
+        SEC[🔒 Security Layer<br/>━━━━━━━━━━━━━━<br/>Input Validation<br/>SOQL Injection Prev]:::securityClass
+    end
+    
+    %% Unified tools layer
+    subgraph tools["🛠️ UNIFIED TOOL EXECUTION LAYER"]
+        subgraph row1[" "]
+            GET[📥 SalesforceGet<br/>━━━━━━━━━━━━━━<br/>Record by ID<br/>Auto-detection]:::toolClass
+            SEARCH[🔍 SalesforceSearch<br/>━━━━━━━━━━━━━━━━<br/>Natural Language<br/>& Structured]:::toolClass
+            CREATE[➕ SalesforceCreate<br/>━━━━━━━━━━━━━━━━<br/>Any Object Type<br/>Field Validation]:::toolClass
+        end
+        
+        subgraph row2[" "]
+            UPDATE[✏️ SalesforceUpdate<br/>━━━━━━━━━━━━━━━━<br/>Any Record<br/>By ID/Criteria]:::toolClass
+            SOSL[🌐 SalesforceSOSL<br/>━━━━━━━━━━━━━━━<br/>Cross-obj Search<br/>Global Results]:::toolClass
+            ANALYTICS[📊 SalesforceAnalytics<br/>━━━━━━━━━━━━━━━━━━<br/>Metrics & Aggreg<br/>Business Intel]:::toolClass
+        end
+    end
+    
+    %% Query builder
+    BUILDER[🔧 SOQL QUERY BUILDER<br/>━━━━━━━━━━━━━━━━━━━━<br/>Fluent Interface • Aggregate Functions • Security Features<br/>Query Templates • Relationship Queries • Performance Opts<br/>SOSL Support • Subquery Building • Error Handling]:::builderClass
+    
+    %% API layer
+    API[☁️ SALESFORCE API LAYER<br/>━━━━━━━━━━━━━━━━━━━━━<br/>REST API Integration • Connection Management<br/>Rate Limiting & Retries • Result Processing]:::apiClass
+    
+    %% Connections
+    AGENT --> handlers
+    A2A --> tools
+    LG --> tools
+    SEC --> tools
+    
+    GET --> BUILDER
+    SEARCH --> BUILDER
+    CREATE --> BUILDER
+    UPDATE --> BUILDER
+    SOSL --> BUILDER
+    ANALYTICS --> BUILDER
+    
+    BUILDER --> API
+    
+    %% Style the subgraphs
+    style handlers fill:rgba(33,150,243,0.1),stroke:#1565c0,stroke-width:2px
+    style tools fill:rgba(255,111,0,0.1),stroke:#e65100,stroke-width:2px,stroke-dasharray: 5 5
+    style row1 fill:none,stroke:none
+    style row2 fill:none,stroke:none
 ```
 
 ## Tools Overview

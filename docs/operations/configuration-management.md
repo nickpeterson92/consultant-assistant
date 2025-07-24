@@ -1,34 +1,256 @@
 # Configuration Management
 
-Centralized, type-safe, and environment-aware configuration system with hierarchical loading, validation, and secure handling of sensitive data.
+Centralized, type-safe configuration system with hierarchical loading, validation, and secure handling of sensitive data through the UnifiedConfig implementation.
 
 ## Overview
 
 The configuration system provides a three-layer hierarchy:
 1. **Environment Variables** (highest priority) - secrets and overrides
-2. **Configuration Files** (medium priority) - environment-specific settings
+2. **Configuration Files** (medium priority) - environment-specific settings  
 3. **Hardcoded Defaults** (lowest priority) - universal constants
 
 ## Architecture
 
+```mermaid
+flowchart TB
+    %% Define styles
+    classDef envClass fill:#4caf50,stroke:#2e7d32,stroke-width:3px,color:#ffffff,font-weight:bold
+    classDef fileClass fill:#2196f3,stroke:#0d47a1,stroke-width:3px,color:#ffffff,font-weight:bold
+    classDef defaultClass fill:#ff9800,stroke:#e65100,stroke-width:3px,color:#ffffff,font-weight:bold
+    classDef configClass fill:#9c27b0,stroke:#6a1b9a,stroke-width:4px,color:#ffffff,font-weight:bold
+    classDef processClass fill:#00bcd4,stroke:#006064,stroke-width:2px,color:#ffffff
+    
+    %% Main config system
+    CONFIG[🔧 UNIFIED CONFIG SYSTEM<br/>━━━━━━━━━━━━━━━━━━━━<br/>Singleton Instance • Type-Safe Access • Deep Merge]:::configClass
+    
+    %% Priority layers
+    ENV[🔐 ENVIRONMENT VARIABLES<br/>━━━━━━━━━━━━━━━━━━━━━<br/>Highest Priority<br/>Secrets & Overrides]:::envClass
+    FILE[📄 system_config.json<br/>━━━━━━━━━━━━━━━━━<br/>Medium Priority<br/>Team Settings]:::fileClass
+    DEFAULTS[⚙️ CODE DEFAULTS<br/>━━━━━━━━━━━━━━<br/>Lowest Priority<br/>Factory Settings]:::defaultClass
+    
+    %% Loading process
+    CONFIG --> LOAD1[Load Code<br/>Defaults]:::processClass
+    CONFIG --> LOAD2[Load JSON<br/>Config File]:::processClass
+    CONFIG --> LOAD3[Load Secrets<br/>from Env]:::processClass
+    CONFIG --> LOAD4[Apply Env<br/>Overrides]:::processClass
+    
+    %% Data flow
+    DEFAULTS -.->|"_get_code_defaults()"| LOAD1
+    FILE -.->|"deep merge"| LOAD2
+    ENV -.->|"secrets only"| LOAD3
+    ENV -.->|"config overrides"| LOAD4
+    
+    %% Access patterns
+    CONFIG --> ACCESS1[Dot Notation<br/>Access]:::processClass
+    CONFIG --> ACCESS2[Secret<br/>Access]:::processClass
+    CONFIG --> ACCESS3[Property<br/>Shortcuts]:::processClass
+```
+
+## Implementation Details
+
+### UnifiedConfig Class
+
+Located in `src/utils/config/unified_config.py`, provides centralized configuration management:
+
+```python
+from src.utils.config import config
+
+# Access configuration values
+db_path = config.db_path
+llm_temp = config.get('llm.temperature', 0.3)
+
+# Access secrets securely
+api_key = config.get_secret('azure_openai_key', required=True)
+
+# Check if optional features available
+if config.has_secret('tavily_api_key'):
+    # Enable web search functionality
+```
+
 ### Configuration Hierarchy
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                    ENVIRONMENT VARIABLES (Highest Priority)         │
-│                    Wins every time - like the boss's orders         │
-├─────────────────────────────────────────────────────────────────────┤
-│                    CONFIG FILES (Medium Priority)                   │
-│                    Team decisions - used when boss doesn't care     │
-├─────────────────────────────────────────────────────────────────────┤
-│                    HARDCODED DEFAULTS (Lowest Priority)             │
-│                    Factory settings - only used as last resort      │
-└─────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    %% Define styles
+    classDef secretClass fill:#f44336,stroke:#b71c1c,stroke-width:2px,color:#ffffff
+    classDef configClass fill:#2196f3,stroke:#0d47a1,stroke-width:2px,color:#ffffff
+    classDef mergeClass fill:#4caf50,stroke:#2e7d32,stroke-width:2px,color:#ffffff
+    
+    %% Sources
+    subgraph sources["Configuration Sources"]
+        DEF[Code Defaults]:::configClass
+        JSON[system_config.json]:::configClass
+        SEC[ENV Secrets]:::secretClass
+        OVER[ENV Overrides]:::configClass
+    end
+    
+    %% Merge process
+    subgraph merge["Merge Process"]
+        M1[Deep Merge<br/>Defaults + JSON]:::mergeClass
+        M2[Add Secrets<br/>Layer]:::mergeClass
+        M3[Apply<br/>Overrides]:::mergeClass
+    end
+    
+    %% Final config
+    FINAL[Final Configuration<br/>Dictionary]:::mergeClass
+    
+    %% Flow
+    DEF --> M1
+    JSON --> M1
+    M1 --> M2
+    SEC --> M2
+    M2 --> M3
+    OVER --> M3
+    M3 --> FINAL
 ```
 
-### Centralized Constants
+## Configuration Structure
 
-All hardcoded values are centralized in `src/utils/constants.py`:
+### system_config.json
+
+```json
+{
+  "database": {
+    "path": "memory_store.db",
+    "timeout": 30.0,
+    "check_same_thread": false
+  },
+  "logging": {
+    "level": "INFO",
+    "external_logs_dir": "logs",
+    "max_file_size": 10485760,
+    "backup_count": 5,
+    "buffer_size": 1000
+  },
+  "llm": {
+    "model": "gpt-4o-mini",
+    "temperature": 0.1,
+    "max_tokens": 4000,
+    "timeout": 30
+  },
+  "a2a": {
+    "timeout": 30,
+    "health_check_timeout": 10,
+    "retry_attempts": 3,
+    "circuit_breaker_threshold": 5,
+    "connection_pool_size": 50
+  },
+  "agents": {
+    "salesforce": {
+      "port": 8001,
+      "host": "0.0.0.0"
+    },
+    "jira": {
+      "port": 8002,
+      "host": "0.0.0.0"
+    },
+    "servicenow": {
+      "port": 8003,
+      "host": "0.0.0.0"
+    }
+  },
+  "conversation": {
+    "summary_interval": 5,
+    "summary_length": 500,
+    "max_messages_in_context": 20
+    "response_max_length": 2000
+  }
+}
+```
+
+## Environment Variables
+
+### Secrets (via _load_secrets)
+
+These are loaded ONLY from environment variables for security:
+
+```bash
+# Azure OpenAI (Required)
+AZURE_OPENAI_API_KEY=your-key
+AZURE_OPENAI_ENDPOINT=https://your-instance.openai.azure.com/
+AZURE_OPENAI_CHAT_DEPLOYMENT_NAME=gpt-4o-mini
+AZURE_OPENAI_API_VERSION=2024-06-01
+
+# Salesforce (Optional)
+SFDC_USER=your@email.com
+SFDC_PASS=your-password
+SFDC_TOKEN=your-security-token
+
+# Jira (Optional)
+JIRA_URL=https://your-domain.atlassian.net
+JIRA_USER=your@email.com
+JIRA_TOKEN=your-api-token
+
+# ServiceNow (Optional)
+SERVICENOW_URL=https://your-instance.service-now.com
+SERVICENOW_USER=your-username
+SERVICENOW_PASS=your-password
+
+# Tavily Web Search (Optional)
+TAVILY_API_KEY=your-api-key
+```
+
+### Configuration Overrides (via _apply_env_overrides)
+
+These override values from system_config.json:
+
+```bash
+# Database
+DB_PATH=custom_database.db
+DB_TIMEOUT=60
+
+# Logging
+LOG_LEVEL=DEBUG
+LOG_DIR=custom_logs
+LOG_MAX_SIZE=52428800  # 50MB
+LOG_BACKUP_COUNT=10
+
+# LLM Settings
+LLM_MODEL=gpt-4-turbo
+LLM_TEMPERATURE=0.7
+LLM_MAX_TOKENS=8000
+LLM_TIMEOUT=60
+
+# A2A Protocol
+A2A_TIMEOUT=45
+A2A_HEALTH_CHECK_TIMEOUT=15
+A2A_RETRY_ATTEMPTS=5
+A2A_CIRCUIT_BREAKER_THRESHOLD=10
+A2A_CONNECTION_POOL_SIZE=100
+
+# Debug Mode
+DEBUG_MODE=true
+```
+
+## Type Conversion
+
+Environment variables are automatically converted to appropriate types:
+
+```mermaid
+flowchart LR
+    %% Define styles
+    classDef stringClass fill:#4caf50,stroke:#2e7d32,stroke-width:2px,color:#ffffff
+    classDef convertClass fill:#2196f3,stroke:#0d47a1,stroke-width:2px,color:#ffffff
+    
+    %% Conversion flow
+    ENV[Environment<br/>String Value]:::stringClass
+    
+    ENV --> BOOL{Boolean?}
+    BOOL -->|"true/false"| B[bool]:::convertClass
+    
+    ENV --> INT{Integer?}
+    INT -->|"digits only"| I[int]:::convertClass
+    
+    ENV --> FLOAT{Float?}
+    FLOAT -->|"with decimal"| F[float]:::convertClass
+    
+    ENV --> STR{String?}
+    STR -->|"default"| S[str]:::convertClass
+```
+
+## Centralized Constants
+
+All hardcoded values are centralized in `src/utils/config/constants.py`:
 
 ```python
 # Memory and storage keys
@@ -39,534 +261,243 @@ STATE_KEY_PREFIX = "state_"
 # Network constants
 DEFAULT_A2A_PORT = 8000
 SALESFORCE_AGENT_PORT = 8001
+JIRA_AGENT_PORT = 8002
+SERVICENOW_AGENT_PORT = 8003
 
 # Circuit breaker defaults
 CIRCUIT_BREAKER_FAILURE_THRESHOLD = 5
 CIRCUIT_BREAKER_TIMEOUT = 30
-```
+CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS = 3
 
-## Configuration Files
+# Memory defaults
+MEMORY_DECAY_RATE = 0.1
+MEMORY_MIN_RELEVANCE = 0.05
+MEMORY_CLEANUP_THRESHOLD = 0.1
 
-### Master Configuration (system_config.json)
-
-```json
-{
-  "environment": "development",
-  "debug": false,
-  "version": "1.0.0",
-  
-  "database": {
-    "path": "./memory_store.db",
-    "timeout": 30.0,
-    "pool_size": 20,
-    "wal_mode": true
-  },
-  
-  "llm": {
-    "provider": "azure_openai",
-    "model": "gpt-4",
-    "temperature": 0.1,
-    "max_tokens": 4000,
-    "timeout": 120.0,
-    "retry_attempts": 3
-  },
-  
-  "a2a": {
-    "timeout": 30,
-    "health_check_timeout": 10,
-    "retry_attempts": 3,
-    "circuit_breaker_threshold": 5,
-    "connection_pool_size": 50
-  },
-  
-  "agents": {
-    "orchestrator": {
-      "host": "localhost",
-      "port": 8000
-    },
-    "salesforce": {
-      "host": "localhost", 
-      "port": 8001,
-      "capabilities": ["salesforce_operations", "crm_management"]
-    }
-  }
-}
-```
-
-### Agent Registry (agent_registry.json)
-
-```json
-{
-  "agents": [
-    {
-      "name": "salesforce-agent",
-      "endpoint": "http://localhost:8001",
-      "agent_card": {
-        "name": "salesforce-agent",
-        "version": "1.0.0",
-        "description": "Specialized agent for Salesforce CRM operations",
-        "capabilities": [
-          "salesforce_operations",
-          "lead_management",
-          "account_management"
-        ],
-        "endpoints": {
-          "process_task": "/a2a",
-          "agent_card": "/a2a/agent-card"
-        }
-      },
-      "status": "online"
-    }
-  ]
-}
-```
-
-## Environment Variables
-
-### Core Settings
-
-```bash
-# Environment
-ENVIRONMENT=development          # development, staging, production
-DEBUG_MODE=true                 # Enable debug logging
-
-# Azure OpenAI (Sensitive)
-AZURE_OPENAI_ENDPOINT=https://your-instance.openai.azure.com/
-AZURE_OPENAI_API_KEY=your-api-key
-AZURE_OPENAI_CHAT_DEPLOYMENT_NAME=gpt-4-deployment
-
-# Salesforce (Sensitive)
-SFDC_USER=salesforce-username
-SFDC_PASS=salesforce-password
-SFDC_TOKEN=salesforce-security-token
-
-# Database
-DATABASE_PATH=./memory_store.db
-DATABASE_TIMEOUT=30
-
-# LLM Settings
-LLM_TEMPERATURE=0.1
-LLM_MAX_TOKENS=4000
-LLM_TIMEOUT=120
-
-# A2A Protocol
-A2A_TIMEOUT=30
-A2A_RETRY_ATTEMPTS=3
-A2A_CIRCUIT_BREAKER_THRESHOLD=5
-```
-
-## Configuration Classes
-
-### Base Configuration
-
-```python
-@dataclass
-class BaseConfig:
-    """Base configuration with common fields"""
-    environment: str = "development"
-    debug: bool = False
-    version: str = "1.0.0"
-```
-
-### Database Configuration
-
-```python
-@dataclass
-class DatabaseConfig:
-    """SQLite database configuration"""
-    path: str = "./memory_store.db"
-    timeout: float = 30.0
-    pool_size: int = 20
-    auto_commit: bool = True
-    wal_mode: bool = True
-    
-    @property
-    def connection_string(self) -> str:
-        return f"sqlite:///{self.path}?timeout={self.timeout}"
-```
-
-### LLM Configuration
-
-```python
-@dataclass
-class LLMConfig:
-    """Language model configuration"""
-    provider: str = "azure_openai"
-    model: str = "gpt-4"
-    temperature: float = 0.1
-    max_tokens: int = 4000
-    timeout: float = 120.0
-    retry_attempts: int = 3
-    cost_per_1k_tokens: Dict[str, float] = field(default_factory=lambda: {
-        "input": 0.01,
-        "output": 0.03
-    })
-    
-    def calculate_cost(self, input_tokens: int, output_tokens: int) -> float:
-        """Calculate cost for token usage"""
-        input_cost = (input_tokens / 1000) * self.cost_per_1k_tokens["input"]
-        output_cost = (output_tokens / 1000) * self.cost_per_1k_tokens["output"]
-        return input_cost + output_cost
-```
-
-### A2A Configuration
-
-```python
-@dataclass
-class A2AConfig:
-    """Agent-to-Agent protocol configuration"""
-    timeout: int = 30
-    health_check_timeout: int = 10
-    retry_attempts: int = 3
-    circuit_breaker_threshold: int = 5
-    connection_pool_size: int = 50
-    connection_pool_size_per_host: int = 20
-    
-    def get_pool_config(self) -> Dict[str, Any]:
-        """Get aiohttp connection pool configuration"""
-        return {
-            "limit": self.connection_pool_size,
-            "limit_per_host": self.connection_pool_size_per_host,
-            "ttl_dns_cache": 300,
-            "keepalive_timeout": 30,
-            "enable_cleanup_closed": True
-        }
-```
-
-## Configuration Manager
-
-### Singleton Implementation
-
-```python
-class ConfigManager:
-    """Centralized configuration management"""
-    _instance = None
-    _config = None
-    _lock = threading.Lock()
-    
-    def __new__(cls):
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-        return cls._instance
-    
-    def load_config(self, config_path: str = "system_config.json"):
-        """Load configuration from file and environment"""
-        # Load from file
-        if os.path.exists(config_path):
-            with open(config_path, 'r') as f:
-                file_config = json.load(f)
-        else:
-            file_config = {}
-        
-        # Override with environment variables
-        self._config = self._merge_with_env(file_config)
-        
-        # Validate configuration
-        self._validate_config()
-        
-        return self._config
-```
-
-### Environment Variable Override
-
-```python
-def _merge_with_env(self, config: Dict[str, Any]) -> Dict[str, Any]:
-    """Override config values with environment variables"""
-    
-    # Map of env vars to config paths
-    env_mapping = {
-        "ENVIRONMENT": "environment",
-        "DEBUG_MODE": "debug",
-        "DATABASE_PATH": "database.path",
-        "DATABASE_TIMEOUT": "database.timeout",
-        "LOG_LEVEL": "logging.level",
-        "LLM_TEMPERATURE": "llm.temperature",
-        "LLM_MAX_TOKENS": "llm.max_tokens",
-        "A2A_TIMEOUT": "a2a.timeout"
-    }
-    
-    for env_var, config_path in env_mapping.items():
-        if env_var in os.environ:
-            set_nested_value(config, config_path, 
-                           parse_env_value(os.environ[env_var]))
-    
-    return config
+# Tool names
+SALESFORCE_AGENT_TOOL_NAME = "salesforce_agent"
+JIRA_AGENT_TOOL_NAME = "jira_agent"
+SERVICENOW_AGENT_TOOL_NAME = "servicenow_agent"
 ```
 
 ## Access Patterns
 
-### Global Access Functions
+### Dot Notation Access
 
 ```python
-# Cached configuration access
-_config_cache = {}
+# Deep access with defaults
+timeout = config.get('a2a.timeout', 30)
+pool_size = config.get('a2a.connection_pool_size', 50)
 
-def get_system_config() -> SystemConfig:
-    """Get complete system configuration"""
-    if "system" not in _config_cache:
-        _config_cache["system"] = ConfigManager().get_system_config()
-    return _config_cache["system"]
-
-def get_llm_config() -> LLMConfig:
-    """Get LLM configuration"""
-    if "llm" not in _config_cache:
-        _config_cache["llm"] = ConfigManager().get_llm_config()
-    return _config_cache["llm"]
-
-def get_a2a_config() -> A2AConfig:
-    """Get A2A protocol configuration"""
-    if "a2a" not in _config_cache:
-        _config_cache["a2a"] = ConfigManager().get_a2a_config()
-    return _config_cache["a2a"]
+# Nested config access
+log_level = config.get('logging.level', 'INFO')
 ```
 
-### Component Usage
+### Property Shortcuts
+
+Common values have property shortcuts for convenience:
 
 ```python
-# In orchestrator
-llm_config = get_llm_config()
-llm = AzureChatOpenAI(
-    temperature=llm_config.temperature,
-    max_tokens=llm_config.max_tokens,
-    timeout=llm_config.timeout
-)
+# Database properties
+config.db_path          # database.path
+config.db_timeout       # database.timeout
 
-# In A2A client
-a2a_config = get_a2a_config()
-connector = aiohttp.TCPConnector(
-    **a2a_config.get_pool_config()
-)
+# LLM properties
+config.llm_model        # llm.model
+config.llm_temperature  # llm.temperature
+config.llm_max_tokens   # llm.max_tokens
 
-# In storage layer
-db_config = get_database_config()
-engine = create_engine(
-    db_config.connection_string,
-    pool_size=db_config.pool_size
-)
+# A2A properties
+config.a2a_timeout      # a2a.timeout
+
+# Logging properties
+config.log_level        # logging.level
+config.log_dir          # logging.external_logs_dir
 ```
 
-## Security
-
-### Sensitive Data Handling
+### Secret Access
 
 ```python
-# Never log sensitive configuration
-SENSITIVE_KEYS = {
-    "AZURE_OPENAI_API_KEY",
-    "SFDC_PASS",
-    "SFDC_TOKEN",
-    "DATABASE_PASSWORD"
-}
+# Required secrets (raises error if missing)
+api_key = config.get_secret('azure_openai_key', required=True)
 
-def sanitize_config_for_logging(config: Dict[str, Any]) -> Dict[str, Any]:
-    """Remove sensitive values before logging"""
-    sanitized = deepcopy(config)
-    
-    for key in SENSITIVE_KEYS:
-        if key in sanitized:
-            sanitized[key] = "***REDACTED***"
-    
-    return sanitized
+# Optional secrets (returns None if missing)
+tavily_key = config.get_secret('tavily_api_key', required=False)
+
+# Check if secret exists
+if config.has_secret('jira_token'):
+    # Enable Jira integration
 ```
 
-### Best Practices
+## Loading Process
 
-- Never commit secrets to Git
-- Use environment variables for sensitive data
-- Rotate credentials regularly
-- Audit configuration access
-- Encrypt configuration files when needed
-
-## Validation
-
-### Configuration Validation
-
-```python
-def validate_config(config: Dict[str, Any]) -> None:
-    """Validate configuration completeness and correctness"""
+```mermaid
+sequenceDiagram
+    participant App
+    participant DotEnv as .env File
+    participant ENV as Environment
+    participant UC as UnifiedConfig
+    participant JSON as system_config.json
     
-    # Required fields
-    required_fields = [
-        "llm.provider",
-        "llm.model",
-        "database.path",
-        "a2a.timeout"
-    ]
+    App->>DotEnv: load_dotenv()
+    DotEnv->>ENV: Set variables
+    App->>UC: Import config
     
-    for field in required_fields:
-        if not get_nested_value(config, field):
-            raise ConfigurationError(f"Missing required field: {field}")
+    rect rgba(33, 150, 243, 0.1)
+        note over UC: Initialization
+        UC->>UC: _get_code_defaults()
+        UC->>JSON: Load JSON config
+        UC->>UC: Deep merge with defaults
+        UC->>ENV: _load_secrets()
+        UC->>ENV: _apply_env_overrides()
+        UC->>UC: Store final config
+    end
     
-    # Value constraints
-    if config.get("llm", {}).get("temperature", 0) > 1.0:
-        raise ConfigurationError("LLM temperature must be <= 1.0")
-    
-    if config.get("a2a", {}).get("timeout", 0) < 1:
-        raise ConfigurationError("A2A timeout must be >= 1")
-```
-
-### Type Safety
-
-```python
-def parse_config_value(value: Any, target_type: Type[T]) -> T:
-    """Safely parse configuration values to target types"""
-    
-    if target_type == bool:
-        if isinstance(value, str):
-            return value.lower() in ('true', '1', 'yes', 'on')
-        return bool(value)
-    
-    elif target_type == int:
-        return int(value)
-    
-    elif target_type == float:
-        return float(value)
-    
-    else:
-        raise ValueError(f"Unsupported type: {target_type}")
-```
-
-## Environment-Specific Configuration
-
-### Development vs Production
-
-```python
-# Development
-{
-  "environment": "development",
-  "debug": true,
-  "llm": {
-    "temperature": 0.7,  // More creative
-    "timeout": 30        // Fail fast
-  }
-}
-
-# Production
-{
-  "environment": "production", 
-  "debug": false,
-  "llm": {
-    "temperature": 0.1,  // Consistent
-    "timeout": 120,      // Reliable
-    "retry_attempts": 5  // High availability
-  }
-}
-```
-
-### Environment Detection
-
-```python
-class Environment(Enum):
-    DEVELOPMENT = "development"
-    STAGING = "staging"
-    PRODUCTION = "production"
-    
-    @classmethod
-    def current(cls):
-        """Get current environment"""
-        env_name = os.environ.get("ENVIRONMENT", "development").lower()
-        return cls(env_name)
-    
-    def is_production(self):
-        return self == Environment.PRODUCTION
-```
-
-## Hot Reloading
-
-### File Watcher
-
-```python
-class ConfigWatcher:
-    """Watch configuration files for changes"""
-    
-    def __init__(self, config_path: str, callback: Callable):
-        self.config_path = config_path
-        self.callback = callback
-        self.observer = Observer()
-    
-    def start(self):
-        """Start watching for changes"""
-        event_handler = FileSystemEventHandler()
-        event_handler.on_modified = self._on_modified
-        
-        self.observer.schedule(
-            event_handler,
-            os.path.dirname(self.config_path),
-            recursive=False
-        )
-        self.observer.start()
-```
-
-### Dynamic Reconfiguration
-
-```python
-def reload_configuration():
-    """Reload configuration without restart"""
-    global _config_cache
-    
-    # Clear cache
-    _config_cache.clear()
-    
-    # Reload from files
-    ConfigManager().load_config()
-    
-    # Notify components
-    for component in registered_components:
-        component.on_config_reload()
-    
-    logger.info("Configuration reloaded successfully")
+    App->>UC: config.get('key')
+    UC-->>App: Return value
 ```
 
 ## Best Practices
 
-### Configuration Structure
-- Group related settings
-- Use consistent naming conventions
-- Provide sensible defaults
-- Document all options
-- Version configuration schema
+### 1. Never Store Secrets in Config Files
 
-### Security
-- Never commit secrets to version control
-- Use environment variables for sensitive data
-- Implement proper secret rotation
-- Audit configuration access
-- Encrypt sensitive configuration files
+```python
+# ❌ WRONG - Never put secrets in system_config.json
+{
+  "api_key": "sk-1234567890"  # Security risk!
+}
 
-### Performance
-- Cache configuration objects
-- Minimize file I/O operations
-- Use lazy loading for large configurations
-- Profile configuration access patterns
+# ✅ RIGHT - Use environment variables
+AZURE_OPENAI_API_KEY=sk-1234567890
+```
 
-### Testing
-- Test with different configuration combinations
-- Validate configuration on startup
-- Test environment variable overrides
-- Verify type conversions work correctly
+### 2. Use Type-Safe Access
 
-## Troubleshooting
+```python
+# ❌ Avoid direct dictionary access
+timeout = config.config['a2a']['timeout']
 
-### Common Issues
+# ✅ Use get() method with defaults
+timeout = config.get('a2a.timeout', 30)
+```
 
-1. **Missing Configuration**
-   - Check file exists and has valid JSON
-   - Verify environment variables are set
-   - Review validation error messages
+### 3. Validate Required Secrets Early
 
-2. **Type Mismatches**
-   - Verify JSON syntax is correct
-   - Check environment variable parsing
-   - Review configuration schema
+```python
+# In your initialization code
+try:
+    config.validate_required_secrets([
+        'azure_openai_key',
+        'azure_openai_endpoint'
+    ])
+except ValueError as e:
+    logger.error(f"Missing required secrets: {e}")
+    sys.exit(1)
+```
 
-3. **Override Not Working**
-   - Check environment variable names match mapping
-   - Verify loading order (env vars override files)
-   - Check for typos in variable names
+### 4. Use Constants for Keys
 
-4. **Performance Issues**
-   - Enable configuration caching
-   - Reduce file reads with hot reloading
-   - Profile configuration access patterns
+```python
+# ❌ Hardcoded strings scattered
+config.get('a2a.timeout', 30)
+
+# ✅ Centralized constants
+from src.utils.config.constants import A2A_TIMEOUT_KEY
+config.get(A2A_TIMEOUT_KEY, 30)
+```
+
+## Debugging Configuration
+
+### Check Active Configuration
+
+```python
+# Print entire configuration (excludes secrets)
+import json
+print(json.dumps(config.config, indent=2))
+
+# Check specific section
+print(json.dumps(config.get('a2a'), indent=2))
+```
+
+### Verify Environment Override
+
+```bash
+# Set environment variable
+export LOG_LEVEL=DEBUG
+
+# Run Python to check
+python -c "from src.utils.config import config; print(config.log_level)"
+# Should output: DEBUG
+```
+
+### List Available Secrets
+
+```python
+# Get all loaded secret keys (not values)
+secret_keys = list(config._secrets.keys())
+print(f"Available secrets: {secret_keys}")
+```
+
+## Common Issues and Solutions
+
+### Issue: Environment Variable Not Applied
+
+**Solution**: Ensure variable follows naming convention and type:
+```bash
+# Database timeout must be numeric
+export DB_TIMEOUT=30  # ✅ Correct
+export DB_TIMEOUT="30 seconds"  # ❌ Wrong - not numeric
+```
+
+### Issue: Config File Changes Not Reflected
+
+**Solution**: Config is loaded once on import. Restart application after changes:
+```python
+# Config is singleton - loaded once
+from src.utils.config import config  # Loads here
+# Changes to system_config.json after this won't be seen
+```
+
+### Issue: Secret Not Found
+
+**Solution**: Check exact environment variable name:
+```python
+# These are the exact mappings:
+AZURE_OPENAI_API_KEY → azure_openai_key
+SFDC_USER → sfdc_user
+JIRA_TOKEN → jira_token
+```
+
+## Integration with Other Systems
+
+### Logging Configuration
+
+The logging system reads from UnifiedConfig:
+```python
+# In SmartLogger initialization
+log_level = config.log_level
+log_dir = config.log_dir
+max_size = config.get('logging.max_file_size', 10485760)
+```
+
+### Database Configuration
+
+AsyncStoreAdapter uses config for connection:
+```python
+# In storage initialization
+db_path = config.db_path
+timeout = config.db_timeout
+check_same_thread = config.get('database.check_same_thread', False)
+```
+
+### LLM Configuration
+
+All LLM calls use config parameters:
+```python
+# In LLM initialization
+model = config.llm_model
+temperature = config.llm_temperature
+max_tokens = config.llm_max_tokens
+```
+
+This unified configuration system provides a single source of truth for all system settings while maintaining security, type safety, and ease of use.

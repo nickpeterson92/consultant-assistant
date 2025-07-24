@@ -10,20 +10,31 @@ Enterprise-grade communication framework enabling reliable inter-agent communica
 
 ### Core Components
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        A2A Protocol Stack                       │
-├─────────────────────────────────────────────────────────────────┤
-│ Application Layer    │ AgentCard, Task, Artifact, Message       │
-├─────────────────────────────────────────────────────────────────┤
-│ Protocol Layer       │ JSON-RPC 2.0 Request/Response            │
-├─────────────────────────────────────────────────────────────────┤
-│ Resilience Layer     │ Circuit Breaker, Retry Logic             │
-├─────────────────────────────────────────────────────────────────┤
-│ Connection Layer     │ Connection Pool, Session Management      │
-├─────────────────────────────────────────────────────────────────┤
-│ Transport Layer      │ HTTP/HTTPS with aiohttp                  │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    %% Define styles for protocol layers
+    classDef stackClass fill:#1565c0,stroke:#0d47a1,stroke-width:3px,color:#ffffff,font-weight:bold
+    classDef appClass fill:#2e7d32,stroke:#1b5e20,stroke-width:2px,color:#ffffff
+    classDef protocolClass fill:#6a1b9a,stroke:#4a0080,stroke-width:2px,color:#ffffff
+    classDef resilienceClass fill:#d84315,stroke:#bf360c,stroke-width:2px,color:#ffffff
+    classDef connClass fill:#00838f,stroke:#006064,stroke-width:2px,color:#ffffff
+    classDef transportClass fill:#455a64,stroke:#263238,stroke-width:2px,color:#ffffff
+    
+    %% Protocol Stack
+    STACK[🌐 A2A PROTOCOL STACK]:::stackClass
+    
+    %% Layer components
+    STACK --> APP[📦 Application Layer<br/>━━━━━━━━━━━━━━━<br/>AgentCard • Task<br/>Artifact • Message]:::appClass
+    STACK --> PROTO[🔧 Protocol Layer<br/>━━━━━━━━━━━━━━<br/>JSON-RPC 2.0<br/>Request/Response]:::protocolClass
+    STACK --> RESIL[🛡️ Resilience Layer<br/>━━━━━━━━━━━━━━━━<br/>Circuit Breaker<br/>Retry Logic]:::resilienceClass
+    STACK --> CONN[🔌 Connection Layer<br/>━━━━━━━━━━━━━━━━<br/>Connection Pool<br/>Session Management]:::connClass
+    STACK --> TRANS[📡 Transport Layer<br/>━━━━━━━━━━━━━━━<br/>HTTP/HTTPS<br/>aiohttp]:::transportClass
+    
+    %% Show data flow
+    APP -.->|"Data Models"| PROTO
+    PROTO -.->|"Requests"| RESIL
+    RESIL -.->|"Protected Calls"| CONN
+    CONN -.->|"Network I/O"| TRANS
 ```
 
 ### Key Design Principles
@@ -494,35 +505,77 @@ async def call_many_agents():
 
 ### Task Execution Flow
 
-```
-Orchestrator                    A2A Protocol                    Specialized Agent
-     │                               │                                  │
-     ├──CREATE TASK─────────────────>│                                  │
-     │                               │                                  │
-     ├──POST /a2a───────────────────>│                                  │
-     │  {method: "process_task",     │                                  │
-     │   params: {task: {...}}}      │                                  │
-     │                               ├──VALIDATE REQUEST───────────────>│
-     │                               │                                  │
-     │                               │<─────PROCESS TASK────────────────┤
-     │                               │                                  │
-     │<──RETURN ARTIFACTS────────────┤<─────RETURN RESULT───────────────┤
-     │  {result: {artifacts: [...]}} │                                  │
-     │                               │                                  │
+```mermaid
+sequenceDiagram
+    %% Define participants with styling
+    participant Orch as 🧠 Orchestrator
+    participant A2A as 🌐 A2A Protocol
+    participant Agent as 🤖 Specialized Agent
+    
+    %% Task creation phase
+    rect rgba(33, 150, 243, 0.1)
+        note over Orch: Task Creation
+        Orch->>Orch: CREATE TASK<br/>UUID + Context
+    end
+    
+    %% Request phase
+    rect rgba(156, 39, 176, 0.1)
+        note over Orch,A2A: Request Phase
+        Orch->>A2A: POST /a2a<br/>{method: "process_task",<br/>params: {task: {...}}}
+        A2A->>A2A: Validate JSON-RPC
+        A2A->>Agent: Forward Request
+    end
+    
+    %% Processing phase
+    rect rgba(76, 175, 80, 0.1)
+        note over Agent: Processing Phase
+        Agent->>Agent: Validate Task
+        Agent->>Agent: Execute Logic
+        Agent->>Agent: Generate Artifacts
+    end
+    
+    %% Response phase
+    rect rgba(255, 152, 0, 0.1)
+        note over A2A,Orch: Response Phase
+        Agent-->>A2A: Return Result<br/>{artifacts: [...]}
+        A2A-->>Orch: JSON-RPC Response<br/>{result: {artifacts: [...]}}
+    end
 ```
 
 ### Service Discovery Flow
 
-```
-Orchestrator                    A2A Protocol                    Agent Registry
-     │                               │                                  │
-     ├──GET /a2a/agent-card─────────>│                                  │
-     │                               │                                  │
-     │<──RETURN CAPABILITIES─────────┤                                  │
-     │  {name, capabilities, ...}    │                                  │
-     │                               │                                  │
-     ├──REGISTER AGENT─────────────────────────────────────────────────>│
-     │                               │                                  │
+```mermaid
+sequenceDiagram
+    %% Define participants
+    participant Orch as 🧠 Orchestrator
+    participant A2A as 🌐 A2A Protocol
+    participant Reg as 📋 Agent Registry
+    participant Agent as 🤖 Agent
+    
+    %% Discovery phase
+    rect rgba(33, 150, 243, 0.1)
+        note over Orch,Agent: Agent Discovery
+        Orch->>Agent: GET /a2a/agent-card
+        Agent-->>Orch: Return AgentCard<br/>{name, version,<br/>capabilities, endpoints}
+    end
+    
+    %% Registration phase
+    rect rgba(156, 39, 176, 0.1)
+        note over Orch,Reg: Registration
+        Orch->>Reg: Register Agent<br/>{url, capabilities}
+        Reg->>Reg: Store in Registry
+        Reg-->>Orch: Confirm Registration
+    end
+    
+    %% Health check phase
+    rect rgba(76, 175, 80, 0.1)
+        note over Reg,Agent: Health Monitoring
+        loop Every 30s
+            Reg->>Agent: GET /health
+            Agent-->>Reg: {status: "healthy"}
+            Reg->>Reg: Update Status
+        end
+    end
 ```
 
 ## Connection Pool Management
@@ -559,8 +612,25 @@ Features:
 ## Resilience Patterns
 
 ### Circuit Breaker States
-```
-CLOSED → OPEN → HALF_OPEN → CLOSED
+
+```mermaid
+stateDiagram-v2
+    %% Define states with descriptions
+    [*] --> CLOSED: Initial State
+    
+    CLOSED --> OPEN: Failure Threshold<br/>Exceeded (5 failures)
+    CLOSED --> CLOSED: Request Success
+    
+    OPEN --> HALF_OPEN: Timeout Expired<br/>(60 seconds)
+    OPEN --> OPEN: Reject Requests
+    
+    HALF_OPEN --> CLOSED: Test Success<br/>(3 successful calls)
+    HALF_OPEN --> OPEN: Test Failure
+    
+    %% Add state descriptions
+    CLOSED: CLOSED<br/>━━━━━━━<br/>Normal Operation<br/>All requests allowed
+    OPEN: OPEN<br/>━━━━<br/>Circuit Broken<br/>Requests rejected
+    HALF_OPEN: HALF_OPEN<br/>━━━━━━━━━<br/>Testing Recovery<br/>Limited requests
 ```
 
 ### Retry Strategy

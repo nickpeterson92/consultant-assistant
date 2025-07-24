@@ -37,48 +37,67 @@ The ServiceNow agent is built on:
 - **Unified Tools**: 6 comprehensive tools covering all ITSM operations
 - **Smart Features**: NLQ support, auto table detection, workflow management
 
-```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                           SERVICENOW AGENT                                 │
-│  ┌──────────────────┐  ┌─────────────────┐  ┌─────────────────────────┐    │
-│  │   A2A Handler    │  │   LangGraph     │  │   Security Layer        │    │
-│  │   JSON-RPC 2.0   │  │   State Mgmt    │  │   Input Validation      │    │
-│  │   (/a2a endpoint)│  │   Memory        │  │  Glide Query Builder    │    │
-│  └──────────────────┘  └─────────────────┘  └─────────────────────────┘    │
-│                                   │                                        │
-│  ┌────────────────────────────────┴────────────────────────────────────┐   │
-│  │                    SPECIALIZED TOOL EXECUTION LAYER                 │   │
-│  │                                                                     │   │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐  │   │
-│  │  │ Incident Mgmt   │  │ Change Request  │  │ Problem Management  │  │   │
-│  │  │ (3 tools)       │  │ (3 tools)       │  │ (3 tools)           │  │   │
-│  │  │ Get,Create,Updt │  │ Get,Create,Updt │  │ Get,Create,Update   │  │   │
-│  │  └─────────────────┘  └─────────────────┘  └─────────────────────┘  │   │
-│  │                                                                     │   │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐  │   │
-│  │  │ Task Management │  │ User & CMDB     │  │ Global Search       │  │   │
-│  │  │ (3 tools)       │  │ (2 tools)       │  │ (1 tool)            │  │   │
-│  │  │ Get,Create,Updt │  │ Users, CIs      │  │ Cross-table Search  │  │   │
-│  │  └─────────────────┘  └─────────────────┘  └─────────────────────┘  │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                   │                                        │
-│  ┌────────────────────────────────┴────────────────────────────────────┐   │
-│  │                       GLIDE QUERY BUILDER                           │   │
-│  │                                                                     │   │
-│  │  • Natural Language Processing  • Query Templates    • Security     │   │
-│  │  • Field Value Mapping         • Operator Support   • Validation    │   │
-│  │  • Table-specific Queries      • Error Handling     • Performance   │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                   │                                        │
-│  ┌────────────────────────────────┴────────────────────────────────────┐   │
-│  │                       SERVICENOW API LAYER                          │   │
-│  │                                                                     │   │
-│  │  • REST API Integration                                             │   │
-│  │  • Table API Endpoints                                              │   │
-│  │  • Authentication & Sessions                                        │   │
-│  │  • Rate Limiting & Retries                                          │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-└────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    %% Define styles
+    classDef agentClass fill:#c62828,stroke:#8b0000,stroke-width:4px,color:#ffffff,font-weight:bold
+    classDef handlerClass fill:#2e7d32,stroke:#1b5e20,stroke-width:2px,color:#ffffff
+    classDef toolClass fill:#e65100,stroke:#bf360c,stroke-width:2px,color:#ffffff
+    classDef builderClass fill:#4527a0,stroke:#311b92,stroke-width:2px,color:#ffffff
+    classDef apiClass fill:#006064,stroke:#004d40,stroke-width:2px,color:#ffffff
+    classDef securityClass fill:#b71c1c,stroke:#7f0000,stroke-width:2px,color:#ffffff
+    
+    %% Main agent
+    AGENT[🎫 SERVICENOW AGENT<br/>━━━━━━━━━━━━━━━━━━━<br/>6 Unified Tools • NLQ Support • Workflow Mgmt • Analytics]:::agentClass
+    
+    %% Top layer components
+    subgraph handlers[" "]
+        A2A[🌐 A2A Handler<br/>━━━━━━━━━━━━<br/>JSON-RPC 2.0<br/>/a2a endpoint]:::handlerClass
+        LG[📊 LangGraph<br/>━━━━━━━━━━<br/>State Mgmt<br/>Memory]:::handlerClass
+        SEC[🔒 Security Layer<br/>━━━━━━━━━━━━━━<br/>Input Validation<br/>Glide Query Builder]:::securityClass
+    end
+    
+    %% Unified tools layer
+    subgraph tools["🛠️ UNIFIED TOOL EXECUTION LAYER"]
+        subgraph row1[" "]
+            GET[📥 ServiceNowGet<br/>━━━━━━━━━━━━━━<br/>Record by ID/Number<br/>Auto-detection]:::toolClass
+            SEARCH[🔍 ServiceNowSearch<br/>━━━━━━━━━━━━━━━━<br/>Natural Language<br/>& Structured]:::toolClass
+            CREATE[➕ ServiceNowCreate<br/>━━━━━━━━━━━━━━━━<br/>Any Table Type<br/>Field Validation]:::toolClass
+        end
+        
+        subgraph row2[" "]
+            UPDATE[✏️ ServiceNowUpdate<br/>━━━━━━━━━━━━━━━━<br/>Any Record<br/>By ID/Number]:::toolClass
+            WORKFLOW[⚙️ ServiceNowWorkflow<br/>━━━━━━━━━━━━━━━━━<br/>State Transitions<br/>Approval Management]:::toolClass
+            ANALYTICS[📊 ServiceNowAnalytics<br/>━━━━━━━━━━━━━━━━━━<br/>Metrics & Reports<br/>Performance KPIs]:::toolClass
+        end
+    end
+    
+    %% Query builder
+    BUILDER[🔧 GLIDE QUERY BUILDER<br/>━━━━━━━━━━━━━━━━━━━━<br/>Natural Language Processing • Query Templates • Security<br/>Field Value Mapping • Operator Support • Validation<br/>Table-specific Queries • Error Handling • Performance]:::builderClass
+    
+    %% API layer
+    API[🎫 SERVICENOW API LAYER<br/>━━━━━━━━━━━━━━━━━━━━━<br/>REST API Integration • Table API Endpoints<br/>Authentication & Sessions • Rate Limiting & Retries]:::apiClass
+    
+    %% Connections
+    AGENT --> handlers
+    A2A --> tools
+    LG --> tools
+    SEC --> tools
+    
+    GET --> BUILDER
+    SEARCH --> BUILDER
+    CREATE --> BUILDER
+    UPDATE --> BUILDER
+    WORKFLOW --> BUILDER
+    ANALYTICS --> BUILDER
+    
+    BUILDER --> API
+    
+    %% Style the subgraphs
+    style handlers fill:rgba(197,40,40,0.1),stroke:#c62828,stroke-width:2px
+    style tools fill:rgba(230,81,0,0.1),stroke:#e65100,stroke-width:2px,stroke-dasharray: 5 5
+    style row1 fill:none,stroke:none
+    style row2 fill:none,stroke:none
 ```
 
 ## Tools Overview
