@@ -305,8 +305,8 @@ flowchart TB
     ORCH -.->|manages| components
     style components fill:#37474f30,stroke:#546e7a60,stroke-width:1px
     style tools fill:#37474f30,stroke:#546e7a60,stroke-width:1px
-    style internal fill:#e0f2f1,stroke:#4db6ac,stroke-width:1px
-    style agents fill:#e8f5e9,stroke:#81c784,stroke-width:1px
+    style internal fill:#00695c20,stroke:#00695c40,stroke-width:1px
+    style agents fill:#2e7d3220,stroke:#2e7d3240,stroke-width:1px
 ```
 
 ### Core Components
