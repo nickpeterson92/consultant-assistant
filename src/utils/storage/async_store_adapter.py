@@ -8,7 +8,7 @@ concurrency handling without unnecessary abstractions.
 
 import asyncio
 import threading
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor
 
 from .sqlite_store import SQLiteStore

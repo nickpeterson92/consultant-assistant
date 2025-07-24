@@ -4,7 +4,6 @@
 import sys
 import os
 import asyncio
-import time
 import uuid
 import json
 import aiohttp
@@ -15,13 +14,11 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from textual.app import App, ComposeResult
 from textual.widgets import (
-    Header, Footer, Input, Static, DataTable, 
-    LoadingIndicator, ProgressBar, Label, Button, Markdown
+    Header, Footer, Input, Static, Markdown
 )
-from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
-from textual.message import Message
+from textual.containers import Container, Vertical, ScrollableContainer
 from textual.reactive import reactive
-from textual.screen import Screen, ModalScreen
+from textual.screen import ModalScreen
 from textual.events import Key
 from textual import on, work
 
@@ -362,7 +359,6 @@ class PlanStatusWidget(Static):
         if data.get("task_id") != self.current_task_id:
             return
             
-        old_plan = data.get("old_plan", [])
         new_plan = data.get("new_plan", [])
         self.plan_data = new_plan
         self.plan_tasks = new_plan
@@ -495,7 +491,7 @@ class ConversationWidget(ScrollableContainer):
             try:
                 welcome = self.query_one("#welcome-message")
                 welcome.remove()
-            except:
+            except Exception:
                 pass
         
         # Create separate widgets for label and content (like main branch)
@@ -529,7 +525,7 @@ class ConversationWidget(ScrollableContainer):
                 existing_spinner = self.query_one("#processing-spinner")
                 if existing_spinner:
                     existing_spinner.remove()
-            except:
+            except Exception:
                 pass  # No existing spinner, that's fine
             
             # Create a subtle inline processing message with ASCII spinner
@@ -944,7 +940,6 @@ class OrchestatorApp(App):
                     return
                 
                 # Track current event being parsed
-                current_event_type = None
                 logger.info("sse_stream_reading_started")
                 
                 try:
@@ -1024,7 +1019,7 @@ class OrchestatorApp(App):
                 existing_spinner = self.query_one("#processing-spinner")
                 if existing_spinner:
                     existing_spinner.remove()
-            except:
+            except Exception:
                 pass
             
         # Route memory events to memory graph widget

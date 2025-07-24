@@ -1,14 +1,11 @@
 """Memory graph visualization widget for Textual UI."""
 
-from typing import Dict, List, Set, Optional, Tuple
-from datetime import datetime
-import json
+from typing import Dict, List
 
 from textual.app import ComposeResult
 from textual.widgets import Static, Label
-from textual.containers import ScrollableContainer, Vertical
+from textual.containers import ScrollableContainer
 from textual.reactive import reactive
-from textual.message import Message
 
 from src.utils.logging.framework import SmartLogger
 

@@ -119,7 +119,7 @@ def build_salesforce_graph():
     @log_execution("salesforce", "salesforce_agent", include_args=False, include_result=False)
     def salesforce_agent(state: SalesforceState, config: RunnableConfig):
         """Modern Salesforce agent node using LangChain prompt templates"""
-        task_id = state.get("task_context", {}).get("task_id", "unknown")
+        state.get("task_context", {}).get("task_id", "unknown")
         
         
         try:
@@ -146,7 +146,7 @@ def build_salesforce_graph():
             
             return {"messages": [response]}
             
-        except Exception as e:
+        except Exception:
             raise
     
     # Build modern graph following 2024 best practices

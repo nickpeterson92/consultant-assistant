@@ -2,16 +2,13 @@
 
 import asyncio
 import random
-import math
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 from .colors import (
-    CORP_BLUES, CYAN, BLUE, GREEN, YELLOW, BOLD, ITALIC, 
-    UNDERLINE, DIM, RESET, CLEAR_SCREEN, CURSOR_HOME
+    CORP_BLUES, BOLD, DIM, RESET, CLEAR_SCREEN, CURSOR_HOME
 )
 from .terminal import (
-    get_terminal_width, get_terminal_height, center_text, 
-    visible_length, strip_ansi
+    get_terminal_width, center_text
 )
 
 
@@ -22,15 +19,7 @@ async def animated_banner_display(banner_text: str) -> None:
         banner_text: The ASCII art banner to animate
     """
     # Additional color palettes for effects
-    ACCENT_COLORS = [
-        '\033[38;5;73m',   # Cyan-green accent
-        '\033[38;5;80m',   # Light cyan-green
-    ]
     
-    DATA_COLORS = [
-        '\033[38;5;245m',  # Light gray
-        '\033[38;5;250m',  # Very light gray
-    ]
     
     lines = banner_text.strip().split('\n')
     if not lines:
@@ -87,7 +76,6 @@ async def animated_banner_display(banner_text: str) -> None:
     for frame in range(20):
         screen = [[' ' for _ in range(terminal_width)] for _ in range(terminal_height)]
         
-        all_arrived = True
         formation_progress = frame / 20.0  # Track how formed the banner is
         
         for particle in particles:
@@ -97,7 +85,6 @@ async def animated_banner_display(banner_text: str) -> None:
             distance = (dx**2 + dy**2)**0.5
             
             if distance > 0.5:
-                all_arrived = False
                 # Move towards target with acceleration as we get closer
                 speed_factor = min(particle['speed'] * (1 + formation_progress), 0.4)
                 particle['current_x'] += dx * speed_factor

@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 """Utility script to start the entire multi-agent system with A2A orchestrator."""
 
-import os
 import sys
 import subprocess
 import time
 import argparse
 import threading
 import signal
-import json
 import requests
 from typing import List, Tuple
 
@@ -92,7 +90,7 @@ def display_system_status(healthy_agents: List[str], orchestrator_healthy: bool,
     if orchestrator_healthy:
         print(f"✅ Orchestrator A2A Server: http://localhost:{orchestrator_port}")
     else:
-        print(f"❌ Orchestrator A2A Server: Not responding")
+        print("❌ Orchestrator A2A Server: Not responding")
     
     print(f"\n📊 Agent Status ({len(healthy_agents)} healthy):")
     agent_ports = {"Salesforce-Agent": 8001, "Jira-Agent": 8002, "ServiceNow-Agent": 8003}

@@ -6,8 +6,7 @@ from typing_extensions import TypedDict
 
 from langgraph.graph.message import add_messages
 
-from src.utils.config import config
-from src.utils.logging import get_smart_logger, log_execution
+from src.utils.logging import get_smart_logger
 
 logger = get_smart_logger("orchestrator")
 

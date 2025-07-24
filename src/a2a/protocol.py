@@ -8,7 +8,6 @@ import json
 import uuid
 import asyncio
 import time
-import traceback
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
@@ -18,7 +17,6 @@ from src.utils.config import (
     A2A_STATUS_PENDING,
     DEFAULT_A2A_PORT, DEFAULT_HOST
 )
-import logging
 
 from src.utils.logging.framework import SmartLogger, log_execution
 # No input validation needed - trust agent-generated content
@@ -444,7 +442,7 @@ class A2AConnectionPool:
         for endpoint, session in list(self._pools.items()):
             try:
                 await session.close()
-            except Exception as e:
+            except Exception:
                 # Log but don't fail - session may already be closed
                 pass
         self._pools.clear()
@@ -479,7 +477,6 @@ class A2AClient:
             use_pool: Whether to use connection pooling (True for production)
         """
         a2a_config = config
-        system_config = config
         
         self.timeout = timeout if timeout is not None else a2a_config.get('a2a.timeout', 60)
         self.use_pool = use_pool
@@ -518,7 +515,7 @@ class A2AClient:
             try:
                 await self.session.close()
                 logger.info("Closed dedicated A2A client session")
-            except Exception as e:
+            except Exception:
                 pass
             finally:
                 self._closed = True
@@ -607,7 +604,7 @@ class A2AClient:
 
                 return final_result
 
-        except asyncio.TimeoutError as e:
+        except asyncio.TimeoutError:
             # Timeout errors are common in distributed systems - handle gracefully
             # with clear error messages for debugging
             elapsed = time.time() - start_time if 'start_time' in locals() else 0
@@ -623,7 +620,7 @@ class A2AClient:
                 return {"error": "Client shutdown during operation"}
             else:
                 raise A2AException(f"Network error: {str(e)}")
-        except Exception as e:
+        except Exception:
             # Log unexpected error
             pass
             raise
@@ -673,7 +670,7 @@ class A2AClient:
                 circuit_config,
                 endpoint, method, params, request_id
             )
-        except Exception as e:
+        except Exception:
             raise
     
     async def process_task(self, endpoint: str, task: A2ATask) -> Dict[str, Any]:
@@ -699,7 +696,7 @@ class A2AClient:
             
             
             return result
-        except Exception as e:
+        except Exception:
             raise
     
     async def get_agent_card(self, endpoint: str) -> AgentCard:
@@ -857,7 +854,7 @@ class A2AServer:
                 A2AResponse(error={"code": -32700, "message": "Parse error"}).to_dict(),
                 status=400
             )
-        except Exception as e:
+        except Exception:
             # Catch-all for unexpected errors - log but don't leak details
             pass
             return web.json_response(

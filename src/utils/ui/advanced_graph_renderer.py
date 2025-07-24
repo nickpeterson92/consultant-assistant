@@ -3,8 +3,7 @@
 This creates a proper node-and-edge graph visualization in ASCII.
 """
 
-from typing import Dict, List, Tuple, Set, Optional
-import math
+from typing import Dict, List, Tuple
 
 
 class AdvancedGraphRenderer:

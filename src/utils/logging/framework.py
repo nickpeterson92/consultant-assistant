@@ -13,8 +13,7 @@ import inspect
 import time
 import uuid
 from contextlib import contextmanager
-from typing import Any, Dict, Optional, Callable, Union, List
-from pathlib import Path
+from typing import Any, Dict, Optional, Callable, Union
 import threading
 
 from .multi_file_logger import get_multi_file_logger

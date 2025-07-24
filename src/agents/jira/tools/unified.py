@@ -345,7 +345,7 @@ class JiraCollaboration(JiraCollaborationTool):
             "outwardIssue": {"key": to_key}
         }
         
-        response = self._make_request("POST", "/issueLink", json=link_data)
+        self._make_request("POST", "/issueLink", json=link_data)
         return {"status": "success", "link_created": f"{from_key} {link_type} {to_key}"}
 
 

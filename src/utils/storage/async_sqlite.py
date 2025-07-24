@@ -6,12 +6,11 @@ Provides non-blocking database operations with connection pooling
 import aiosqlite
 import asyncio
 import json
-from typing import Dict, Any, Optional, List, Union, Tuple
+from typing import Dict, Any, Optional, List, Tuple
 from pathlib import Path
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 import weakref
-import time
 
 from ..logging import get_smart_logger, log_execution
 

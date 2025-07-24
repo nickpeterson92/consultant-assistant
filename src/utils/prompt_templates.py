@@ -3,9 +3,8 @@ LangGraph/LangChain prompt templates for all agents.
 Preserves exact prompt content while leveraging framework features.
 """
 
-from typing import Dict, Any, Optional, List
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, PromptTemplate
-from langchain_core.messages import SystemMessage
+from typing import Dict, Any, Optional
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 import json
 
 
@@ -676,7 +675,7 @@ When user asks for:
 - "high priority incidents" → Use priority=1^ORpriority=2
 - "urgent incidents" → Use priority=1^ORpriority=2
 - "low priority incidents" → Use priority=4
-- "all incidents" → Use empty string "" as query (no filter)
+- "all incidents" or "get incidents" → Use query="state!=99" (exclude inactive records) or omit query parameter entirely
 
 ## Record Types
 - **Incidents**: Unplanned interruptions or quality reductions
@@ -1313,9 +1312,6 @@ def example_usage():
     context = ContextInjector.prepare_salesforce_context(task_context, external_context)
     
     # Format the prompt with context and messages
-    messages = [
-        {"role": "user", "content": "Get the GenePoint account"}
-    ]
     
     # This would be used in your agent like:
     # formatted_messages = prompt.format_messages(

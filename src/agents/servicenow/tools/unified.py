@@ -9,7 +9,6 @@ from .base import (
     ServiceNowWorkflowTool,
     ServiceNowAnalyticsTool
     )
-from src.utils.glide_query_builder import GlideQueryBuilder
 from src.utils.logging.framework import log_execution
 
 
@@ -91,7 +90,7 @@ class ServiceNowSearch(ServiceNowReadTool):
     
     class Input(BaseModel):
         table_name: str = Field(description="Table to search (e.g., incident, change_request)")
-        query: str = Field(description="Natural language or encoded query")
+        query: Optional[str] = Field(None, description="Natural language or encoded query (optional - omit to get all records)")
         fields: Optional[List[str]] = Field(None, description="Fields to return (supports dot-walking like 'caller_id.name')")
         limit: int = Field(100, description="Maximum records to return")
         order_by: Optional[str] = Field(None, description="Field to sort by")
@@ -100,13 +99,16 @@ class ServiceNowSearch(ServiceNowReadTool):
     args_schema: type = Input
     
     @log_execution("servicenow", "search_records", include_args=True, include_result=False)
-    def _execute(self, table_name: str, query: str, fields: Optional[List[str]] = None,
+    def _execute(self, table_name: str, query: Optional[str] = None, fields: Optional[List[str]] = None,
                  limit: int = 100, order_by: Optional[str] = None, 
                  order_desc: bool = True) -> Any:
         """Execute the search operation with NLQ support."""
         
+        # Handle empty/None queries - return all records
+        if not query or query.strip() == "":
+            encoded_query = ""  # Empty query returns all records
         # Check if query is already encoded
-        if self._is_encoded_query(query):
+        elif self._is_encoded_query(query):
             # Use as-is
             encoded_query = query
         else:
@@ -117,7 +119,7 @@ class ServiceNowSearch(ServiceNowReadTool):
                 encoded_query = nlq_result["encoded_query"]
             else:
                 # Return guidance for LLM to retry with structured query
-                raise ValueError(f"Natural language query not understood: ServiceNow couldn't interpret: '{query}'")
+                raise ValueError(f"Natural language query not understood: ServiceNow couldn't interpret: '{query}'. Try using specific field conditions like 'state=1' or 'priority=1'.")
         
         # Add ordering if specified
         if order_by:
@@ -256,7 +258,7 @@ class ServiceNowUpdate(ServiceNowWriteTool):
             params = {'sysparm_query': where}
             response = self._make_request("PATCH", f"/table/{table_name}", params=params, json=data)
             return {
-                'message': f"Bulk update completed",
+                'message': "Bulk update completed",
                 'query': where
             }
             

@@ -1145,7 +1145,7 @@ class AgentRegistryTool(BaseTool):
                 capabilities = ", ".join(agent.agent_card.capabilities) if agent.agent_card.capabilities else "None"
                 agent_list.append(f"- {agent.name} ({agent.status}): {capabilities}")
             
-            return f"Registered Agents:\n" + "\n".join(agent_list)
+            return "Registered Agents:\n" + "\n".join(agent_list)
         
         elif action == "health_check":
             if agent_name:
@@ -1156,7 +1156,7 @@ class AgentRegistryTool(BaseTool):
                 status_list = []
                 for name, status in results.items():
                     status_list.append(f"- {name}: {'✓ Online' if status else '✗ Offline/Error'}")
-                return f"Agent Health Status:\n" + "\n".join(status_list)
+                return "Agent Health Status:\n" + "\n".join(status_list)
         
         elif action == "stats":
             stats = registry.get_registry_stats()

@@ -1,8 +1,7 @@
 """Clean and professional graph renderer for memory visualization."""
 
-from typing import Dict, List, Tuple, Set, Optional
+from typing import Dict, List, Tuple, Optional
 from collections import defaultdict
-import textwrap
 
 
 class CleanGraphRenderer:
@@ -32,7 +31,7 @@ class CleanGraphRenderer:
         lines = []
         
         # Group nodes by type
-        grouped = cls._group_nodes(nodes)
+        cls._group_nodes(nodes)
         
         # Create a clean header with enhanced styling
         lines.append("╔" + "═" * width + "╗")
@@ -127,7 +126,7 @@ class CleanGraphRenderer:
         actions = grouped.get('completed_action', []) + grouped.get('search_result', [])
         
         # Create connection map
-        connections = cls._build_connection_map(edges, all_nodes)
+        cls._build_connection_map(edges, all_nodes)
         
         # Render rows
         max_rows = max(len(entities), len(actions), 20)  # Allow more rows with scrolling
@@ -486,7 +485,7 @@ class CleanGraphRenderer:
         for node_id, node_data in nodes.items():
             # Check if node has high relevance or was recently accessed
             relevance = node_data.get('relevance', 0.0)
-            last_accessed = node_data.get('last_accessed', '')
+            node_data.get('last_accessed', '')
             
             # Only include nodes that would actually be sent to LLM
             # This should match the server-side logic which uses max_results=5-8

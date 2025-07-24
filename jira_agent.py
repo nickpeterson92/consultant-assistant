@@ -3,6 +3,7 @@
 
 import sys
 import os
+import asyncio
 
 # Add the project root to the Python path
 project_root = os.path.dirname(os.path.abspath(__file__))
@@ -11,7 +12,6 @@ if project_root not in sys.path:
 
 # Now we can import from src
 from src.agents.jira.main import main
-import asyncio
 
 if __name__ == "__main__":
     asyncio.run(main())

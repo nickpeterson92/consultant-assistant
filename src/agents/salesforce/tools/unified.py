@@ -49,7 +49,7 @@ class SalesforceGet(SalesforceReadTool):
                 raise ValueError(f"Cannot determine object type from ID prefix '{prefix}'")
         
         # Get the record
-        fields_to_query = self._build_field_list(object_type, fields)
+        self._build_field_list(object_type, fields)
         
         # Use the Salesforce REST API for single record retrieval
         sobject = getattr(self.sf, object_type)

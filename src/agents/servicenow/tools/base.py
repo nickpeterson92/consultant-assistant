@@ -152,7 +152,7 @@ class BaseServiceNowTool(BaseTool, ABC):
             # Try to extract table or record info
             import re
             table_match = re.search(r"table/(\w+)|Table '(\w+)'", error_str)
-            table_name = table_match.group(1) or table_match.group(2) if table_match else "unknown"
+            table_match.group(1) or table_match.group(2) if table_match else "unknown"
             
             return {
                 "success": False,
@@ -161,7 +161,7 @@ class BaseServiceNowTool(BaseTool, ABC):
                     "error_code": "NOT_FOUND",
                     "details": str(error),
                     "guidance": {
-                        "reflection": f"The requested resource doesn't exist.",
+                        "reflection": "The requested resource doesn't exist.",
                         "consider": "Is the table name correct? ServiceNow tables often have prefixes like 'incident', 'change_request', etc.",
                         "approach": "Verify the table name and record ID. Common tables: incident, change_request, problem, sc_task."
                     }

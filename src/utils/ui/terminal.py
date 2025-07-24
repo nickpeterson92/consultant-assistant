@@ -2,14 +2,13 @@
 
 import shutil
 import re
-import os
 
 
 def get_terminal_width() -> int:
     """Get the terminal width."""
     try:
         return shutil.get_terminal_size().columns
-    except:
+    except Exception:
         return 80  # fallback
 
 
@@ -17,7 +16,7 @@ def get_terminal_height() -> int:
     """Get the terminal height."""
     try:
         return shutil.get_terminal_size().lines
-    except:
+    except Exception:
         return 24  # fallback
 
 

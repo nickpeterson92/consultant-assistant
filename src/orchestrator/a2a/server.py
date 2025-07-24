@@ -2,7 +2,7 @@
 
 import asyncio
 import argparse
-from typing import Dict, Any
+from typing import Dict
 
 from src.a2a import A2AServer, AgentCard
 from src.utils.logging import get_smart_logger, log_execution
@@ -12,7 +12,6 @@ from src.orchestrator.observers import get_observer_registry, SSEObserver
 import json
 from aiohttp import web
 from aiohttp.web_response import StreamResponse
-from langgraph.errors import GraphInterrupt
 
 logger = get_smart_logger("orchestrator")
 

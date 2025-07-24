@@ -1,9 +1,9 @@
 """Memory graph observer integration for the orchestrator."""
 
-from typing import Dict, Any, Optional
+from typing import Optional
 from datetime import datetime
 
-from src.memory import get_thread_memory, MemoryNode, ContextType
+from src.memory import get_thread_memory, MemoryNode
 from src.orchestrator.observers import (
     get_observer_registry, 
     MemoryNodeAddedEvent,

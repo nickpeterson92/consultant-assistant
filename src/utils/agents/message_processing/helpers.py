@@ -1,6 +1,6 @@
 """Message processing helper utilities."""
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Optional
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 
 

@@ -3,15 +3,12 @@
 Reference: https://langchain-ai.github.io/langgraph/tutorials/plan-and-execute/plan-and-execute/#create-the-graph
 """
 
-import operator
 import time
 from datetime import datetime
-from typing import Annotated, List, Union
-from typing_extensions import TypedDict
+from typing import List, Union
 from pydantic import BaseModel, Field, validator
 
 from langgraph.graph import StateGraph, START, END
-from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
 
 from langchain_core.messages import HumanMessage, AIMessage
@@ -379,11 +376,9 @@ You are tasked with executing step {current_step_num}: {task}.
         )
         
         # Link to the most recent execution step if any
-        previous_step = None
         for node in recent_nodes:
             if node.context_type in {ContextType.COMPLETED_ACTION, ContextType.SEARCH_RESULT}:
                 relates_to.append(node.node_id)
-                previous_step = node
                 break  # Just link to the most recent one
         
         # Use intelligent entity extraction
@@ -814,7 +809,7 @@ def plan_step(state: PlanExecute):
 @emit_coordinated_events(["plan_modified", "plan_updated"])
 def replan_step(state: PlanExecute):
     import asyncio
-    from src.memory import get_thread_memory, ContextType
+    from src.memory import get_thread_memory
     from src.orchestrator.workflow.interrupt_handler import InterruptHandler
     
     # Check if this is a user-initiated replan (escape key)
@@ -1172,7 +1167,7 @@ def setup_canonical_plan_execute(llm_with_tools, llm_for_planning, agent_registr
                     agent_tools.append(line)
             
             if agent_tools:
-                agent_context = f"=== AVAILABLE AGENT TOOLS ===\n" + "\n".join(agent_tools)
+                agent_context = "=== AVAILABLE AGENT TOOLS ===\n" + "\n".join(agent_tools)
     
     # Import centralized prompt functions
     from src.utils.prompt_templates import create_planner_prompt, create_replanner_prompt

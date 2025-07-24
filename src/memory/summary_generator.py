@@ -15,7 +15,7 @@ def auto_generate_summary(content: Any, context_type: ContextType,
     
     try:
         return _generate_by_context_type(content, context_type, tags or set())
-    except Exception as e:
+    except Exception:
         # Fallback to safe string representation
         return _safe_content_preview(content)
 

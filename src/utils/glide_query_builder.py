@@ -18,7 +18,7 @@ Query Building Strategy:
 - Built-in pagination and ordering
 """
 
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Dict, Any
 from enum import Enum
 from dataclasses import dataclass
 

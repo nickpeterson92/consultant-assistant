@@ -146,7 +146,7 @@ class BaseJiraTool(BaseTool, ABC):
             # Try to extract more specific error details
             import re
             field_match = re.search(r"Field '(\w+)'|field '(\w+)'", error_str)
-            field_name = field_match.group(1) or field_match.group(2) if field_match else "unknown"
+            field_match.group(1) or field_match.group(2) if field_match else "unknown"
             
             return {
                 "success": False,
@@ -155,7 +155,7 @@ class BaseJiraTool(BaseTool, ABC):
                     "error_code": "BAD_REQUEST",
                     "details": str(error),
                     "guidance": {
-                        "reflection": f"The request format or parameters are invalid.",
+                        "reflection": "The request format or parameters are invalid.",
                         "consider": "Are all required fields provided? Is the field format correct?",
                         "approach": "Review the field requirements and data types for this operation."
                     }

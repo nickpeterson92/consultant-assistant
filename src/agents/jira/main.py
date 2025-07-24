@@ -5,11 +5,7 @@ import logging
 from typing import Dict, Any, List, TypedDict, Annotated
 import operator
 from dotenv import load_dotenv
-
-# Load environment variables
-load_dotenv()
-
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage
 from langchain_openai import AzureChatOpenAI
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode, tools_condition
@@ -20,6 +16,9 @@ from src.a2a import A2AServer, A2AArtifact, AgentCard
 from src.utils.config import config
 from src.utils.logging.framework import SmartLogger, log_execution
 from src.utils.prompt_templates import create_jira_agent_prompt, ContextInjector
+
+# Load environment variables
+load_dotenv()
 
 logger = SmartLogger("jira")
 
@@ -67,7 +66,7 @@ def build_jira_agent():
     llm_with_tools = llm.bind_tools(jira_tools)
     
     # Create workflow
-    workflow = StateGraph(JiraAgentState)
+    StateGraph(JiraAgentState)
     
     @log_execution("jira", "agent_node", include_args=False, include_result=False)
     def agent_node(state: JiraAgentState):
@@ -84,7 +83,7 @@ def build_jira_agent():
             2. Invokes LLM with bound tools for function calling
             3. Returns response for conditional routing to tools or end
         """
-        task_id = state.get("current_task", "unknown")
+        state.get("current_task", "unknown")
         
         try:
             task_context = state.get("task_context", {})
@@ -108,7 +107,7 @@ def build_jira_agent():
             
             return {"messages": [response]}
             
-        except Exception as e:
+        except Exception:
             raise
     
     # Build graph following 2024 best practices

@@ -6,7 +6,6 @@ keeping the core LangGraph logic clean while enabling live updates.
 
 from functools import wraps
 from typing import Any, Callable, Dict, List
-from datetime import datetime
 
 from src.orchestrator.observers import (
     get_observer_registry, 
@@ -202,15 +201,14 @@ def emit_coordinated_events(event_types: List[str]) -> Callable:
                                 completed_steps.append(step_desc)
                     
                     current_step = None
-                    overall_status = "in_progress"
                     
                     if len(completed_steps) + len(failed_steps) >= len(plan):
-                        overall_status = "completed" if not failed_steps else "failed"
+                        pass
                     elif plan and len(past_steps) < len(plan):
                         current_step = plan[len(past_steps)]
                     
                     if isinstance(result, dict) and "response" in result and result["response"]:
-                        overall_status = "completed"
+                        pass
                     
                     update_event = PlanUpdatedEvent(
                         step_name="plan_progress",
@@ -475,15 +473,14 @@ def emit_coordinated_events(event_types: List[str]) -> Callable:
                                 completed_steps.append(step_desc)
                     
                     current_step = None
-                    overall_status = "in_progress"
                     
                     if len(completed_steps) + len(failed_steps) >= len(plan):
-                        overall_status = "completed" if not failed_steps else "failed"
+                        pass
                     elif plan and len(past_steps) < len(plan):
                         current_step = plan[len(past_steps)]
                     
                     if isinstance(result, dict) and "response" in result and result["response"]:
-                        overall_status = "completed"
+                        pass
                     
                     update_event = PlanUpdatedEvent(
                         step_name="plan_progress",
@@ -708,15 +705,14 @@ def emit_coordinated_events(event_types: List[str]) -> Callable:
                                 completed_steps.append(step_desc)
                     
                     current_step = None
-                    overall_status = "in_progress"
                     
                     if len(completed_steps) + len(failed_steps) >= len(plan):
-                        overall_status = "completed" if not failed_steps else "failed"
+                        pass
                     elif plan and len(past_steps) < len(plan):
                         current_step = plan[len(past_steps)]
                     
                     if isinstance(result, dict) and "response" in result and result["response"]:
-                        overall_status = "completed"
+                        pass
                     
                     update_event = PlanUpdatedEvent(
                         step_name="plan_progress",
@@ -966,15 +962,14 @@ def emit_coordinated_events(event_types: List[str]) -> Callable:
                                 completed_steps.append(step_desc)
                     
                     current_step = None
-                    overall_status = "in_progress"
                     
                     if len(completed_steps) + len(failed_steps) >= len(plan):
-                        overall_status = "completed" if not failed_steps else "failed"
+                        pass
                     elif plan and len(past_steps) < len(plan):
                         current_step = plan[len(past_steps)]
                     
                     if isinstance(result, dict) and "response" in result and result["response"]:
-                        overall_status = "completed"
+                        pass
                     
                     update_event = PlanUpdatedEvent(
                         step_name="plan_progress",

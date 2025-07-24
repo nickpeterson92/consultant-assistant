@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from threading import local
-from typing import Any, Dict, Optional
+from typing import Optional
 
 # Thread-local storage for correlation IDs
 _thread_local = local()

@@ -9,7 +9,7 @@ best practices for agentic RAG systems:
 """
 
 import os
-from typing import Any, Dict, Optional, List, Type, Union
+from typing import Any, Dict, Optional, List, Type
 from pydantic import BaseModel, Field
 from langgraph.prebuilt import InjectedState
 from typing import Annotated
@@ -123,7 +123,7 @@ class WebSearchTool(BaseUtilityTool):
         entities = self._extract_entities_from_state(state)
         
         # Get recent context
-        context = self._extract_context_from_messages(state, count=3)
+        self._extract_context_from_messages(state, count=3)
         
         # Build enhanced query
         enhanced_parts = [query]
@@ -279,5 +279,5 @@ class WebSearchTool(BaseUtilityTool):
             
             return formatted_results
             
-        except Exception as e:
+        except Exception:
             raise  # Let base class handle error formatting

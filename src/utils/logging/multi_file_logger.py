@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Dict, Optional
 from threading import Lock
 
-from .logger import StructuredLogger, _thread_local
+from .logger import StructuredLogger
 
 
 class MultiFileLogger(StructuredLogger):

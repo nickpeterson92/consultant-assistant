@@ -1,6 +1,5 @@
 """Human input tool for LangGraph workflows using interrupt functionality."""
 
-from typing import Dict, Any
 from pydantic import BaseModel, Field
 from langchain_core.tools import BaseTool
 from langgraph.types import interrupt

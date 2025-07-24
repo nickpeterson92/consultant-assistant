@@ -5,7 +5,7 @@ This module provides better handling for different types of interrupts:
 2. User escape interrupts - User wants to modify/abort plan
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from langgraph.errors import GraphInterrupt
 from src.utils.logging.framework import SmartLogger
 

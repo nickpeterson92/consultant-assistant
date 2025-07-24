@@ -6,8 +6,6 @@ from datetime import datetime
 
 from langgraph.errors import GraphInterrupt
 from src.utils.logging.framework import SmartLogger, log_execution
-from src.a2a import AgentCard
-from src.orchestrator.plan_and_execute import create_plan_execute_graph
 
 logger = SmartLogger("orchestrator")
 
@@ -90,7 +88,6 @@ class OrchestratorA2AHandler:
                            user_response=user_response[:100])
                 
                 # Resume the graph with the user's input using LangGraph Command
-                from langgraph.constants import Send
                 from langgraph.types import Command
                 result = await self.graph.ainvoke(Command(resume=user_response), config)
                 

@@ -214,7 +214,7 @@ class MemoryGraph:
             
             # Boost score based on recent access
             hours_since_access = (current_time - node.last_accessed).total_seconds() / 3600
-            access_boost = max(0, 0.5 - hours_since_access * 0.1)
+            max(0, 0.5 - hours_since_access * 0.1)
             
             # STRONG recency boost for recent nodes (prioritizes immediate context)
             hours_since_creation = (current_time - node.created_at).total_seconds() / 3600
