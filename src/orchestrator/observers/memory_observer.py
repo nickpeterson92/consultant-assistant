@@ -108,7 +108,7 @@ class MemoryObserverIntegration:
                     "created_at": node.created_at.isoformat() if hasattr(node.created_at, 'isoformat') else str(node.created_at),
                     "relevance": node.current_relevance(),
                     "content_preview": str(node.content)[:100] if node.content else "",
-                    "content": node.content if isinstance(node.content, dict) else None
+                    "content": None  # Removed to reduce snapshot size - UI only needs summaries
                 }
             
             # Convert edges
