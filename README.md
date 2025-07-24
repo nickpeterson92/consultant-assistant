@@ -71,7 +71,7 @@ flowchart TB
     classDef protocolClass fill:#ef6c00,stroke:#e65100,stroke-width:1px,color:#ffffff
     classDef agentToolClass fill:#2e7d32,stroke:#1b5e20,stroke-width:1px,color:#ffffff
     classDef internalToolClass fill:#00695c,stroke:#004d40,stroke-width:1px,color:#ffffff
-    classDef componentClass fill:#f5f5f5,stroke:#e0e0e0,stroke-width:1px,color:#424242
+    classDef componentClass fill:#e8eaf6,stroke:#9fa8da,stroke-width:1px,color:#3f51b5
     
     %% User Interface Layer
     UI[🖥️ USER INTERFACE<br>Textual CLI]:::uiClass
