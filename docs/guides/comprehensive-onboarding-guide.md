@@ -262,7 +262,8 @@ flowchart TB
         PG[📝 Plan Generation<br>& Modification]:::componentClass
         EE[⚡ Execution Engine<br>Task Context Injection]:::componentClass
         AR[🔍 Agent Registry<br>Service Discovery]:::componentClass
-        CS[💬 Conversation<br>Summarization]:::componentClass
+        MG[💾 Memory Graph<br>Thread-Isolated Context]:::componentClass
+        MO[👁️ Memory Observer<br>SSE Event Emission]:::componentClass
         SS[🔒 Simplified State<br>Public/Private Schema]:::componentClass
     end
     
@@ -315,25 +316,35 @@ flowchart TB
    - Creates multi-step execution plans
    - Manages state with LangGraph
    - Handles interrupts and replanning
-   - Integrates memory context
+   - Integrates memory context for each step
 
 2. **Contextual Memory Graph**
-   - NetworkX-based graph structure
-   - Tracks entities and relationships
-   - Provides intelligent context retrieval
-   - Implements relevance decay
+   - NetworkX-based graph structure with SQLite persistence
+   - Thread-isolated conversations (no cross-thread pollution)
+   - Specialized agents store extracted entities as domain_entity nodes
+   - Full content inclusion for all node types
+   - Relationship types: led_to, relates_to, depends_on, produces
+   - Time-based relevance decay (0.1 per hour)
 
-3. **Observer System**
-   - Event-driven architecture
-   - SSE for real-time updates
-   - Memory graph visualization
-   - Interrupt state tracking
+3. **Entity Extraction & Storage**
+   - Agents automatically extract entities from tool results
+   - Example: Salesforce agent extracts Account{id: "001234", name: "GenePoint", type: "Account"}
+   - Stores as domain_entity nodes with complete content
+   - Creates relationships: tool_output → led_to → domain_entity
+   - Pattern-based extraction for Salesforce IDs, Jira keys, ServiceNow numbers
 
-4. **Agent Communication (A2A)**
+4. **Memory Observer System**
+   - Monitors all memory graph changes
+   - Includes full node content in SSE events (prevents "Unknown" labels)
+   - Real-time graph updates via SSE
+   - Handles node additions, edge creation, and periodic snapshots
+   - Skips relationships where nodes are missing from thread view
+
+5. **Agent Communication (A2A)**
    - JSON-RPC 2.0 protocol
-   - Circuit breaker resilience
-   - Connection pooling
-   - Async execution
+   - Circuit breaker resilience (5 failures → 30s timeout)
+   - Connection pooling (20 total, 20 per host)
+   - Async execution with retry logic
 
 ### Data Flow
 
@@ -343,7 +354,8 @@ sequenceDiagram
     participant User as 👤 User
     participant UI as 🖥️ UI<br>Terminal Interface
     participant Orchestrator as 🧠 Orchestrator<br>Plan & Execute
-    participant Memory as 💾 Memory<br>Graph Store
+    participant Observer as 👁️ Memory Observer<br>SSE Events
+    participant Memory as 💾 Memory<br>Thread-Isolated Graph
     participant Agent as 🤖 Agent<br>Specialized
     participant Tool as 🛠️ Tool<br>Execution
 
@@ -357,9 +369,11 @@ sequenceDiagram
     %% Planning phase
     rect rgba(156, 39, 176, 0.1)
         note right of Orchestrator: 📋 Planning Phase
-        Orchestrator->>+Memory: 🔍 Retrieve context
-        Memory-->>-Orchestrator: 📊 Relevant memories
+        Orchestrator->>+Memory: 🔍 Retrieve context<br>(thread-specific)
+        Memory-->>-Orchestrator: 📊 Relevant memories<br>+ embeddings
         Orchestrator->>Orchestrator: 📝 Generate plan
+        Orchestrator->>Observer: Emit plan created
+        Observer->>UI: SSE: plan_created<br>+ full content
     end
     
     %% Execution phase
@@ -369,16 +383,35 @@ sequenceDiagram
             Orchestrator->>+Agent: Execute step ➡️
             Agent->>+Tool: Call tool 🔧
             Tool-->>-Agent: Result ✅
+            
+            %% Entity extraction and storage
+            rect rgba(255, 193, 7, 0.1)
+                note right of Agent: 🏷️ Entity Processing
+                Agent->>Agent: Extract entities<br>(IDs, names, types)
+                Agent->>Memory: Store entities<br>as domain_entity nodes
+                Memory->>Memory: Create relationships<br>(led_to, relates_to)
+            end
+            
             Agent-->>-Orchestrator: Response 📤
-            Orchestrator->>Memory: Store result 💾
-            Orchestrator->>UI: SSE update 📡
-            UI-->>User: Show progress 📊
+            Orchestrator->>Memory: Store tool_output<br>+ completed_action
+            
+            %% Observer updates
+            rect rgba(0, 188, 212, 0.1)
+                note right of Observer: 📡 UI Updates
+                Memory->>Observer: Node added event
+                Observer->>Observer: Include full content<br>(prevents "Unknown")
+                Observer->>UI: SSE: memory_update<br>+ visualization data
+                UI-->>User: Show progress 📊<br>+ memory graph
+            end
         end
     end
     
     %% Completion
     rect rgba(255, 152, 0, 0.1)
         note right of Orchestrator: ✨ Completion
+        Orchestrator->>Memory: Decay task context<br>(cleanup temporary)
+        Memory->>Observer: Graph snapshot
+        Observer->>UI: Final graph state
         Orchestrator->>-UI: Final response 🎯
         UI-->>-User: Display result 📋
     end
@@ -409,7 +442,7 @@ plan = [
 
 ### Memory Graph
 
-Sophisticated context management using NetworkX:
+Sophisticated context management using NetworkX with thread isolation:
 
 ```python
 # Memory stores different types of context
@@ -422,13 +455,29 @@ ContextType.TOOL_OUTPUT        # Raw tool execution results
 ContextType.TEMPORARY_STATE    # Short-lived execution state
 ```
 
+**Key Features:**
+- **Thread Isolation**: Each conversation maintains its own memory graph
+- **Entity Extraction**: Specialized agents automatically extract and store entities
+- **Content Inclusion**: All nodes include full content for UI rendering
+- **Relationship Types**: led_to, relates_to, depends_on, produces, answers
+
 **Graph Intelligence:**
 - PageRank for importance scoring
-- Community detection for topic clustering
+- Community detection for topic clustering (Louvain algorithm)
 - Time-based relevance decay (0.1 per hour by default)
 - Semantic similarity search with embeddings
 - Centrality metrics for key nodes
 - Multi-hop relationship traversal
+- SQLite-backed persistence for durability
+
+**Memory Flow Example:**
+```
+1. Agent executes SalesforceSearch for "GenePoint"
+2. Agent extracts entity: {id: "001234", name: "GenePoint", type: "Account"}
+3. Agent stores as domain_entity node with full content
+4. Memory observer emits node_added event with content included
+5. UI receives SSE event and renders "GenePoint" (not "Unknown")
+```
 
 ### Observer Pattern
 
