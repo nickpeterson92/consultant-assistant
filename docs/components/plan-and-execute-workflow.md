@@ -63,6 +63,7 @@ stateDiagram-v2
     note right of execute_step: Check interrupts<br/>Retrieve memory<br/>Execute with agent<br/>Extract entities<br/>Store results
     
     note right of replan_step: Check completion<br/>Analyze progress<br/>Decide next action
+```
 
 ## Core Models
 
