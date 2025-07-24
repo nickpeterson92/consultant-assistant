@@ -274,7 +274,7 @@ flowchart TB
         direction TB
         
         %% Internal Tools (Direct)
-        subgraph internal["Internal Tools (Direct)"]
+        subgraph internal["Internal Tools - Direct"]
             WS[🔍 Web Search]:::internalToolClass
             HI[👤 Human Input Tool]:::internalToolClass
             REG[📋 Agent Registry]:::internalToolClass
