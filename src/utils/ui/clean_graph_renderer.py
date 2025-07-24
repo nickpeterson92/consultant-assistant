@@ -349,8 +349,12 @@ class CleanGraphRenderer:
         # Show meaningful relationships
         shown = 0
         for from_id, to_id, rel_type in edges[:10]:  # Limit display
-            from_node = nodes.get(from_id, {})
-            to_node = nodes.get(to_id, {})
+            # Skip relationships where either node is missing from UI data
+            if from_id not in nodes or to_id not in nodes:
+                continue
+                
+            from_node = nodes[from_id]
+            to_node = nodes[to_id]
             
             from_name = cls._get_short_name(from_node)
             to_name = cls._get_short_name(to_node)
@@ -396,10 +400,17 @@ class CleanGraphRenderer:
     @classmethod
     def _get_short_name(cls, node_data: Dict) -> str:
         """Get a short displayable name for a node."""
-        content = node_data.get('content', {})
+        content = node_data.get('content')
+        context_type = node_data.get('context_type', '')
         
-        # For entities
-        if isinstance(content, dict):
+        # Handle None or empty content  
+        if content is None:
+            content = {}
+        elif not isinstance(content, dict):
+            content = {}
+        
+        # For entities - handle specially
+        if context_type == 'domain_entity' and isinstance(content, dict):
             # Try direct entity_name first
             name = content.get('entity_name')
             
@@ -423,21 +434,76 @@ class CleanGraphRenderer:
                     return f"{entity_id[:3]}...{entity_id[-4:]}"
                 return entity_id
         
-        # Try summary field
+        # For tool outputs - extract agent and tool name
+        if context_type == 'tool_output' and isinstance(content, dict):
+            # Handle agent response tool outputs
+            agent_name = content.get('agent_name', '')
+            tool_name = content.get('tool_name', '')
+            if agent_name and tool_name:
+                # Clean up tool name (remove prefixes)
+                clean_tool = tool_name.replace('salesforce_', '').replace('jira_', '').replace('servicenow_', '')
+                return f"{agent_name}:{clean_tool}"[:25]
+            elif tool_name:
+                clean_tool = tool_name.replace('salesforce_', '').replace('jira_', '').replace('servicenow_', '')
+                return clean_tool[:25]
+            
+            # Handle agent call tool outputs (calls TO agents)
+            tool = content.get('tool', '')
+            if tool:
+                # Extract the agent name from tool field
+                if 'agent' in tool:
+                    return f"call:{tool}"[:25]
+                return f"tool:{tool}"[:25]
+        
+        # For completed actions - extract task name
+        if context_type == 'completed_action' and isinstance(content, dict):
+            task = content.get('task', '')
+            if task:
+                # Clean up task description
+                task = task.replace('Retrieve the ', '').replace('Search for ', '').replace('Get ', '')
+                return task[:25]
+        
+        # Try summary field as fallback
         summary = node_data.get('summary', '')
         if summary:
+            # Handle "Tool call: agent_name" format specifically
+            if summary.startswith('Tool call: '):
+                tool_name = summary[11:].strip()  # Remove "Tool call: " prefix
+                return f"call:{tool_name}"[:25]
+            
             # If summary has format "Type: Name", extract the name
             if ':' in summary:
                 parts = summary.split(':', 1)
                 if len(parts) > 1 and parts[1].strip():
-                    return parts[1].strip()[:25]
+                    name_part = parts[1].strip() 
+                    # Don't return empty or very short names
+                    if len(name_part) > 1:
+                        return name_part[:25]
             
-            # Remove common prefixes
-            for prefix in ['Completed: ', 'Retrieved ', 'Updated ', 'Found ', 'Searched for ']:
-                if summary.startswith(prefix):
-                    summary = summary[len(prefix):]
+            # For tool summaries like "salesforce executed salesforce_search"
+            if 'executed' in summary:
+                parts = summary.split('executed')
+                if len(parts) > 1:
+                    agent_tool = parts[1].strip()
+                    # Remove parenthetical info
+                    if '(' in agent_tool:
+                        agent_tool = agent_tool.split('(')[0].strip()
+                    return agent_tool.replace('_', ':')[:25]  # Make it more readable
             
-            return summary[:25]
+            # Remove common prefixes and clean up
+            cleaned_summary = summary
+            for prefix in ['Completed: ', 'Retrieved ', 'Updated ', 'Found ', 'Searched for ', 'Step ']:
+                if cleaned_summary.startswith(prefix):
+                    cleaned_summary = cleaned_summary[len(prefix):]
+                    break
+            
+            # Further cleanup for step descriptions
+            if ' - ' in cleaned_summary:
+                cleaned_summary = cleaned_summary.split(' - ')[0]
+            
+            # Don't return empty or very short strings
+            if len(cleaned_summary.strip()) > 1:
+                return cleaned_summary.strip()[:25]
         
         return "Unknown"
     

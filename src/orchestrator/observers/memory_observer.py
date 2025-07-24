@@ -28,6 +28,20 @@ class MemoryObserverIntegration:
         """Emit event when a memory node is added."""
         try:
             # Convert node to serializable format
+            # Include content for entities, tool outputs, and actions so UI can display proper names
+            # TEMPORARY: Include content for ALL node types to debug UI issue
+            include_content = True
+            
+            
+            # Debug logging for entity content
+            if node.context_type.value == "domain_entity":
+                logger.debug("entity_content_debug",
+                           node_id=node.node_id,
+                           has_content=node.content is not None,
+                           content_type=type(node.content).__name__,
+                           entity_name=node.content.get('entity_name') if isinstance(node.content, dict) else None,
+                           content_keys=list(node.content.keys())[:5] if isinstance(node.content, dict) else None)
+            
             node_data = {
                 "node_id": node.node_id,
                 "summary": node.summary,
@@ -36,7 +50,7 @@ class MemoryObserverIntegration:
                 "created_at": node.created_at.isoformat() if hasattr(node.created_at, 'isoformat') else str(node.created_at),
                 "relevance": node.current_relevance(),
                 "content_preview": str(node.content)[:100] if node.content else "",
-                "content": node.content if isinstance(node.content, dict) else None  # Include full content for entities
+                "content": node.content if include_content else None  # Include content for entities
             }
             
             event = MemoryNodeAddedEvent(
@@ -100,11 +114,19 @@ class MemoryObserverIntegration:
             
             # Convert nodes using the new API
             for node in memory.get_all_nodes():
-                # Include content for entities so UI can display proper names
-                include_content = (
-                    node.context_type.value == "domain_entity" or 
-                    node.context_type.value == "conversation_fact"
-                )
+                # Include content for entities, tool outputs, and actions so UI can display proper names
+                # TEMPORARY: Include content for ALL node types to debug UI issue
+                include_content = True
+                
+                
+                # Debug logging for entity content in snapshot
+                if node.context_type.value == "domain_entity":
+                    logger.debug("snapshot_entity_content_debug",
+                               node_id=node.node_id,
+                               has_content=node.content is not None,
+                               content_type=type(node.content).__name__,
+                               entity_name=node.content.get('entity_name') if isinstance(node.content, dict) else None,
+                               content_keys=list(node.content.keys())[:5] if isinstance(node.content, dict) else None)
                 
                 nodes[node.node_id] = {
                     "node_id": node.node_id,

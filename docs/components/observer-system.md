@@ -6,42 +6,52 @@ The Observer System implements a decoupled event-driven architecture that enable
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                           OBSERVER SYSTEM                                    │
-│                                                                              │
-│  ┌──────────────────────┐    ┌────────────────────┐    ┌─────────────────┐   │
-│  │   Base Classes       │    │  Event Definitions │    │ Observer        │   │
-│  │                      │    │                    │    │ Registry        │   │
-│  │ • PlanExecuteObserver│    │ • WorkflowEvent    │    │                 │   │ 
-│  │ • UXObserver         │    │ • SearchResults    │    │ • Registration  │   │
-│  │                      │    │ • HumanInput       │    │ • Notification  │   │
-│  │                      │    │ • PlanEvents       │    │ • Lifecycle     │   │
-│  │                      │    │ • MemoryEvents     │    │                 │   │
-│  └─────────────┬────────┘    └────────────────────┘    └────────┬────────┘   │
-│                │                                                │            │
-│  ┌─────────────┴────────────────────────────────────────────────┴─────────┐  │
-│  │                        CONCRETE OBSERVERS                              │  │
-│  │                                                                        │  │
-│  │  ┌─────────────────┐  ┌──────────────────┐  ┌────────────────────┐     │  │
-│  │  │  SSE Observer   │  │  Memory Observer │  │ Interrupt Observer │     │  │
-│  │  │                 │  │                  │  │                    │     │  │
-│  │  │ • Event Queue   │  │ • Node Tracking  │  │ • State Tracking   │     │  │
-│  │  │ • Client Mgmt   │  │ • Edge Updates   │  │ • Context Storage  │     │  │
-│  │  │ • Async Emit    │  │ • Snapshots      │  │ • Resume Support   │     │  │
-│  │  │ • Thread Safe   │  │ • Graph Viz      │  │ • Type Detection   │     │  │
-│  │  └─────────────────┘  └──────────────────┘  └────────────────────┘     │  │
-│  └────────────────────────────────────────────────────────────────────────┘  │
-│                                                                              │
-│  ┌────────────────────────────────────────────────────────────────────────┐  │
-│  │                     WORKFLOW INTEGRATION                               │  │
-│  │                                                                        │  │
-│  │  • Plan-Execute Workflow emits events via decorators                   │  │
-│  │  • Registry distributes events to all registered observers             │  │
-│  │  • Observers process events asynchronously                             │  │
-│  │  • UI clients consume SSE stream and WebSocket messages                │  │
-│  └────────────────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    %% Define styles
+    classDef baseClass fill:#263238,stroke:#37474f,stroke-width:2px,color:#ffffff,font-weight:bold
+    classDef eventClass fill:#4527a0,stroke:#311b92,stroke-width:2px,color:#ffffff
+    classDef registryClass fill:#c62828,stroke:#8b0000,stroke-width:2px,color:#ffffff
+    classDef observerClass fill:#00695c,stroke:#004d40,stroke-width:2px,color:#ffffff
+    classDef integrationClass fill:#ef6c00,stroke:#e65100,stroke-width:2px,color:#ffffff
+    
+    %% Top-level system
+    SYSTEM[🎭 OBSERVER SYSTEM]:::baseClass
+    
+    %% Base layer
+    subgraph base["Base Classes & Events"]
+        BASE[📋 Base Classes<br>━━━━━━━━━━━━<br>• PlanExecuteObserver<br>• UXObserver]:::baseClass
+        EVENTS[📨 Event Definitions<br>━━━━━━━━━━━━━━━<br>• WorkflowEvents<br>• MemoryEvents<br>• InterruptEvents]:::eventClass
+        REGISTRY[🎛️ Observer Registry<br>━━━━━━━━━━━━━━━<br>• Registration<br>• Notification<br>• Lifecycle]:::registryClass
+    end
+    
+    %% Concrete observers
+    subgraph observers["Concrete Observers"]
+        SSE[📡 SSE Observer<br>━━━━━━━━━━━<br>• Event Queue<br>• Client Mgmt<br>• Async Emit<br>• Thread Safe]:::observerClass
+        MEMORY[🧠 Memory Observer<br>━━━━━━━━━━━━━━<br>• Node Tracking<br>• Edge Updates<br>• Content Inclusion<br>• Graph Snapshots]:::observerClass
+        INTERRUPT[⚡ Interrupt Observer<br>━━━━━━━━━━━━━━━━<br>• State Tracking<br>• Context Storage<br>• Resume Support<br>• Type Detection]:::observerClass
+    end
+    
+    %% Workflow integration
+    WORKFLOW[🔄 WORKFLOW INTEGRATION<br>━━━━━━━━━━━━━━━━━━━<br>• Event Decorators<br>• Async Distribution<br>• SSE/WebSocket Delivery]:::integrationClass
+    
+    %% Connections
+    SYSTEM --> base
+    SYSTEM --> observers
+    BASE --> SSE
+    BASE --> MEMORY
+    BASE --> INTERRUPT
+    EVENTS --> REGISTRY
+    REGISTRY --> SSE
+    REGISTRY --> MEMORY
+    REGISTRY --> INTERRUPT
+    observers --> WORKFLOW
+    
+    %% Data flow annotations
+    REGISTRY -.->|distributes events| observers
+    WORKFLOW -.->|emits via decorators| REGISTRY
+    SSE -.->|streams to UI| CLIENT[🖥️ UI Clients]
+    MEMORY -.->|updates visualization| CLIENT
 ```
 
 ## Core Components
@@ -179,39 +189,63 @@ sse_observer.add_client(client_callback)
 
 ### Memory Observer (`memory_observer.py`)
 
-Tracks memory graph changes and emits updates for visualization.
+Tracks memory graph changes and emits updates for visualization with full content inclusion.
 
 #### Key Features
 
-1. **Node Addition Tracking**
+1. **Node Addition Tracking with Content**
    ```python
    def emit_node_added(self, thread_id, node_id, node, task_id=None):
        """Emit event when memory node is added."""
+       # IMPORTANT: Always include content to prevent UI "Unknown" labels
+       include_content = True
+       
        node_data = {
            "node_id": node.node_id,
            "summary": node.summary,
            "context_type": node.context_type.value,
            "tags": list(node.tags),
-           "relevance": node.current_relevance()
+           "relevance": node.current_relevance(),
+           "created_at": node.created_at.isoformat(),
+           "content": node.content if include_content else None
        }
    ```
 
 2. **Edge Creation Events**
    - Tracks relationships between nodes
    - Includes relationship type and timestamp
+   - Validates node existence before creating edges
 
 3. **Periodic Snapshots**
    - Full graph snapshot every 5 seconds
-   - Includes visualization data
+   - Includes visualization data with content
    - Graph statistics (node/edge counts)
+   - Ensures UI has complete data for rendering
 
-4. **Integration with Memory System**
+4. **Content Inclusion Strategy**
+   ```python
+   # Recent fix: Always include content for all node types
+   # This ensures the UI renderer has access to:
+   # - entity_name fields
+   # - entity_data dictionaries
+   # - tool_name information
+   # - action descriptions
+   include_content = True  # Fixed to prevent "Unknown" labels
+   ```
+
+5. **Integration with Memory System**
    ```python
    # In memory operations
    observer = MemoryObserverIntegration()
    observer.emit_node_added(thread_id, node_id, node)
    observer.emit_edge_added(thread_id, from_id, to_id, "relates_to")
    ```
+
+#### Recent Improvements
+
+- **Content Field Inclusion**: Fixed "Unknown" label issue by ensuring all node types include their content field in SSE events
+- **Debug Logging**: Added comprehensive logging to track entity content flow
+- **Thread Safety**: Ensures thread-safe operations when emitting events across thread boundaries
 
 ### Interrupt Observer (`interrupt_observer.py`)
 
@@ -426,6 +460,24 @@ sse_observer.set_main_loop(asyncio.get_running_loop())
 ```python
 # After adding node
 memory_observer.emit_node_added(thread_id, node_id, node)
+```
+
+### Issue: "Unknown" Labels in Memory Visualization
+**Cause**: Memory observer not including content field for nodes
+**Solution**: Ensure memory observer includes content:
+```python
+# In memory_observer.py
+include_content = True  # Must be True for all node types
+node_data["content"] = node.content if include_content else None
+```
+
+### Issue: Missing Nodes in Relationship Display
+**Cause**: Thread isolation causing relationships to reference nodes not in UI's current thread view
+**Solution**: UI renderer skips incomplete relationships:
+```python
+# In clean_graph_renderer.py
+if from_id not in nodes or to_id not in nodes:
+    continue  # Skip this relationship
 ```
 
 ### Issue: Interrupt Context Lost

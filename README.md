@@ -320,6 +320,9 @@ The system maintains a sophisticated knowledge graph:
 - **Relationship Mapping**: Tracks how entities relate to each other
 - **Contextual Search**: Uses embeddings for semantic similarity
 - **Decay Mechanism**: Cleans up task-specific context after completion
+- **Thread Isolation**: Each conversation maintains its own memory graph
+- **Content Inclusion**: All node types include full content for UI rendering
+- **Graph Algorithms**: PageRank for importance, community detection for clustering
 
 ### Interrupt Architecture
 Two-tier interrupt system:
@@ -359,11 +362,15 @@ consultant-assistant/
 │   │   │   ├── sse_observer.py      # Server-sent events
 │   │   │   ├── memory_observer.py    # Memory graph updates
 │   │   │   ├── interrupt_observer.py # Interrupt state tracking
-│   │   │   └── registry.py          # Observer registration
+│   │   │   ├── registry.py          # Observer registration
+│   │   │   └── llm_context_event.py # LLM context events
 │   │   ├── workflow/           # Workflow components
 │   │   │   ├── entity_extractor.py  # Pattern-based entity detection
 │   │   │   ├── event_decorators.py  # Workflow event emission
-│   │   │   └── interrupt_handler.py # Interrupt management
+│   │   │   ├── interrupt_handler.py # Interrupt management
+│   │   │   ├── memory_analyzer.py   # Memory analysis
+│   │   │   ├── memory_context_builder.py # Context building
+│   │   │   └── emit_llm_context.py  # LLM context emission
 │   │   ├── tools/              # Orchestrator tools
 │   │   │   ├── agent_caller_tools.py # Agent communication tools
 │   │   │   ├── base.py              # Base tool class
@@ -375,29 +382,49 @@ consultant-assistant/
 │   ├── agents/                 # Specialized agents
 │   │   ├── salesforce/
 │   │   │   ├── main.py              # Salesforce LangGraph agent
+│   │   │   ├── README.md            # Salesforce agent docs
 │   │   │   └── tools/               # Salesforce-specific tools
 │   │   │       ├── base.py          # Tool implementations
 │   │   │       └── unified.py       # Unified tool interface
 │   │   ├── jira/
 │   │   │   ├── main.py              # Jira LangGraph agent
+│   │   │   ├── README.md            # Jira agent docs
 │   │   │   └── tools/               # Jira-specific tools
 │   │   │       ├── base.py          # Tool implementations
 │   │   │       └── unified.py       # Unified tool interface
-│   │   └── servicenow/
-│   │       ├── main.py              # ServiceNow LangGraph agent
-│   │       └── tools/               # ServiceNow-specific tools
+│   │   ├── servicenow/
+│   │   │   ├── main.py              # ServiceNow LangGraph agent
+│   │   │   ├── README.md            # ServiceNow agent docs
+│   │   │   └── tools/               # ServiceNow-specific tools
+│   │   │       ├── base.py          # Tool implementations
+│   │   │       └── unified.py       # Unified tool interface
+│   │   └── shared/
+│   │       └── memory_writer.py     # Shared memory writing
 │   │           ├── base.py          # Tool implementations
 │   │           └── unified.py       # Unified tool interface
 │   ├── a2a/                    # A2A protocol implementation
 │   │   ├── protocol.py              # JSON-RPC 2.0 protocol
 │   │   └── circuit_breaker.py       # Circuit breaker pattern
 │   ├── memory/                 # Memory system
-│   │   ├── memory_manager.py        # Memory management
-│   │   ├── memory_graph.py          # NetworkX graph structure
-│   │   ├── memory_node.py           # Node definitions
-│   │   ├── graph_algorithms.py      # Graph algorithms
-│   │   ├── semantic_embeddings.py   # Embedding generation
-│   │   └── summary_generator.py     # Summarization
+│   │   ├── core/               # Core memory components
+│   │   │   ├── memory_manager.py    # Memory management
+│   │   │   ├── memory_graph.py      # NetworkX graph structure
+│   │   │   ├── memory_graph_sqlite.py # SQLite-backed graph
+│   │   │   └── memory_node.py       # Node definitions
+│   │   ├── algorithms/         # Graph algorithms
+│   │   │   ├── graph_algorithms.py  # PageRank, community detection
+│   │   │   ├── semantic_embeddings.py # Embedding generation
+│   │   │   └── summary_generator.py # Content summarization
+│   │   ├── components/         # Memory components
+│   │   │   ├── inverted_index.py    # Fast text search
+│   │   │   ├── node_manager.py      # Node lifecycle
+│   │   │   ├── scoring_engine.py    # Relevance scoring
+│   │   │   └── text_processor.py    # Text processing
+│   │   ├── storage/            # Storage backend
+│   │   │   ├── sqlite_backend.py    # SQLite implementation
+│   │   │   └── sqlite_schema.py     # Database schema
+│   │   └── config/             # Memory configuration
+│   │       └── memory_config.py     # Config settings
 │   └── utils/                  # Shared utilities
 │       ├── config/
 │       │   ├── constants.py         # System-wide constants
@@ -415,26 +442,34 @@ consultant-assistant/
 │       │   ├── memory_graph_widget.py   # Memory graph widget
 │       │   ├── clean_graph_renderer.py  # Graph rendering
 │       │   ├── advanced_graph_renderer.py # Advanced rendering
+│       │   ├── llm_context_widget.py    # LLM context display
 │       │   ├── animations.py         # UI animations
 │       │   ├── colors.py            # Color schemes
 │       │   └── terminal.py          # Terminal utilities
 │       ├── agents/
 │       │   └── message_processing/
 │       │       ├── helpers.py       # Message helpers
-│       │       ├── serialization.py # Message serialization
-│       │       └── unified_serialization.py
-│       ├── message_serialization.py # LangChain msg handling
-│       ├── helpers.py               # General helpers
-│       ├── tool_execution.py        # Tool execution utilities
-│       ├── input_validation.py      # Input validation
-│       ├── soql_query_builder.py    # SOQL query building
-│       └── glide_query_builder.py   # ServiceNow queries
+│       │       └── unified_serialization.py # Unified serialization
+│       ├── prompt_templates.py      # Prompt templates
+│       ├── thread_utils.py          # Thread utilities
+│       ├── soql_query_builder.py    # SOQL query construction
+│       └── glide_query_builder.py   # Glide query construction
 ├── docs/                       # Documentation
-│   ├── architecture/          # Architecture docs
 │   ├── components/            # Component docs
+│   │   ├── contextual-memory-graph.md
+│   │   ├── interrupt-handling-system.md
+│   │   ├── observer-system.md
+│   │   ├── plan-and-execute-workflow.md
+│   │   └── unified-tool-descriptions.md
 │   ├── guides/                # User guides
+│   │   └── comprehensive-onboarding-guide.md
 │   ├── operations/            # Operational docs
-│   └── protocols/             # Protocol specs
+│   │   ├── circuit-breaker-resilience.md
+│   │   ├── configuration-management.md
+│   │   └── logging-observability.md
+│   └── protocols/             # Protocol docs
+│       ├── a2a-protocol.md
+│       └── mcp-context-overload-analysis.md
 ├── logs/                       # Component-separated logs
 │   ├── orchestrator.log       # Main workflow logs
 │   ├── salesforce.log         # CRM operations
@@ -448,7 +483,8 @@ consultant-assistant/
 │   └── errors.log             # Aggregated errors
 ├── memory_store.db            # SQLite persistence
 ├── system_config.json         # System configuration
-├── agent_registry.json        # Agent capabilities
+├── agent_registry.json        # Agent registry
+├── agent_registry.default.json # Default agent registry
 ├── textual_styles.tcss        # UI styling
 ├── CLAUDE.md                  # AI assistant guide
 ├── README.md                  # This file

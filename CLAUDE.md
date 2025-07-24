@@ -45,11 +45,15 @@ consultant-assistant/
 │   │   │   ├── sse_observer.py
 │   │   │   ├── memory_observer.py
 │   │   │   ├── interrupt_observer.py
-│   │   │   └── registry.py
+│   │   │   ├── registry.py
+│   │   │   └── llm_context_event.py
 │   │   ├── workflow/           # Workflow components
 │   │   │   ├── entity_extractor.py
 │   │   │   ├── event_decorators.py
-│   │   │   └── interrupt_handler.py
+│   │   │   ├── interrupt_handler.py
+│   │   │   ├── memory_analyzer.py
+│   │   │   ├── memory_context_builder.py
+│   │   │   └── emit_llm_context.py
 │   │   ├── tools/              # Orchestrator tools
 │   │   │   ├── agent_caller_tools.py
 │   │   │   ├── base.py
@@ -61,29 +65,47 @@ consultant-assistant/
 │   ├── agents/                 # Agent implementations
 │   │   ├── salesforce/
 │   │   │   ├── main.py
+│   │   │   ├── README.md
 │   │   │   └── tools/
 │   │   │       ├── base.py
 │   │   │       └── unified.py
 │   │   ├── jira/
 │   │   │   ├── main.py
+│   │   │   ├── README.md
 │   │   │   └── tools/
 │   │   │       ├── base.py
 │   │   │       └── unified.py
-│   │   └── servicenow/
-│   │       ├── main.py
-│   │       └── tools/
-│   │           ├── base.py
-│   │           └── unified.py
+│   │   ├── servicenow/
+│   │   │   ├── main.py
+│   │   │   ├── README.md
+│   │   │   └── tools/
+│   │   │       ├── base.py
+│   │   │       └── unified.py
+│   │   └── shared/
+│   │       └── memory_writer.py
 │   ├── a2a/                    # A2A protocol
 │   │   ├── protocol.py
 │   │   └── circuit_breaker.py
 │   ├── memory/                 # Memory system
-│   │   ├── memory_manager.py
-│   │   ├── memory_graph.py
-│   │   ├── memory_node.py
-│   │   ├── graph_algorithms.py
-│   │   ├── semantic_embeddings.py
-│   │   └── summary_generator.py
+│   │   ├── core/
+│   │   │   ├── memory_manager.py
+│   │   │   ├── memory_graph.py
+│   │   │   ├── memory_graph_sqlite.py
+│   │   │   └── memory_node.py
+│   │   ├── algorithms/
+│   │   │   ├── graph_algorithms.py
+│   │   │   ├── semantic_embeddings.py
+│   │   │   └── summary_generator.py
+│   │   ├── components/
+│   │   │   ├── inverted_index.py
+│   │   │   ├── node_manager.py
+│   │   │   ├── scoring_engine.py
+│   │   │   └── text_processor.py
+│   │   ├── storage/
+│   │   │   ├── sqlite_backend.py
+│   │   │   └── sqlite_schema.py
+│   │   └── config/
+│   │       └── memory_config.py
 │   └── utils/                  # Utilities
 │       ├── config/
 │       │   ├── constants.py
@@ -101,26 +123,32 @@ consultant-assistant/
 │       │   ├── memory_graph_widget.py
 │       │   ├── clean_graph_renderer.py
 │       │   ├── advanced_graph_renderer.py
+│       │   ├── llm_context_widget.py
 │       │   ├── animations.py
 │       │   ├── colors.py
 │       │   └── terminal.py
 │       ├── agents/
 │       │   └── message_processing/
 │       │       ├── helpers.py
-│       │       ├── serialization.py
 │       │       └── unified_serialization.py
-│       ├── message_serialization.py
-│       ├── helpers.py
-│       ├── tool_execution.py
-│       ├── input_validation.py
+│       ├── prompt_templates.py
+│       ├── thread_utils.py
 │       ├── soql_query_builder.py
 │       └── glide_query_builder.py
+├── docs/                       # Documentation
+│   ├── components/
+│   ├── guides/
+│   ├── operations/
+│   └── protocols/
 ├── logs/                       # Multi-file logs
 ├── memory_store.db            # SQLite DB
 ├── system_config.json         # Config
 ├── agent_registry.json        # Agent registry
+├── agent_registry.default.json # Default registry
 ├── textual_styles.tcss        # UI styles
-└── requirements.txt           # Dependencies
+├── requirements.txt           # Dependencies
+├── CLAUDE.md                  # This file
+└── README.md                  # Main documentation
 ```
 
 ## 🛠️ Core Implementation Details
@@ -138,6 +166,8 @@ consultant-assistant/
 - **Edge Types**: led_to, relates_to, depends_on, produces
 - **Entity Extraction**: Pattern-based ID detection
 - **Retrieval**: Relevance + recency scoring
+- **Content Inclusion**: All node types include full content for UI
+- **Thread Isolation**: Each thread maintains separate memory graph
 
 ### Interrupt System
 - **User Escape (ESC)**: Modify plan mid-execution
@@ -338,6 +368,8 @@ SFDC_USER/PASS/TOKEN
 3. **Background tasks** need `asyncio.run()` in thread contexts
 4. **SSE events** must be JSON serializable
 5. **Circuit breaker** only for network calls (A2A), not SQLite
+6. **Memory observer** must include content for ALL node types to prevent UI "Unknown" labels
+7. **UI renderer** skips relationships where nodes are missing from thread's view
 
 ## 🧪 Quick Testing Reference
 

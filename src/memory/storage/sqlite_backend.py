@@ -211,9 +211,17 @@ class SQLiteMemoryBackend:
     def search_nodes(self, query_text: str, thread_id: Optional[str] = None,
                      limit: int = 20) -> List[Tuple[MemoryNode, float]]:
         """Full-text search across nodes."""
-        # Escape special characters for FTS5
-        # FTS5 uses double quotes for phrase matching, so we need to escape them
-        query_text = query_text.replace('"', '""')
+        # Sanitize query for FTS5 - remove problematic characters
+        # FTS5 doesn't handle certain special characters well
+        import re
+        
+        # Remove or replace problematic characters
+        query_text = re.sub(r'[^\w\s]', ' ', query_text)  # Replace non-alphanumeric with spaces
+        query_text = re.sub(r'\s+', ' ', query_text).strip()  # Normalize whitespace
+        
+        # If query is empty after sanitization, return empty results
+        if not query_text:
+            return []
         
         with self._get_connection() as conn:
             if thread_id:

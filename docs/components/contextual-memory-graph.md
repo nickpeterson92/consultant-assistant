@@ -15,6 +15,7 @@ flowchart TB
     classDef nodeClass fill:#e53935,stroke:#b71c1c,stroke-width:2px,color:#ffffff
     classDef algoClass fill:#fb8c00,stroke:#e65100,stroke-width:2px,color:#ffffff
     classDef featureClass fill:#43a047,stroke:#1b5e20,stroke-width:2px,color:#ffffff
+    classDef observerClass fill:#0288d1,stroke:#01579b,stroke-width:2px,color:#ffffff
     
     %% Top-level system
     SYSTEM[💾 CONTEXTUAL MEMORY GRAPH SYSTEM]:::systemClass
@@ -23,6 +24,9 @@ flowchart TB
     SYSTEM --> MANAGER[📋 Memory Manager<br>━━━━━━━━━━━━━━━<br>• Thread Isolation<br>• Lifecycle Mgmt<br>• Cleanup Scheduler]:::managerClass
     SYSTEM --> GRAPH[🕸️ Memory Graph<br>━━━━━━━━━━━━━<br>• NetworkX Core<br>• Relationship Mgmt<br>• Index Management]:::graphClass
     SYSTEM --> NODE[📦 Memory Node<br>━━━━━━━━━━━━<br>• Content Store<br>• Relevance<br>• Decay Model]:::nodeClass
+    
+    %% Observer Integration
+    SYSTEM --> OBSERVER[📡 Memory Observer<br>━━━━━━━━━━━━━━━<br>• SSE Events<br>• Content Inclusion<br>• UI Updates]:::observerClass
     
     %% Algorithms layer
     GRAPH --> ALGOS[🧮 GRAPH ALGORITHMS LAYER]:::algoClass
@@ -51,6 +55,8 @@ flowchart TB
     MANAGER -.->|manages| GRAPH
     GRAPH -.->|contains| NODE
     NODE -.->|analyzed by| ALGOS
+    OBSERVER -.->|monitors| GRAPH
+    OBSERVER -.->|emits events for| NODE
 ```
 
 ## Core Components
@@ -669,7 +675,98 @@ summary = "Acme Corp account in biotechnology, $1M opportunity"
 summary = "Account data"
 ```
 
+## Thread Isolation and UI Synchronization
+
+### Thread Isolation Model
+
+The memory system maintains strict thread isolation to ensure conversation context separation:
+
+1. **Thread-Specific Graphs**
+   - Each thread ID maintains its own memory graph
+   - No cross-thread memory sharing by design
+   - Prevents context pollution between conversations
+
+2. **UI Data Flow**
+   ```
+   Memory Store → Memory Observer → SSE Events → UI Client
+        ↓               ↓                ↓           ↓
+   (All nodes)    (Content Filter)   (JSON)    (Render)
+   ```
+
+3. **Content Inclusion Strategy**
+   - Memory observer includes full content for all node types
+   - Ensures UI has complete data for rendering
+   - Prevents "Unknown" labels in visualization
+
+### Recent Improvements
+
+#### Memory Observer Content Fix
+The memory observer now includes content for all node types to ensure proper UI display:
+
+```python
+# In memory_observer.py
+def emit_node_added(self, thread_id, node_id, node, task_id=None):
+    """Include content for all node types."""
+    include_content = True  # Fixed to ensure UI has all data
+    
+    node_data = {
+        "node_id": node.node_id,
+        "summary": node.summary,
+        "context_type": node.context_type.value,
+        "tags": list(node.tags),
+        "relevance": node.current_relevance(),
+        "created_at": node.created_at.isoformat(),
+        "content": node.content if include_content else None
+    }
+```
+
+#### UI Renderer Enhancements
+The clean graph renderer handles missing nodes gracefully:
+
+```python
+# In clean_graph_renderer.py
+def _render_relationships(cls, edges, nodes, width):
+    """Skip relationships where nodes are missing."""
+    for from_id, to_id, rel_type in edges[:10]:
+        # Skip if either node is missing from UI data
+        if from_id not in nodes or to_id not in nodes:
+            continue
+        # Render relationship with available nodes
+```
+
+#### Enhanced Name Resolution
+Multiple fallback strategies ensure meaningful node names:
+
+```python
+def _get_short_name(cls, node_data):
+    """Improved name extraction with multiple fallbacks."""
+    # Priority order:
+    # 1. Direct entity_name field
+    # 2. Name fields in entity_data
+    # 3. Raw data fields
+    # 4. Summary parsing
+    # 5. Shortened entity ID
+    # 6. "Unknown" as last resort
+```
+
 ## Common Issues and Solutions
+
+### Issue: "Unknown" Labels in UI
+**Cause**: Memory observer not including content field
+**Solution**: Ensure memory observer includes content for all node types:
+```python
+# This is now fixed in the codebase
+include_content = True  # Always include content
+```
+
+### Issue: Missing Nodes in Relationships
+**Cause**: Thread isolation preventing cross-thread node access
+**Solution**: UI renderer skips incomplete relationships:
+```python
+# Skip relationships where nodes are missing
+if from_id not in nodes or to_id not in nodes:
+    continue
+```
 
 ### Issue: Memory Graph Growing Too Large
 **Solution**: Implement aggressive cleanup:
