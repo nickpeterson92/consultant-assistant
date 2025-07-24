@@ -325,22 +325,22 @@ sequenceDiagram
     participant Tool as 🛠️ Tool<br/>Execution
 
     %% User initiates request
-    rect rgb(225, 245, 254)
+    rect rgba(33, 150, 243, 0.1)
         note right of User: 🚀 Request Initiation
         User->>+UI: Enter request
         UI->>+Orchestrator: Send via A2A<br/>JSON-RPC 2.0
     end
 
     %% Planning phase
-    rect rgb(243, 229, 245)
+    rect rgba(156, 39, 176, 0.1)
         note right of Orchestrator: 📋 Planning Phase
-        Orchestrator->>Orchestrator: 📝 Generate plan
         Orchestrator->>+Memory: 🔍 Retrieve context
         Memory-->>-Orchestrator: 📊 Relevant memories
+        Orchestrator->>Orchestrator: 📝 Generate plan
     end
     
     %% Execution phase
-    rect rgb(232, 245, 233)
+    rect rgba(76, 175, 80, 0.1)
         note right of Orchestrator: ⚡ Execution Phase
         loop For each plan step
             Orchestrator->>+Agent: Execute step ➡️
@@ -354,7 +354,7 @@ sequenceDiagram
     end
     
     %% Completion
-    rect rgb(255, 243, 224)
+    rect rgba(255, 152, 0, 0.1)
         note right of Orchestrator: ✨ Completion
         Orchestrator->>-UI: Final response 🎯
         UI-->>-User: Display result 📋
