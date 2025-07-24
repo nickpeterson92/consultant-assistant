@@ -7,6 +7,7 @@ import threading
 from .memory_graph import MemoryGraph
 from .memory_node import MemoryNode, ContextType
 from src.utils.logging.framework import SmartLogger
+from src.utils.thread_utils import ThreadIDManager
 
 logger = SmartLogger("memory")
 
@@ -26,6 +27,10 @@ class ConversationalMemoryManager:
     
     def get_memory(self, thread_id: str) -> MemoryGraph:
         """Get or create memory graph for a thread."""
+        # Validate thread ID format
+        if not ThreadIDManager.is_valid_thread_id(thread_id):
+            raise ValueError(f"Invalid thread ID format: {thread_id}. Expected 'agent-task_id' format.")
+            
         with self._lock:
             if thread_id not in self.thread_memories:
                 self.thread_memories[thread_id] = MemoryGraph(thread_id)

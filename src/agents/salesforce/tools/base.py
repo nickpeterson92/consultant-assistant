@@ -25,6 +25,12 @@ from src.utils.soql_query_builder import SOQLQueryBuilder, SOQLOperator
 # Initialize logger
 logger = SmartLogger("salesforce")
 
+# Import for persistent memory writing
+try:
+    from src.agents.shared.memory_writer import write_tool_result_to_memory
+except ImportError:
+    write_tool_result_to_memory = None
+
 
 class SalesforceConnectionManager:
     """Singleton connection manager for Salesforce.

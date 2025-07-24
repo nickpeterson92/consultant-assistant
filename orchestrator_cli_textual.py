@@ -23,6 +23,7 @@ from textual.events import Key
 from textual import on, work
 
 from src.a2a import A2AClient, A2ATask
+from src.utils.thread_utils import create_thread_id
 from src.utils.config.constants import ENTERPRISE_ASSISTANT_BANNER, ENTERPRISE_ASSISTANT_COMPACT_LOGO
 from src.utils.config.unified_config import config as app_config
 from src.utils.ui.animations import animated_banner_display, format_compact_logo_for_textual
@@ -607,7 +608,8 @@ class OrchestatorApp(App):
     def __init__(self, orchestrator_url: str = "http://localhost:8000", thread_id: Optional[str] = None):
         super().__init__()
         self.orchestrator_url = orchestrator_url
-        self.thread_id = thread_id or f"textual-{uuid.uuid4().hex[:8]}"
+        # Use standardized thread ID format for orchestrator
+        self.thread_id = thread_id or create_thread_id("orchestrator", f"{uuid.uuid4().hex[:8]}")
         self.a2a_client = A2AClient()
         self._cleanup_done = False
         self.conversation_history = []

@@ -297,26 +297,8 @@ class SalesforceAgentTool(BaseAgentTool):
         Returns:
             Final response content with structured data if available
         """
-        # Check for tool results in state_updates
-        tool_results_data = None
-        if "state_updates" in result and "tool_results" in result["state_updates"]:
-            tool_results_data = result["state_updates"]["tool_results"]
-        
-        if tool_results_data:
-            final_response = response_content + "\n\n[STRUCTURED_TOOL_DATA]:\n" + json.dumps(tool_results_data, indent=2)
-            
-            # Log structured data addition
-            logger.info("structured_data_found",
-                tool_name="salesforce_agent",
-                data_preview=str(tool_results_data)[:200],
-                data_size=len(json.dumps(tool_results_data)),
-                record_count=len(tool_results_data) if isinstance(tool_results_data, list) else 1,
-                agent="salesforce-agent",
-                task_id=task_id
-            )
-            return final_response
-        else:
-            return response_content
+        # Tool results are now stored in persistent memory, not in state_updates
+        return response_content
     
     def _run(self, instruction: str, context: Optional[Dict[str, Any]] = None, 
             state: Annotated[Dict[str, Any], InjectedState] = None, **kwargs) -> Union[str, Command]:
@@ -432,56 +414,8 @@ class SalesforceAgentTool(BaseAgentTool):
                     success=True
                 )
                 
-                # Handle state merging from agent
+                # No state merging needed - tool results are in persistent memory
                 state_update = {}
-                
-                # Check for agent state to merge back
-                if isinstance(result, dict) and "state_updates" in result:
-                    state_updates = result["state_updates"]
-                    if "agent_final_state" in state_updates:
-                        agent_state = state_updates["agent_final_state"]
-                        
-                        # Extract tool results from agent messages for entity extraction
-                        if "messages" in agent_state:
-                            tool_results = []
-                            for msg in agent_state["messages"]:
-                                # Handle both serialized (dict) and non-serialized (object) messages
-                                msg_name = None
-                                msg_content = None
-                                msg_tool_call_id = None
-                                
-                                if isinstance(msg, dict):
-                                    # Serialized message
-                                    msg_name = msg.get('name')
-                                    msg_content = msg.get('content', '')
-                                    msg_tool_call_id = msg.get('tool_call_id')
-                                else:
-                                    # Non-serialized message object
-                                    msg_name = getattr(msg, 'name', None)
-                                    msg_content = getattr(msg, 'content', '')
-                                    msg_tool_call_id = getattr(msg, 'tool_call_id', None)
-                                
-                                # Extract tool response messages
-                                if msg_name and msg_content and msg_tool_call_id:
-                                    try:
-                                        import json
-                                        if msg_content.startswith('{') or msg_content.startswith('['):
-                                            tool_data = json.loads(msg_content)
-                                            if isinstance(tool_data, dict) and tool_data.get('success'):
-                                                tool_results.append({
-                                                    'tool_name': msg_name,
-                                                    'data': tool_data.get('data'),
-                                                    'success': tool_data.get('success')
-                                                })
-                                    except (json.JSONDecodeError, ValueError, AttributeError):
-                                        pass
-                            
-                            if tool_results:
-                                state_update["tool_results"] = tool_results
-                                logger.info("merged_agent_tool_results",
-                                           task_id=task_id,
-                                           tool_results_count=len(tool_results),
-                                           agent="salesforce-agent")
                 
                 # Return Command with processed response and merged state
                 # If we have a tool_call_id, return a ToolMessage, otherwise return the content directly
@@ -856,20 +790,31 @@ class JiraAgentTool(BaseAgentTool):
                                 msg_name = None
                                 msg_content = None
                                 msg_tool_call_id = None
+                                msg_type = None
                                 
                                 if isinstance(msg, dict):
-                                    # Serialized message
-                                    msg_name = msg.get('name')
-                                    msg_content = msg.get('content', '')
-                                    msg_tool_call_id = msg.get('tool_call_id')
+                                    # Serialized message - check for kwargs structure
+                                    if 'kwargs' in msg:
+                                        kwargs = msg['kwargs']
+                                        msg_name = kwargs.get('name')
+                                        msg_content = kwargs.get('content', '')
+                                        msg_tool_call_id = kwargs.get('tool_call_id')
+                                        msg_type = kwargs.get('type')
+                                    else:
+                                        # Direct serialized format
+                                        msg_name = msg.get('name')
+                                        msg_content = msg.get('content', '')
+                                        msg_tool_call_id = msg.get('tool_call_id')
+                                        msg_type = msg.get('type')
                                 else:
                                     # Non-serialized message object
                                     msg_name = getattr(msg, 'name', None)
                                     msg_content = getattr(msg, 'content', '')
                                     msg_tool_call_id = getattr(msg, 'tool_call_id', None)
+                                    msg_type = getattr(msg, 'type', None)
                                 
-                                # Extract tool response messages
-                                if msg_name and msg_content and msg_tool_call_id:
+                                # Extract tool response messages (ToolMessage type)
+                                if msg_type == 'tool' and msg_name and msg_content:
                                     try:
                                         import json
                                         if msg_content.startswith('{') or msg_content.startswith('['):
@@ -1263,20 +1208,31 @@ class ServiceNowAgentTool(BaseAgentTool):
                                 msg_name = None
                                 msg_content = None
                                 msg_tool_call_id = None
+                                msg_type = None
                                 
                                 if isinstance(msg, dict):
-                                    # Serialized message
-                                    msg_name = msg.get('name')
-                                    msg_content = msg.get('content', '')
-                                    msg_tool_call_id = msg.get('tool_call_id')
+                                    # Serialized message - check for kwargs structure
+                                    if 'kwargs' in msg:
+                                        kwargs = msg['kwargs']
+                                        msg_name = kwargs.get('name')
+                                        msg_content = kwargs.get('content', '')
+                                        msg_tool_call_id = kwargs.get('tool_call_id')
+                                        msg_type = kwargs.get('type')
+                                    else:
+                                        # Direct serialized format
+                                        msg_name = msg.get('name')
+                                        msg_content = msg.get('content', '')
+                                        msg_tool_call_id = msg.get('tool_call_id')
+                                        msg_type = msg.get('type')
                                 else:
                                     # Non-serialized message object
                                     msg_name = getattr(msg, 'name', None)
                                     msg_content = getattr(msg, 'content', '')
                                     msg_tool_call_id = getattr(msg, 'tool_call_id', None)
+                                    msg_type = getattr(msg, 'type', None)
                                 
-                                # Extract tool response messages
-                                if msg_name and msg_content and msg_tool_call_id:
+                                # Extract tool response messages (ToolMessage type)
+                                if msg_type == 'tool' and msg_name and msg_content:
                                     try:
                                         import json
                                         if msg_content.startswith('{') or msg_content.startswith('['):

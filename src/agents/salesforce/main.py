@@ -19,6 +19,8 @@ from langchain_openai import AzureChatOpenAI
 # Imports no longer need path manipulation
 
 from src.a2a import A2AServer, AgentCard
+from src.agents.shared.memory_writer import write_tool_result_to_memory
+from src.utils.thread_utils import create_thread_id
 
 # Import from the centralized tools directory
 # Using new unified tools for better performance and maintainability
@@ -105,7 +107,7 @@ def build_salesforce_graph():
         messages: Annotated[list, add_messages]
         task_context: Dict[str, Any]
         external_context: Dict[str, Any]
-        orchestrator_state: Dict[str, Any]  # Include orchestrator state for merging
+        orchestrator_state: Dict[str, Any]  # Receive state from orchestrator (one-way)
     
     # Using new unified Salesforce tools (reduced from 23 to 6 tools)
     tools = UNIFIED_SALESFORCE_TOOLS
@@ -201,7 +203,7 @@ class SalesforceA2AHandler:
             # Modern config - no need for complex setup
             config = {
                 "configurable": {
-                    "thread_id": f"sf-{task_id}",
+                    "thread_id": create_thread_id("salesforce", task_id),
                 },
                 "recursion_limit": 15  # Prevent runaway tool calls
             }
@@ -217,14 +219,46 @@ class SalesforceA2AHandler:
             else:
                 response_content = "Task completed successfully"
             
-            # Log tool calls found in messages
-            for msg in messages:
+            # Log tool calls and write results to memory
+            thread_id = create_thread_id("salesforce", task_id)
+            for i, msg in enumerate(messages):
                 if hasattr(msg, 'tool_calls') and msg.tool_calls:
                     for tool_call in msg.tool_calls:
                         logger.info("tool_call", component="salesforce",
                                                task_id=task_id,
                                                tool_name=tool_call.get("name", "unknown"),
                                                tool_args=tool_call.get("args", {}))
+                        
+                        # Look for the corresponding tool result in the next message
+                        if i + 1 < len(messages):
+                            next_msg = messages[i + 1]
+                            if hasattr(next_msg, 'name') and hasattr(next_msg, 'content'):
+                                # This is likely the tool result
+                                try:
+                                    # Write to persistent memory
+                                    from src.agents.shared.memory_writer import write_tool_result_to_memory
+                                    import json
+                                    
+                                    # Parse tool result if it's JSON
+                                    tool_result = next_msg.content
+                                    if isinstance(tool_result, str) and tool_result.strip().startswith('{'):
+                                        try:
+                                            tool_result = json.loads(tool_result)
+                                        except:
+                                            pass
+                                    
+                                    write_tool_result_to_memory(
+                                        thread_id=thread_id,
+                                        tool_name=tool_call.get("name", "unknown"),
+                                        tool_args=tool_call.get("args", {}),
+                                        tool_result=tool_result,
+                                        task_id=task_id,
+                                        agent_name="salesforce"
+                                    )
+                                except Exception as e:
+                                    logger.warning("failed_to_write_tool_result",
+                                                 error=str(e),
+                                                 tool_name=tool_call.get("name"))
             
             
             # Modern response with state merging capability
@@ -238,19 +272,7 @@ class SalesforceA2AHandler:
                 "status": "completed"
             }
             
-            # Include final agent state for orchestrator merging
-            # This allows the orchestrator to access tool results and other agent state
-            if result:
-                # Serialize messages before including in response
-                serialized_result = dict(result)
-                if "messages" in serialized_result:
-                    from src.utils.agents.message_processing.unified_serialization import serialize_messages_for_json
-                    serialized_result["messages"] = serialize_messages_for_json(serialized_result["messages"])
-                
-                response["state_updates"] = {
-                    "agent_final_state": serialized_result,
-                    "orchestrator_state": result.get("orchestrator_state", {})
-                }
+            # No need to pass state back - we use persistent memory for tool results
             
             return response
             

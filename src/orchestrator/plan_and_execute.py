@@ -16,6 +16,7 @@ from src.utils.logging.framework import SmartLogger, log_execution
 from src.orchestrator.workflow.event_decorators import emit_coordinated_events
 from src.orchestrator.workflow.memory_context_builder import MemoryContextBuilder
 from src.orchestrator.core.state import PlanExecute, StepExecution
+from src.utils.thread_utils import parse_thread_id, create_thread_id, ThreadIDManager
 
 # Initialize logger
 logger = SmartLogger("orchestrator")
@@ -457,123 +458,43 @@ You are tasked with executing step {current_step_num}: {task}.
                         extraction_context['system'] = 'servicenow'
                         break
         
-        # Extract entities from all available data
-        all_data_sources = []
+        # Entity extraction now happens at the agent level
+        # Agents extract entities from tool results and store them directly in memory
+        # The orchestrator can simply query for DOMAIN_ENTITY nodes when needed
         
-        # Check for tool results merged from agent state
-        if hasattr(state, 'get') and state.get("tool_results"):
-            tool_results = state["tool_results"]
-            logger.info("found_merged_tool_results",
-                       component="orchestrator",
-                       operation="execute_step",
-                       tool_results_count=len(tool_results),
-                       tools_used=[tr.get('tool_name') for tr in tool_results])
-            
-            for tool_result in tool_results:
-                if 'data' in tool_result and tool_result['data']:
-                    all_data_sources.append(tool_result['data'])
-        
-        # Extract entities intelligently
-        extracted_entities = []
-        for data_source in all_data_sources:
-            entities = extract_entities_intelligently(data_source, extraction_context)
-            extracted_entities.extend(entities)
-        
-        # Deduplicate by ID
-        entity_map = {}
-        for entity_info in extracted_entities:
-            entity_id = entity_info['id']
-            if entity_id not in entity_map or entity_info['confidence'] > entity_map[entity_id]['confidence']:
-                entity_map[entity_id] = entity_info
-        
-        logger.info("INTELLIGENT_ENTITY_EXTRACTION",
-                   component="orchestrator",
-                   operation="execute_step",
-                   total_entities_found=len(entity_map),
-                   extraction_context=extraction_context,
-                   entity_types=list(set(e['type'] for e in entity_map.values())),
-                   systems=list(set(e['system'] for e in entity_map.values())))
-        
-        # Create or link to domain entity nodes
-        for entity_key, entity_info in entity_map.items():
-            # Check if we already have this entity in memory
-            entity_node = None
-            for node in recent_nodes:
-                if node.context_type == ContextType.DOMAIN_ENTITY:
-                    node_content = node.content if isinstance(node.content, dict) else {}
-                    if (entity_info['id'] and node_content.get('entity_id') == entity_info['id']) or \
-                       (entity_info['name'] and node_content.get('entity_name') == entity_info['name']):
-                        entity_node = node
-                        break
-            
-            if not entity_node and (entity_info['id'] or entity_info['name']):
-                # Create new domain entity node
-                entity_tags = set()
-                if entity_info['name']:
-                    # Extract meaningful words from name for tags
-                    name_words = entity_info['name'].lower().split() if entity_info['name'] else []
-                    entity_tags.update(word for word in name_words if len(word) > 2 and word not in stop_words)
-                if entity_info.get('type'):
-                    entity_tags.add(entity_info['type'].lower())
-                if entity_info['system']:
-                    entity_tags.add(entity_info['system'])
+        # Get recently created domain entities from agent threads
+        related_entities = []
+        thread_id = state.get("thread_id")
+        if thread_id:
+            try:
+                _, task_id = parse_thread_id(thread_id)
                 
-                # Add confidence to relevance
-                base_relevance = 0.6 + (entity_info['confidence'] * 0.3)
-                
-                # Debug logging for entity storage
-                logger.info("storing_entity_in_memory",
-                          entity_id=entity_info['id'],
-                          entity_name=entity_info['name'],
-                          entity_type=entity_info['type'],
-                          has_name=bool(entity_info['name']),
-                          data_keys=list(entity_info.get('data', {}).keys()) if isinstance(entity_info.get('data'), dict) else None)
-                
-                entity_node_id = memory.store(
-                    content={
-                        "entity_id": entity_info['id'],
-                        "entity_name": entity_info['name'],
-                        "entity_type": entity_info['type'],
-                        "entity_system": entity_info['system'],
-                        "entity_data": entity_info['data'],
-                        "entity_relationships": entity_info.get('relationships', []),
-                        "extraction_confidence": entity_info['confidence'],
-                        "first_seen": datetime.now().isoformat(),
-                        "last_accessed": datetime.now().isoformat()
-                    },
-                    context_type=ContextType.DOMAIN_ENTITY,
-                    tags=entity_tags,
-                    confidence=base_relevance,  # Changed from base_relevance to confidence
-                    summary=f"{entity_info['type']}: {entity_info['name'] or entity_info['id']}"
-                )
-                related_entities.append(entity_node_id)
-                
-                # Create relationships to other entities
-                for related_id, rel_type in entity_info.get('relationships', []):
-                    # Check if related entity exists in our current batch
-                    if related_id in entity_map:
-                        # We'll create this relationship after all entities are stored
+                # Query for recent domain entities created by agents for this task
+                for agent_name in ["salesforce", "jira", "servicenow"]:
+                    agent_thread_id = create_thread_id(agent_name, task_id)
+                    try:
+                        agent_memory = global_memory_store.get_memory(agent_thread_id)
+                        recent_entities = agent_memory.retrieve_relevant(
+                            query_text="",
+                            context_filter={ContextType.DOMAIN_ENTITY},
+                            max_age_hours=0.1,  # Last 6 minutes
+                            max_results=20
+                        )
+                        for entity_node in recent_entities:
+                            related_entities.append(entity_node.node_id)
+                            # Update access time
+                            entity_node.access()
+                    except Exception:
+                        # Thread might not exist if agent wasn't called
                         pass
-                    else:
-                        # Create a placeholder relationship that can be resolved later
-                        logger.debug("entity_relationship_found",
-                                   from_entity=entity_info['id'],
-                                   to_entity=related_id,
-                                   relationship=rel_type)
-                
-                # Notify about new entity
-                try:
-                    from src.orchestrator.observers.memory_observer import notify_memory_update
-                    node = memory.node_manager.get_node(entity_node_id)
-                    if node:
-                        notify_memory_update(thread_id, entity_node_id, node, state.get("task_id"))
-                except Exception as e:
-                    logger.debug(f"Memory observer notification failed: {e}")
-                    pass
-            elif entity_node:
-                related_entities.append(entity_node.node_id)
-                # Update last accessed time
-                entity_node.access()
+                        
+                logger.info("found_agent_created_entities",
+                           component="orchestrator",
+                           operation="execute_step",
+                           entity_count=len(related_entities))
+                           
+            except ValueError:
+                pass  # Invalid thread ID format
         
         # Store in memory (auto-summary will be generated from actual content)
         memory_node_id = memory.store(

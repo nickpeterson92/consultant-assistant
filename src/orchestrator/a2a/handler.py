@@ -6,6 +6,7 @@ from datetime import datetime
 
 from langgraph.errors import GraphInterrupt
 from src.utils.logging.framework import SmartLogger, log_execution
+from src.utils.thread_utils import create_thread_id
 
 logger = SmartLogger("orchestrator")
 
@@ -55,7 +56,7 @@ class OrchestratorA2AHandler:
                     logger.error("resume_missing_thread_id", component="orchestrator", task_id=task_id)
                     raise ValueError("Resume operation requires thread_id in context")
             else:
-                thread_id = context.get("thread_id", f"a2a-{task_id}-{str(uuid.uuid4())[:8]}")
+                thread_id = context.get("thread_id", create_thread_id("orchestrator", task_id))
             
             # Configuration for the graph
             config = {

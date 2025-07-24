@@ -133,10 +133,16 @@ class IntelligentEntityExtractor:
             
         # Then recursively check nested structures
         for key, value in data.items():
+            if value is None:
+                continue
+                
             lower_key = key.lower()
             
-            # Check for wrapped data patterns
-            if lower_key in ('data', 'records', 'results', 'items', 'entities', 'objects'):
+            # Check for wrapped data patterns - be more inclusive
+            wrapper_patterns = ('data', 'records', 'results', 'items', 'entities', 'objects',
+                              'value', 'values', 'list', 'rows', 'response', 'payload',
+                              'body', 'content', 'result', 'output', 'entries')
+            if lower_key in wrapper_patterns or any(pattern in lower_key for pattern in wrapper_patterns):
                 entities.extend(cls.extract_entities(value, context))
             
             # Check for relationship fields
@@ -147,6 +153,15 @@ class IntelligentEntityExtractor:
                     if rel_entity and rel_entity.entity_id not in processed_ids:
                         entities.append(rel_entity)
                         processed_ids.add(rel_entity.entity_id)
+                # Also handle dict values like {"value": "id", "display_value": "Name"}
+                elif isinstance(value, dict):
+                    # ServiceNow pattern
+                    if 'value' in value and isinstance(value['value'], str):
+                        if cls._looks_like_id(value['value']):
+                            rel_entity = cls._create_minimal_entity(value['value'], context)
+                            if rel_entity and rel_entity.entity_id not in processed_ids:
+                                entities.append(rel_entity)
+                                processed_ids.add(rel_entity.entity_id)
             
             # Recurse into nested structures
             elif isinstance(value, (dict, list)):
@@ -162,13 +177,31 @@ class IntelligentEntityExtractor:
         entity_id = None
         id_confidence = 0.0
         
+        # Helper to extract value from various formats
+        def extract_value(value):
+            if isinstance(value, str):
+                return value
+            elif isinstance(value, dict):
+                # Handle ServiceNow pattern {"value": "x", "display_value": "y"}
+                if 'value' in value:
+                    return str(value['value']) if value['value'] else None
+                # Handle nested field patterns
+                elif 'id' in value:
+                    return str(value['id'])
+                elif 'Id' in value:
+                    return str(value['Id'])
+            return None
+        
         for field in cls.ENTITY_INDICATORS['id_fields']:
-            if field in data or field.upper() in data or field.title() in data:
-                value = data.get(field) or data.get(field.upper()) or data.get(field.title())
-                if value and isinstance(value, str):
-                    entity_id = value
-                    id_confidence = 0.9 if cls._looks_like_id(value) else 0.5
-                    break
+            for case_variant in [field, field.upper(), field.title()]:
+                if case_variant in data:
+                    extracted = extract_value(data[case_variant])
+                    if extracted:
+                        entity_id = extracted
+                        id_confidence = 0.9 if cls._looks_like_id(extracted) else 0.5
+                        break
+            if entity_id:
+                break
         
         # If no ID but has name-like fields, might still be an entity
         entity_name = None
@@ -176,18 +209,34 @@ class IntelligentEntityExtractor:
         # Try direct field access first - check exact case variations
         # Check common exact field names first
         for exact_field in ['Name', 'name', 'NAME']:
-            if exact_field in data and data[exact_field]:
-                entity_name = str(data[exact_field])
-                break
+            if exact_field in data:
+                value = data[exact_field]
+                if isinstance(value, dict) and 'display_value' in value:
+                    # ServiceNow pattern - prefer display_value for names
+                    entity_name = str(value['display_value']) if value['display_value'] else None
+                else:
+                    extracted = extract_value(value)
+                    if extracted:
+                        entity_name = extracted
+                if entity_name:
+                    break
         
         # If not found, try other name fields
         if not entity_name:
             for field in cls.ENTITY_INDICATORS['name_fields']:
-                if field in data or field.upper() in data or field.title() in data:
-                    value = data.get(field) or data.get(field.upper()) or data.get(field.title())
-                    if value and isinstance(value, str):
-                        entity_name = value
-                        break
+                for case_variant in [field, field.upper(), field.title()]:
+                    if case_variant in data:
+                        value = data[case_variant]
+                        if isinstance(value, dict) and 'display_value' in value:
+                            entity_name = str(value['display_value']) if value['display_value'] else None
+                        else:
+                            extracted = extract_value(value)
+                            if extracted:
+                                entity_name = extracted
+                        if entity_name:
+                            break
+                if entity_name:
+                    break
         
         # Debug logging for entity extraction
         if entity_id and entity_id.startswith('001'):  # Account ID

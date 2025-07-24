@@ -11,6 +11,7 @@ from ..components.scoring_engine import ScoringEngine, QueryContext
 from ..algorithms.graph_algorithms import GraphAlgorithms
 from ..config.memory_config import MEMORY_CONFIG
 from src.utils.logging.framework import SmartLogger
+from src.utils.thread_utils import ThreadIDManager
 
 logger = SmartLogger("memory")
 
@@ -29,6 +30,10 @@ class MemoryGraph:
     """Graph-based conversational memory with clean architecture."""
     
     def __init__(self, thread_id: str, config=None):
+        # Validate thread ID format
+        if not ThreadIDManager.is_valid_thread_id(thread_id):
+            raise ValueError(f"Invalid thread ID format: {thread_id}. Expected 'agent-task_id' format.")
+            
         self.thread_id = thread_id
         self.created_at = datetime.now()
         self.last_activity = datetime.now()

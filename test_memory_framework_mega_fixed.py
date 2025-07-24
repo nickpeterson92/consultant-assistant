@@ -23,6 +23,9 @@ from src.memory import get_thread_memory, ContextType
 from src.memory import MemoryGraph, RelationshipType
 from src.memory import MemoryNode
 from src.utils.logging import get_smart_logger
+from src.agents.shared.memory_writer import write_tool_result_to_memory
+from src.utils.thread_utils import create_thread_id
+from src.memory.core.memory_manager import get_memory_manager
 
 logger = get_smart_logger("memory_test_mega")
 
@@ -31,7 +34,7 @@ class MemoryTortureTest:
     
     def __init__(self):
         self.test_results = []
-        self.thread_id = f"torture_test_{int(time.time())}"
+        self.thread_id = f"test-torture_{int(time.time())}"  # Updated to use standardized format
         self.memory = None
         
     def log_test(self, test_name: str, passed: bool, details: str = ""):
@@ -1514,6 +1517,482 @@ class MemoryTortureTest:
         self.log_test("Code review discussion", all_passed,
                      "Code review context and iterations tracked correctly")
     
+    async def test_19_entity_extraction_from_tools(self):
+        """Test 19: Entity extraction from agent tool results."""
+        print("\n🔥 TEST 19: Entity Extraction from Tool Results")
+        
+        # Create fresh memory
+        self.memory = MemoryGraph("test-thread-extraction")
+        
+        # Test Salesforce entity extraction
+        sf_thread_id = create_thread_id("salesforce", "test-extraction")
+        sf_tool_result = {
+            "success": True,
+            "data": [{
+                "attributes": {"type": "Account"},
+                "Id": "001EXT000001",
+                "Name": "Entity Extract Corp",
+                "Industry": "Technology",
+                "AnnualRevenue": 10000000,
+                "Website": "www.entityextract.com"
+            }],
+            "operation": "salesforce_search"
+        }
+        
+        # Write tool result (should extract entity)
+        node_id = write_tool_result_to_memory(
+            thread_id=sf_thread_id,
+            tool_name="salesforce_search",
+            tool_args={"filter": "Name LIKE '%Entity%'"},
+            tool_result=sf_tool_result,
+            task_id="test-extraction",
+            agent_name="salesforce"
+        )
+        
+        # Get memory for verification
+        memory_manager = get_memory_manager()
+        sf_memory = memory_manager.get_memory(sf_thread_id)
+        
+        # Verify entity was extracted
+        entity_nodes = sf_memory.retrieve_relevant(
+            context_filter={ContextType.DOMAIN_ENTITY},
+            max_results=10
+        )
+        
+        entity_found = any(
+            isinstance(n.content, dict) and 
+            n.content.get("entity_id") == "001EXT000001" and
+            n.content.get("entity_name") == "Entity Extract Corp"
+            for n in entity_nodes
+        )
+        
+        self.log_test("Extract Salesforce entity from tool result", entity_found,
+                     f"Found {len(entity_nodes)} entities")
+    
+    async def test_20_entity_deduplication(self):
+        """Test 20: Entity deduplication and updates."""
+        print("\n🔥 TEST 20: Entity Deduplication and Updates")
+        
+        thread_id = create_thread_id("salesforce", "test-dedup")
+        
+        # First occurrence with basic data
+        tool_result_1 = {
+            "success": True,
+            "data": [{
+                "Id": "001DEDUP00001",
+                "Name": "DedupTest Corp",
+                "Industry": "Finance"
+            }],
+            "operation": "salesforce_search"
+        }
+        
+        write_tool_result_to_memory(
+            thread_id=thread_id,
+            tool_name="salesforce_search",
+            tool_args={},
+            tool_result=tool_result_1,
+            task_id="test-dedup",
+            agent_name="salesforce"
+        )
+        
+        # Second occurrence with additional data
+        tool_result_2 = {
+            "success": True,
+            "data": {
+                "Id": "001DEDUP00001",
+                "Name": "DedupTest Corp",
+                "Industry": "Finance",
+                "Website": "www.deduptest.com",
+                "AnnualRevenue": 5000000,
+                "NumberOfEmployees": 250
+            },
+            "operation": "salesforce_get"
+        }
+        
+        write_tool_result_to_memory(
+            thread_id=thread_id,
+            tool_name="salesforce_get",
+            tool_args={"id": "001DEDUP00001"},
+            tool_result=tool_result_2,
+            task_id="test-dedup",
+            agent_name="salesforce"
+        )
+        
+        # Check if entity was updated, not duplicated
+        memory_manager = get_memory_manager()
+        memory = memory_manager.get_memory(thread_id)
+        entity_nodes = memory.retrieve_relevant(
+            query_text="DedupTest",
+            context_filter={ContextType.DOMAIN_ENTITY},
+            max_results=10
+        )
+        
+        # Should have exactly one entity
+        dedup_nodes = [n for n in entity_nodes if n.content.get("entity_name") == "DedupTest Corp"]
+        
+        no_duplicates = len(dedup_nodes) == 1
+        data_merged = False
+        update_tracked = False
+        
+        if dedup_nodes:
+            entity_data = dedup_nodes[0].content.get("entity_data", {})
+            # Should have merged data
+            data_merged = "Website" in entity_data and "NumberOfEmployees" in entity_data
+            update_tracked = dedup_nodes[0].content.get("update_count", 0) > 0
+        
+        self.log_test("No duplicate entities", no_duplicates,
+                     f"Found {len(dedup_nodes)} entities")
+        self.log_test("Entity data merged", data_merged)
+        self.log_test("Update count tracked", update_tracked)
+    
+    async def test_21_cross_system_relationships(self):
+        """Test 21: Relationship creation across different systems."""
+        print("\n🔥 TEST 21: Cross-System Relationship Creation")
+        
+        # Create an Account in Salesforce
+        sf_thread_id = create_thread_id("salesforce", "test-relationships")
+        account_result = {
+            "success": True,
+            "data": {
+                "Id": "001REL000001",
+                "Name": "RelationshipTest Inc",
+                "Type": "Customer"
+            },
+            "operation": "salesforce_create"
+        }
+        
+        write_tool_result_to_memory(
+            thread_id=sf_thread_id,
+            tool_name="salesforce_create",
+            tool_args={"object": "Account"},
+            tool_result=account_result,
+            task_id="test-relationships",
+            agent_name="salesforce"
+        )
+        
+        # Create a Jira project for the same customer
+        jira_thread_id = create_thread_id("jira", "test-relationships")
+        jira_result = {
+            "success": True,
+            "data": {
+                "id": "10123",
+                "key": "RELTEST",
+                "name": "RelationshipTest Inc Project"
+            },
+            "operation": "jira_create"
+        }
+        
+        write_tool_result_to_memory(
+            thread_id=jira_thread_id,
+            tool_name="jira_create",
+            tool_args={"type": "Project"},
+            tool_result=jira_result,
+            task_id="test-relationships",
+            agent_name="jira"
+        )
+        
+        # Create ServiceNow incident
+        sn_thread_id = create_thread_id("servicenow", "test-relationships")
+        sn_result = {
+            "success": True,
+            "data": {
+                "number": "INC0098765",
+                "short_description": "RelationshipTest Inc - System outage",
+                "caller_id": "RelationshipTest Inc"
+            },
+            "operation": "servicenow_create"
+        }
+        
+        write_tool_result_to_memory(
+            thread_id=sn_thread_id,
+            tool_name="servicenow_create",
+            tool_args={"type": "incident"},
+            tool_result=sn_result,
+            task_id="test-relationships",
+            agent_name="servicenow"
+        )
+        
+        # Verify entities were created in each system
+        memory_manager = get_memory_manager()
+        
+        sf_memory = memory_manager.get_memory(sf_thread_id)
+        sf_entities = sf_memory.retrieve_relevant(
+            query_text="RelationshipTest",
+            context_filter={ContextType.DOMAIN_ENTITY}
+        )
+        
+        jira_memory = memory_manager.get_memory(jira_thread_id)
+        jira_entities = jira_memory.retrieve_relevant(
+            query_text="RELTEST",
+            context_filter={ContextType.DOMAIN_ENTITY}
+        )
+        
+        sn_memory = memory_manager.get_memory(sn_thread_id)
+        sn_entities = sn_memory.retrieve_relevant(
+            query_text="INC0098765",
+            context_filter={ContextType.DOMAIN_ENTITY}
+        )
+        
+        self.log_test("Cross-system entities created",
+                     len(sf_entities) > 0 and len(jira_entities) > 0 and len(sn_entities) > 0,
+                     f"SF: {len(sf_entities)}, Jira: {len(jira_entities)}, SN: {len(sn_entities)}")
+    
+    async def test_22_pending_relationship_resolution(self):
+        """Test 22: Resolution of relationships when entities arrive out of order."""
+        print("\n🔥 TEST 22: Pending Relationship Resolution")
+        
+        thread_id = create_thread_id("salesforce", "test-pending")
+        
+        # Create an Opportunity with a reference to an Account that doesn't exist yet
+        opp_result = {
+            "success": True,
+            "data": {
+                "Id": "006PEND000001",
+                "Name": "Pending Test - Big Deal",
+                "AccountId": "001PEND000001",  # This account doesn't exist yet!
+                "Amount": 500000,
+                "StageName": "Negotiation"
+            },
+            "operation": "salesforce_create"
+        }
+        
+        write_tool_result_to_memory(
+            thread_id=thread_id,
+            tool_name="salesforce_create",
+            tool_args={"object": "Opportunity"},
+            tool_result=opp_result,
+            task_id="test-pending",
+            agent_name="salesforce"
+        )
+        
+        # Now create the Account
+        account_result = {
+            "success": True,
+            "data": {
+                "Id": "001PEND000001",
+                "Name": "Pending Test Corp",
+                "Type": "Enterprise"
+            },
+            "operation": "salesforce_create"
+        }
+        
+        write_tool_result_to_memory(
+            thread_id=thread_id,
+            tool_name="salesforce_create",
+            tool_args={"object": "Account"},
+            tool_result=account_result,
+            task_id="test-pending",
+            agent_name="salesforce"
+        )
+        
+        # Check if relationships were resolved
+        memory_manager = get_memory_manager()
+        memory = memory_manager.get_memory(thread_id)
+        
+        # Get nodes by entity ID
+        opp_node = memory.node_manager.get_node_by_entity_id("006PEND000001")
+        account_node = memory.node_manager.get_node_by_entity_id("001PEND000001")
+        
+        nodes_created = opp_node is not None and account_node is not None
+        relationship_exists = False
+        
+        if nodes_created and opp_node.node_id in memory.graph:
+            # Check if opportunity has relationship to account
+            for successor in memory.graph.successors(opp_node.node_id):
+                if successor == account_node.node_id:
+                    relationship_exists = True
+                    break
+        
+        self.log_test("Entities created", nodes_created)
+        self.log_test("Pending relationship resolved", relationship_exists,
+                     "Opportunity → Account relationship created after Account was added")
+    
+    async def test_23_entity_lifecycle_and_relevance(self):
+        """Test 23: Entity lifecycle including access patterns and relevance."""
+        print("\n🔥 TEST 23: Entity Lifecycle and Relevance")
+        
+        thread_id = create_thread_id("jira", "test-lifecycle")
+        
+        # Create an entity
+        result = {
+            "success": True,
+            "data": {
+                "id": "50001",
+                "key": "LIFE-100",
+                "fields": {
+                    "summary": "Lifecycle test issue",
+                    "priority": {"name": "High"}
+                }
+            },
+            "operation": "jira_create"
+        }
+        
+        write_tool_result_to_memory(
+            thread_id=thread_id,
+            tool_name="jira_create",
+            tool_args={},
+            tool_result=result,
+            task_id="test-lifecycle",
+            agent_name="jira"
+        )
+        
+        memory_manager = get_memory_manager()
+        memory = memory_manager.get_memory(thread_id)
+        
+        # Get the entity
+        entity_node = memory.node_manager.get_node_by_entity_id("50001")
+        
+        initial_relevance = None
+        accessed_relevance = None
+        has_access_tracking = False
+        
+        if entity_node:
+            # Check initial relevance
+            initial_relevance = entity_node.current_relevance()
+            
+            # Access the entity multiple times
+            for _ in range(3):
+                entity_node.access()
+                time.sleep(0.1)
+            
+            # Check relevance after access
+            accessed_relevance = entity_node.current_relevance()
+            
+            # Check access tracking
+            has_access_tracking = hasattr(entity_node, 'access_count') or \
+                                 entity_node.content.get('update_count', 0) > 0
+        
+        self.log_test("Entity has initial relevance",
+                     entity_node is not None and initial_relevance is not None and initial_relevance > 0)
+        self.log_test("Accessing entity affects relevance",
+                     accessed_relevance is not None and initial_relevance is not None and 
+                     accessed_relevance >= initial_relevance)
+        self.log_test("Entity tracks access patterns", has_access_tracking)
+    
+    async def test_24_complex_entity_web(self):
+        """Test 24: Complex web of related entities across multiple operations."""
+        print("\n🔥 TEST 24: Complex Entity Web")
+        
+        thread_id = create_thread_id("salesforce", "test-web")
+        
+        # Create a complex scenario:
+        # 1. Account with multiple contacts
+        # 2. Opportunities linked to contacts and account
+        # 3. Cases linked to contacts
+        # 4. Tasks linked to opportunities and cases
+        
+        # Account
+        account = {
+            "success": True,
+            "data": {
+                "Id": "001WEB000001",
+                "Name": "WebTest Enterprises",
+                "Type": "Enterprise",
+                "Industry": "Technology"
+            }
+        }
+        write_tool_result_to_memory(thread_id, "salesforce_create", {}, account,
+                                   "test-web", "salesforce")
+        
+        # Contacts
+        contacts = []
+        for i in range(3):
+            contact = {
+                "success": True,
+                "data": {
+                    "Id": f"003WEB00000{i+1}",
+                    "Name": f"Contact {i+1}",
+                    "AccountId": "001WEB000001",
+                    "Title": ["CEO", "CTO", "CFO"][i]
+                }
+            }
+            write_tool_result_to_memory(thread_id, "salesforce_create", {}, contact,
+                                       "test-web", "salesforce")
+            contacts.append(f"003WEB00000{i+1}")
+        
+        # Opportunities
+        opportunities = []
+        for i in range(2):
+            opp = {
+                "success": True,
+                "data": {
+                    "Id": f"006WEB00000{i+1}",
+                    "Name": f"WebTest Deal {i+1}",
+                    "AccountId": "001WEB000001",
+                    "ContactId": contacts[i],
+                    "Amount": (i + 1) * 100000
+                }
+            }
+            write_tool_result_to_memory(thread_id, "salesforce_create", {}, opp,
+                                       "test-web", "salesforce")
+            opportunities.append(f"006WEB00000{i+1}")
+        
+        # Cases
+        cases = []
+        for i in range(2):
+            case = {
+                "success": True,
+                "data": {
+                    "Id": f"500WEB00000{i+1}",
+                    "Subject": f"Support Case {i+1}",
+                    "AccountId": "001WEB000001",
+                    "ContactId": contacts[i+1],
+                    "Priority": "High"
+                }
+            }
+            write_tool_result_to_memory(thread_id, "salesforce_create", {}, case,
+                                       "test-web", "salesforce")
+            cases.append(f"500WEB00000{i+1}")
+        
+        # Tasks
+        for i in range(3):
+            task = {
+                "success": True,
+                "data": {
+                    "Id": f"00TWEB00000{i+1}",
+                    "Subject": f"Task {i+1}",
+                    "WhatId": opportunities[0] if i < 2 else cases[0],
+                    "WhoId": contacts[i]
+                }
+            }
+            write_tool_result_to_memory(thread_id, "salesforce_create", {}, task,
+                                       "test-web", "salesforce")
+        
+        # Verify the complex web
+        memory_manager = get_memory_manager()
+        memory = memory_manager.get_memory(thread_id)
+        
+        # Get all entities
+        entities = memory.retrieve_relevant(
+            context_filter={ContextType.DOMAIN_ENTITY},
+            max_results=50
+        )
+        
+        # Count entities by type
+        entity_types = {}
+        for node in entities:
+            entity_type = node.content.get("entity_type", "Unknown")
+            entity_types[entity_type] = entity_types.get(entity_type, 0) + 1
+        
+        # Check if all entity types were created
+        expected_types = ["Account", "Contact", "Opportunity", "Case", "Task"]
+        all_types_created = all(t in entity_types for t in expected_types)
+        
+        # Check if Account is a hub (has many connections)
+        account_node = memory.node_manager.get_node_by_entity_id("001WEB000001")
+        hub_connections = 0
+        if account_node and account_node.node_id in memory.graph:
+            out_degree = memory.graph.out_degree(account_node.node_id)
+            in_degree = memory.graph.in_degree(account_node.node_id)
+            hub_connections = out_degree + in_degree
+        
+        self.log_test("All entity types created", all_types_created,
+                     f"Types found: {list(entity_types.keys())}")
+        self.log_test("Complex relationships formed", hub_connections >= 5,
+                     f"Account has {hub_connections} connections")
+        self.log_test("Entity web size", len(entities) >= 11,
+                     f"Created {len(entities)} entities")
+    
     async def run_all_tests(self):
         """Run all torture tests."""
         print("\n" + "="*80)
@@ -1540,7 +2019,13 @@ class MemoryTortureTest:
             self.test_15_technical_troubleshooting,
             self.test_16_project_management_flow,
             self.test_17_customer_support_interaction,
-            self.test_18_code_review_discussion
+            self.test_18_code_review_discussion,
+            self.test_19_entity_extraction_from_tools,
+            self.test_20_entity_deduplication,
+            self.test_21_cross_system_relationships,
+            self.test_22_pending_relationship_resolution,
+            self.test_23_entity_lifecycle_and_relevance,
+            self.test_24_complex_entity_web
         ]
         
         for test_func in tests:

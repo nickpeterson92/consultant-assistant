@@ -13,6 +13,8 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from src.agents.servicenow.tools.unified import UNIFIED_SERVICENOW_TOOLS
 from src.a2a import A2AServer, AgentCard
+from src.agents.shared.memory_writer import write_tool_result_to_memory
+from src.utils.thread_utils import create_thread_id
 from src.utils.config import config
 from src.utils.logging.framework import SmartLogger, log_execution
 from src.utils.prompt_templates import create_servicenow_agent_prompt, ContextInjectorServiceNow
@@ -27,11 +29,10 @@ class ServiceNowAgentState(TypedDict):
     """State for the ServiceNow agent."""
     messages: Annotated[List[Any], operator.add]
     current_task: str
-    tool_results: List[Dict[str, Any]]
     error: str
     task_context: Dict[str, Any]
     external_context: Dict[str, Any]
-    orchestrator_state: Dict[str, Any]  # Include orchestrator state for merging
+    orchestrator_state: Dict[str, Any]  # Receive state from orchestrator (one-way)
 
 # Create the prompt template once at module level
 servicenow_prompt = create_servicenow_agent_prompt()
@@ -156,11 +157,10 @@ async def handle_a2a_request(params: dict) -> dict:
         initial_state = {
             "messages": [HumanMessage(content=instruction)],
             "current_task": instruction,
-            "tool_results": [],
             "error": "",
             "task_context": {"task_id": task_id},
             "external_context": context or {},
-            "orchestrator_state": state_snapshot  # Include for state merging
+            "orchestrator_state": state_snapshot  # Receive state from orchestrator
         }
         
         logger.info("initial_state_prepared",
@@ -171,22 +171,56 @@ async def handle_a2a_request(params: dict) -> dict:
         # Configure thread
         config = {
             "configurable": {
-                "thread_id": f"servicenow_{task_id}"
+                "thread_id": create_thread_id("servicenow", task_id)
             }
         }
         
         # Run the graph
         final_state = await app.ainvoke(initial_state, config)
         
-        # Extract response
+        # Write tool results to memory
+        thread_id = create_thread_id("servicenow", task_id)
         messages = final_state.get("messages", [])
+        for i, msg in enumerate(messages):
+            if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                for tool_call in msg.tool_calls:
+                    # Look for the corresponding tool result in the next message
+                    if i + 1 < len(messages):
+                        next_msg = messages[i + 1]
+                        if hasattr(next_msg, 'name') and hasattr(next_msg, 'content'):
+                            # This is likely the tool result
+                            try:
+                                import json
+                                
+                                # Parse tool result if it's JSON
+                                tool_result = next_msg.content
+                                if isinstance(tool_result, str) and tool_result.strip().startswith('{'):
+                                    try:
+                                        tool_result = json.loads(tool_result)
+                                    except:
+                                        pass
+                                
+                                write_tool_result_to_memory(
+                                    thread_id=thread_id,
+                                    tool_name=tool_call.get("name", "unknown"),
+                                    tool_args=tool_call.get("args", {}),
+                                    tool_result=tool_result,
+                                    task_id=task_id,
+                                    agent_name="servicenow"
+                                )
+                            except Exception as e:
+                                logger.warning("failed_to_write_tool_result",
+                                             error=str(e),
+                                             tool_name=tool_call.get("name"))
+        
+        # Extract response
         last_message = messages[-1] if messages else None
         
         if last_message:
             response_content = last_message.content
             
             
-            # Return with state merging capability
+            # Return response
             response = {
                 "artifacts": [{
                     "type": "text",
@@ -195,18 +229,7 @@ async def handle_a2a_request(params: dict) -> dict:
                 "status": "completed"
             }
             
-            # Include final agent state for orchestrator merging
-            if final_state:
-                # Serialize messages before including in response
-                serialized_state = dict(final_state)
-                if "messages" in serialized_state:
-                    from src.utils.agents.message_processing.unified_serialization import serialize_messages_for_json
-                    serialized_state["messages"] = serialize_messages_for_json(serialized_state["messages"])
-                
-                response["state_updates"] = {
-                    "agent_final_state": serialized_state,
-                    "orchestrator_state": final_state.get("orchestrator_state", {})
-                }
+            # No need to pass state back - we use persistent memory for tool results
             
             return response
         else:
