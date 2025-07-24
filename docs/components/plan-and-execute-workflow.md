@@ -60,20 +60,9 @@ stateDiagram-v2
     should_end --> execute_step: Continue (more steps)
     should_end --> [*]: END (response ready)
     
-    note right of execute_step
-        1. Check interrupts
-        2. Retrieve memory
-        3. Execute with agent
-        4. Extract entities
-        5. Store results
-    end note
+    note right of execute_step: Check interrupts<br/>Retrieve memory<br/>Execute with agent<br/>Extract entities<br/>Store results
     
-    note right of replan_step
-        1. Check completion
-        2. Analyze progress
-        3. Decide: continue/replan/end
-    end note
-```
+    note right of replan_step: Check completion<br/>Analyze progress<br/>Decide next action
 
 ## Core Models
 
