@@ -395,6 +395,202 @@ context = memory.retrieve_with_graph_intelligence(
 )
 ```
 
+## Example Memory Graph
+
+Here's a comprehensive example showing how a complex multi-domain workflow creates an interconnected memory graph:
+
+```mermaid
+graph TD
+    %% Styling
+    classDef entityClass fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#0d47a1
+    classDef actionClass fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#4a148c
+    classDef searchClass fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#e65100
+    classDef conversationClass fill:#e8f5e9,stroke:#388e3c,stroke-width:2px,color:#1b5e20
+    classDef selectionClass fill:#fce4ec,stroke:#c2185b,stroke-width:2px,color:#880e4f
+    classDef insightClass fill:#e0f2f1,stroke:#00796b,stroke-width:2px,color:#004d40
+    classDef temporalClass fill:#f5f5f5,stroke:#616161,stroke-width:1px,color:#424242
+    
+    %% Core Business Entities
+    ACC1[🏢 Acme Corp<br>Industry: Technology<br>Revenue: $50M]:::entityClass
+    ACC2[🏢 TechStart Inc<br>Industry: SaaS<br>Revenue: $10M]:::entityClass
+    ACC3[🏢 Global Systems<br>Industry: Consulting<br>Revenue: $100M]:::entityClass
+    
+    %% Contacts
+    CONT1[👤 Sarah Chen<br>CEO @ Acme<br>sarah@acme.com]:::entityClass
+    CONT2[👤 Mike Johnson<br>CTO @ TechStart<br>mike@techstart.com]:::entityClass
+    CONT3[👤 Lisa Park<br>VP Sales @ Global<br>lisa@global.com]:::entityClass
+    
+    %% Opportunities
+    OPP1[💰 Acme Enterprise Deal<br>Amount: $500K<br>Stage: Negotiation]:::entityClass
+    OPP2[💰 TechStart Expansion<br>Amount: $250K<br>Stage: Qualification]:::entityClass
+    
+    %% Support Cases
+    CASE1[🎫 P1: System Outage<br>Acme Corp<br>Status: Escalated]:::entityClass
+    CASE2[🎫 P2: API Integration<br>TechStart<br>Status: In Progress]:::entityClass
+    
+    %% Jira Issues
+    JIRA1[📋 PROJ-123<br>Feature: SSO Integration<br>Sprint: Q4-Sprint-3]:::entityClass
+    JIRA2[📋 PROJ-456<br>Bug: Performance Issue<br>Priority: High]:::entityClass
+    
+    %% Search Results
+    SEARCH1[🔍 Search: "enterprise customers"<br>Found: 15 accounts<br>Top: Acme, Global Systems]:::searchClass
+    SEARCH2[🔍 Search: "active support cases"<br>Found: 8 cases<br>Critical: 2]:::searchClass
+    SEARCH3[🔍 Search: "Q4 opportunities"<br>Found: 12 opps<br>Total: $3.2M]:::searchClass
+    
+    %% Completed Actions
+    ACTION1[✅ Updated Opp Stage<br>Acme Deal → Negotiation<br>Time: 10:30 AM]:::actionClass
+    ACTION2[✅ Created Support Case<br>P1 for Acme Corp<br>Time: 10:45 AM]:::actionClass
+    ACTION3[✅ Assigned Jira Issue<br>PROJ-123 to Dev Team<br>Time: 11:00 AM]:::actionClass
+    ACTION4[✅ Scheduled Meeting<br>Demo with TechStart<br>Time: 11:15 AM]:::actionClass
+    
+    %% User Selections
+    SELECT1[🎯 Selected: Acme Corp<br>Context: Opportunity Update<br>Time: 10:25 AM]:::selectionClass
+    SELECT2[🎯 Selected: Sarah Chen<br>Context: Case Escalation<br>Time: 10:40 AM]:::selectionClass
+    
+    %% Conversation Facts
+    CONV1[💬 Fact: Q4 Target<br>"Focus on enterprise deals"<br>Persistent Context]:::conversationClass
+    CONV2[💬 Fact: Acme Preference<br>"Prefers email over calls"<br>Customer Insight]:::conversationClass
+    CONV3[💬 Fact: Integration Priority<br>"SSO is critical for enterprise"<br>Product Requirement]:::conversationClass
+    
+    %% Derived Insights
+    INSIGHT1[💡 Pattern: Deal Velocity<br>Enterprise deals: 45 days avg<br>Confidence: High]:::insightClass
+    INSIGHT2[💡 Risk: Customer Health<br>Acme showing churn signals<br>Action: Escalate]:::insightClass
+    INSIGHT3[💡 Opportunity: Upsell<br>TechStart ready for expansion<br>Timing: Q1 2025]:::insightClass
+    
+    %% Temporal Links
+    TEMP1[🕐 Timeline: Morning Session<br>10:00 AM - 12:00 PM<br>15 actions completed]:::temporalClass
+    
+    %% Relationships - Business Connections
+    ACC1 -->|has contact| CONT1
+    ACC2 -->|has contact| CONT2
+    ACC3 -->|has contact| CONT3
+    ACC1 -->|has opportunity| OPP1
+    ACC2 -->|has opportunity| OPP2
+    ACC1 -->|has case| CASE1
+    ACC2 -->|has case| CASE2
+    
+    %% Relationships - Cross-Domain
+    CASE1 -->|related to| JIRA2
+    OPP1 -->|requires| JIRA1
+    CONT1 -->|escalated| CASE1
+    
+    %% Relationships - Search to Entities
+    SEARCH1 -.->|contains| ACC1
+    SEARCH1 -.->|contains| ACC3
+    SEARCH2 -.->|contains| CASE1
+    SEARCH2 -.->|contains| CASE2
+    SEARCH3 -.->|contains| OPP1
+    SEARCH3 -.->|contains| OPP2
+    
+    %% Relationships - Actions
+    ACTION1 -->|modified| OPP1
+    ACTION2 -->|created| CASE1
+    ACTION3 -->|updated| JIRA1
+    ACTION4 -->|scheduled for| CONT2
+    
+    %% Relationships - Selections
+    SELECT1 -->|led to| ACTION1
+    SELECT2 -->|led to| ACTION2
+    
+    %% Relationships - Insights
+    INSIGHT1 -.->|derived from| OPP1
+    INSIGHT1 -.->|derived from| OPP2
+    INSIGHT2 -.->|derived from| CASE1
+    INSIGHT2 -.->|derived from| ACTION2
+    INSIGHT3 -.->|derived from| ACC2
+    INSIGHT3 -.->|derived from| SEARCH3
+    
+    %% Relationships - Conversation Context
+    CONV1 -.->|influences| SEARCH3
+    CONV2 -.->|about| ACC1
+    CONV3 -.->|relates to| JIRA1
+    
+    %% Relationships - Temporal
+    TEMP1 -.->|contains| ACTION1
+    TEMP1 -.->|contains| ACTION2
+    TEMP1 -.->|contains| ACTION3
+    TEMP1 -.->|contains| ACTION4
+    
+    %% Community Clusters (implicit visual grouping)
+    subgraph cluster_acme["Acme Ecosystem"]
+        ACC1
+        CONT1
+        OPP1
+        CASE1
+        ACTION1
+        ACTION2
+        INSIGHT2
+    end
+    
+    subgraph cluster_product["Product Development"]
+        JIRA1
+        JIRA2
+        ACTION3
+        CONV3
+    end
+    
+    subgraph cluster_sales["Sales Pipeline"]
+        OPP1
+        OPP2
+        SEARCH3
+        INSIGHT1
+        INSIGHT3
+    end
+```
+
+### Key Graph Concepts Illustrated
+
+1. **Multi-Domain Integration**
+   - Salesforce entities (Accounts, Contacts, Opportunities, Cases)
+   - Jira issues and sprint planning
+   - Cross-system relationships (Case → Jira issue)
+
+2. **Temporal Context**
+   - Actions timestamped and grouped by session
+   - Chronological flow of user interactions
+   - Time-based relevance decay
+
+3. **Derived Intelligence**
+   - Pattern detection (deal velocity insights)
+   - Risk identification (churn signals)
+   - Opportunity recognition (upsell timing)
+
+4. **Search Context Preservation**
+   - Search queries and their results
+   - Dotted lines showing discovered entities
+   - Context for why entities were accessed
+
+5. **User Intent Tracking**
+   - Selections leading to actions
+   - Action outcomes and modifications
+   - Intent inference from activity patterns
+
+6. **Community Detection**
+   - Natural clustering around business contexts
+   - Acme ecosystem (account, contacts, issues)
+   - Product development cluster
+   - Sales pipeline cluster
+
+7. **Conversation Memory**
+   - Persistent facts across sessions
+   - Customer preferences
+   - Business rules and requirements
+
+8. **Relationship Types**
+   - Solid lines: Direct relationships
+   - Dotted lines: Inferred/derived relationships
+   - Arrows: Directional dependencies
+
+### Graph Intelligence in Action
+
+This memory graph enables sophisticated contextual retrieval:
+
+- **Scenario**: User asks "What's the status with Acme?"
+- **Graph Traversal**: Finds Acme Corp → discovers escalated case, negotiation-stage opportunity, recent actions, and churn risk insight
+- **Context Injection**: Provides comprehensive view including the P1 case, $500K opportunity, Sarah Chen's contact preference, and recommended escalation
+
+The PageRank algorithm would identify Acme Corp and the P1 case as high-importance nodes due to their many connections, while community detection would recognize the interconnected Acme ecosystem for holistic context retrieval.
+
 ## Performance Optimizations
 
 ### Caching Strategy
