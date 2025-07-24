@@ -6,46 +6,51 @@ The Contextual Memory Graph is a sophisticated graph-based memory system that pr
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                       CONTEXTUAL MEMORY GRAPH SYSTEM                         │
-│                                                                              │
-│  ┌─────────────────────┐    ┌────────────────────┐    ┌─────────────────┐    │
-│  │   Memory Manager    │    │   Memory Graph     │    │  Memory Node    │    │
-│  │                     │    │                    │    │                 │    │
-│  │ • Thread Isolation  │    │ • NetworkX Core    │    │ • Content Store │    │
-│  │ • Lifecycle Mgmt    │    │ • Relationship Mgmt│    │ • Relevance     │    │
-│  │ • Cleanup Scheduler │    │ • Index Management │    │ • Decay Model   │    │
-│  └──────────┬──────────┘    └──────────┬─────────┘    └────────┬────────┘    │
-│             │                          │                       │             │
-│  ┌──────────┴──────────────────────────┴───────────────────────┴──────────┐  │
-│  │                        GRAPH ALGORITHMS LAYER                          │  │
-│  │                                                                        │  │
-│  │  ┌─────────────────┐  ┌────────────────────┐  ┌────────────────────┐   │  │
-│  │  │    PageRank     │  │ Community Detection│  │ Semantic Similarity│   │  │
-│  │  │                 │  │                    │  │                    │   │  │
-│  │  │ • Importance    │  │ • Louvain Algo     │  │ • Embeddings       │   │  │
-│  │  │ • Centrality    │  │ • Topic Clusters.  │  │ • Vector Search    │   │  │
-│  │  │ • Authority     │  │ • Modularity       │  │ • Cosine Distance  │   │  │
-│  │  └─────────────────┘  └────────────────────┘  └────────────────────┘   │  │
-│  │                                                                        │  │
-│  │  ┌─────────────────┐  ┌──────────────────┐  ┌────────────────────┐     │  │
-│  │  │ Bridge Detection│  │ Path Finding     │  │ Subgraph Mining    │     │  │
-│  │  │                 │  │                  │  │                    │     │  │
-│  │  │ • Betweenness   │  │ • Shortest Path  │  │ • Pattern Match    │     │  │
-│  │  │ • Articulation  │  │ • All Paths      │  │ • Motif Detection  │     │  │
-│  │  │ • Cut Vertices  │  │ • Reachability   │  │ • Frequent Subgraph│     │  │
-│  │  └─────────────────┘  └──────────────────┘  └────────────────────┘     │  │
-│  └────────────────────────────────────────────────────────────────────────┘  │
-│                                                                              │
-│  ┌────────────────────────────────────────────────────────────────────────┐  │
-│  │                      INTEGRATION & FEATURES                            │  │
-│  │                                                                        │  │
-│  │  • Entity Extraction    • Automatic Summarization  • Observer Events   │  │
-│  │  • Time-based Decay     • Tag-based Indexing      • Visualization      │  │
-│  │  • Multi-turn Support   • Relevance Scoring       • Thread Safety      │  │
-│  └────────────────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    %% Define styles
+    classDef systemClass fill:#1e88e5,stroke:#0d47a1,stroke-width:3px,color:#ffffff,font-weight:bold
+    classDef managerClass fill:#5e35b1,stroke:#311b92,stroke-width:2px,color:#ffffff
+    classDef graphClass fill:#00897b,stroke:#004d40,stroke-width:2px,color:#ffffff
+    classDef nodeClass fill:#e53935,stroke:#b71c1c,stroke-width:2px,color:#ffffff
+    classDef algoClass fill:#fb8c00,stroke:#e65100,stroke-width:2px,color:#ffffff
+    classDef featureClass fill:#43a047,stroke:#1b5e20,stroke-width:2px,color:#ffffff
+    
+    %% Top-level system
+    SYSTEM[💾 CONTEXTUAL MEMORY GRAPH SYSTEM]:::systemClass
+    
+    %% Core components
+    SYSTEM --> MANAGER[📋 Memory Manager<br/>━━━━━━━━━━━━━━━<br/>• Thread Isolation<br/>• Lifecycle Mgmt<br/>• Cleanup Scheduler]:::managerClass
+    SYSTEM --> GRAPH[🕸️ Memory Graph<br/>━━━━━━━━━━━━━<br/>• NetworkX Core<br/>• Relationship Mgmt<br/>• Index Management]:::graphClass
+    SYSTEM --> NODE[📦 Memory Node<br/>━━━━━━━━━━━━<br/>• Content Store<br/>• Relevance<br/>• Decay Model]:::nodeClass
+    
+    %% Algorithms layer
+    GRAPH --> ALGOS[🧮 GRAPH ALGORITHMS LAYER]:::algoClass
+    
+    %% Algorithm components
+    ALGOS --> PR[📊 PageRank<br/>━━━━━━━━━<br/>• Importance<br/>• Centrality<br/>• Authority]:::algoClass
+    ALGOS --> CD[🎯 Community Detection<br/>━━━━━━━━━━━━━━━━━━<br/>• Louvain Algorithm<br/>• Topic Clusters<br/>• Modularity]:::algoClass
+    ALGOS --> SEM[🔍 Semantic Similarity<br/>━━━━━━━━━━━━━━━━━━<br/>• Embeddings<br/>• Vector Search<br/>• Cosine Distance]:::algoClass
+    ALGOS --> BRIDGE[🌉 Bridge Detection<br/>━━━━━━━━━━━━━━━<br/>• Betweenness<br/>• Articulation<br/>• Cut Vertices]:::algoClass
+    ALGOS --> PATH[🛤️ Path Finding<br/>━━━━━━━━━━━━<br/>• Shortest Path<br/>• All Paths<br/>• Reachability]:::algoClass
+    ALGOS --> SUB[🔎 Subgraph Mining<br/>━━━━━━━━━━━━━━━<br/>• Pattern Match<br/>• Motif Detection<br/>• Frequent Subgraph]:::algoClass
+    
+    %% Features
+    SYSTEM --> FEATURES[✨ INTEGRATION & FEATURES]:::featureClass
+    FEATURES --> F1[Entity Extraction]:::featureClass
+    FEATURES --> F2[Auto Summarization]:::featureClass
+    FEATURES --> F3[Observer Events]:::featureClass
+    FEATURES --> F4[Time-based Decay]:::featureClass
+    FEATURES --> F5[Tag-based Indexing]:::featureClass
+    FEATURES --> F6[Visualization]:::featureClass
+    FEATURES --> F7[Multi-turn Support]:::featureClass
+    FEATURES --> F8[Relevance Scoring]:::featureClass
+    FEATURES --> F9[Thread Safety]:::featureClass
+    
+    %% Relationships
+    MANAGER -.->|manages| GRAPH
+    GRAPH -.->|contains| NODE
+    NODE -.->|analyzed by| ALGOS
 ```
 
 ## Core Components

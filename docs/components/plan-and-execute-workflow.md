@@ -6,48 +6,73 @@ The Plan-and-Execute Workflow is the core orchestration pattern that drives inte
 
 ## Architecture
 
+```mermaid
+flowchart TB
+    %% Define styles
+    classDef systemClass fill:#9c27b0,stroke:#6a1b9a,stroke-width:3px,color:#ffffff,font-weight:bold
+    classDef stateClass fill:#1976d2,stroke:#0d47a1,stroke-width:2px,color:#ffffff
+    classDef modelClass fill:#388e3c,stroke:#1b5e20,stroke-width:2px,color:#ffffff
+    classDef nodeClass fill:#f57c00,stroke:#e65100,stroke-width:2px,color:#ffffff
+    classDef featureClass fill:#00acc1,stroke:#006064,stroke-width:2px,color:#ffffff
+    
+    %% Main system
+    SYSTEM[🔄 PLAN-AND-EXECUTE WORKFLOW]:::systemClass
+    
+    %% Core components
+    SYSTEM --> STATE[📋 State Management]:::stateClass
+    SYSTEM --> MODELS[📚 Core Models]:::modelClass
+    SYSTEM --> NODES[⚙️ Node Functions]:::nodeClass
+    SYSTEM --> FEATURES[✨ Enhanced Features]:::featureClass
+    
+    %% State components
+    STATE --> PS[PlanExecute State<br/>━━━━━━━━━━━━━━<br/>• Messages<br/>• Past Steps<br/>• Memory Context]:::stateClass
+    STATE --> FLAGS[Interrupt Flags<br/>━━━━━━━━━━━━<br/>• user_interrupted<br/>• should_force_replan<br/>• interrupt_reason]:::stateClass
+    
+    %% Model components  
+    MODELS --> PLAN[Plan Model<br/>━━━━━━━━━<br/>• Steps List<br/>• Validation]:::modelClass
+    MODELS --> RESP[Response Model<br/>━━━━━━━━━━━━━<br/>• Final Answer]:::modelClass
+    MODELS --> ACT[Act Model<br/>━━━━━━━━<br/>• Plan or Response]:::modelClass
+    MODELS --> STEP[StepExecution<br/>━━━━━━━━━━━━<br/>• Step History]:::modelClass
+    
+    %% Node functions
+    NODES --> PLANNER[📝 planner<br/>━━━━━━━<br/>• Generate Plan<br/>• Agent Context]:::nodeClass
+    NODES --> EXECUTE[⚡ execute_step<br/>━━━━━━━━━━━━<br/>• Memory Retrieval<br/>• Agent Execution<br/>• Entity Extract]:::nodeClass
+    NODES --> REPLAN[🔄 replan_step<br/>━━━━━━━━━━━<br/>• Continue/End<br/>• Plan Modify]:::nodeClass
+    NODES --> SHOULDEND[🎯 should_end<br/>━━━━━━━━━━<br/>• Conditional]:::nodeClass
+    
+    %% Enhanced features
+    FEATURES --> MEM[💾 Memory Context<br/>━━━━━━━━━━━━━━<br/>• Retrieval<br/>• Relationships<br/>• Graph Intel]:::featureClass
+    FEATURES --> ENTITY[🔍 Entity Extraction<br/>━━━━━━━━━━━━━━━━<br/>• Pattern Match<br/>• Multi-System<br/>• Auto Storage]:::featureClass
+    FEATURES --> EVENTS[📡 Event Decorators<br/>━━━━━━━━━━━━━━━<br/>• Plan Events<br/>• Task Lifecycle<br/>• Memory Updates]:::featureClass
+    FEATURES --> INT[🚨 Interrupt Support<br/>━━━━━━━━━━━━━━━━<br/>• User Escape<br/>• Human Input<br/>• Plan Modify]:::featureClass
+    FEATURES --> AGENT[🤖 Agent Integration<br/>━━━━━━━━━━━━━━━━<br/>• ReAct Agents<br/>• Tool Calling<br/>• Context Pass]:::featureClass
+    FEATURES --> PERSIST[💾 State Persistence<br/>━━━━━━━━━━━━━━━━━<br/>• Checkpointing<br/>• Thread Isolation<br/>• Resume Support]:::featureClass
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                        PLAN-AND-EXECUTE WORKFLOW                             │
-│                                                                              │
-│  ┌─────────────────────┐    ┌────────────────────┐    ┌─────────────────┐    │
-│  │   State Management  │    │   Core Models      │    │  Node Functions │    │
-│  │                     │    │                    │    │                 │    │
-│  │ • PlanExecute State │    │ • Plan             │    │ • planner       │    │
-│  │ • Messages          │    │ • Response         │    │ • execute_step  │    │
-│  │ • Past Steps        │    │ • Act              │    │ • replan_step   │    │
-│  │ • Memory Context    │    │ • StepExecution    │    │ • should_end    │    │ 
-│  └──────────┬──────────┘    └────────────────────┘    └────────┬────────┘    │
-│             │                                                  │             │
-│  ┌──────────┴──────────────────────────────────────────────────┴─────────┐   │
-│  │                          WORKFLOW GRAPH                               │   │
-│  │                                                                       │   │
-│  │    START ──► planner ──► execute_step ──► replan_step ──► END         │   │
-│  │                 │              │               │                      │   │
-│  │                 └──────────────┴───────────────┘                      │   │
-│  │                         (Cycles until complete)                       │   │
-│  └───────────────────────────────────────────────────────────────────────┘   │
-│                                                                              │
-│  ┌────────────────────────────────────────────────────────────────────────┐  │
-│  │                      ENHANCED FEATURES                                 │  │
-│  │                                                                        │  │
-│  │  ┌─────────────────┐  ┌──────────────────┐  ┌────────────────────┐     │  │
-│  │  │ Memory Context  │  │Entity Extraction │  │ Event Decorators   │     │  │
-│  │  │                 │  │                  │  │                    │     │  │
-│  │  │ • Retrieval     │  │ • Pattern Match  │  │ • Plan Events      │     │  │
-│  │  │ • Relationships │  │ • Multi-System   │  │ • Task Lifecycle   │     │  │
-│  │  │ • Graph Intel   │  │ • Auto Storage   │  │ • Memory Updates   │     │  │
-│  │  └─────────────────┘  └──────────────────┘  └────────────────────┘     │  │
-│  │                                                                        │  │
-│  │  ┌──────────────────┐  ┌──────────────────┐  ┌────────────────────┐    │  │
-│  │  │ Interrupt Support│  │Agent Integration │  │ State Persistence  │    │  │
-│  │  │                  │  │                  │  │                    │    │  │
-│  │  │ • User Escape    │  │ • ReAct Agents   │  │ • Checkpointing    │    │  │
-│  │  │ • Human Input    │  │ • Tool Calling   │  │ • Thread Isolation │    │  │
-│  │  │ • Plan Modify    │  │ • Context Pass   │  │ • Resume Support   │    │  │
-│  │  └──────────────────┘  └──────────────────┘  └────────────────────┘    │  │
-│  └────────────────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────────────┘
+
+## Workflow Graph Flow
+
+```mermaid
+stateDiagram-v2
+    [*] --> planner: START
+    planner --> execute_step: Generate Plan
+    execute_step --> replan_step: Execute Step
+    replan_step --> should_end: Decide Action
+    should_end --> execute_step: Continue (more steps)
+    should_end --> [*]: END (response ready)
+    
+    note right of execute_step
+        1. Check interrupts
+        2. Retrieve memory
+        3. Execute with agent
+        4. Extract entities
+        5. Store results
+    end note
+    
+    note right of replan_step
+        1. Check completion
+        2. Analyze progress
+        3. Decide: continue/replan/end
+    end note
 ```
 
 ## Core Models
@@ -433,6 +458,26 @@ def create_plan_execute_graph():
     
     # Compile with memory
     return graph.compile(checkpointer=MemorySaver())
+```
+
+## Visual Graph Representation
+
+```mermaid
+flowchart LR
+    classDef plannerClass fill:#9c27b0,stroke:#6a1b9a,stroke-width:3px,color:#ffffff
+    classDef executeClass fill:#ff6f00,stroke:#e65100,stroke-width:3px,color:#ffffff
+    classDef replanClass fill:#00897b,stroke:#00695c,stroke-width:3px,color:#ffffff
+    classDef endClass fill:#d32f2f,stroke:#b71c1c,stroke-width:3px,color:#ffffff
+    
+    START((🎯 START)) --> PLAN[📝 planner<br/>━━━━━━━<br/>Generate initial<br/>execution plan]:::plannerClass
+    PLAN --> EXEC[⚡ execute_step<br/>━━━━━━━━━━━<br/>Execute current<br/>plan step]:::executeClass
+    EXEC --> REPLAN[🔄 replan_step<br/>━━━━━━━━━━━<br/>Decide next<br/>action]:::replanClass
+    REPLAN -->|Continue| EXEC
+    REPLAN -->|Complete| END((🎆 END)):::endClass
+    
+    %% Interrupt flow
+    EXEC -.->|🚨 Interrupt| INT{{User/Agent<br/>Interrupt}}
+    INT -.->|Resume| EXEC
 ```
 
 ## Usage Patterns

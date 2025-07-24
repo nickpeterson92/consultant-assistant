@@ -147,9 +147,52 @@ consultant-assistant/
 
 ### A2A Protocol
 - **JSON-RPC 2.0** over HTTP
-- **Connection Pool**: 50 total, 20 per host
-- **Circuit Breaker**: 5 failures → 60s timeout
+- **Endpoints**: 
+  - POST /a2a (task processing)
+  - GET /a2a/agent-card (capabilities)
+  - GET /a2a/stream (SSE events)
+  - WS /ws (WebSocket for interrupts)
+- **Connection Pool**: 20 total, 20 per host (supports 8+ concurrent)
+- **Circuit Breaker**: 5 failures → 30s timeout
 - **Retry**: 3 attempts with exponential backoff
+
+## 🧠 Core Intelligence Features
+
+### Plan-and-Execute Workflow
+```
+START → planner → execute_step → replan_step → END
+                         ↑              ↓
+                         └──────────────┘
+                        (cycles until complete)
+```
+
+**Key Components:**
+- **planner**: Generates initial multi-step plan from user request
+- **execute_step**: Executes current step with memory context + entity extraction
+- **replan_step**: Decides to continue, modify plan, or complete
+- **should_end**: Routes to END when response is ready
+
+### Memory Graph Intelligence
+- **PageRank**: Identifies important nodes (frequently referenced memories)
+- **Community Detection**: Clusters related entities using Louvain algorithm
+- **Semantic Search**: Embedding-based retrieval with cosine similarity
+- **Time Decay**: Relevance decreases by 0.1 per hour (configurable)
+- **Relationship Types**: led_to, relates_to, belongs_to, produces, depends_on
+
+### Interrupt Architecture
+```
+User Interrupts (ESC key):
+  1. User presses ESC → UI sets flag
+  2. execute_step checks flag → raises GraphInterrupt
+  3. Modal appears for plan modification
+  4. Resume with should_force_replan=True
+
+Agent Interrupts (HumanInputTool):
+  1. Agent needs clarification
+  2. Raises GraphInterrupt with question
+  3. UI shows question to user
+  4. Resume with answer (no replanning)
+```
 
 ## 💡 Key Patterns
 
@@ -264,6 +307,14 @@ from src.utils.config import NEW_CONSTANT
 - **ServiceNowUpdate**: Update by sys_id, number, or bulk
 - **ServiceNowWorkflow**: Approvals, assignments, state transitions
 - **ServiceNowAnalytics**: Count, breakdown, trend analysis
+
+### Orchestrator Tools
+- **SalesforceAgentTool**: Routes CRM operations to SF agent
+- **JiraAgentTool**: Routes project management to Jira agent
+- **ServiceNowAgentTool**: Routes ITSM operations to SN agent
+- **WebSearchTool**: Tavily-powered web search
+- **AgentRegistryTool**: System health monitoring
+- **HumanInputTool**: Agent clarification requests
 
 ### Utility
 - Web search (Tavily), Human input

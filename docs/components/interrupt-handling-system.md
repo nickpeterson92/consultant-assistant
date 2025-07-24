@@ -6,39 +6,82 @@ The Interrupt Handling System provides sophisticated control over workflow execu
 
 ## Architecture
 
+```mermaid
+flowchart TB
+    %% Define styles
+    classDef systemClass fill:#e91e63,stroke:#c2185b,stroke-width:3px,color:#ffffff,font-weight:bold
+    classDef typeClass fill:#3f51b5,stroke:#303f9f,stroke-width:2px,color:#ffffff
+    classDef flowClass fill:#00acc1,stroke:#006064,stroke-width:2px,color:#ffffff
+    classDef componentClass fill:#ff6f00,stroke:#e65100,stroke-width:2px,color:#ffffff
+    classDef integrationClass fill:#43a047,stroke:#1b5e20,stroke-width:2px,color:#ffffff
+    
+    %% Main system
+    SYSTEM[🚨 INTERRUPT HANDLING SYSTEM]:::systemClass
+    
+    %% Top level categories
+    SYSTEM --> TYPES[🏷️ Interrupt Types]:::typeClass
+    SYSTEM --> FLOW[🔄 Interrupt Flow]:::flowClass
+    SYSTEM --> COMPONENTS[🛠️ Components]:::componentClass
+    SYSTEM --> INTEGRATION[🔗 Integration Points]:::integrationClass
+    
+    %% Interrupt Types
+    TYPES --> USER[⌨️ User Escape<br/>━━━━━━━━━━━<br/>• ESC Key<br/>• Highest Priority<br/>• Plan Modification]:::typeClass
+    TYPES --> HUMAN[👤 Human Input Tool<br/>━━━━━━━━━━━━━━<br/>• Agent Questions<br/>• Clarification<br/>• Continue After]:::typeClass
+    TYPES --> SYSERR[⚠️ System Errors<br/>━━━━━━━━━━━━<br/>• Future Feature<br/>• Recoverable<br/>• Auto-retry]:::typeClass
+    
+    %% Interrupt Flow
+    FLOW --> DETECT[🔍 Detection<br/>━━━━━━━━━<br/>• Flag Check<br/>• Type Identify<br/>• Clash Detect]:::flowClass
+    FLOW --> PRIORITY[🏆 Priority<br/>━━━━━━━━<br/>• User First<br/>• Agent Second<br/>• System Last]:::flowClass
+    FLOW --> PERSIST[💾 State Persist<br/>━━━━━━━━━━━━<br/>• Save Context<br/>• Track History<br/>• Resume Ready]:::flowClass
+    FLOW --> RESUME[▶️ Resume Logic<br/>━━━━━━━━━━━━<br/>• State Update<br/>• Plan Modify<br/>• Continue Exec]:::flowClass
+    
+    %% Components
+    COMPONENTS --> HANDLER[🎮 Interrupt Handler<br/>━━━━━━━━━━━━━━━━<br/>• Type Detection<br/>• Clash Detection<br/>• Resume Prep]:::componentClass
+    COMPONENTS --> OBSERVER[👀 Interrupt Observer<br/>━━━━━━━━━━━━━━━━━<br/>• State Tracking<br/>• Context Store<br/>• History Log]:::componentClass
+    COMPONENTS --> WEBSOCKET[🌐 WebSocket Handler<br/>━━━━━━━━━━━━━━━━━<br/>• User Interface<br/>• Message Protocol<br/>• Async Handling]:::componentClass
+    
+    %% Integration Points
+    INTEGRATION --> WORKFLOW[🔄 Plan-Execute<br/>━━━━━━━━━━━━<br/>• GraphInterrupt<br/>• Raise/Catch]:::integrationClass
+    INTEGRATION --> UI[🖥️ UI Layer<br/>━━━━━━━━━<br/>• ESC Detection<br/>• Modal Display]:::integrationClass
+    INTEGRATION --> AGENTS[🤖 Agent Tools<br/>━━━━━━━━━━━<br/>• HumanInputTool<br/>• Clarification]:::integrationClass
+    INTEGRATION --> STATE[📋 State Mgmt<br/>━━━━━━━━━━━<br/>• Flag Persist<br/>• Resume State]:::integrationClass
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                         INTERRUPT HANDLING SYSTEM                            │
-│                                                                              │
-│  ┌─────────────────────┐    ┌────────────────────┐    ┌─────────────────┐    │
-│  │  Interrupt Types    │    │  Interrupt Flow    │    │  Resume Logic   │    │
-│  │                     │    │                    │    │                 │    │
-│  │ • User Escape (ESC) │    │ • Detection        │    │ • State Update  │    │
-│  │ • Human Input Tool  │    │ • Priority         │    │ • Plan Modify   │    │
-│  │ • System Errors     │    │ • State Persist    │    │ • Continue Exec │    │
-│  └──────────┬──────────┘    └──────────┬─────────┘    └────────┬────────┘    │
-│             │                          │                       │             │
-│  ┌──────────┴──────────────────────────┴───────────────────────┴─────────┐   │
-│  │                        INTERRUPT COMPONENTS                           │   │
-│  │                                                                       │   │
-│  │  ┌─────────────────┐  ┌──────────────────┐  ┌────────────────────┐    │   │
-│  │  │Interrupt Handler│  │Interrupt Observer│  │ WebSocket Handler  │    │   │
-│  │  │                 │  │                  │  │                    │    │   │
-│  │  │ • Type Detection│  │ • State Tracking │  │ • User Interface   │    │   │
-│  │  │ • Clash Detect  │  │ • Context Store  │  │ • Message Protocol │    │   │
-│  │  │ • Resume Prep   │  │ • History Log    │  │ • Async Handling   │    │   │
-│  │  └─────────────────┘  └──────────────────┘  └────────────────────┘    │   │
-│  └───────────────────────────────────────────────────────────────────────┘   │
-│                                                                              │
-│  ┌────────────────────────────────────────────────────────────────────────┐  │
-│  │                     INTEGRATION POINTS                                 │  │
-│  │                                                                        │  │
-│  │  • Plan-Execute Workflow: GraphInterrupt raising and catching          │  │
-│  │  • UI Layer: ESC key detection and modal presentation                  │  │
-│  │  • Agent Tools: HumanInputTool integration                             │  │
-│  │  • State Management: Interrupt flag persistence                        │  │
-│  └────────────────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────────────┘
+
+## Interrupt Flow Diagram
+
+```mermaid
+sequenceDiagram
+    participant User as 👤 User
+    participant UI as 🖥️ UI Layer
+    participant Orch as 🧠 Orchestrator
+    participant Handler as 🎮 Handler
+    participant Observer as 👀 Observer
+    
+    %% User Escape Flow
+    rect rgb(233, 30, 99, 0.1)
+        note right of User: User Escape Flow
+        User->>UI: Press ESC
+        UI->>UI: Set interrupt flag
+        UI->>Orch: Send interrupt
+        Orch->>Handler: Detect type
+        Handler->>Observer: Record state
+        Orch-->>UI: Show modal
+        UI->>User: "Modify plan?"
+        User->>UI: Enter changes
+        UI->>Orch: Resume with mods
+        Orch->>Orch: Replan
+    end
+    
+    %% Agent Interrupt Flow
+    rect rgb(63, 81, 181, 0.1)
+        note right of User: Agent Clarification Flow
+        Orch->>Orch: HumanInputTool
+        Orch-->>UI: Show question
+        UI->>User: Display query
+        User->>UI: Provide answer
+        UI->>Orch: Resume
+        Orch->>Orch: Continue
+    end
 ```
 
 ## Interrupt Types

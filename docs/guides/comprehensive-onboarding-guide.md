@@ -239,47 +239,51 @@ pkill -f "start_system.py"  # Kill existing instances
 
 The system implements a sophisticated multi-agent architecture with the following layers:
 
-```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                              USER INTERFACE                                │
-│                     (orchestrator_cli_textual.py)                          │
-└──────────────────────────────────────┬─────────────────────────────────────┘
-                                       │
-                                 A2A Interface
-                                (JSON-RPC 2.0)
-                                       │
-                                       ▼
-┌────────────────────────────────────────────────────────────────────────────┐ 
-│                        PLAN-AND-EXECUTE ORCHESTRATOR                       │           ┌────────────────────┐
-│  ┌─────────────────┐  ┌───────────────────┐  ┌─────────────────────────┐   │           │ ORCHESTRATOR TOOLS │
-│  │  LangGraph      │  │  Plan Generation  │  │  Execution Engine       │   │           │ - Web Search       │
-│  │  State Machine  │  │  & Modification   │  │  Task Context Injection │   │ ────────► │ - Agent Registry   │
-│  └─────────────────┘  └───────────────────┘  └─────────────────────────┘   │           │ - Health Monitoring│
-│  ┌─────────────────┐  ┌───────────────────┐  ┌─────────────────────────┐   │           │ (Internal Access)  │
-│  │  Agent Registry │  │  Conversation     │  │  Simplified State       │   │           └────────────────────┘
-│  │  Service Disc.  │  │  Summarization    │  │  Public/Private Schema  │   │
-│  └─────────────────┘  └───────────────────┘  └─────────────────────────┘   │
-│                     Intelligent Task Orchestration                         │
-└──────────────────────────────────────┬─────────────────────────────────────┘
-                                       │
-                          ┌────────────┴────────────┐
-                          │   A2A Protocol Layer    │
-                          │  JSON-RPC 2.0 + HTTP    │
-                          │  Circuit Breakers       │
-                          │  Connection Pooling     │
-                          └────────────┬────────────┘
-                                       │
-            ┌──────────────────────────┼──────────────────────────┐
-            │                          │                          │
-            ▼                          ▼                          ▼
-    ┌────────────────────┐     ┌────────────────────┐     ┌────────────────────┐
-    │ SALESFORCE AGENT   │     │   JIRA AGENT       │     │ SERVICENOW AGENT   │
-    │ - 6 Unified Tools  │     │ - 11 Tools         │     │ - 6 Unified Tools  │
-    │ - Natural Language │     │ - JQL Search       │     │ - NLQ Support      │
-    │ - SOQL Generation  │     │ - Sprint Mgmt      │     │ - Workflow Mgmt    │
-    │ - Auto ID Detection│     │ - Project Creation │     │ - Analytics        │
-    │ - Cross-Object SOSL│     │ - Issue Lifecycle  │     │ - Auto Table Detect│
-    └────────────────────┘     └────────────────────┘     └────────────────────┘
+```mermaid
+flowchart TB
+    %% Define styles with gradients and shadows for GitHub
+    classDef uiClass fill:#0288d1,stroke:#01579b,stroke-width:4px,color:#ffffff,font-weight:bold
+    classDef orchestratorClass fill:#7b1fa2,stroke:#4a148c,stroke-width:4px,color:#ffffff,font-weight:bold
+    classDef protocolClass fill:#f57c00,stroke:#e65100,stroke-width:4px,color:#ffffff,font-weight:bold
+    classDef agentClass fill:#388e3c,stroke:#1b5e20,stroke-width:4px,color:#ffffff,font-weight:bold
+    classDef toolClass fill:#c2185b,stroke:#880e4f,stroke-width:4px,color:#ffffff,font-weight:bold
+    classDef componentClass fill:#9c27b0,stroke:#6a1b9a,stroke-width:2px,color:#ffffff
+    
+    %% User Interface Layer with icon
+    UI[🖥️ USER INTERFACE<br/>orchestrator_cli_textual.py]:::uiClass
+    
+    %% Main flow with custom arrow
+    UI ==>|"JSON-RPC 2.0"| ORCH[🧠 PLAN-AND-EXECUTE ORCHESTRATOR<br/>━━━━━━━━━━━━━━━━━━━━━━━━━━<br/>Intelligent Task Orchestration]:::orchestratorClass
+    
+    %% Orchestrator Components in styled subgraph
+    subgraph orchestrator["<b>🔧 Core Components</b>"]
+        direction TB
+        LG[📊 LangGraph<br/>State Machine]:::componentClass
+        PG[📝 Plan Generation<br/>& Modification]:::componentClass
+        EE[⚡ Execution Engine<br/>Task Context Injection]:::componentClass
+        AR[🔍 Agent Registry<br/>Service Discovery]:::componentClass
+        CS[💬 Conversation<br/>Summarization]:::componentClass
+        SS[🔒 Simplified State<br/>Public/Private Schema]:::componentClass
+    end
+    
+    %% Orchestrator connections
+    ORCH -.->|manages| orchestrator
+    
+    %% Tools connection
+    ORCH ==>|"uses"| TOOLS[🛠️ ORCHESTRATOR TOOLS<br/>━━━━━━━━━━━━━━━━━━━<br/>🔎 Web Search<br/>📋 Agent Registry<br/>❤️ Health Monitoring<br/>🔐 Internal Access]:::toolClass
+    
+    %% Protocol Layer
+    ORCH ==>|"coordinates via"| PROTOCOL[🌐 A2A PROTOCOL LAYER<br/>━━━━━━━━━━━━━━━━━━━━<br/>📡 JSON-RPC 2.0 + HTTP<br/>🛡️ Circuit Breakers<br/>🔄 Connection Pooling]:::protocolClass
+    
+    %% Agents with rich formatting
+    PROTOCOL ==>|"routes to"| SF[☁️ SALESFORCE AGENT<br/>━━━━━━━━━━━━━━━━━<br/>🔧 6 Unified Tools<br/>💬 Natural Language<br/>🔍 SOQL Generation<br/>🆔 Auto ID Detection<br/>🔎 Cross-Object SOSL]:::agentClass
+    
+    PROTOCOL ==>|"routes to"| JIRA[📋 JIRA AGENT<br/>━━━━━━━━━━━<br/>🔧 11 Tools<br/>🔍 JQL Search<br/>🏃 Sprint Mgmt<br/>📁 Project Creation<br/>🔄 Issue Lifecycle]:::agentClass
+    
+    PROTOCOL ==>|"routes to"| SN[🎫 SERVICENOW AGENT<br/>━━━━━━━━━━━━━━━━━<br/>🔧 6 Unified Tools<br/>💭 NLQ Support<br/>⚙️ Workflow Mgmt<br/>📊 Analytics<br/>🔍 Auto Table Detect]:::agentClass
+    
+    %% Add some styling to the subgraph
+    style orchestrator fill:#f3e5f5,stroke:#4a148c,stroke-width:3px,stroke-dasharray: 5 5
 ```
 
 ### Core Components
@@ -312,31 +316,49 @@ The system implements a sophisticated multi-agent architecture with the followin
 
 ```mermaid
 sequenceDiagram
-    participant User
-    participant UI
-    participant Orchestrator
-    participant Memory
-    participant Agent
-    participant Tool
+    %% Define participant styles
+    participant User as 👤 User
+    participant UI as 🖥️ UI<br/>Terminal Interface
+    participant Orchestrator as 🧠 Orchestrator<br/>Plan & Execute
+    participant Memory as 💾 Memory<br/>Graph Store
+    participant Agent as 🤖 Agent<br/>Specialized
+    participant Tool as 🛠️ Tool<br/>Execution
 
-    User->>UI: Enter request
-    UI->>Orchestrator: Send via A2A
-    Orchestrator->>Orchestrator: Generate plan
-    Orchestrator->>Memory: Retrieve context
-    Memory-->>Orchestrator: Relevant memories
-    
-    loop For each plan step
-        Orchestrator->>Agent: Execute step
-        Agent->>Tool: Call tool
-        Tool-->>Agent: Result
-        Agent-->>Orchestrator: Response
-        Orchestrator->>Memory: Store result
-        Orchestrator->>UI: SSE update
-        UI-->>User: Show progress
+    %% User initiates request
+    rect rgb(225, 245, 254)
+        note right of User: 🚀 Request Initiation
+        User->>+UI: Enter request
+        UI->>+Orchestrator: Send via A2A<br/>JSON-RPC 2.0
+    end
+
+    %% Planning phase
+    rect rgb(243, 229, 245)
+        note right of Orchestrator: 📋 Planning Phase
+        Orchestrator->>Orchestrator: 📝 Generate plan
+        Orchestrator->>+Memory: 🔍 Retrieve context
+        Memory-->>-Orchestrator: 📊 Relevant memories
     end
     
-    Orchestrator->>UI: Final response
-    UI-->>User: Display result
+    %% Execution phase
+    rect rgb(232, 245, 233)
+        note right of Orchestrator: ⚡ Execution Phase
+        loop For each plan step
+            Orchestrator->>+Agent: Execute step ➡️
+            Agent->>+Tool: Call tool 🔧
+            Tool-->>-Agent: Result ✅
+            Agent-->>-Orchestrator: Response 📤
+            Orchestrator->>Memory: Store result 💾
+            Orchestrator->>UI: SSE update 📡
+            UI-->>User: Show progress 📊
+        end
+    end
+    
+    %% Completion
+    rect rgb(255, 243, 224)
+        note right of Orchestrator: ✨ Completion
+        Orchestrator->>-UI: Final response 🎯
+        UI-->>-User: Display result 📋
+    end
 ```
 
 ---
@@ -890,14 +912,41 @@ curl http://localhost:8001/health
 ### Learning Path
 
 ```mermaid
-graph TD
-    A[Complete Setup] --> B[Run Examples]
-    B --> C[Explore Logs]
-    C --> D[Understand Flow]
-    D --> E[Modify Plans]
-    E --> F[Create Tools]
-    F --> G[Build Agent]
-    G --> H[Contribute Back]
+flowchart TD
+    %% Define styles for learning stages
+    classDef startClass fill:#4caf50,stroke:#2e7d32,stroke-width:3px,color:#ffffff,font-weight:bold
+    classDef exploreClass fill:#2196f3,stroke:#1565c0,stroke-width:3px,color:#ffffff,font-weight:bold
+    classDef buildClass fill:#ff9800,stroke:#e65100,stroke-width:3px,color:#ffffff,font-weight:bold
+    classDef contributeClass fill:#9c27b0,stroke:#6a1b9a,stroke-width:3px,color:#ffffff,font-weight:bold
+    
+    %% Learning journey nodes
+    A[🚀 Complete Setup<br/>━━━━━━━━━━━━━<br/>Environment Ready]:::startClass
+    B[📚 Run Examples<br/>━━━━━━━━━━━━<br/>Basic Operations]:::startClass
+    C[🔍 Explore Logs<br/>━━━━━━━━━━━<br/>Debug & Monitor]:::exploreClass
+    D[🧠 Understand Flow<br/>━━━━━━━━━━━━━━<br/>Architecture Deep Dive]:::exploreClass
+    E[✏️ Modify Plans<br/>━━━━━━━━━━━<br/>Interrupt & Customize]:::buildClass
+    F[🛠️ Create Tools<br/>━━━━━━━━━━━<br/>Extend Capabilities]:::buildClass
+    G[🤖 Build Agent<br/>━━━━━━━━━━<br/>New Integration]:::buildClass
+    H[🌟 Contribute Back<br/>━━━━━━━━━━━━━━<br/>Share & Improve]:::contributeClass
+    
+    %% Connections with labels
+    A ==>|"Ready to explore"| B
+    B ==>|"Dive deeper"| C
+    C ==>|"Connect dots"| D
+    D ==>|"Get creative"| E
+    E ==>|"Build features"| F
+    F ==>|"Go advanced"| G
+    G ==>|"Give back"| H
+    
+    %% Add milestone markers
+    B -.->|milestone| MS1{{"🎯 Basics<br/>Mastered"}}
+    D -.->|milestone| MS2{{"🎯 System<br/>Understood"}}
+    F -.->|milestone| MS3{{"🎯 Developer<br/>Ready"}}
+    H -.->|milestone| MS4{{"🎯 Expert<br/>Level"}}
+    
+    %% Style milestones
+    classDef milestoneClass fill:#ffeb3b,stroke:#f57f17,stroke-width:2px,color:#000000
+    class MS1,MS2,MS3,MS4 milestoneClass
 ```
 
 ### Community Resources
