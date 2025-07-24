@@ -65,49 +65,72 @@ This system solves key enterprise automation challenges:
 
 ```mermaid
 flowchart TB
-    %% Define styles with gradients and shadows for GitHub
-    classDef uiClass fill:#0288d1,stroke:#01579b,stroke-width:4px,color:#ffffff,font-weight:bold
-    classDef orchestratorClass fill:#7b1fa2,stroke:#4a148c,stroke-width:4px,color:#ffffff,font-weight:bold
-    classDef protocolClass fill:#f57c00,stroke:#e65100,stroke-width:4px,color:#ffffff,font-weight:bold
-    classDef agentClass fill:#388e3c,stroke:#1b5e20,stroke-width:4px,color:#ffffff,font-weight:bold
-    classDef toolClass fill:#c2185b,stroke:#880e4f,stroke-width:4px,color:#ffffff,font-weight:bold
-    classDef componentClass fill:#9c27b0,stroke:#6a1b9a,stroke-width:2px,color:#ffffff
+    %% Modern, sleek color scheme with better contrast
+    classDef uiClass fill:#1565c0,stroke:#0d47a1,stroke-width:2px,color:#ffffff,font-weight:bold
+    classDef orchestratorClass fill:#5e35b1,stroke:#311b92,stroke-width:3px,color:#ffffff,font-weight:bold
+    classDef protocolClass fill:#ef6c00,stroke:#d84315,stroke-width:2px,color:#ffffff
+    classDef agentToolClass fill:#2e7d32,stroke:#1b5e20,stroke-width:2px,color:#ffffff
+    classDef internalToolClass fill:#00796b,stroke:#004d40,stroke-width:2px,color:#ffffff
+    classDef componentClass fill:#ffffff,stroke:#9e9e9e,stroke-width:1px,color:#424242,opacity:0.9
     
-    %% User Interface Layer with icon
-    UI[🖥️ USER INTERFACE<br/>orchestrator_cli_textual.py]:::uiClass
+    %% User Interface Layer
+    UI[🖥️ USER INTERFACE<br>Textual CLI]:::uiClass
     
-    %% Main flow with custom arrow
-    UI ==>|"JSON-RPC 2.0"| ORCH[🧠 PLAN-AND-EXECUTE ORCHESTRATOR<br/>━━━━━━━━━━━━━━━━━━━━━━━━━━<br/>Intelligent Task Orchestration]:::orchestratorClass
+    %% Main Orchestrator
+    UI ==>|"requests"| ORCH[🧠 PLAN-AND-EXECUTE ORCHESTRATOR<br>━━━━━━━━━━━━━━━━━━━━━━━━━━<br>Intelligent Task Orchestration]:::orchestratorClass
     
-    %% Orchestrator Components in styled subgraph
-    subgraph orchestrator["<b>🔧 Core Components</b>"]
+    %% Core Components with semi-transparent styling
+    subgraph components[" "]
         direction TB
-        LG[📊 LangGraph<br/>State Machine]:::componentClass
-        PG[📝 Plan Generation<br/>& Modification]:::componentClass
-        EE[⚡ Execution Engine<br/>Task Context Injection]:::componentClass
-        AR[🔍 Agent Registry<br/>Service Discovery]:::componentClass
-        CS[💬 Conversation<br/>Summarization]:::componentClass
-        SS[🔒 Simplified State<br/>Public/Private Schema]:::componentClass
+        LG[📊 LangGraph<br>State Machine]:::componentClass
+        PG[📝 Plan Generation<br>& Modification]:::componentClass
+        EE[⚡ Execution Engine<br>Task Context Injection]:::componentClass
+        AR[🔍 Agent Registry<br>Service Discovery]:::componentClass
+        CS[💬 Conversation<br>Summarization]:::componentClass
+        SS[🔒 Simplified State<br>Public/Private Schema]:::componentClass
     end
     
-    %% Orchestrator connections
-    ORCH -.->|manages| orchestrator
+    %% All Tools under one umbrella
+    ORCH ==>|"uses"| TOOLS[🛠️ ORCHESTRATOR TOOLS]:::orchestratorClass
     
-    %% Tools connection
-    ORCH ==>|"uses"| TOOLS[🛠️ ORCHESTRATOR TOOLS<br/>━━━━━━━━━━━━━━━━━━━<br/>🔎 Web Search<br/>📋 Agent Registry<br/>❤️ Health Monitoring<br/>🔐 Internal Access]:::toolClass
+    %% Tools subgraph containing both types
+    subgraph tools[" "]
+        direction TB
+        
+        %% Internal Tools (Direct)
+        subgraph internal["Internal Tools (Direct)"]
+            WS[🔍 Web Search]:::internalToolClass
+            HI[👤 Human Input Tool]:::internalToolClass
+            REG[📋 Agent Registry]:::internalToolClass
+            HM[❤️ Health Monitoring]:::internalToolClass
+        end
+        
+        %% Agent Tools (via A2A)
+        subgraph agents["Agent Tools (via A2A Protocol)"]
+            SFT[☁️ Salesforce Agent Tool]:::agentToolClass
+            JT[📋 Jira Agent Tool]:::agentToolClass
+            SNT[🎫 ServiceNow Agent Tool]:::agentToolClass
+        end
+    end
     
-    %% Protocol Layer
-    ORCH ==>|"coordinates via"| PROTOCOL[🌐 A2A PROTOCOL LAYER<br/>━━━━━━━━━━━━━━━━━━━━<br/>📡 JSON-RPC 2.0 + HTTP<br/>🛡️ Circuit Breakers<br/>🔄 Connection Pooling]:::protocolClass
+    TOOLS -.->|contains| tools
     
-    %% Agents with rich formatting
-    PROTOCOL ==>|"routes to"| SF[☁️ SALESFORCE AGENT<br/>━━━━━━━━━━━━━━━━━<br/>🔧 6 Unified Tools<br/>💬 Natural Language<br/>🔍 SOQL Generation<br/>🆔 Auto ID Detection<br/>🔎 Cross-Object SOSL]:::agentClass
+    %% A2A Protocol connection from agent tools
+    agents ==>|"communicate via"| PROTOCOL[🌐 A2A PROTOCOL LAYER<br>━━━━━━━━━━━━━━━━━━━━<br>📡 JSON-RPC 2.0 + HTTP<br>🛡️ Circuit Breakers<br>🔄 Connection Pooling]:::protocolClass
     
-    PROTOCOL ==>|"routes to"| JIRA[📋 JIRA AGENT<br/>━━━━━━━━━━━<br/>🔧 11 Tools<br/>🔍 JQL Search<br/>🏃 Sprint Mgmt<br/>📁 Project Creation<br/>🔄 Issue Lifecycle]:::agentClass
+    %% Remote Agents
+    PROTOCOL ==>|"routes to"| SF[☁️ SALESFORCE AGENT<br>━━━━━━━━━━━━━━━━━<br>🔧 6 Unified Tools<br>💬 Natural Language<br>🔍 SOQL Generation<br>🆔 Auto ID Detection<br>🔎 Cross-Object SOSL]:::agentToolClass
     
-    PROTOCOL ==>|"routes to"| SN[🎫 SERVICENOW AGENT<br/>━━━━━━━━━━━━━━━━━<br/>🔧 6 Unified Tools<br/>💭 NLQ Support<br/>⚙️ Workflow Mgmt<br/>📊 Analytics<br/>🔍 Auto Table Detect]:::agentClass
+    PROTOCOL ==>|"routes to"| JIRA[📋 JIRA AGENT<br>━━━━━━━━━━━<br>🔧 11 Tools<br>🔍 JQL Search<br>🏃 Sprint Mgmt<br>📁 Project Creation<br>🔄 Issue Lifecycle]:::agentToolClass
     
-    %% Add some styling to the subgraph
-    style orchestrator fill:#f3e5f5,stroke:#4a148c,stroke-width:3px,stroke-dasharray: 5 5
+    PROTOCOL ==>|"routes to"| SN[🎫 SERVICENOW AGENT<br>━━━━━━━━━━━━━━━━━<br>🔧 6 Unified Tools<br>💭 NLQ Support<br>⚙️ Workflow Mgmt<br>📊 Analytics<br>🔍 Auto Table Detect]:::agentToolClass
+    
+    %% Styling adjustments
+    ORCH -.->|manages| components
+    style components fill:#f5f5f5,stroke:#bdbdbd,stroke-width:2px,opacity:0.8
+    style tools fill:#fafafa,stroke:#e0e0e0,stroke-width:2px,opacity:0.9
+    style internal fill:#e0f2f1,stroke:#00796b,stroke-width:1px,opacity:0.8
+    style agents fill:#e8f5e9,stroke:#2e7d32,stroke-width:1px,opacity:0.8
 ```
 
 ### Core Components
