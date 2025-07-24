@@ -250,37 +250,37 @@ flowchart TB
     classDef componentClass fill:#9c27b0,stroke:#6a1b9a,stroke-width:2px,color:#ffffff
     
     %% User Interface Layer with icon
-    UI[🖥️ USER INTERFACE<br/>orchestrator_cli_textual.py]:::uiClass
+    UI[🖥️ USER INTERFACE<br>orchestrator_cli_textual.py]:::uiClass
     
     %% Main flow with custom arrow
-    UI ==>|"JSON-RPC 2.0"| ORCH[🧠 PLAN-AND-EXECUTE ORCHESTRATOR<br/>━━━━━━━━━━━━━━━━━━━━━━━━━━<br/>Intelligent Task Orchestration]:::orchestratorClass
+    UI ==>|"JSON-RPC 2.0"| ORCH[🧠 PLAN-AND-EXECUTE ORCHESTRATOR<br>━━━━━━━━━━━━━━━━━━━━━━━━━━<br>Intelligent Task Orchestration]:::orchestratorClass
     
     %% Orchestrator Components in styled subgraph
     subgraph orchestrator["<b>🔧 Core Components</b>"]
         direction TB
-        LG[📊 LangGraph<br/>State Machine]:::componentClass
-        PG[📝 Plan Generation<br/>& Modification]:::componentClass
-        EE[⚡ Execution Engine<br/>Task Context Injection]:::componentClass
-        AR[🔍 Agent Registry<br/>Service Discovery]:::componentClass
-        CS[💬 Conversation<br/>Summarization]:::componentClass
-        SS[🔒 Simplified State<br/>Public/Private Schema]:::componentClass
+        LG[📊 LangGraph<br>State Machine]:::componentClass
+        PG[📝 Plan Generation<br>& Modification]:::componentClass
+        EE[⚡ Execution Engine<br>Task Context Injection]:::componentClass
+        AR[🔍 Agent Registry<br>Service Discovery]:::componentClass
+        CS[💬 Conversation<br>Summarization]:::componentClass
+        SS[🔒 Simplified State<br>Public/Private Schema]:::componentClass
     end
     
     %% Orchestrator connections
     ORCH -.->|manages| orchestrator
     
     %% Tools connection
-    ORCH ==>|"uses"| TOOLS[🛠️ ORCHESTRATOR TOOLS<br/>━━━━━━━━━━━━━━━━━━━<br/>🔎 Web Search<br/>📋 Agent Registry<br/>❤️ Health Monitoring<br/>🔐 Internal Access]:::toolClass
+    ORCH ==>|"uses"| TOOLS[🛠️ ORCHESTRATOR TOOLS<br>━━━━━━━━━━━━━━━━━━━<br>🔎 Web Search<br>📋 Agent Registry<br>❤️ Health Monitoring<br>🔐 Internal Access]:::toolClass
     
     %% Protocol Layer
-    ORCH ==>|"coordinates via"| PROTOCOL[🌐 A2A PROTOCOL LAYER<br/>━━━━━━━━━━━━━━━━━━━━<br/>📡 JSON-RPC 2.0 + HTTP<br/>🛡️ Circuit Breakers<br/>🔄 Connection Pooling]:::protocolClass
+    ORCH ==>|"coordinates via"| PROTOCOL[🌐 A2A PROTOCOL LAYER<br>━━━━━━━━━━━━━━━━━━━━<br>📡 JSON-RPC 2.0 + HTTP<br>🛡️ Circuit Breakers<br>🔄 Connection Pooling]:::protocolClass
     
     %% Agents with rich formatting
-    PROTOCOL ==>|"routes to"| SF[☁️ SALESFORCE AGENT<br/>━━━━━━━━━━━━━━━━━<br/>🔧 6 Unified Tools<br/>💬 Natural Language<br/>🔍 SOQL Generation<br/>🆔 Auto ID Detection<br/>🔎 Cross-Object SOSL]:::agentClass
+    PROTOCOL ==>|"routes to"| SF[☁️ SALESFORCE AGENT<br>━━━━━━━━━━━━━━━━━<br>🔧 6 Unified Tools<br>💬 Natural Language<br>🔍 SOQL Generation<br>🆔 Auto ID Detection<br>🔎 Cross-Object SOSL]:::agentClass
     
-    PROTOCOL ==>|"routes to"| JIRA[📋 JIRA AGENT<br/>━━━━━━━━━━━<br/>🔧 11 Tools<br/>🔍 JQL Search<br/>🏃 Sprint Mgmt<br/>📁 Project Creation<br/>🔄 Issue Lifecycle]:::agentClass
+    PROTOCOL ==>|"routes to"| JIRA[📋 JIRA AGENT<br>━━━━━━━━━━━<br>🔧 11 Tools<br>🔍 JQL Search<br>🏃 Sprint Mgmt<br>📁 Project Creation<br>🔄 Issue Lifecycle]:::agentClass
     
-    PROTOCOL ==>|"routes to"| SN[🎫 SERVICENOW AGENT<br/>━━━━━━━━━━━━━━━━━<br/>🔧 6 Unified Tools<br/>💭 NLQ Support<br/>⚙️ Workflow Mgmt<br/>📊 Analytics<br/>🔍 Auto Table Detect]:::agentClass
+    PROTOCOL ==>|"routes to"| SN[🎫 SERVICENOW AGENT<br>━━━━━━━━━━━━━━━━━<br>🔧 6 Unified Tools<br>💭 NLQ Support<br>⚙️ Workflow Mgmt<br>📊 Analytics<br>🔍 Auto Table Detect]:::agentClass
     
     %% Add some styling to the subgraph
     style orchestrator fill:#f3e5f5,stroke:#4a148c,stroke-width:3px,stroke-dasharray: 5 5
@@ -318,17 +318,17 @@ flowchart TB
 sequenceDiagram
     %% Define participant styles
     participant User as 👤 User
-    participant UI as 🖥️ UI<br/>Terminal Interface
-    participant Orchestrator as 🧠 Orchestrator<br/>Plan & Execute
-    participant Memory as 💾 Memory<br/>Graph Store
-    participant Agent as 🤖 Agent<br/>Specialized
-    participant Tool as 🛠️ Tool<br/>Execution
+    participant UI as 🖥️ UI<br>Terminal Interface
+    participant Orchestrator as 🧠 Orchestrator<br>Plan & Execute
+    participant Memory as 💾 Memory<br>Graph Store
+    participant Agent as 🤖 Agent<br>Specialized
+    participant Tool as 🛠️ Tool<br>Execution
 
     %% User initiates request
     rect rgba(33, 150, 243, 0.1)
         note right of User: 🚀 Request Initiation
         User->>+UI: Enter request
-        UI->>+Orchestrator: Send via A2A<br/>JSON-RPC 2.0
+        UI->>+Orchestrator: Send via A2A<br>JSON-RPC 2.0
     end
 
     %% Planning phase
@@ -920,14 +920,14 @@ flowchart TD
     classDef contributeClass fill:#9c27b0,stroke:#6a1b9a,stroke-width:3px,color:#ffffff,font-weight:bold
     
     %% Learning journey nodes
-    A[🚀 Complete Setup<br/>━━━━━━━━━━━━━<br/>Environment Ready]:::startClass
-    B[📚 Run Examples<br/>━━━━━━━━━━━━<br/>Basic Operations]:::startClass
-    C[🔍 Explore Logs<br/>━━━━━━━━━━━<br/>Debug & Monitor]:::exploreClass
-    D[🧠 Understand Flow<br/>━━━━━━━━━━━━━━<br/>Architecture Deep Dive]:::exploreClass
-    E[✏️ Modify Plans<br/>━━━━━━━━━━━<br/>Interrupt & Customize]:::buildClass
-    F[🛠️ Create Tools<br/>━━━━━━━━━━━<br/>Extend Capabilities]:::buildClass
-    G[🤖 Build Agent<br/>━━━━━━━━━━<br/>New Integration]:::buildClass
-    H[🌟 Contribute Back<br/>━━━━━━━━━━━━━━<br/>Share & Improve]:::contributeClass
+    A[🚀 Complete Setup<br>━━━━━━━━━━━━━<br>Environment Ready]:::startClass
+    B[📚 Run Examples<br>━━━━━━━━━━━━<br>Basic Operations]:::startClass
+    C[🔍 Explore Logs<br>━━━━━━━━━━━<br>Debug & Monitor]:::exploreClass
+    D[🧠 Understand Flow<br>━━━━━━━━━━━━━━<br>Architecture Deep Dive]:::exploreClass
+    E[✏️ Modify Plans<br>━━━━━━━━━━━<br>Interrupt & Customize]:::buildClass
+    F[🛠️ Create Tools<br>━━━━━━━━━━━<br>Extend Capabilities]:::buildClass
+    G[🤖 Build Agent<br>━━━━━━━━━━<br>New Integration]:::buildClass
+    H[🌟 Contribute Back<br>━━━━━━━━━━━━━━<br>Share & Improve]:::contributeClass
     
     %% Connections with labels
     A ==>|"Ready to explore"| B
@@ -939,10 +939,10 @@ flowchart TD
     G ==>|"Give back"| H
     
     %% Add milestone markers
-    B -.->|milestone| MS1{{"🎯 Basics<br/>Mastered"}}
-    D -.->|milestone| MS2{{"🎯 System<br/>Understood"}}
-    F -.->|milestone| MS3{{"🎯 Developer<br/>Ready"}}
-    H -.->|milestone| MS4{{"🎯 Expert<br/>Level"}}
+    B -.->|milestone| MS1{{"🎯 Basics<br>Mastered"}}
+    D -.->|milestone| MS2{{"🎯 System<br>Understood"}}
+    F -.->|milestone| MS3{{"🎯 Developer<br>Ready"}}
+    H -.->|milestone| MS4{{"🎯 Expert<br>Level"}}
     
     %% Style milestones
     classDef milestoneClass fill:#ffeb3b,stroke:#f57f17,stroke-width:2px,color:#000000

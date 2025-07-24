@@ -21,18 +21,18 @@ flowchart TB
     classDef processClass fill:#00bcd4,stroke:#006064,stroke-width:2px,color:#ffffff
     
     %% Main config system
-    CONFIG[🔧 UNIFIED CONFIG SYSTEM<br/>━━━━━━━━━━━━━━━━━━━━<br/>Singleton Instance • Type-Safe Access • Deep Merge]:::configClass
+    CONFIG[🔧 UNIFIED CONFIG SYSTEM<br>━━━━━━━━━━━━━━━━━━━━<br>Singleton Instance • Type-Safe Access • Deep Merge]:::configClass
     
     %% Priority layers
-    ENV[🔐 ENVIRONMENT VARIABLES<br/>━━━━━━━━━━━━━━━━━━━━━<br/>Highest Priority<br/>Secrets & Overrides]:::envClass
-    FILE[📄 system_config.json<br/>━━━━━━━━━━━━━━━━━<br/>Medium Priority<br/>Team Settings]:::fileClass
-    DEFAULTS[⚙️ CODE DEFAULTS<br/>━━━━━━━━━━━━━━<br/>Lowest Priority<br/>Factory Settings]:::defaultClass
+    ENV[🔐 ENVIRONMENT VARIABLES<br>━━━━━━━━━━━━━━━━━━━━━<br>Highest Priority<br>Secrets & Overrides]:::envClass
+    FILE[📄 system_config.json<br>━━━━━━━━━━━━━━━━━<br>Medium Priority<br>Team Settings]:::fileClass
+    DEFAULTS[⚙️ CODE DEFAULTS<br>━━━━━━━━━━━━━━<br>Lowest Priority<br>Factory Settings]:::defaultClass
     
     %% Loading process
-    CONFIG --> LOAD1[Load Code<br/>Defaults]:::processClass
-    CONFIG --> LOAD2[Load JSON<br/>Config File]:::processClass
-    CONFIG --> LOAD3[Load Secrets<br/>from Env]:::processClass
-    CONFIG --> LOAD4[Apply Env<br/>Overrides]:::processClass
+    CONFIG --> LOAD1[Load Code<br>Defaults]:::processClass
+    CONFIG --> LOAD2[Load JSON<br>Config File]:::processClass
+    CONFIG --> LOAD3[Load Secrets<br>from Env]:::processClass
+    CONFIG --> LOAD4[Apply Env<br>Overrides]:::processClass
     
     %% Data flow
     DEFAULTS -.->|"_get_code_defaults()"| LOAD1
@@ -41,9 +41,9 @@ flowchart TB
     ENV -.->|"config overrides"| LOAD4
     
     %% Access patterns
-    CONFIG --> ACCESS1[Dot Notation<br/>Access]:::processClass
-    CONFIG --> ACCESS2[Secret<br/>Access]:::processClass
-    CONFIG --> ACCESS3[Property<br/>Shortcuts]:::processClass
+    CONFIG --> ACCESS1[Dot Notation<br>Access]:::processClass
+    CONFIG --> ACCESS2[Secret<br>Access]:::processClass
+    CONFIG --> ACCESS3[Property<br>Shortcuts]:::processClass
 ```
 
 ## Implementation Details
@@ -86,13 +86,13 @@ flowchart LR
     
     %% Merge process
     subgraph merge["Merge Process"]
-        M1[Deep Merge<br/>Defaults + JSON]:::mergeClass
-        M2[Add Secrets<br/>Layer]:::mergeClass
-        M3[Apply<br/>Overrides]:::mergeClass
+        M1[Deep Merge<br>Defaults + JSON]:::mergeClass
+        M2[Add Secrets<br>Layer]:::mergeClass
+        M3[Apply<br>Overrides]:::mergeClass
     end
     
     %% Final config
-    FINAL[Final Configuration<br/>Dictionary]:::mergeClass
+    FINAL[Final Configuration<br>Dictionary]:::mergeClass
     
     %% Flow
     DEF --> M1
@@ -233,7 +233,7 @@ flowchart LR
     classDef convertClass fill:#2196f3,stroke:#0d47a1,stroke-width:2px,color:#ffffff
     
     %% Conversion flow
-    ENV[Environment<br/>String Value]:::stringClass
+    ENV[Environment<br>String Value]:::stringClass
     
     ENV --> BOOL{Boolean?}
     BOOL -->|"true/false"| B[bool]:::convertClass

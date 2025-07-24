@@ -18,26 +18,26 @@ stateDiagram-v2
     [*] --> CLOSED: Initial State
     
     %% State definitions with descriptions
-    CLOSED: CLOSED<br/>━━━━━━━━<br/>Normal Operation<br/>All requests allowed
-    OPEN: OPEN<br/>━━━━━━<br/>Circuit Broken<br/>Requests rejected
-    HALF_OPEN: HALF_OPEN<br/>━━━━━━━━━━━<br/>Testing Recovery<br/>Limited requests
+    CLOSED: CLOSED<br>━━━━━━━━<br>Normal Operation<br>All requests allowed
+    OPEN: OPEN<br>━━━━━━<br>Circuit Broken<br>Requests rejected
+    HALF_OPEN: HALF_OPEN<br>━━━━━━━━━━━<br>Testing Recovery<br>Limited requests
     
     %% State transitions
-    CLOSED --> OPEN: failures >= threshold<br/>(5 failures)
+    CLOSED --> OPEN: failures >= threshold<br>(5 failures)
     CLOSED --> CLOSED: Request Success
     
-    OPEN --> HALF_OPEN: Timeout Elapsed<br/>(60 seconds)
-    OPEN --> OPEN: Reject Requests<br/>(fail immediately)
+    OPEN --> HALF_OPEN: Timeout Elapsed<br>(60 seconds)
+    OPEN --> OPEN: Reject Requests<br>(fail immediately)
     
-    HALF_OPEN --> CLOSED: Test Success<br/>(3 successful calls)
-    HALF_OPEN --> OPEN: Test Failure<br/>(any failure)
+    HALF_OPEN --> CLOSED: Test Success<br>(3 successful calls)
+    HALF_OPEN --> OPEN: Test Failure<br>(any failure)
     
     %% Add visual indicators
-    note right of CLOSED: ✅ Healthy State<br/>━━━━━━━━━━━━<br/>• Normal latency<br/>• Full throughput<br/>• Monitor failures
+    note right of CLOSED: ✅ Healthy State<br>━━━━━━━━━━━━<br>• Normal latency<br>• Full throughput<br>• Monitor failures
     
-    note right of OPEN: ❌ Protection Mode<br/>━━━━━━━━━━━━━━<br/>• Fast fail<br/>• No network calls<br/>• Wait for timeout
+    note right of OPEN: ❌ Protection Mode<br>━━━━━━━━━━━━━━<br>• Fast fail<br>• No network calls<br>• Wait for timeout
     
-    note right of HALF_OPEN: 🔄 Recovery Test<br/>━━━━━━━━━━━━━<br/>• Limited calls<br/>• Check health<br/>• Careful monitoring
+    note right of HALF_OPEN: 🔄 Recovery Test<br>━━━━━━━━━━━━━<br>• Limited calls<br>• Check health<br>• Careful monitoring
 ```
 
 - **CLOSED**: Normal operation, requests pass through

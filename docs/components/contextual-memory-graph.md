@@ -20,20 +20,20 @@ flowchart TB
     SYSTEM[💾 CONTEXTUAL MEMORY GRAPH SYSTEM]:::systemClass
     
     %% Core components
-    SYSTEM --> MANAGER[📋 Memory Manager<br/>━━━━━━━━━━━━━━━<br/>• Thread Isolation<br/>• Lifecycle Mgmt<br/>• Cleanup Scheduler]:::managerClass
-    SYSTEM --> GRAPH[🕸️ Memory Graph<br/>━━━━━━━━━━━━━<br/>• NetworkX Core<br/>• Relationship Mgmt<br/>• Index Management]:::graphClass
-    SYSTEM --> NODE[📦 Memory Node<br/>━━━━━━━━━━━━<br/>• Content Store<br/>• Relevance<br/>• Decay Model]:::nodeClass
+    SYSTEM --> MANAGER[📋 Memory Manager<br>━━━━━━━━━━━━━━━<br>• Thread Isolation<br>• Lifecycle Mgmt<br>• Cleanup Scheduler]:::managerClass
+    SYSTEM --> GRAPH[🕸️ Memory Graph<br>━━━━━━━━━━━━━<br>• NetworkX Core<br>• Relationship Mgmt<br>• Index Management]:::graphClass
+    SYSTEM --> NODE[📦 Memory Node<br>━━━━━━━━━━━━<br>• Content Store<br>• Relevance<br>• Decay Model]:::nodeClass
     
     %% Algorithms layer
     GRAPH --> ALGOS[🧮 GRAPH ALGORITHMS LAYER]:::algoClass
     
     %% Algorithm components
-    ALGOS --> PR[📊 PageRank<br/>━━━━━━━━━<br/>• Importance<br/>• Centrality<br/>• Authority]:::algoClass
-    ALGOS --> CD[🎯 Community Detection<br/>━━━━━━━━━━━━━━━━━━<br/>• Louvain Algorithm<br/>• Topic Clusters<br/>• Modularity]:::algoClass
-    ALGOS --> SEM[🔍 Semantic Similarity<br/>━━━━━━━━━━━━━━━━━━<br/>• Embeddings<br/>• Vector Search<br/>• Cosine Distance]:::algoClass
-    ALGOS --> BRIDGE[🌉 Bridge Detection<br/>━━━━━━━━━━━━━━━<br/>• Betweenness<br/>• Articulation<br/>• Cut Vertices]:::algoClass
-    ALGOS --> PATH[🛤️ Path Finding<br/>━━━━━━━━━━━━<br/>• Shortest Path<br/>• All Paths<br/>• Reachability]:::algoClass
-    ALGOS --> SUB[🔎 Subgraph Mining<br/>━━━━━━━━━━━━━━━<br/>• Pattern Match<br/>• Motif Detection<br/>• Frequent Subgraph]:::algoClass
+    ALGOS --> PR[📊 PageRank<br>━━━━━━━━━<br>• Importance<br>• Centrality<br>• Authority]:::algoClass
+    ALGOS --> CD[🎯 Community Detection<br>━━━━━━━━━━━━━━━━━━<br>• Louvain Algorithm<br>• Topic Clusters<br>• Modularity]:::algoClass
+    ALGOS --> SEM[🔍 Semantic Similarity<br>━━━━━━━━━━━━━━━━━━<br>• Embeddings<br>• Vector Search<br>• Cosine Distance]:::algoClass
+    ALGOS --> BRIDGE[🌉 Bridge Detection<br>━━━━━━━━━━━━━━━<br>• Betweenness<br>• Articulation<br>• Cut Vertices]:::algoClass
+    ALGOS --> PATH[🛤️ Path Finding<br>━━━━━━━━━━━━<br>• Shortest Path<br>• All Paths<br>• Reachability]:::algoClass
+    ALGOS --> SUB[🔎 Subgraph Mining<br>━━━━━━━━━━━━━━━<br>• Pattern Match<br>• Motif Detection<br>• Frequent Subgraph]:::algoClass
     
     %% Features
     SYSTEM --> FEATURES[✨ INTEGRATION & FEATURES]:::featureClass

@@ -25,26 +25,26 @@ flowchart TB
     SYSTEM --> INTEGRATION[🔗 Integration Points]:::integrationClass
     
     %% Interrupt Types
-    TYPES --> USER[⌨️ User Escape<br/>━━━━━━━━━━━<br/>• ESC Key<br/>• Highest Priority<br/>• Plan Modification]:::typeClass
-    TYPES --> HUMAN[👤 Human Input Tool<br/>━━━━━━━━━━━━━━<br/>• Agent Questions<br/>• Clarification<br/>• Continue After]:::typeClass
-    TYPES --> SYSERR[⚠️ System Errors<br/>━━━━━━━━━━━━<br/>• Future Feature<br/>• Recoverable<br/>• Auto-retry]:::typeClass
+    TYPES --> USER[⌨️ User Escape<br>━━━━━━━━━━━<br>• ESC Key<br>• Highest Priority<br>• Plan Modification]:::typeClass
+    TYPES --> HUMAN[👤 Human Input Tool<br>━━━━━━━━━━━━━━<br>• Agent Questions<br>• Clarification<br>• Continue After]:::typeClass
+    TYPES --> SYSERR[⚠️ System Errors<br>━━━━━━━━━━━━<br>• Future Feature<br>• Recoverable<br>• Auto-retry]:::typeClass
     
     %% Interrupt Flow
-    FLOW --> DETECT[🔍 Detection<br/>━━━━━━━━━<br/>• Flag Check<br/>• Type Identify<br/>• Clash Detect]:::flowClass
-    FLOW --> PRIORITY[🏆 Priority<br/>━━━━━━━━<br/>• User First<br/>• Agent Second<br/>• System Last]:::flowClass
-    FLOW --> PERSIST[💾 State Persist<br/>━━━━━━━━━━━━<br/>• Save Context<br/>• Track History<br/>• Resume Ready]:::flowClass
-    FLOW --> RESUME[▶️ Resume Logic<br/>━━━━━━━━━━━━<br/>• State Update<br/>• Plan Modify<br/>• Continue Exec]:::flowClass
+    FLOW --> DETECT[🔍 Detection<br>━━━━━━━━━<br>• Flag Check<br>• Type Identify<br>• Clash Detect]:::flowClass
+    FLOW --> PRIORITY[🏆 Priority<br>━━━━━━━━<br>• User First<br>• Agent Second<br>• System Last]:::flowClass
+    FLOW --> PERSIST[💾 State Persist<br>━━━━━━━━━━━━<br>• Save Context<br>• Track History<br>• Resume Ready]:::flowClass
+    FLOW --> RESUME[▶️ Resume Logic<br>━━━━━━━━━━━━<br>• State Update<br>• Plan Modify<br>• Continue Exec]:::flowClass
     
     %% Components
-    COMPONENTS --> HANDLER[🎮 Interrupt Handler<br/>━━━━━━━━━━━━━━━━<br/>• Type Detection<br/>• Clash Detection<br/>• Resume Prep]:::componentClass
-    COMPONENTS --> OBSERVER[👀 Interrupt Observer<br/>━━━━━━━━━━━━━━━━━<br/>• State Tracking<br/>• Context Store<br/>• History Log]:::componentClass
-    COMPONENTS --> WEBSOCKET[🌐 WebSocket Handler<br/>━━━━━━━━━━━━━━━━━<br/>• User Interface<br/>• Message Protocol<br/>• Async Handling]:::componentClass
+    COMPONENTS --> HANDLER[🎮 Interrupt Handler<br>━━━━━━━━━━━━━━━━<br>• Type Detection<br>• Clash Detection<br>• Resume Prep]:::componentClass
+    COMPONENTS --> OBSERVER[👀 Interrupt Observer<br>━━━━━━━━━━━━━━━━━<br>• State Tracking<br>• Context Store<br>• History Log]:::componentClass
+    COMPONENTS --> WEBSOCKET[🌐 WebSocket Handler<br>━━━━━━━━━━━━━━━━━<br>• User Interface<br>• Message Protocol<br>• Async Handling]:::componentClass
     
     %% Integration Points
-    INTEGRATION --> WORKFLOW[🔄 Plan-Execute<br/>━━━━━━━━━━━━<br/>• GraphInterrupt<br/>• Raise/Catch]:::integrationClass
-    INTEGRATION --> UI[🖥️ UI Layer<br/>━━━━━━━━━<br/>• ESC Detection<br/>• Modal Display]:::integrationClass
-    INTEGRATION --> AGENTS[🤖 Agent Tools<br/>━━━━━━━━━━━<br/>• HumanInputTool<br/>• Clarification]:::integrationClass
-    INTEGRATION --> STATE[📋 State Mgmt<br/>━━━━━━━━━━━<br/>• Flag Persist<br/>• Resume State]:::integrationClass
+    INTEGRATION --> WORKFLOW[🔄 Plan-Execute<br>━━━━━━━━━━━━<br>• GraphInterrupt<br>• Raise/Catch]:::integrationClass
+    INTEGRATION --> UI[🖥️ UI Layer<br>━━━━━━━━━<br>• ESC Detection<br>• Modal Display]:::integrationClass
+    INTEGRATION --> AGENTS[🤖 Agent Tools<br>━━━━━━━━━━━<br>• HumanInputTool<br>• Clarification]:::integrationClass
+    INTEGRATION --> STATE[📋 State Mgmt<br>━━━━━━━━━━━<br>• Flag Persist<br>• Resume State]:::integrationClass
 ```
 
 ## Interrupt Flow Diagram

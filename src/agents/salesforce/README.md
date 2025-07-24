@@ -48,35 +48,35 @@ flowchart TB
     classDef securityClass fill:#c62828,stroke:#8b0000,stroke-width:2px,color:#ffffff
     
     %% Main agent
-    AGENT[☁️ SALESFORCE AGENT<br/>━━━━━━━━━━━━━━━━━━<br/>6 Unified Tools • Natural Language • Smart Detection]:::agentClass
+    AGENT[☁️ SALESFORCE AGENT<br>━━━━━━━━━━━━━━━━━━<br>6 Unified Tools • Natural Language • Smart Detection]:::agentClass
     
     %% Top layer components
     subgraph handlers[" "]
-        A2A[🌐 A2A Handler<br/>━━━━━━━━━━━━<br/>JSON-RPC 2.0<br/>/a2a endpoint]:::handlerClass
-        LG[📊 LangGraph<br/>━━━━━━━━━━<br/>State Mgmt<br/>Memory]:::handlerClass
-        SEC[🔒 Security Layer<br/>━━━━━━━━━━━━━━<br/>Input Validation<br/>SOQL Injection Prev]:::securityClass
+        A2A[🌐 A2A Handler<br>━━━━━━━━━━━━<br>JSON-RPC 2.0<br>/a2a endpoint]:::handlerClass
+        LG[📊 LangGraph<br>━━━━━━━━━━<br>State Mgmt<br>Memory]:::handlerClass
+        SEC[🔒 Security Layer<br>━━━━━━━━━━━━━━<br>Input Validation<br>SOQL Injection Prev]:::securityClass
     end
     
     %% Unified tools layer
     subgraph tools["🛠️ UNIFIED TOOL EXECUTION LAYER"]
         subgraph row1[" "]
-            GET[📥 SalesforceGet<br/>━━━━━━━━━━━━━━<br/>Record by ID<br/>Auto-detection]:::toolClass
-            SEARCH[🔍 SalesforceSearch<br/>━━━━━━━━━━━━━━━━<br/>Natural Language<br/>& Structured]:::toolClass
-            CREATE[➕ SalesforceCreate<br/>━━━━━━━━━━━━━━━━<br/>Any Object Type<br/>Field Validation]:::toolClass
+            GET[📥 SalesforceGet<br>━━━━━━━━━━━━━━<br>Record by ID<br>Auto-detection]:::toolClass
+            SEARCH[🔍 SalesforceSearch<br>━━━━━━━━━━━━━━━━<br>Natural Language<br>& Structured]:::toolClass
+            CREATE[➕ SalesforceCreate<br>━━━━━━━━━━━━━━━━<br>Any Object Type<br>Field Validation]:::toolClass
         end
         
         subgraph row2[" "]
-            UPDATE[✏️ SalesforceUpdate<br/>━━━━━━━━━━━━━━━━<br/>Any Record<br/>By ID/Criteria]:::toolClass
-            SOSL[🌐 SalesforceSOSL<br/>━━━━━━━━━━━━━━━<br/>Cross-obj Search<br/>Global Results]:::toolClass
-            ANALYTICS[📊 SalesforceAnalytics<br/>━━━━━━━━━━━━━━━━━━<br/>Metrics & Aggreg<br/>Business Intel]:::toolClass
+            UPDATE[✏️ SalesforceUpdate<br>━━━━━━━━━━━━━━━━<br>Any Record<br>By ID/Criteria]:::toolClass
+            SOSL[🌐 SalesforceSOSL<br>━━━━━━━━━━━━━━━<br>Cross-obj Search<br>Global Results]:::toolClass
+            ANALYTICS[📊 SalesforceAnalytics<br>━━━━━━━━━━━━━━━━━━<br>Metrics & Aggreg<br>Business Intel]:::toolClass
         end
     end
     
     %% Query builder
-    BUILDER[🔧 SOQL QUERY BUILDER<br/>━━━━━━━━━━━━━━━━━━━━<br/>Fluent Interface • Aggregate Functions • Security Features<br/>Query Templates • Relationship Queries • Performance Opts<br/>SOSL Support • Subquery Building • Error Handling]:::builderClass
+    BUILDER[🔧 SOQL QUERY BUILDER<br>━━━━━━━━━━━━━━━━━━━━<br>Fluent Interface • Aggregate Functions • Security Features<br>Query Templates • Relationship Queries • Performance Opts<br>SOSL Support • Subquery Building • Error Handling]:::builderClass
     
     %% API layer
-    API[☁️ SALESFORCE API LAYER<br/>━━━━━━━━━━━━━━━━━━━━━<br/>REST API Integration • Connection Management<br/>Rate Limiting & Retries • Result Processing]:::apiClass
+    API[☁️ SALESFORCE API LAYER<br>━━━━━━━━━━━━━━━━━━━━━<br>REST API Integration • Connection Management<br>Rate Limiting & Retries • Result Processing]:::apiClass
     
     %% Connections
     AGENT --> handlers

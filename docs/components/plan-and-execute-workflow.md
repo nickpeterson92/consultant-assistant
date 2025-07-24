@@ -25,28 +25,28 @@ flowchart TB
     SYSTEM --> FEATURES[✨ Enhanced Features]:::featureClass
     
     %% State components
-    STATE --> PS[PlanExecute State<br/>━━━━━━━━━━━━━━<br/>• Messages<br/>• Past Steps<br/>• Memory Context]:::stateClass
-    STATE --> FLAGS[Interrupt Flags<br/>━━━━━━━━━━━━<br/>• user_interrupted<br/>• should_force_replan<br/>• interrupt_reason]:::stateClass
+    STATE --> PS[PlanExecute State<br>━━━━━━━━━━━━━━<br>• Messages<br>• Past Steps<br>• Memory Context]:::stateClass
+    STATE --> FLAGS[Interrupt Flags<br>━━━━━━━━━━━━<br>• user_interrupted<br>• should_force_replan<br>• interrupt_reason]:::stateClass
     
     %% Model components  
-    MODELS --> PLAN[Plan Model<br/>━━━━━━━━━<br/>• Steps List<br/>• Validation]:::modelClass
-    MODELS --> RESP[Response Model<br/>━━━━━━━━━━━━━<br/>• Final Answer]:::modelClass
-    MODELS --> ACT[Act Model<br/>━━━━━━━━<br/>• Plan or Response]:::modelClass
-    MODELS --> STEP[StepExecution<br/>━━━━━━━━━━━━<br/>• Step History]:::modelClass
+    MODELS --> PLAN[Plan Model<br>━━━━━━━━━<br>• Steps List<br>• Validation]:::modelClass
+    MODELS --> RESP[Response Model<br>━━━━━━━━━━━━━<br>• Final Answer]:::modelClass
+    MODELS --> ACT[Act Model<br>━━━━━━━━<br>• Plan or Response]:::modelClass
+    MODELS --> STEP[StepExecution<br>━━━━━━━━━━━━<br>• Step History]:::modelClass
     
     %% Node functions
-    NODES --> PLANNER[📝 planner<br/>━━━━━━━<br/>• Generate Plan<br/>• Agent Context]:::nodeClass
-    NODES --> EXECUTE[⚡ execute_step<br/>━━━━━━━━━━━━<br/>• Memory Retrieval<br/>• Agent Execution<br/>• Entity Extract]:::nodeClass
-    NODES --> REPLAN[🔄 replan_step<br/>━━━━━━━━━━━<br/>• Continue/End<br/>• Plan Modify]:::nodeClass
-    NODES --> SHOULDEND[🎯 should_end<br/>━━━━━━━━━━<br/>• Conditional]:::nodeClass
+    NODES --> PLANNER[📝 planner<br>━━━━━━━<br>• Generate Plan<br>• Agent Context]:::nodeClass
+    NODES --> EXECUTE[⚡ execute_step<br>━━━━━━━━━━━━<br>• Memory Retrieval<br>• Agent Execution<br>• Entity Extract]:::nodeClass
+    NODES --> REPLAN[🔄 replan_step<br>━━━━━━━━━━━<br>• Continue/End<br>• Plan Modify]:::nodeClass
+    NODES --> SHOULDEND[🎯 should_end<br>━━━━━━━━━━<br>• Conditional]:::nodeClass
     
     %% Enhanced features
-    FEATURES --> MEM[💾 Memory Context<br/>━━━━━━━━━━━━━━<br/>• Retrieval<br/>• Relationships<br/>• Graph Intel]:::featureClass
-    FEATURES --> ENTITY[🔍 Entity Extraction<br/>━━━━━━━━━━━━━━━━<br/>• Pattern Match<br/>• Multi-System<br/>• Auto Storage]:::featureClass
-    FEATURES --> EVENTS[📡 Event Decorators<br/>━━━━━━━━━━━━━━━<br/>• Plan Events<br/>• Task Lifecycle<br/>• Memory Updates]:::featureClass
-    FEATURES --> INT[🚨 Interrupt Support<br/>━━━━━━━━━━━━━━━━<br/>• User Escape<br/>• Human Input<br/>• Plan Modify]:::featureClass
-    FEATURES --> AGENT[🤖 Agent Integration<br/>━━━━━━━━━━━━━━━━<br/>• ReAct Agents<br/>• Tool Calling<br/>• Context Pass]:::featureClass
-    FEATURES --> PERSIST[💾 State Persistence<br/>━━━━━━━━━━━━━━━━━<br/>• Checkpointing<br/>• Thread Isolation<br/>• Resume Support]:::featureClass
+    FEATURES --> MEM[💾 Memory Context<br>━━━━━━━━━━━━━━<br>• Retrieval<br>• Relationships<br>• Graph Intel]:::featureClass
+    FEATURES --> ENTITY[🔍 Entity Extraction<br>━━━━━━━━━━━━━━━━<br>• Pattern Match<br>• Multi-System<br>• Auto Storage]:::featureClass
+    FEATURES --> EVENTS[📡 Event Decorators<br>━━━━━━━━━━━━━━━<br>• Plan Events<br>• Task Lifecycle<br>• Memory Updates]:::featureClass
+    FEATURES --> INT[🚨 Interrupt Support<br>━━━━━━━━━━━━━━━━<br>• User Escape<br>• Human Input<br>• Plan Modify]:::featureClass
+    FEATURES --> AGENT[🤖 Agent Integration<br>━━━━━━━━━━━━━━━━<br>• ReAct Agents<br>• Tool Calling<br>• Context Pass]:::featureClass
+    FEATURES --> PERSIST[💾 State Persistence<br>━━━━━━━━━━━━━━━━━<br>• Checkpointing<br>• Thread Isolation<br>• Resume Support]:::featureClass
 ```
 
 ## Workflow Graph Flow
@@ -60,9 +60,9 @@ stateDiagram-v2
     should_end --> execute_step: Continue (more steps)
     should_end --> [*]: END (response ready)
     
-    note right of execute_step: Check interrupts<br/>Retrieve memory<br/>Execute with agent<br/>Extract entities<br/>Store results
+    note right of execute_step: Check interrupts<br>Retrieve memory<br>Execute with agent<br>Extract entities<br>Store results
     
-    note right of replan_step: Check completion<br/>Analyze progress<br/>Decide next action
+    note right of replan_step: Check completion<br>Analyze progress<br>Decide next action
 ```
 
 ## Core Models
@@ -459,14 +459,14 @@ flowchart LR
     classDef replanClass fill:#00897b,stroke:#00695c,stroke-width:3px,color:#ffffff
     classDef endClass fill:#d32f2f,stroke:#b71c1c,stroke-width:3px,color:#ffffff
     
-    START((🎯 START)) --> PLAN[📝 planner<br/>━━━━━━━<br/>Generate initial<br/>execution plan]:::plannerClass
-    PLAN --> EXEC[⚡ execute_step<br/>━━━━━━━━━━━<br/>Execute current<br/>plan step]:::executeClass
-    EXEC --> REPLAN[🔄 replan_step<br/>━━━━━━━━━━━<br/>Decide next<br/>action]:::replanClass
+    START((🎯 START)) --> PLAN[📝 planner<br>━━━━━━━<br>Generate initial<br>execution plan]:::plannerClass
+    PLAN --> EXEC[⚡ execute_step<br>━━━━━━━━━━━<br>Execute current<br>plan step]:::executeClass
+    EXEC --> REPLAN[🔄 replan_step<br>━━━━━━━━━━━<br>Decide next<br>action]:::replanClass
     REPLAN -->|Continue| EXEC
     REPLAN -->|Complete| END((🎆 END)):::endClass
     
     %% Interrupt flow
-    EXEC -.->|🚨 Interrupt| INT{{User/Agent<br/>Interrupt}}
+    EXEC -.->|🚨 Interrupt| INT{{User/Agent<br>Interrupt}}
     INT -.->|Resume| EXEC
 ```
 

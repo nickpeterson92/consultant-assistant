@@ -21,26 +21,26 @@ flowchart TB
     classDef featureClass fill:#9c27b0,stroke:#6a1b9a,stroke-width:2px,color:#ffffff
     
     %% Main system
-    SMART[🧠 SMARTLOGGER SYSTEM<br/>━━━━━━━━━━━━━━━━━━━<br/>Auto Detection • Decorators • Context Management]:::smartClass
+    SMART[🧠 SMARTLOGGER SYSTEM]:::smartClass
     
     %% Layers
     subgraph layers["Logging Layers"]
-        FRAMEWORK[📊 SmartLogger Framework<br/>━━━━━━━━━━━━━━━━━━━━<br/>Component Detection<br/>Execution Decorators<br/>Context Management]:::layerClass
+        FRAMEWORK[📊 SmartLogger Framework]:::layerClass
         
-        MULTI[📁 MultiFileLogger<br/>━━━━━━━━━━━━━━<br/>Component Routing<br/>File Management<br/>Error Aggregation]:::layerClass
+        MULTI[📁 MultiFileLogger]:::layerClass
         
-        STRUCT[📝 StructuredLogger<br/>━━━━━━━━━━━━━━━━<br/>JSON Formatting<br/>Thread Safety<br/>Base Implementation]:::layerClass
+        STRUCT[📝 StructuredLogger]:::layerClass
     end
     
     %% Features
     subgraph features["Key Features"]
-        DEC[🎯 @log_execution<br/>━━━━━━━━━━━━━<br/>Auto Function<br/>Logging]:::featureClass
+        DEC[🎯 @log_execution]:::featureClass
         
-        CTX[🔗 log_operation<br/>━━━━━━━━━━━━<br/>Context Manager<br/>Correlation IDs]:::featureClass
+        CTX[🔗 log_operation]:::featureClass
         
-        AUTO[🔍 Auto Detection<br/>━━━━━━━━━━━━━<br/>Component from<br/>Module Path]:::featureClass
+        AUTO[🔍 Auto Detection]:::featureClass
         
-        THREAD[🧵 Thread Local<br/>━━━━━━━━━━━<br/>Context Storage<br/>Correlation]:::featureClass
+        THREAD[🧵 Thread Local]:::featureClass
     end
     
     %% Log files
@@ -54,7 +54,7 @@ flowchart TB
         SYS[system.log]:::fileClass
         EXTRACT[extraction.log]:::fileClass
         CLIENT[client.log]:::fileClass
-        ERR[errors.log<br/>(all errors)]:::fileClass
+        ERR[errors.log - all errors]:::fileClass
     end
     
     %% Connections
@@ -80,9 +80,9 @@ flowchart LR
     classDef detectClass fill:#2196f3,stroke:#0d47a1,stroke-width:2px,color:#ffffff
     
     %% Detection flow
-    MODULE[Module Path<br/>agents.salesforce.tools]:::pathClass
+    MODULE[Module Path: agents.salesforce.tools]:::pathClass
     DETECT[Detection Logic]:::detectClass
-    COMP[Component<br/>"salesforce"]:::detectClass
+    COMP[Component: salesforce]:::detectClass
     
     MODULE -->|"analyze path"| DETECT
     DETECT -->|"extract component"| COMP
@@ -193,21 +193,21 @@ flowchart TB
     subgraph routing["Log Routing"]
         MSG[Log Message]
         
-        MSG --> ORCH[orchestrator.log<br/>━━━━━━━━━━━━━<br/>• Orchestrator ops<br/>• LLM calls<br/>• Web search]:::logClass
+        MSG --> ORCH[orchestrator.log]:::logClass
         
-        MSG --> SF[salesforce.log<br/>━━━━━━━━━━━━<br/>• Agent ops<br/>• Tool calls<br/>• SOQL queries]:::logClass
+        MSG --> SF[salesforce.log]:::logClass
         
-        MSG --> JIRA[jira.log<br/>━━━━━━━<br/>• Issue ops<br/>• JQL queries<br/>• Sprint mgmt]:::logClass
+        MSG --> JIRA[jira.log]:::logClass
         
-        MSG --> SN[servicenow.log<br/>━━━━━━━━━━━━━<br/>• ITSM ops<br/>• Glide queries<br/>• Workflows]:::logClass
+        MSG --> SN[servicenow.log]:::logClass
         
-        MSG --> A2A[a2a_protocol.log<br/>━━━━━━━━━━━━━━<br/>• Network calls<br/>• Circuit breakers<br/>• Retries]:::logClass
+        MSG --> A2A[a2a_protocol.log]:::logClass
         
-        MSG --> STORE[storage.log<br/>━━━━━━━━━━<br/>• SQLite ops<br/>• Memory persist<br/>• Queries]:::logClass
+        MSG --> STORE[storage.log]:::logClass
         
-        MSG --> SYS[system.log<br/>━━━━━━━━━<br/>• Startup<br/>• Config loads<br/>• Health checks]:::logClass
+        MSG --> SYS[system.log]:::logClass
         
-        MSG -->|"if ERROR"| ERR[errors.log<br/>━━━━━━━━<br/>ALL ERRORS<br/>from any component]:::errorClass
+        MSG -->|"if ERROR"| ERR[errors.log - ALL ERRORS]:::errorClass
     end
 ```
 
@@ -418,9 +418,9 @@ flowchart LR
     classDef newClass fill:#4caf50,stroke:#2e7d32,stroke-width:2px,color:#ffffff
     
     %% Migration flow
-    OLD[Old Format<br/>app.log]:::oldClass
-    MIG[Migration<br/>System]
-    NEW[New Format<br/>component.log]:::newClass
+    OLD[Old Format: app.log]:::oldClass
+    MIG[Migration System]
+    NEW[New Format: component.log]:::newClass
     
     OLD -->|"on import"| MIG
     MIG -->|"auto convert"| NEW

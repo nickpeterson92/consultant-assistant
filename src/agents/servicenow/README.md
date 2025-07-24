@@ -48,35 +48,35 @@ flowchart TB
     classDef securityClass fill:#b71c1c,stroke:#7f0000,stroke-width:2px,color:#ffffff
     
     %% Main agent
-    AGENT[🎫 SERVICENOW AGENT<br/>━━━━━━━━━━━━━━━━━━━<br/>6 Unified Tools • NLQ Support • Workflow Mgmt • Analytics]:::agentClass
+    AGENT[🎫 SERVICENOW AGENT<br>━━━━━━━━━━━━━━━━━━━<br>6 Unified Tools • NLQ Support • Workflow Mgmt • Analytics]:::agentClass
     
     %% Top layer components
     subgraph handlers[" "]
-        A2A[🌐 A2A Handler<br/>━━━━━━━━━━━━<br/>JSON-RPC 2.0<br/>/a2a endpoint]:::handlerClass
-        LG[📊 LangGraph<br/>━━━━━━━━━━<br/>State Mgmt<br/>Memory]:::handlerClass
-        SEC[🔒 Security Layer<br/>━━━━━━━━━━━━━━<br/>Input Validation<br/>Glide Query Builder]:::securityClass
+        A2A[🌐 A2A Handler<br>━━━━━━━━━━━━<br>JSON-RPC 2.0<br>/a2a endpoint]:::handlerClass
+        LG[📊 LangGraph<br>━━━━━━━━━━<br>State Mgmt<br>Memory]:::handlerClass
+        SEC[🔒 Security Layer<br>━━━━━━━━━━━━━━<br>Input Validation<br>Glide Query Builder]:::securityClass
     end
     
     %% Unified tools layer
     subgraph tools["🛠️ UNIFIED TOOL EXECUTION LAYER"]
         subgraph row1[" "]
-            GET[📥 ServiceNowGet<br/>━━━━━━━━━━━━━━<br/>Record by ID/Number<br/>Auto-detection]:::toolClass
-            SEARCH[🔍 ServiceNowSearch<br/>━━━━━━━━━━━━━━━━<br/>Natural Language<br/>& Structured]:::toolClass
-            CREATE[➕ ServiceNowCreate<br/>━━━━━━━━━━━━━━━━<br/>Any Table Type<br/>Field Validation]:::toolClass
+            GET[📥 ServiceNowGet<br>━━━━━━━━━━━━━━<br>Record by ID/Number<br>Auto-detection]:::toolClass
+            SEARCH[🔍 ServiceNowSearch<br>━━━━━━━━━━━━━━━━<br>Natural Language<br>& Structured]:::toolClass
+            CREATE[➕ ServiceNowCreate<br>━━━━━━━━━━━━━━━━<br>Any Table Type<br>Field Validation]:::toolClass
         end
         
         subgraph row2[" "]
-            UPDATE[✏️ ServiceNowUpdate<br/>━━━━━━━━━━━━━━━━<br/>Any Record<br/>By ID/Number]:::toolClass
-            WORKFLOW[⚙️ ServiceNowWorkflow<br/>━━━━━━━━━━━━━━━━━<br/>State Transitions<br/>Approval Management]:::toolClass
-            ANALYTICS[📊 ServiceNowAnalytics<br/>━━━━━━━━━━━━━━━━━━<br/>Metrics & Reports<br/>Performance KPIs]:::toolClass
+            UPDATE[✏️ ServiceNowUpdate<br>━━━━━━━━━━━━━━━━<br>Any Record<br>By ID/Number]:::toolClass
+            WORKFLOW[⚙️ ServiceNowWorkflow<br>━━━━━━━━━━━━━━━━━<br>State Transitions<br>Approval Management]:::toolClass
+            ANALYTICS[📊 ServiceNowAnalytics<br>━━━━━━━━━━━━━━━━━━<br>Metrics & Reports<br>Performance KPIs]:::toolClass
         end
     end
     
     %% Query builder
-    BUILDER[🔧 GLIDE QUERY BUILDER<br/>━━━━━━━━━━━━━━━━━━━━<br/>Natural Language Processing • Query Templates • Security<br/>Field Value Mapping • Operator Support • Validation<br/>Table-specific Queries • Error Handling • Performance]:::builderClass
+    BUILDER[🔧 GLIDE QUERY BUILDER<br>━━━━━━━━━━━━━━━━━━━━<br>Natural Language Processing • Query Templates • Security<br>Field Value Mapping • Operator Support • Validation<br>Table-specific Queries • Error Handling • Performance]:::builderClass
     
     %% API layer
-    API[🎫 SERVICENOW API LAYER<br/>━━━━━━━━━━━━━━━━━━━━━<br/>REST API Integration • Table API Endpoints<br/>Authentication & Sessions • Rate Limiting & Retries]:::apiClass
+    API[🎫 SERVICENOW API LAYER<br>━━━━━━━━━━━━━━━━━━━━━<br>REST API Integration • Table API Endpoints<br>Authentication & Sessions • Rate Limiting & Retries]:::apiClass
     
     %% Connections
     AGENT --> handlers

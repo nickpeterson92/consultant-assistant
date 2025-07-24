@@ -40,13 +40,13 @@ flowchart TB
     classDef securityClass fill:#f44336,stroke:#b71c1c,stroke-width:2px,color:#ffffff
     
     %% Main agent
-    AGENT[📋 JIRA AGENT<br/>━━━━━━━━━━━━━<br/>11 Tools • JQL Search • Sprint Mgmt • Analytics]:::agentClass
+    AGENT[📋 JIRA AGENT<br>━━━━━━━━━━━━━<br>11 Tools • JQL Search • Sprint Mgmt • Analytics]:::agentClass
     
     %% Top layer components
     subgraph handlers[" "]
-        A2A[🌐 A2A Handler<br/>━━━━━━━━━━━━<br/>JSON-RPC 2.0<br/>/a2a endpoint]:::handlerClass
-        LG[📊 LangGraph<br/>━━━━━━━━━━<br/>State Mgmt<br/>Memory]:::handlerClass
-        SEC[🔒 Security Layer<br/>━━━━━━━━━━━━━━<br/>Input Validation<br/>JQL Query Building]:::securityClass
+        A2A[🌐 A2A Handler<br>━━━━━━━━━━━━<br>JSON-RPC 2.0<br>/a2a endpoint]:::handlerClass
+        LG[📊 LangGraph<br>━━━━━━━━━━<br>State Mgmt<br>Memory]:::handlerClass
+        SEC[🔒 Security Layer<br>━━━━━━━━━━━━━━<br>Input Validation<br>JQL Query Building]:::securityClass
     end
     
     %% Unified tools layer

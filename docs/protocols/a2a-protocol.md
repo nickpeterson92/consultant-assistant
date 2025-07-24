@@ -24,11 +24,11 @@ flowchart TB
     STACK[🌐 A2A PROTOCOL STACK]:::stackClass
     
     %% Layer components
-    STACK --> APP[📦 Application Layer<br/>━━━━━━━━━━━━━━━<br/>AgentCard • Task<br/>Artifact • Message]:::appClass
-    STACK --> PROTO[🔧 Protocol Layer<br/>━━━━━━━━━━━━━━<br/>JSON-RPC 2.0<br/>Request/Response]:::protocolClass
-    STACK --> RESIL[🛡️ Resilience Layer<br/>━━━━━━━━━━━━━━━━<br/>Circuit Breaker<br/>Retry Logic]:::resilienceClass
-    STACK --> CONN[🔌 Connection Layer<br/>━━━━━━━━━━━━━━━━<br/>Connection Pool<br/>Session Management]:::connClass
-    STACK --> TRANS[📡 Transport Layer<br/>━━━━━━━━━━━━━━━<br/>HTTP/HTTPS<br/>aiohttp]:::transportClass
+    STACK --> APP[📦 Application Layer<br>━━━━━━━━━━━━━━━<br>AgentCard • Task<br>Artifact • Message]:::appClass
+    STACK --> PROTO[🔧 Protocol Layer<br>━━━━━━━━━━━━━━<br>JSON-RPC 2.0<br>Request/Response]:::protocolClass
+    STACK --> RESIL[🛡️ Resilience Layer<br>━━━━━━━━━━━━━━━━<br>Circuit Breaker<br>Retry Logic]:::resilienceClass
+    STACK --> CONN[🔌 Connection Layer<br>━━━━━━━━━━━━━━━━<br>Connection Pool<br>Session Management]:::connClass
+    STACK --> TRANS[📡 Transport Layer<br>━━━━━━━━━━━━━━━<br>HTTP/HTTPS<br>aiohttp]:::transportClass
     
     %% Show data flow
     APP -.->|"Data Models"| PROTO
@@ -515,13 +515,13 @@ sequenceDiagram
     %% Task creation phase
     rect rgba(33, 150, 243, 0.1)
         note over Orch: Task Creation
-        Orch->>Orch: CREATE TASK<br/>UUID + Context
+        Orch->>Orch: CREATE TASK<br>UUID + Context
     end
     
     %% Request phase
     rect rgba(156, 39, 176, 0.1)
         note over Orch,A2A: Request Phase
-        Orch->>A2A: POST /a2a<br/>{method: "process_task",<br/>params: {task: {...}}}
+        Orch->>A2A: POST /a2a<br>{method: "process_task",<br>params: {task: {...}}}
         A2A->>A2A: Validate JSON-RPC
         A2A->>Agent: Forward Request
     end
@@ -537,8 +537,8 @@ sequenceDiagram
     %% Response phase
     rect rgba(255, 152, 0, 0.1)
         note over A2A,Orch: Response Phase
-        Agent-->>A2A: Return Result<br/>{artifacts: [...]}
-        A2A-->>Orch: JSON-RPC Response<br/>{result: {artifacts: [...]}}
+        Agent-->>A2A: Return Result<br>{artifacts: [...]}
+        A2A-->>Orch: JSON-RPC Response<br>{result: {artifacts: [...]}}
     end
 ```
 
@@ -556,13 +556,13 @@ sequenceDiagram
     rect rgba(33, 150, 243, 0.1)
         note over Orch,Agent: Agent Discovery
         Orch->>Agent: GET /a2a/agent-card
-        Agent-->>Orch: Return AgentCard<br/>{name, version,<br/>capabilities, endpoints}
+        Agent-->>Orch: Return AgentCard<br>{name, version,<br>capabilities, endpoints}
     end
     
     %% Registration phase
     rect rgba(156, 39, 176, 0.1)
         note over Orch,Reg: Registration
-        Orch->>Reg: Register Agent<br/>{url, capabilities}
+        Orch->>Reg: Register Agent<br>{url, capabilities}
         Reg->>Reg: Store in Registry
         Reg-->>Orch: Confirm Registration
     end
@@ -618,19 +618,19 @@ stateDiagram-v2
     %% Define states with descriptions
     [*] --> CLOSED: Initial State
     
-    CLOSED --> OPEN: Failure Threshold<br/>Exceeded (5 failures)
+    CLOSED --> OPEN: Failure Threshold<br>Exceeded (5 failures)
     CLOSED --> CLOSED: Request Success
     
-    OPEN --> HALF_OPEN: Timeout Expired<br/>(60 seconds)
+    OPEN --> HALF_OPEN: Timeout Expired<br>(60 seconds)
     OPEN --> OPEN: Reject Requests
     
-    HALF_OPEN --> CLOSED: Test Success<br/>(3 successful calls)
+    HALF_OPEN --> CLOSED: Test Success<br>(3 successful calls)
     HALF_OPEN --> OPEN: Test Failure
     
     %% Add state descriptions
-    CLOSED: CLOSED<br/>━━━━━━━<br/>Normal Operation<br/>All requests allowed
-    OPEN: OPEN<br/>━━━━<br/>Circuit Broken<br/>Requests rejected
-    HALF_OPEN: HALF_OPEN<br/>━━━━━━━━━<br/>Testing Recovery<br/>Limited requests
+    CLOSED: CLOSED<br>━━━━━━━<br>Normal Operation<br>All requests allowed
+    OPEN: OPEN<br>━━━━<br>Circuit Broken<br>Requests rejected
+    HALF_OPEN: HALF_OPEN<br>━━━━━━━━━<br>Testing Recovery<br>Limited requests
 ```
 
 ### Retry Strategy
