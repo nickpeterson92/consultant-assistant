@@ -524,7 +524,8 @@ You are tasked with executing step {current_step_num}: {task}.
                     node = memory.nodes.get(entity_node_id)
                     if node:
                         notify_memory_update(thread_id, entity_node_id, node, state.get("task_id"))
-                except:
+                except Exception as e:
+                    logger.debug(f"Memory observer notification failed: {e}")
                     pass
             elif entity_node:
                 related_entities.append(entity_node.node_id)
@@ -594,7 +595,8 @@ You are tasked with executing step {current_step_num}: {task}.
                 from src.orchestrator.observers.memory_observer import notify_memory_edge
                 notify_memory_edge(thread_id, memory_node_id, entity_id, rel_type, state.get("task_id"))
                 # Removed backwards edge - entity shouldn't point back to action
-            except:
+            except Exception as e:
+                logger.debug(f"Memory edge notification failed: {e}")
                 pass
         
         # 3. If we detected tool calls, create tool_output nodes
@@ -628,7 +630,8 @@ You are tasked with executing step {current_step_num}: {task}.
                 if node:
                     notify_memory_update(thread_id, tool_node_id, node, state.get("task_id"))
                 notify_memory_edge(thread_id, memory_node_id, tool_node_id, RelationshipType.DEPENDS_ON, state.get("task_id"))
-            except:
+            except Exception as e:
+                logger.debug(f"Memory tool notification failed: {e}")
                 pass
         
         logger.info("stored_execution_result_in_memory",

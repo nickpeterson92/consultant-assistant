@@ -5,10 +5,6 @@ import asyncio
 from typing import Dict, Any, List, TypedDict, Annotated
 import operator
 from dotenv import load_dotenv
-
-# Load environment variables
-load_dotenv()
-
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_openai import AzureChatOpenAI
 from langgraph.graph import StateGraph, END
@@ -20,6 +16,9 @@ from src.a2a import A2AServer, AgentCard
 from src.utils.config import config
 from src.utils.logging.framework import SmartLogger, log_execution
 from src.utils.prompt_templates import create_servicenow_agent_prompt, ContextInjectorServiceNow
+
+# Load environment variables
+load_dotenv()
 
 logger = SmartLogger("servicenow")
 

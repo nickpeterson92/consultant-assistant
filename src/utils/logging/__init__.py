@@ -27,9 +27,9 @@ from .multi_file_logger import migrate_to_multi_file_logging
 # Automatically migrate to multi-file logging on import
 migrate_to_multi_file_logging()
 
-# For modules that use the old imports
-from .logger import get_logger as get_performance_tracker
-from .logger import get_logger as get_cost_tracker
+# Legacy compatibility imports - intentional import order for backward compatibility
+from .logger import get_logger as get_performance_tracker  # noqa: E402
+from .logger import get_logger as get_cost_tracker  # noqa: E402
 
 __all__ = [
     # Legacy functions

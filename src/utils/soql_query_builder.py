@@ -233,10 +233,10 @@ class SOQLQueryBuilder:
         # Remove duplicate fields while preserving order
         seen = set()
         unique_fields = []
-        for field in self.fields:
-            if field not in seen:
-                seen.add(field)
-                unique_fields.append(field)
+        for field_name in self.fields:
+            if field_name not in seen:
+                seen.add(field_name)
+                unique_fields.append(field_name)
             
         # Build SELECT clause
         query_parts = [f"SELECT {', '.join(unique_fields)} FROM {self.object_name}"]
@@ -340,12 +340,12 @@ class SearchQueryBuilder:
     
     def search_fields(self, fields: List[str], search_term: str) -> 'SearchQueryBuilder':
         """Search across multiple fields with OR logic"""
-        for i, field in enumerate(fields):
+        for i, field_name in enumerate(fields):
             pattern = f'%{search_term}%'
             if i == 0:
-                self.query_builder.where_like(field, pattern)
+                self.query_builder.where_like(field_name, pattern)
             else:
-                self.query_builder.or_where(field, SOQLOperator.LIKE, pattern)
+                self.query_builder.or_where(field_name, SOQLOperator.LIKE, pattern)
         return self
     
     def with_account_filter(self, account_name: str) -> 'SearchQueryBuilder':

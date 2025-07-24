@@ -18,13 +18,13 @@ from src.a2a import A2AClient, A2ATask, A2AException
 
 # Import smart logger
 from src.utils.logging import get_smart_logger, log_execution
-
-# Initialize structured logger
-logger = get_smart_logger("orchestrator")
 from src.utils.config import (
     MESSAGES_KEY, MEMORY_KEY, RECENT_MESSAGES_COUNT
 )
 from src.utils.agents.message_processing.unified_serialization import serialize_messages_for_json
+
+# Initialize structured logger
+logger = get_smart_logger("orchestrator")
 
 
 class BaseAgentTool(BaseTool):

@@ -216,7 +216,7 @@ class BaseJiraTool(BaseTool, ABC):
             try:
                 error_details = response.json()
                 error_msg = f"{str(e)} - {error_details}"
-            except:
+            except (ValueError, TypeError, AttributeError):
                 error_msg = str(e)
             raise requests.HTTPError(error_msg, response=response)
         

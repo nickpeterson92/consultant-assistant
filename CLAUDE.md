@@ -276,6 +276,7 @@ from src.utils.config import NEW_CONSTANT
 - **KISS**: Prefer simple solutions over clever ones
 - **YAGNI**: Don't add features until needed
 - **PEP8**: Follow Python style guide
+- **LINTING**: Periodically Lint with ruff check .
 
 ## 📊 Tool Summary
 
