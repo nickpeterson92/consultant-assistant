@@ -160,7 +160,15 @@ def extract_and_store_entities(
             
             # Fast path: Direct entity ID lookup
             if entity_id:
-                existing_entity_node = memory.node_manager.get_node_by_entity_id(entity_id)
+                entity_system = entity_info.get('system', agent_name.replace('-agent', ''))
+                existing_entity_node = memory.node_manager.get_node_by_entity_id(entity_id, entity_system)
+                
+                logger.info(
+                    "entity_lookup_result",
+                    entity_id=entity_id,
+                    entity_system=entity_system,
+                    found_existing=bool(existing_entity_node)
+                )
             
             # If not found by ID, search by name and type
             if not existing_entity_node and entity_name:
@@ -228,15 +236,16 @@ def extract_and_store_entities(
                     "last_extracted_by_agent": agent_name
                 })
                 
-                # Update the existing node
-                existing_entity_node.content = updated_content
-                existing_entity_node.access()  # Update access time
-                existing_entity_node.tags.update(entity_tags)  # Add new tags
-                
-                # Boost relevance slightly for updated entities
-                existing_entity_node.base_relevance = min(1.0, existing_entity_node.base_relevance + 0.05)
-                
-                entity_node_id = existing_entity_node.node_id
+                # For SQLite backend, we need to store the updated node
+                # Create a new node with the updated content and let SQLite handle the merge
+                entity_node_id = memory.store(
+                    content=updated_content,
+                    context_type=existing_entity_node.context_type,
+                    summary=existing_entity_node.summary or f"{entity_info.get('type')}: {entity_name or entity_id}",
+                    tags=existing_entity_node.tags.union(entity_tags),
+                    confidence=min(1.0, existing_entity_node.base_relevance + 0.05),  # Boost relevance
+                    relates_to=[relates_to] if relates_to else None
+                )
                 
                 # Create relationship to new tool result
                 if relates_to:
@@ -276,7 +285,7 @@ def extract_and_store_entities(
                 
                 # Create relationship to tool result node
                 if relates_to:
-                    memory.add_relationship(relates_to, entity_node_id, "produced")
+                    memory.add_relationship(relates_to, entity_node_id, "produces")
                     
                 # Check if any existing entities were waiting for this one
                 resolve_pending_relationships(memory, entity_id, entity_node_id)

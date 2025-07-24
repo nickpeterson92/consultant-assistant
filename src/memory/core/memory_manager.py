@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Dict, Optional, List
 import threading
 
-from .memory_graph import MemoryGraph
+from .memory_graph_sqlite import MemoryGraphSQLite as MemoryGraph
 from .memory_node import MemoryNode, ContextType
 from src.utils.logging.framework import SmartLogger
 from src.utils.thread_utils import ThreadIDManager
