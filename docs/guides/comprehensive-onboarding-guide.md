@@ -241,13 +241,13 @@ The system implements a sophisticated multi-agent architecture with the followin
 
 ```mermaid
 flowchart TB
-    %% Modern, sleek color scheme with better contrast
-    classDef uiClass fill:#1565c0,stroke:#0d47a1,stroke-width:2px,color:#ffffff,font-weight:bold
-    classDef orchestratorClass fill:#5e35b1,stroke:#311b92,stroke-width:3px,color:#ffffff,font-weight:bold
-    classDef protocolClass fill:#ef6c00,stroke:#d84315,stroke-width:2px,color:#ffffff
-    classDef agentToolClass fill:#2e7d32,stroke:#1b5e20,stroke-width:2px,color:#ffffff
-    classDef internalToolClass fill:#00796b,stroke:#004d40,stroke-width:2px,color:#ffffff
-    classDef componentClass fill:#ffffff,stroke:#9e9e9e,stroke-width:1px,color:#424242,opacity:0.9
+    %% Modern, sleek color scheme with semi-transparent styling
+    classDef uiClass fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#1976d2,font-weight:bold
+    classDef orchestratorClass fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#4a148c,font-weight:bold
+    classDef protocolClass fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#e65100
+    classDef agentToolClass fill:#e8f5e9,stroke:#388e3c,stroke-width:2px,color:#1b5e20
+    classDef internalToolClass fill:#e0f2f1,stroke:#00796b,stroke-width:2px,color:#004d40
+    classDef componentClass fill:#fafafa,stroke:#e0e0e0,stroke-width:1px,color:#616161
     
     %% User Interface Layer
     UI[🖥️ USER INTERFACE<br>Textual CLI]:::uiClass
@@ -303,10 +303,10 @@ flowchart TB
     
     %% Styling adjustments
     ORCH -.->|manages| components
-    style components fill:#f5f5f5,stroke:#bdbdbd,stroke-width:2px,opacity:0.8
-    style tools fill:#fafafa,stroke:#e0e0e0,stroke-width:2px,opacity:0.9
-    style internal fill:#e0f2f1,stroke:#00796b,stroke-width:1px,opacity:0.8
-    style agents fill:#e8f5e9,stroke:#2e7d32,stroke-width:1px,opacity:0.8
+    style components fill:#f9f9f9,stroke:#e0e0e0,stroke-width:1px
+    style tools fill:#fcfcfc,stroke:#e8e8e8,stroke-width:1px
+    style internal fill:#f5fffe,stroke:#b0bec5,stroke-width:1px
+    style agents fill:#f5fbf6,stroke:#a5d6a7,stroke-width:1px
 ```
 
 ### Core Components

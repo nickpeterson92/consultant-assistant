@@ -97,8 +97,8 @@ flowchart TB
     SPRINT --> API
     
     %% Style the subgraphs
-    style handlers fill:rgba(33,150,243,0.1),stroke:#2196f3,stroke-width:2px
-    style tools fill:rgba(255,152,0,0.1),stroke:#ff9800,stroke-width:2px,stroke-dasharray: 5 5
+    style handlers fill:#e3f2fd,stroke:#2196f3,stroke-width:2px
+    style tools fill:#fff3e0,stroke:#ff9800,stroke-width:2px,stroke-dasharray: 5 5
     style row1 fill:none,stroke:none
     style row2 fill:none,stroke:none
     style row3 fill:none,stroke:none

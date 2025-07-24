@@ -94,8 +94,8 @@ flowchart TB
     BUILDER --> API
     
     %% Style the subgraphs
-    style handlers fill:rgba(33,150,243,0.1),stroke:#1565c0,stroke-width:2px
-    style tools fill:rgba(255,111,0,0.1),stroke:#e65100,stroke-width:2px,stroke-dasharray: 5 5
+    style handlers fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    style tools fill:#fff3e0,stroke:#e65100,stroke-width:2px,stroke-dasharray: 5 5
     style row1 fill:none,stroke:none
     style row2 fill:none,stroke:none
 ```
