@@ -547,7 +547,9 @@ class CleanGraphRenderer:
         lines.append("║" + " " * width + "║")
         
         # Check if we have actual LLM context data
-        if llm_context and llm_context.get("context_text"):
+        # Note: We show the actual context even if context_text is empty, to distinguish
+        # from "no context data available" vs "no relevant memories found"
+        if llm_context and "context_text" in llm_context:
             # Show the actual context being sent to LLM
             context_type = llm_context.get("context_type", "unknown")
             metadata = llm_context.get("metadata", {})
@@ -578,25 +580,30 @@ class CleanGraphRenderer:
             lines.append("║" + " " * width + "║")
             
             # Show the actual context content (wrapped)
-            context_lines = context_text.split('\n')
-            max_lines = 20  # Limit display
-            shown_lines = 0
-            
-            for line in context_lines:
-                if shown_lines >= max_lines:
-                    lines.append("║" + f"  ... ({len(context_lines) - shown_lines} more lines)".ljust(width) + "║")
-                    break
-                # Wrap long lines
-                if len(line) > width - 4:
-                    wrapped = cls._wrap_text(line, width - 4)
-                    for wline in wrapped:
-                        lines.append("║" + f"  {wline}".ljust(width) + "║")
+            if context_text:
+                context_lines = context_text.split('\n')
+                max_lines = 20  # Limit display
+                shown_lines = 0
+                
+                for line in context_lines:
+                    if shown_lines >= max_lines:
+                        lines.append("║" + f"  ... ({len(context_lines) - shown_lines} more lines)".ljust(width) + "║")
+                        break
+                    # Wrap long lines
+                    if len(line) > width - 4:
+                        wrapped = cls._wrap_text(line, width - 4)
+                        for wline in wrapped:
+                            lines.append("║" + f"  {wline}".ljust(width) + "║")
+                            shown_lines += 1
+                            if shown_lines >= max_lines:
+                                break
+                    else:
+                        lines.append("║" + f"  {line}".ljust(width) + "║")
                         shown_lines += 1
-                        if shown_lines >= max_lines:
-                            break
-                else:
-                    lines.append("║" + f"  {line}".ljust(width) + "║")
-                    shown_lines += 1
+            else:
+                # Context is empty - no relevant memories found
+                lines.append("║" + "  No relevant memories found for this context.".ljust(width) + "║")
+                lines.append("║" + "  The system will rely on the current conversation.".ljust(width) + "║")
                     
         else:
             # Fallback to simulated view when no actual context

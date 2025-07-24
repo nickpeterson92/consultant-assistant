@@ -59,6 +59,8 @@ class MemoryGraphWidget(Static):
                 elif isinstance(edge, (list, tuple)) and len(edge) >= 3:
                     self.edges.append((edge[0], edge[1], edge[2]))
             
+            # Re-render, preserving existing LLM context
+            # IMPORTANT: Don't clear llm_context_data on graph updates
             self.render_graph()
             
             logger.info("memory_graph_updated",
@@ -72,6 +74,11 @@ class MemoryGraphWidget(Static):
         if not self.nodes:
             self.query_one("#graph-display", Static).update("No memory nodes yet")
             return
+        
+        # Log whether we have LLM context data
+        logger.debug("render_graph_with_context",
+                    has_llm_context=bool(self.llm_context_data),
+                    context_type=self.llm_context_data.get("context_type") if self.llm_context_data else None)
         
         # Use clean graph renderer for entire visualization
         lines = self._create_graph_visualization()
@@ -109,12 +116,19 @@ class MemoryGraphWidget(Static):
                 self.nodes[node_id]["last_accessed"] = data.get("timestamp", "")
                 self.nodes[node_id]["relevance"] = data.get("relevance", 0.0)
         
-        # Re-render after update
+        # Re-render after update, preserving existing LLM context
+        # IMPORTANT: Don't clear llm_context_data on memory updates
         self.render_graph()
     
     def handle_llm_context_update(self, data: Dict):
         """Handle LLM context update events."""
         try:
+            # Log what we're receiving
+            logger.debug("llm_context_received",
+                        has_context_text=bool(data.get("context_text")),
+                        context_text_length=len(data.get("context_text", "")),
+                        context_type=data.get("context_type"))
+            
             # Store the LLM context data
             self.llm_context_data = {
                 "context_type": data.get("context_type", "unknown"),

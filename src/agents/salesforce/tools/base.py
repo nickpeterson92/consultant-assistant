@@ -220,16 +220,24 @@ class SalesforceReadTool(BaseSalesforceTool):
         """Build appropriate field list for object type."""
         # Default field sets by object type
         default_fields = {
-            'Account': ['Id', 'Name', 'Type', 'Industry', 'AnnualRevenue', 'Website'],
-            'Contact': ['Id', 'Name', 'Email', 'Phone', 'Title', 'Account.Name'],
-            'Lead': ['Id', 'Name', 'Company', 'Email', 'Phone', 'Status'],
-            'Opportunity': ['Id', 'Name', 'Amount', 'StageName', 'CloseDate', 'Account.Name'],
-            'Case': ['Id', 'CaseNumber', 'Subject', 'Status', 'Priority', 'Account.Name'],
-            'Task': ['Id', 'Subject', 'Status', 'Priority', 'ActivityDate', 'Who.Name']
+            'Account': ['Id', 'Name', 'Type', 'Industry', 'AnnualRevenue', 'Website', 'OwnerId'],
+            'Contact': ['Id', 'Name', 'Email', 'Phone', 'Title', 'AccountId', 'Account.Name', 'OwnerId'],
+            'Lead': ['Id', 'Name', 'Company', 'Email', 'Phone', 'Status', 'OwnerId'],
+            'Opportunity': ['Id', 'Name', 'Amount', 'StageName', 'CloseDate', 'AccountId', 'Account.Name', 'OwnerId'],
+            'Case': ['Id', 'CaseNumber', 'Subject', 'Status', 'Priority', 'AccountId', 'Account.Name', 'ContactId', 'OwnerId'],
+            'Task': ['Id', 'Subject', 'Status', 'Priority', 'ActivityDate', 'WhoId', 'Who.Name', 'WhatId', 'OwnerId']
         }
         
         if requested_fields:
-            return requested_fields
+            # Merge requested fields with defaults, removing duplicates while preserving order
+            default_for_type = default_fields.get(object_type, ['Id', 'Name'])
+            # Start with requested fields to respect model's ordering preference
+            merged_fields = list(requested_fields)
+            # Add any default fields not already included
+            for field in default_for_type:
+                if field not in merged_fields:
+                    merged_fields.append(field)
+            return merged_fields
         
         return default_fields.get(object_type, ['Id', 'Name'])
     

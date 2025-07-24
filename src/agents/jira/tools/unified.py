@@ -73,11 +73,23 @@ class JiraSearch(JiraReadTool):
         self._log_jql(jql_query)
         
         # Default fields if not specified
-        if not fields:
-            fields = [
-                "key", "summary", "status", "assignee", "reporter", 
-                "created", "updated", "priority", "issuetype", "project"
-            ]
+        default_fields = [
+            "key", "summary", "status", "assignee", "reporter", 
+            "created", "updated", "priority", "issuetype", "project",
+            "parent", "subtasks", "issuelinks"  # Add relationship fields
+        ]
+        
+        # Merge requested fields with defaults
+        if fields:
+            # Start with requested fields to respect model's ordering preference
+            merged_fields = list(fields)
+            # Add any default fields not already included
+            for field in default_fields:
+                if field not in merged_fields:
+                    merged_fields.append(field)
+            fields = merged_fields
+        else:
+            fields = default_fields
         
         search_data = {
             "jql": jql_query,

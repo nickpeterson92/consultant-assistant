@@ -180,20 +180,8 @@ You are tasked with executing step {current_step_num}: {task}.
 {memory_context}
 {past_steps_context}"""
     
-    # Emit LLM context event for UI visualization
-    try:
-        from src.orchestrator.workflow.emit_llm_context import emit_llm_context
-        emit_llm_context(
-            context_type="execution",
-            context_text=memory_context,
-            metadata=memory_metadata,
-            full_prompt=task_formatted,
-            task_id=state.get("task_id"),
-            thread_id=thread_id,
-            step_name="execute_step"
-        )
-    except Exception as e:
-        logger.warning("llm_context_emission_failed", error=str(e))
+    # Skip emitting execution context to UI - only show planning contexts
+    # This simplifies the UI by showing only the initial planning context
     
     logger.info("TASK_FORMATTING_DEBUG",
                component="orchestrator", 
@@ -844,9 +832,13 @@ def replan_step(state: PlanExecute):
         past_steps_str += f"Step {step['step_seq_no']}: {step['step_description']}\nResult: {step['result']}\n\n"
     
     # MEMORY ENHANCEMENT: Use advanced context for replanning
+    # Use the original input plus recent step descriptions for better matching
+    recent_steps = " ".join([step['step_description'] for step in current_plan_steps[-3:]])
+    query_for_memory = f"{state['input']} {recent_steps}".strip()
+    
     memory_context, replan_metadata = MemoryContextBuilder.build_enhanced_context(
         thread_id=thread_id,
-        query_text=f"{state['input']} plan replan",
+        query_text=query_for_memory,
         context_type="replanning",
         max_age_hours=1,
         min_relevance=0.3,
@@ -874,21 +866,9 @@ def replan_step(state: PlanExecute):
         "past_steps": past_steps_str.strip()
     }
     
-    # Emit LLM context event for UI visualization
-    try:
-        from src.orchestrator.workflow.emit_llm_context import emit_llm_context
-        replan_prompt = f"Original request: {state['input']}{memory_context}{additional_context}\n\nCurrent plan:\n{template_vars['plan']}\n\nPast steps:\n{template_vars['past_steps']}"
-        emit_llm_context(
-            context_type="replanning",
-            context_text=memory_context,
-            metadata=replan_metadata,
-            full_prompt=replan_prompt,
-            task_id=state.get("task_id"),
-            thread_id=thread_id,
-            step_name="replan_step"
-        )
-    except Exception as e:
-        logger.warning("llm_context_emission_failed", error=str(e))
+    # Skip emitting replanning context to UI - only show planning contexts
+    # This reduces noise since replanning contexts are often empty or not meaningful
+    # The planning context will persist in the UI until a new plan is created
     
     replanner = globals().get('replanner')
     if not replanner:

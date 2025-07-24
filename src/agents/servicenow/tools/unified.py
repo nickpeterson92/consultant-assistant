@@ -47,9 +47,18 @@ class ServiceNowGet(ServiceNowReadTool):
         if not table_name:
             raise ValueError("Missing table name: A sys_id was provided but no table name to search in.")
             
-        # Use default fields if not specified
-        if not fields:
-            fields = self._get_default_fields(table_name)
+        # Merge requested fields with defaults
+        default_fields = self._get_default_fields(table_name)
+        if fields:
+            # Start with requested fields to respect model's ordering preference
+            merged_fields = list(fields)
+            # Add any default fields not already included
+            for field in default_fields:
+                if field not in merged_fields:
+                    merged_fields.append(field)
+            fields = merged_fields
+        else:
+            fields = default_fields
             
         # Build endpoint
         if sys_id:
@@ -130,9 +139,18 @@ class ServiceNowSearch(ServiceNowReadTool):
                 
         self._log_query(encoded_query)
         
-        # Use default fields if not specified
-        if not fields:
-            fields = self._get_default_fields(table_name)
+        # Merge requested fields with defaults
+        default_fields = self._get_default_fields(table_name)
+        if fields:
+            # Start with requested fields to respect model's ordering preference
+            merged_fields = list(fields)
+            # Add any default fields not already included
+            for field in default_fields:
+                if field not in merged_fields:
+                    merged_fields.append(field)
+            fields = merged_fields
+        else:
+            fields = default_fields
             
         # Build params with dot-walking support
         params = self._build_query_params(

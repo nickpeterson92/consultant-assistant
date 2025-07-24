@@ -308,6 +308,15 @@ def extract_and_store_entities(
                 agent_name=agent_name
             )
             
+            # Create inferred parent entities (only if not updating existing entity)
+            if not existing_entity_node:
+                create_inferred_parent_entities(
+                    memory=memory,
+                    entity_info=entity_info,
+                    entity_node_id=entity_node_id,
+                    agent_name=agent_name
+                )
+            
     except Exception as e:
         logger.error(
             "failed_to_extract_entities_from_tool_result",
@@ -316,6 +325,150 @@ def extract_and_store_entities(
             error=str(e)
         )
         # Don't raise - entity extraction failure shouldn't break the flow
+
+
+def create_inferred_parent_entities(memory, entity_info: Dict[str, Any], entity_node_id: str, agent_name: str) -> None:
+    """
+    Create inferred placeholder nodes for parent entities that we know must exist.
+    
+    For example, if we have an Opportunity, we know it must have an Account parent.
+    We can create a lightweight placeholder Account node from the Account.Name field.
+    """
+    try:
+        entity_type = entity_info.get('type', '').lower()
+        entity_data = entity_info.get('data', {})
+        entity_system = entity_info.get('system', '')
+        
+        # Define parent relationships for known systems
+        parent_mappings = {
+            'salesforce': {
+                'opportunity': [
+                    ('AccountId', 'Account', 'Account.Name'),
+                    ('OwnerId', 'User', None)
+                ],
+                'contact': [
+                    ('AccountId', 'Account', 'Account.Name'),
+                    ('ReportsToId', 'User', None)
+                ],
+                'case': [
+                    ('AccountId', 'Account', 'Account.Name'),
+                    ('ContactId', 'Contact', 'Contact.Name')
+                ],
+                'task': [
+                    ('WhatId', 'Related', None),  # Polymorphic
+                    ('WhoId', 'Name', None)  # Polymorphic
+                ]
+            },
+            'jira': {
+                'issue': [
+                    ('project.key', 'Project', 'project.name'),
+                    ('assignee.accountId', 'User', 'assignee.displayName'),
+                    ('reporter.accountId', 'User', 'reporter.displayName'),
+                    ('parent.id', 'Issue', 'parent.fields.summary')  # Parent issue
+                ]
+            },
+            'servicenow': {
+                'incident': [
+                    ('caller_id', 'User', 'caller_id.name'),
+                    ('assigned_to', 'User', 'assigned_to.name'),
+                    ('company', 'Company', 'company.name')
+                ],
+                'change_request': [
+                    ('requested_by', 'User', 'requested_by.name'),
+                    ('assigned_to', 'User', 'assigned_to.name'),
+                    ('company', 'Company', 'company.name')
+                ],
+                'problem': [
+                    ('assigned_to', 'User', 'assigned_to.name'),
+                    ('company', 'Company', 'company.name')
+                ],
+                'sc_task': [
+                    ('request_item', 'Request Item', 'request_item.number'),
+                    ('assigned_to', 'User', 'assigned_to.name')
+                ],
+                'sc_req_item': [
+                    ('request', 'Request', 'request.number'),
+                    ('cat_item', 'Catalog Item', 'cat_item.name')
+                ]
+            }
+        }
+        
+        # Get parent mappings for this entity type
+        system_mappings = parent_mappings.get(entity_system, {})
+        entity_mappings = system_mappings.get(entity_type, [])
+        
+        for parent_id_field, parent_type, parent_name_field in entity_mappings:
+            # Handle nested fields (e.g., "project.key", "parent.id")
+            parent_id = entity_data
+            for part in parent_id_field.split('.'):
+                if isinstance(parent_id, dict):
+                    parent_id = parent_id.get(part)
+                else:
+                    parent_id = None
+                    break
+            
+            if not parent_id or parent_id in ['', 'null', None]:
+                continue
+                
+            # Get parent name if available
+            parent_name = None
+            if parent_name_field:
+                # Handle nested name fields (e.g., "parent.fields.summary")
+                parent_name = entity_data
+                for part in parent_name_field.split('.'):
+                    if isinstance(parent_name, dict):
+                        parent_name = parent_name.get(part)
+                    else:
+                        parent_name = None
+                        break
+            
+            # Check if this parent entity already exists
+            existing_parent = memory.get_node_by_entity_id(parent_id, entity_system)
+            
+            if not existing_parent and (parent_name or parent_type):
+                # Create inferred parent entity
+                logger.info(
+                    "creating_inferred_parent_entity",
+                    parent_id=parent_id,
+                    parent_name=parent_name,
+                    parent_type=parent_type,
+                    inferred_from=entity_info.get('entity_id')
+                )
+                
+                inferred_parent_id = memory.store(
+                    content={
+                        "entity_id": parent_id,
+                        "entity_name": parent_name,
+                        "entity_type": parent_type,
+                        "entity_system": entity_system,
+                        "is_inferred": True,
+                        "inferred_from": entity_info.get('entity_id'),
+                        "entity_data": {
+                            "Id": parent_id,
+                            "Name": parent_name
+                        } if parent_name else {"Id": parent_id},
+                        "entity_relationships": [],
+                        "extraction_confidence": 0.6,  # Lower confidence for inferred
+                        "extracted_by_agent": agent_name,
+                        "first_seen": datetime.now().isoformat(),
+                        "last_accessed": datetime.now().isoformat()
+                    },
+                    context_type=ContextType.DOMAIN_ENTITY,
+                    summary=f"{parent_type}: {parent_name or parent_id} (inferred)",
+                    tags={entity_system, parent_type.lower(), "inferred", agent_name},
+                    confidence=0.5  # Lower confidence for inferred entities
+                )
+                
+                # Create relationships
+                memory.add_relationship(entity_node_id, inferred_parent_id, "belongs_to")
+                memory.add_relationship(inferred_parent_id, entity_node_id, "has")
+                
+    except Exception as e:
+        logger.error(
+            "failed_to_create_inferred_parent",
+            error=str(e),
+            entity_type=entity_info.get('type')
+        )
 
 
 def resolve_pending_relationships(memory, entity_id: str, entity_node_id: str) -> None:

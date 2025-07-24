@@ -258,18 +258,21 @@ class BaseServiceNowTool(BaseTool, ABC):
     def _get_default_fields(self, table_name: str) -> List[str]:
         """Get default fields for a table."""
         defaults = {
-            'incident': ['number', 'short_description', 'description', 'state', 
-                        'priority', 'assigned_to', 'caller_id', 'category'],
-            'change_request': ['number', 'short_description', 'description', 'state',
-                              'priority', 'assigned_to', 'type', 'risk'],
-            'problem': ['number', 'short_description', 'description', 'state',
-                       'priority', 'assigned_to', 'known_error', 'root_cause'],
-            'task': ['number', 'short_description', 'description', 'state',
-                    'priority', 'assigned_to', 'work_notes'],
-            'sys_user': ['user_name', 'name', 'email', 'department', 'title'],
-            'cmdb_ci': ['name', 'sys_class_name', 'operational_status', 'install_status']
+            'incident': ['sys_id', 'number', 'short_description', 'description', 'state', 
+                        'priority', 'assigned_to', 'assigned_to.name', 'caller_id', 'caller_id.name', 
+                        'category', 'company', 'company.name'],
+            'change_request': ['sys_id', 'number', 'short_description', 'description', 'state',
+                              'priority', 'assigned_to', 'assigned_to.name', 'requested_by', 
+                              'requested_by.name', 'type', 'risk', 'company', 'company.name'],
+            'problem': ['sys_id', 'number', 'short_description', 'description', 'state',
+                       'priority', 'assigned_to', 'assigned_to.name', 'known_error', 
+                       'root_cause', 'company', 'company.name'],
+            'task': ['sys_id', 'number', 'short_description', 'description', 'state',
+                    'priority', 'assigned_to', 'assigned_to.name', 'work_notes'],
+            'sys_user': ['sys_id', 'user_name', 'name', 'email', 'department', 'title'],
+            'cmdb_ci': ['sys_id', 'name', 'sys_class_name', 'operational_status', 'install_status']
         }
-        return defaults.get(table_name, ['number', 'short_description', 'state'])
+        return defaults.get(table_name, ['sys_id', 'number', 'short_description', 'state'])
 
 
 class ServiceNowReadTool(BaseServiceNowTool):
