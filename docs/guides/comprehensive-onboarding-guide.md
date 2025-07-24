@@ -247,7 +247,7 @@ flowchart TB
     classDef protocolClass fill:#ef6c00,stroke:#e65100,stroke-width:1px,color:#ffffff
     classDef agentToolClass fill:#2e7d32,stroke:#1b5e20,stroke-width:1px,color:#ffffff
     classDef internalToolClass fill:#00695c,stroke:#004d40,stroke-width:1px,color:#ffffff
-    classDef componentClass fill:#f5f5f5,stroke:#e0e0e0,stroke-width:1px,color:#424242
+    classDef componentClass fill:#e8eaf6,stroke:#9fa8da,stroke-width:1px,color:#3f51b5
     
     %% User Interface Layer
     UI[🖥️ USER INTERFACE<br>Textual CLI]:::uiClass
@@ -305,8 +305,8 @@ flowchart TB
     ORCH -.->|manages| components
     style components fill:#37474f30,stroke:#546e7a60,stroke-width:1px
     style tools fill:#37474f30,stroke:#546e7a60,stroke-width:1px
-    style internal fill:#f5f5f5,stroke:#757575,stroke-width:1px
-    style agents fill:#f5f5f5,stroke:#757575,stroke-width:1px
+    style internal fill:#e0f2f1,stroke:#4db6ac,stroke-width:1px
+    style agents fill:#e8f5e9,stroke:#81c784,stroke-width:1px
 ```
 
 ### Core Components

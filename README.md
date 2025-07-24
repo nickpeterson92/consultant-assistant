@@ -65,13 +65,13 @@ This system solves key enterprise automation challenges:
 
 ```mermaid
 flowchart TB
-    %% Modern, sleek color scheme with better contrast
-    classDef uiClass fill:#1565c0,stroke:#0d47a1,stroke-width:2px,color:#ffffff,font-weight:bold
-    classDef orchestratorClass fill:#5e35b1,stroke:#311b92,stroke-width:3px,color:#ffffff,font-weight:bold
-    classDef protocolClass fill:#ef6c00,stroke:#d84315,stroke-width:2px,color:#ffffff
-    classDef agentToolClass fill:#2e7d32,stroke:#1b5e20,stroke-width:2px,color:#ffffff
-    classDef internalToolClass fill:#00796b,stroke:#004d40,stroke-width:2px,color:#ffffff
-    classDef componentClass fill:#ffffff,stroke:#9e9e9e,stroke-width:1px,color:#424242,opacity:0.9
+    %% Modern, sleek color scheme with subtle, muted tones
+    classDef uiClass fill:#263238,stroke:#37474f,stroke-width:1px,color:#ffffff,font-weight:bold
+    classDef orchestratorClass fill:#4527a0,stroke:#311b92,stroke-width:1px,color:#ffffff,font-weight:bold
+    classDef protocolClass fill:#ef6c00,stroke:#e65100,stroke-width:1px,color:#ffffff
+    classDef agentToolClass fill:#2e7d32,stroke:#1b5e20,stroke-width:1px,color:#ffffff
+    classDef internalToolClass fill:#00695c,stroke:#004d40,stroke-width:1px,color:#ffffff
+    classDef componentClass fill:#f5f5f5,stroke:#e0e0e0,stroke-width:1px,color:#424242
     
     %% User Interface Layer
     UI[🖥️ USER INTERFACE<br>Textual CLI]:::uiClass
@@ -127,10 +127,10 @@ flowchart TB
     
     %% Styling adjustments
     ORCH -.->|manages| components
-    style components fill:#f5f5f5,stroke:#bdbdbd,stroke-width:2px,opacity:0.8
-    style tools fill:#fafafa,stroke:#e0e0e0,stroke-width:2px,opacity:0.9
-    style internal fill:#e0f2f1,stroke:#00796b,stroke-width:1px,opacity:0.8
-    style agents fill:#e8f5e9,stroke:#2e7d32,stroke-width:1px,opacity:0.8
+    style components fill:#37474f30,stroke:#546e7a60,stroke-width:1px
+    style tools fill:#37474f30,stroke:#546e7a60,stroke-width:1px
+    style internal fill:#f5f5f5,stroke:#757575,stroke-width:1px
+    style agents fill:#f5f5f5,stroke:#757575,stroke-width:1px
 ```
 
 ### Core Components
