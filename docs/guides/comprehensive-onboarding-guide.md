@@ -303,8 +303,8 @@ flowchart TB
     
     %% Styling adjustments
     ORCH -.->|manages| components
-    style components fill:#00000015,stroke:#00000030,stroke-width:1px
-    style tools fill:#00000015,stroke:#00000030,stroke-width:1px
+    style components fill:#37474f30,stroke:#546e7a60,stroke-width:1px
+    style tools fill:#37474f30,stroke:#546e7a60,stroke-width:1px
     style internal fill:#f5f5f5,stroke:#757575,stroke-width:1px
     style agents fill:#f5f5f5,stroke:#757575,stroke-width:1px
 ```
