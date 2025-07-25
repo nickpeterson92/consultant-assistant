@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Set, Optional, Any, Tuple
 
 from .memory_node import MemoryNode, ContextType, create_memory_node
+from src.utils.datetime_utils import utc_now, ensure_utc
 from ..components.node_manager import NodeManager
 from ..components.text_processor import TextProcessor
 from ..components.scoring_engine import ScoringEngine, QueryContext
@@ -35,12 +36,12 @@ class MemoryGraph:
             
         self.thread_id = user_id  # Keep as thread_id for internal compatibility
         self.user_id = user_id    # Also store as user_id for clarity
-        self.created_at = datetime.now()
-        self.last_activity = datetime.now()
+        self.created_at = utc_now()
+        self.last_activity = utc_now()
         self.config = config or MEMORY_CONFIG
         
         # Core components
-        self.node_manager = NodeManager(thread_id, self.config)
+        self.node_manager = NodeManager(self.thread_id, self.config)
         self.text_processor = TextProcessor(self.config)
         self.scoring_engine = ScoringEngine(self.config, self.text_processor)
         
@@ -93,7 +94,7 @@ class MemoryGraph:
                     self.add_relationship(node_id, dependency_id, RelationshipType.DEPENDS_ON)
         
         # Update activity timestamp
-        self.last_activity = datetime.now()
+        self.last_activity = utc_now()
         
         # Invalidate cache
         self._invalidate_cache()
@@ -326,7 +327,7 @@ class MemoryGraph:
             'graph_nodes': self.graph.number_of_nodes(),
             'graph_edges': self.graph.number_of_edges(),
             'graph_density': nx.density(self.graph) if self.graph.number_of_nodes() > 1 else 0,
-            'thread_age_hours': (datetime.now() - self.created_at).total_seconds() / 3600
+            'thread_age_hours': (utc_now() - ensure_utc(self.created_at)).total_seconds() / 3600
         })
         return stats
     
@@ -384,7 +385,7 @@ class MemoryGraph:
         if not recent_nodes or node_id not in self.graph:
             return 0.0
         
-        current_time = datetime.now()
+        current_time = utc_now()
         total_score = 0.0
         
         for recent_id, access_time in recent_nodes:
@@ -413,14 +414,14 @@ class MemoryGraph:
         """Update cached graph metrics if needed."""
         if (self._metrics_cache is None or 
             self._cache_timestamp is None or
-            (datetime.now() - self._cache_timestamp) > timedelta(minutes=5)):
+            (utc_now() - ensure_utc(self._cache_timestamp)) > timedelta(minutes=5)):
             
             self._metrics_cache = {
                 'pagerank': GraphAlgorithms.calculate_pagerank(self.graph) if self.graph.number_of_nodes() > 0 else {},
                 'centrality': GraphAlgorithms.calculate_betweenness_centrality(self.graph) if self.graph.number_of_nodes() > 0 else {},
                 'communities': GraphAlgorithms.detect_communities(self.graph) if self.graph.number_of_nodes() > 1 else []
             }
-            self._cache_timestamp = datetime.now()
+            self._cache_timestamp = utc_now()
     
     def find_important_memories(self, top_n: int = 10) -> List[MemoryNode]:
         """Find the most important memories using PageRank algorithm."""

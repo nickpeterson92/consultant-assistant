@@ -3,7 +3,7 @@
 from typing import Optional
 from datetime import datetime
 
-from src.memory import get_thread_memory, MemoryNode
+from src.memory import get_user_memory, MemoryNode
 from src.orchestrator.observers import (
     get_observer_registry, 
     MemoryNodeAddedEvent,
@@ -24,7 +24,7 @@ class MemoryObserverIntegration:
         self._snapshot_interval = 5  # Send full snapshot every 5 seconds
         
     @log_execution(component="orchestrator", operation="emit_memory_node_added")
-    def emit_node_added(self, thread_id: str, node_id: str, node: MemoryNode, task_id: Optional[str] = None, user_id: Optional[str] = None):
+    async def emit_node_added(self, thread_id: str, node_id: str, node: MemoryNode, task_id: Optional[str] = None, user_id: Optional[str] = None):
         """Emit event when a memory node is added."""
         try:
             # Convert node to serializable format
@@ -65,7 +65,7 @@ class MemoryObserverIntegration:
             self.observer_registry.notify_memory_node_added(event)
             
             # Check if we should send a full snapshot
-            self._check_snapshot_needed(thread_id, task_id, user_id)
+            await self._check_snapshot_needed(thread_id, task_id, user_id)
             
         except Exception as e:
             logger.error("memory_node_emit_error",
@@ -103,12 +103,20 @@ class MemoryObserverIntegration:
                         thread_id=thread_id)
     
     @log_execution(component="orchestrator", operation="emit_memory_snapshot")
-    def emit_graph_snapshot(self, thread_id: str, task_id: Optional[str] = None, user_id: Optional[str] = None):
+    async def emit_graph_snapshot(self, thread_id: str, task_id: Optional[str] = None, user_id: Optional[str] = None):
         """Emit a full snapshot of the memory graph."""
         try:
             # Use user_id for memory lookup (our new namespace), fall back to thread_id for compatibility
             memory_key = user_id if user_id else thread_id
-            memory = get_thread_memory(memory_key)
+            
+            # Get memory asynchronously
+            from src.memory import get_memory_manager
+            memory_manager = get_memory_manager()
+            memory = await memory_manager.get_memory(memory_key)
+            
+            if not memory:
+                logger.warning("memory_graph_not_found", memory_key=memory_key)
+                return
             
             # Build graph data
             nodes = {}
@@ -149,10 +157,53 @@ class MemoryObserverIntegration:
                     "type": data.get("type", "relates_to")
                 })
             
+            # ALSO include global domain entities if we have a user_id
+            global_node_count = 0
+            if user_id:
+                try:
+                    # Get global entities
+                    global_memory = await memory_manager.get_memory("global_domain_entities")
+                    
+                    # Add global entity nodes to the snapshot
+                    for node in global_memory.get_all_nodes():
+                        if node.context_type.value == "domain_entity":
+                            # Check if this entity is already in user's memory to avoid duplicates
+                            if node.node_id not in nodes:
+                                include_content = True
+                                
+                                nodes[node.node_id] = {
+                                    "node_id": node.node_id,
+                                    "summary": node.summary + " (global)",  # Mark as global
+                                    "context_type": node.context_type.value,
+                                    "tags": list(node.tags) + ["global_entity"],
+                                    "created_at": node.created_at.isoformat() if hasattr(node.created_at, 'isoformat') else str(node.created_at),
+                                    "relevance": node.current_relevance(),
+                                    "content_preview": str(node.content)[:100] if node.content else "",
+                                    "content": node.content if include_content else None,
+                                    "is_global": True  # Flag for UI
+                                }
+                                global_node_count += 1
+                    
+                    # Note: We don't include edges from global memory as they would be between global entities
+                    # The UI can show these entities as standalone nodes
+                    
+                    logger.info("included_global_entities_in_snapshot",
+                               user_id=user_id,
+                               global_entities_added=global_node_count)
+                               
+                except Exception as e:
+                    logger.warning("failed_to_include_global_entities",
+                                 error=str(e),
+                                 user_id=user_id)
+            
+            # Update stats to include global entity count
+            stats = memory.get_statistics()
+            stats["global_entities_included"] = global_node_count
+            
             graph_data = {
                 "nodes": nodes,
                 "edges": edges,
-                "stats": memory.get_statistics()
+                "stats": stats
             }
             
             event = MemoryGraphSnapshotEvent(
@@ -176,15 +227,15 @@ class MemoryObserverIntegration:
                         error=str(e),
                         thread_id=thread_id)
     
-    def _check_snapshot_needed(self, thread_id: str, task_id: Optional[str] = None, user_id: Optional[str] = None):
+    async def _check_snapshot_needed(self, thread_id: str, task_id: Optional[str] = None, user_id: Optional[str] = None):
         """Check if enough time has passed to send a new snapshot."""
         if self._last_snapshot_time is None:
             # First update, send snapshot
-            self.emit_graph_snapshot(thread_id, task_id, user_id)
+            await self.emit_graph_snapshot(thread_id, task_id, user_id)
         else:
             elapsed = (datetime.now() - self._last_snapshot_time).total_seconds()
             if elapsed >= self._snapshot_interval:
-                self.emit_graph_snapshot(thread_id, task_id, user_id)
+                await self.emit_graph_snapshot(thread_id, task_id, user_id)
 
 
 # Global instance
@@ -200,11 +251,11 @@ def get_memory_observer() -> MemoryObserverIntegration:
 
 
 @log_execution(component="orchestrator", operation="notify_memory_update")
-def notify_memory_update(thread_id: str, node_id: str, node: MemoryNode, 
+async def notify_memory_update(thread_id: str, node_id: str, node: MemoryNode, 
                         task_id: Optional[str] = None, user_id: Optional[str] = None):
     """Convenience function to notify memory updates."""
     observer = get_memory_observer()
-    observer.emit_node_added(thread_id, node_id, node, task_id, user_id)
+    await observer.emit_node_added(thread_id, node_id, node, task_id, user_id)
 
 
 @log_execution(component="orchestrator", operation="notify_memory_edge")

@@ -220,17 +220,17 @@ class SalesforceReadTool(BaseSalesforceTool):
         """Build appropriate field list for object type."""
         # Default field sets by object type
         default_fields = {
-            'Account': ['Id', 'Name', 'Type', 'Industry', 'AnnualRevenue', 'Website', 'OwnerId'],
-            'Contact': ['Id', 'Name', 'Email', 'Phone', 'Title', 'AccountId', 'Account.Name', 'OwnerId'],
-            'Lead': ['Id', 'Name', 'Company', 'Email', 'Phone', 'Status', 'OwnerId'],
-            'Opportunity': ['Id', 'Name', 'Amount', 'StageName', 'CloseDate', 'AccountId', 'Account.Name', 'OwnerId'],
-            'Case': ['Id', 'CaseNumber', 'Subject', 'Status', 'Priority', 'AccountId', 'Account.Name', 'ContactId', 'OwnerId'],
-            'Task': ['Id', 'Subject', 'Status', 'Priority', 'ActivityDate', 'WhoId', 'Who.Name', 'WhatId', 'OwnerId']
+            'Account': ['Id', 'Name', 'Type', 'Industry', 'AnnualRevenue', 'Website', 'OwnerId', 'CreatedDate', 'LastModifiedDate'],
+            'Contact': ['Id', 'Name', 'Email', 'Phone', 'Title', 'AccountId', 'Account.Name', 'OwnerId', 'CreatedDate', 'LastModifiedDate'],
+            'Lead': ['Id', 'Name', 'Company', 'Email', 'Phone', 'Status', 'OwnerId', 'CreatedDate', 'LastModifiedDate'],
+            'Opportunity': ['Id', 'Name', 'Amount', 'StageName', 'CloseDate', 'AccountId', 'Account.Name', 'OwnerId', 'CreatedDate', 'LastModifiedDate'],
+            'Case': ['Id', 'CaseNumber', 'Subject', 'Status', 'Priority', 'AccountId', 'Account.Name', 'ContactId', 'OwnerId', 'CreatedDate', 'LastModifiedDate'],
+            'Task': ['Id', 'Subject', 'Status', 'Priority', 'ActivityDate', 'WhoId', 'Who.Name', 'WhatId', 'OwnerId', 'CreatedDate', 'LastModifiedDate']
         }
         
         if requested_fields:
             # Merge requested fields with defaults, removing duplicates while preserving order
-            default_for_type = default_fields.get(object_type, ['Id', 'Name'])
+            default_for_type = default_fields.get(object_type, ['Id', 'Name', 'CreatedDate', 'LastModifiedDate'])
             # Start with requested fields to respect model's ordering preference
             merged_fields = list(requested_fields)
             # Add any default fields not already included
@@ -239,7 +239,7 @@ class SalesforceReadTool(BaseSalesforceTool):
                     merged_fields.append(field)
             return merged_fields
         
-        return default_fields.get(object_type, ['Id', 'Name'])
+        return default_fields.get(object_type, ['Id', 'Name', 'CreatedDate', 'LastModifiedDate'])
     
     def _parse_natural_language_query(self, query: str, object_type: str) -> SOQLQueryBuilder:
         """Parse natural language into SOQL query builder."""

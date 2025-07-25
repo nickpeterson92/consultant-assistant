@@ -6,11 +6,12 @@ from src.memory.core.memory_node import ContextType
 from src.memory.core.memory_manager import get_memory_manager
 from src.orchestrator.workflow.entity_extractor import extract_entities_intelligently
 from src.utils.logging.framework import SmartLogger
+from src.utils.datetime_utils import utc_now, datetime_to_iso_utc
 
 logger = SmartLogger("memory_writer")
 
 
-def write_tool_result_to_memory(
+async def write_tool_result_to_memory(
     thread_id: str,
     tool_name: str,
     tool_args: Dict[str, Any],
@@ -41,7 +42,7 @@ def write_tool_result_to_memory(
         memory_manager = get_memory_manager()
         # Use user_id if provided, otherwise fall back to thread_id for compatibility
         memory_key = user_id if user_id else thread_id
-        memory = memory_manager.get_memory(memory_key)
+        memory = await memory_manager.get_memory(memory_key)
         
         # Prepare content
         content = {
@@ -50,7 +51,7 @@ def write_tool_result_to_memory(
             "tool_result": tool_result,
             "task_id": task_id,
             "agent_name": agent_name,
-            "timestamp": str(datetime.now())
+            "timestamp": datetime_to_iso_utc(utc_now())
         }
         
         # Add metadata if provided
@@ -65,8 +66,9 @@ def write_tool_result_to_memory(
         if "operation" in tool_result:
             summary += f" ({tool_result['operation']})"
         
-        # Store tool result in memory
-        tool_node_id = memory.store(
+        # Store tool result in memory (persistent for user memories)
+        tool_node_id = await memory_manager.store_memory(
+            memory_key,
             content=content,
             context_type=ContextType.TOOL_OUTPUT,
             summary=summary,
@@ -76,7 +78,8 @@ def write_tool_result_to_memory(
                 "agent": agent_name,
                 "tool": tool_name,
                 "task_id": task_id
-            }
+            },
+            persist=bool(user_id)  # Persist if we have a user_id
         )
         
         logger.info(
@@ -92,13 +95,16 @@ def write_tool_result_to_memory(
         
         # Extract and store entities if tool result contains data
         if isinstance(tool_result, dict) and tool_result.get('success') and tool_result.get('data'):
-            extract_and_store_entities(
+            await extract_and_store_entities(
+                memory_manager=memory_manager,
+                memory_key=memory_key,
                 memory=memory,
                 tool_result=tool_result,
                 tool_name=tool_name,
                 agent_name=agent_name,
                 task_id=task_id,
-                relates_to=tool_node_id
+                relates_to=tool_node_id,
+                user_id=user_id
             )
         
         return tool_node_id
@@ -115,16 +121,22 @@ def write_tool_result_to_memory(
         return None
 
 
-def extract_and_store_entities(
+async def extract_and_store_entities(
+    memory_manager,
+    memory_key: str,
     memory,
     tool_result: Dict[str, Any],
     tool_name: str,
     agent_name: str,
     task_id: str,
-    relates_to: Optional[str] = None
+    relates_to: Optional[str] = None,
+    user_id: Optional[str] = None
 ) -> None:
     """
     Extract entities from tool results and store them in memory.
+    
+    Domain entities are stored globally across all users since they represent
+    shared organizational data (e.g., Salesforce Accounts, Jira Issues).
     
     Args:
         memory: The memory graph instance
@@ -133,8 +145,13 @@ def extract_and_store_entities(
         agent_name: Name of the agent
         task_id: The task ID
         relates_to: Node ID to relate entities to (e.g., the tool result node)
+        user_id: User who triggered the extraction (for audit trail)
     """
     try:
+        # Use global namespace for domain entities
+        global_entity_key = "global_domain_entities"
+        global_memory = await memory_manager.get_memory(global_entity_key)
+        
         # Prepare extraction context
         extraction_context = {
             'agent': agent_name,
@@ -151,7 +168,8 @@ def extract_and_store_entities(
             agent_name=agent_name,
             tool_name=tool_name,
             entities_found=len(entities),
-            entity_types=[e.get('type') for e in entities]
+            entity_types=[e.get('type') for e in entities],
+            using_global_namespace=True
         )
         
         # Store each entity in memory
@@ -164,22 +182,23 @@ def extract_and_store_entities(
             entity_id = entity_info.get('id')
             entity_name = entity_info.get('name')
             
-            # Fast path: Direct entity ID lookup
+            # Fast path: Direct entity ID lookup in global memory
             if entity_id:
                 entity_system = entity_info.get('system', agent_name.replace('-agent', ''))
-                existing_entity_node = memory.node_manager.get_node_by_entity_id(entity_id, entity_system)
+                existing_entity_node = global_memory.node_manager.get_node_by_entity_id(entity_id)
                 
                 logger.info(
                     "entity_lookup_result",
                     entity_id=entity_id,
                     entity_system=entity_system,
-                    found_existing=bool(existing_entity_node)
+                    found_existing=bool(existing_entity_node),
+                    searched_in="global_memory"
                 )
             
-            # If not found by ID, search by name and type
+            # If not found by ID, search by name and type in global memory
             if not existing_entity_node and entity_name:
                 # Search for entities with matching name and type
-                search_results = memory.retrieve_relevant(
+                search_results = global_memory.retrieve_relevant(
                     query_text=entity_name,
                     context_filter={ContextType.DOMAIN_ENTITY},
                     max_results=10
@@ -235,27 +254,28 @@ def extract_and_store_entities(
                 updated_content.update({
                     "entity_data": merged_data,
                     "entity_relationships": merged_relationships,
-                    "last_accessed": datetime.now().isoformat(),
-                    "last_updated": datetime.now().isoformat(),
+                    "last_accessed": datetime_to_iso_utc(utc_now()),
+                    "last_updated": datetime_to_iso_utc(utc_now()),
                     "update_count": existing_content.get('update_count', 0) + 1,
                     "last_extracted_from_tool": tool_name,
                     "last_extracted_by_agent": agent_name
                 })
                 
-                # For SQLite backend, we need to store the updated node
-                # Create a new node with the updated content and let SQLite handle the merge
-                entity_node_id = memory.store(
+                # Store the updated entity globally
+                entity_node_id = await memory_manager.store_memory(
+                    global_entity_key,  # Use global namespace
                     content=updated_content,
                     context_type=existing_entity_node.context_type,
                     summary=existing_entity_node.summary or f"{entity_info.get('type')}: {entity_name or entity_id}",
                     tags=existing_entity_node.tags.union(entity_tags),
                     confidence=min(1.0, existing_entity_node.base_relevance + 0.05),  # Boost relevance
-                    relates_to=[relates_to] if relates_to else None
+                    relates_to=[relates_to] if relates_to else None,
+                    persist=True  # Always persist domain entities
                 )
                 
-                # Create relationship to new tool result
-                if relates_to:
-                    memory.add_relationship(relates_to, entity_node_id, "updated")
+                # Create relationship to new tool result (if relates_to is in user's memory)
+                if relates_to and memory_key != global_entity_key:
+                    await memory_manager.add_relationship(memory_key, relates_to, entity_node_id, "updated", persist=bool(user_id))
                     
             else:
                 # New entity - create it
@@ -266,7 +286,8 @@ def extract_and_store_entities(
                     entity_type=entity_info.get('type')
                 )
                 
-                entity_node_id = memory.store(
+                entity_node_id = await memory_manager.store_memory(
+                    global_entity_key,  # Use global namespace
                     content={
                         "entity_id": entity_id,
                         "entity_name": entity_name,
@@ -278,23 +299,25 @@ def extract_and_store_entities(
                         "extracted_from_tool": tool_name,
                         "extracted_by_agent": agent_name,
                         "task_id": task_id,
-                        "first_seen": datetime.now().isoformat(),
-                        "last_accessed": datetime.now().isoformat(),
+                        "first_seen": datetime_to_iso_utc(utc_now()),
+                        "last_accessed": datetime_to_iso_utc(utc_now()),
+                        "last_updated_by": user_id,  # Track who updated for audit
                         "update_count": 0
                     },
                     context_type=ContextType.DOMAIN_ENTITY,
                     summary=f"{entity_info['type']}: {entity_name or entity_id}",
                     tags=entity_tags,
                     confidence=0.6 + (entity_info.get('confidence', 0.8) * 0.3),
-                    relates_to=[relates_to] if relates_to else None
+                    relates_to=[relates_to] if relates_to else None,
+                    persist=True  # Always persist domain entities
                 )
                 
-                # Create relationship to tool result node
-                if relates_to:
-                    memory.add_relationship(relates_to, entity_node_id, "produces")
+                # Create relationship to tool result node (if relates_to is in user's memory)
+                if relates_to and memory_key != global_entity_key:
+                    await memory_manager.add_relationship(memory_key, relates_to, entity_node_id, "produces", persist=bool(user_id))
                     
                 # Check if any existing entities were waiting for this one
-                resolve_pending_relationships(memory, entity_id, entity_node_id)
+                await resolve_pending_relationships(global_memory, memory_manager, global_entity_key, entity_id, entity_node_id, user_id)
             
             logger.debug(
                 "entity_processed",
@@ -307,20 +330,26 @@ def extract_and_store_entities(
             )
             
             # Process entity relationships to link to other entities
-            process_entity_relationships(
-                memory=memory,
+            await process_entity_relationships(
+                memory=global_memory,  # Use global memory
+                memory_manager=memory_manager,
+                memory_key=global_entity_key,  # Use global namespace
                 entity_node_id=entity_node_id,
                 entity_info=entity_info,
-                agent_name=agent_name
+                agent_name=agent_name,
+                user_id=user_id
             )
             
             # Create inferred parent entities (only if not updating existing entity)
             if not existing_entity_node:
-                create_inferred_parent_entities(
-                    memory=memory,
+                await create_inferred_parent_entities(
+                    memory=global_memory,  # Use global memory
+                    memory_manager=memory_manager,
+                    memory_key=global_entity_key,  # Use global namespace
                     entity_info=entity_info,
                     entity_node_id=entity_node_id,
-                    agent_name=agent_name
+                    agent_name=agent_name,
+                    user_id=user_id
                 )
             
     except Exception as e:
@@ -333,7 +362,7 @@ def extract_and_store_entities(
         # Don't raise - entity extraction failure shouldn't break the flow
 
 
-def create_inferred_parent_entities(memory, entity_info: Dict[str, Any], entity_node_id: str, agent_name: str) -> None:
+async def create_inferred_parent_entities(memory, memory_manager, memory_key: str, entity_info: Dict[str, Any], entity_node_id: str, agent_name: str, user_id: Optional[str] = None) -> None:
     """
     Create inferred placeholder nodes for parent entities that we know must exist.
     
@@ -429,7 +458,7 @@ def create_inferred_parent_entities(memory, entity_info: Dict[str, Any], entity_
                         break
             
             # Check if this parent entity already exists
-            existing_parent = memory.get_node_by_entity_id(parent_id, entity_system)
+            existing_parent = memory.node_manager.get_node_by_entity_id(parent_id)
             
             if not existing_parent and (parent_name or parent_type):
                 # Create inferred parent entity
@@ -441,7 +470,8 @@ def create_inferred_parent_entities(memory, entity_info: Dict[str, Any], entity_
                     inferred_from=entity_info.get('entity_id')
                 )
                 
-                inferred_parent_id = memory.store(
+                inferred_parent_id = await memory_manager.store_memory(
+                    memory_key,
                     content={
                         "entity_id": parent_id,
                         "entity_name": parent_name,
@@ -456,18 +486,19 @@ def create_inferred_parent_entities(memory, entity_info: Dict[str, Any], entity_
                         "entity_relationships": [],
                         "extraction_confidence": 0.6,  # Lower confidence for inferred
                         "extracted_by_agent": agent_name,
-                        "first_seen": datetime.now().isoformat(),
-                        "last_accessed": datetime.now().isoformat()
+                        "first_seen": datetime_to_iso_utc(utc_now()),
+                        "last_accessed": datetime_to_iso_utc(utc_now())
                     },
                     context_type=ContextType.DOMAIN_ENTITY,
                     summary=f"{parent_type}: {parent_name or parent_id} (inferred)",
                     tags={entity_system, parent_type.lower(), "inferred", agent_name},
-                    confidence=0.5  # Lower confidence for inferred entities
+                    confidence=0.5,  # Lower confidence for inferred entities
+                    persist=bool(user_id)  # Persist if we have a user_id
                 )
                 
                 # Create relationships
-                memory.add_relationship(entity_node_id, inferred_parent_id, "belongs_to")
-                memory.add_relationship(inferred_parent_id, entity_node_id, "has")
+                await memory_manager.add_relationship(memory_key, entity_node_id, inferred_parent_id, "belongs_to", persist=bool(user_id))
+                await memory_manager.add_relationship(memory_key, inferred_parent_id, entity_node_id, "has", persist=bool(user_id))
                 
     except Exception as e:
         logger.error(
@@ -477,7 +508,7 @@ def create_inferred_parent_entities(memory, entity_info: Dict[str, Any], entity_
         )
 
 
-def resolve_pending_relationships(memory, entity_id: str, entity_node_id: str) -> None:
+async def resolve_pending_relationships(memory, memory_manager, memory_key: str, entity_id: str, entity_node_id: str, user_id: Optional[str] = None) -> None:
     """
     When a new entity is created, check if any existing entities
     have relationships pointing to this entity ID.
@@ -509,7 +540,7 @@ def resolve_pending_relationships(memory, entity_id: str, entity_node_id: str) -
                 if str(related_id) == str(entity_id):
                     # This entity was waiting for our new entity!
                     # Create the relationship
-                    memory.add_relationship(node.node_id, entity_node_id, rel_type)
+                    await memory_manager.add_relationship(memory_key, node.node_id, entity_node_id, rel_type, persist=bool(user_id))
                     
                     # Create reverse relationship
                     reverse_rel_type = {
@@ -524,7 +555,7 @@ def resolve_pending_relationships(memory, entity_id: str, entity_node_id: str) -
                         'belongs_to_project': 'has_entity'
                     }.get(rel_type, 'relates_to')
                     
-                    memory.add_relationship(entity_node_id, node.node_id, reverse_rel_type)
+                    await memory_manager.add_relationship(memory_key, entity_node_id, node.node_id, reverse_rel_type, persist=bool(user_id))
                     
                     relationships_created += 1
                     
@@ -552,11 +583,14 @@ def resolve_pending_relationships(memory, entity_id: str, entity_node_id: str) -
         )
 
 
-def process_entity_relationships(
+async def process_entity_relationships(
     memory,
+    memory_manager,
+    memory_key: str,
     entity_node_id: str,
     entity_info: Dict[str, Any],
-    agent_name: str
+    agent_name: str,
+    user_id: Optional[str] = None
 ) -> None:
     """
     Process and create relationships between entities.
@@ -624,7 +658,7 @@ def process_entity_relationships(
             
             if related_node:
                 # Entity exists - create the relationship
-                memory.add_relationship(entity_node_id, related_node.node_id, rel_type)
+                await memory_manager.add_relationship(memory_key, entity_node_id, related_node.node_id, rel_type, persist=bool(user_id))
                 
                 # Also create reverse relationship for bidirectional navigation
                 reverse_rel_type = {
@@ -639,7 +673,7 @@ def process_entity_relationships(
                     'belongs_to_project': 'has_entity'
                 }.get(rel_type, 'relates_to')
                 
-                memory.add_relationship(related_node.node_id, entity_node_id, reverse_rel_type)
+                await memory_manager.add_relationship(memory_key, related_node.node_id, entity_node_id, reverse_rel_type, persist=bool(user_id))
                 
                 logger.info(
                     "entity_relationship_created",

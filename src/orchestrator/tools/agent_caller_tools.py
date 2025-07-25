@@ -198,9 +198,18 @@ class SalesforceAgentTool(BaseAgentTool):
         if state and "summary" in state:
             extracted_context["conversation_summary"] = state["summary"]
         
-        # Include user_id if available in state
-        if state and "user_id" in state:
-            extracted_context["user_id"] = state["user_id"]
+        # Include user_id if available in state (check both direct and configurable)
+        if state:
+            if "user_id" in state:
+                extracted_context["user_id"] = state["user_id"]
+                logger.debug("found_user_id_in_state", user_id=state["user_id"])
+            elif "configurable" in state and "user_id" in state["configurable"]:
+                extracted_context["user_id"] = state["configurable"]["user_id"]
+                logger.debug("found_user_id_in_configurable", user_id=state["configurable"]["user_id"])
+            else:
+                logger.warning("no_user_id_found", 
+                    has_configurable="configurable" in state,
+                    configurable_keys=list(state.get("configurable", {}).keys()) if "configurable" in state else [])
         
         # Merge any additional context
         if context:
@@ -543,9 +552,18 @@ class JiraAgentTool(BaseAgentTool):
         if state and "summary" in state:
             extracted_context["conversation_summary"] = state["summary"]
         
-        # Include user_id if available in state
-        if state and "user_id" in state:
-            extracted_context["user_id"] = state["user_id"]
+        # Include user_id if available in state (check both direct and configurable)
+        if state:
+            if "user_id" in state:
+                extracted_context["user_id"] = state["user_id"]
+                logger.debug("found_user_id_in_state", user_id=state["user_id"])
+            elif "configurable" in state and "user_id" in state["configurable"]:
+                extracted_context["user_id"] = state["configurable"]["user_id"]
+                logger.debug("found_user_id_in_configurable", user_id=state["configurable"]["user_id"])
+            else:
+                logger.warning("no_user_id_found", 
+                    has_configurable="configurable" in state,
+                    configurable_keys=list(state.get("configurable", {}).keys()) if "configurable" in state else [])
         
         # Merge any additional context
         if context:
@@ -963,9 +981,18 @@ class ServiceNowAgentTool(BaseAgentTool):
         if state and "summary" in state:
             extracted_context["conversation_summary"] = state["summary"]
         
-        # Include user_id if available in state
-        if state and "user_id" in state:
-            extracted_context["user_id"] = state["user_id"]
+        # Include user_id if available in state (check both direct and configurable)
+        if state:
+            if "user_id" in state:
+                extracted_context["user_id"] = state["user_id"]
+                logger.debug("found_user_id_in_state", user_id=state["user_id"])
+            elif "configurable" in state and "user_id" in state["configurable"]:
+                extracted_context["user_id"] = state["configurable"]["user_id"]
+                logger.debug("found_user_id_in_configurable", user_id=state["configurable"]["user_id"])
+            else:
+                logger.warning("no_user_id_found", 
+                    has_configurable="configurable" in state,
+                    configurable_keys=list(state.get("configurable", {}).keys()) if "configurable" in state else [])
         
         # Merge any additional context
         if context:

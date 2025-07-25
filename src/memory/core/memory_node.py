@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Dict, Set, List, Optional
 from dataclasses import dataclass, field
 from enum import Enum
+from src.utils.datetime_utils import utc_now, ensure_utc
 
 
 class ContextType(Enum):
@@ -28,8 +29,8 @@ class MemoryNode:
     context_type: ContextType = ContextType.TEMPORARY_STATE
     
     # Temporal metadata
-    created_at: datetime = field(default_factory=datetime.now)
-    last_accessed: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=utc_now)
+    last_accessed: datetime = field(default_factory=utc_now)
     
     # Relevance and decay
     base_relevance: float = 1.0               # Initial importance score
@@ -49,8 +50,8 @@ class MemoryNode:
     
     def current_relevance(self) -> float:
         """Calculate current relevance based on time decay."""
-        hours_since_creation = (datetime.now() - self.created_at).total_seconds() / 3600
-        hours_since_access = (datetime.now() - self.last_accessed).total_seconds() / 3600
+        hours_since_creation = (utc_now() - ensure_utc(self.created_at)).total_seconds() / 3600
+        hours_since_access = (utc_now() - ensure_utc(self.last_accessed)).total_seconds() / 3600
         
         # IMPROVED: Context-aware exponential decay with different half-lives
         half_life_hours = {
@@ -76,7 +77,7 @@ class MemoryNode:
     
     def access(self):
         """Mark this node as accessed, boosting its relevance."""
-        self.last_accessed = datetime.now()
+        self.last_accessed = utc_now()
     
     def is_stale(self) -> bool:
         """Check if this node should be cleaned up due to low relevance."""
@@ -177,7 +178,7 @@ class MemoryNode:
     
     def __str__(self) -> str:
         relevance = self.current_relevance()
-        age_hours = (datetime.now() - self.created_at).total_seconds() / 3600
+        age_hours = (utc_now() - ensure_utc(self.created_at)).total_seconds() / 3600
         return f"MemoryNode({self.context_type.value}, relevance={relevance:.2f}, age={age_hours:.1f}h, tags={self.tags})"
     
     def __repr__(self) -> str:

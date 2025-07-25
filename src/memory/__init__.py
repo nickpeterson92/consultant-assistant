@@ -4,7 +4,7 @@
 from .core import (
     MemoryNode, ContextType, create_memory_node,
     MemoryGraph, RelationshipType,
-    ConversationalMemoryManager, get_memory_manager, get_thread_memory
+    ConversationalMemoryManager, get_memory_manager, get_user_memory
 )
 
 # Components
@@ -31,7 +31,7 @@ __all__ = [
     'RelationshipType',
     'ConversationalMemoryManager',
     'get_memory_manager',
-    'get_thread_memory',
+    'get_user_memory',
     # Components
     'NodeManager',
     'TextProcessor',

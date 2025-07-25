@@ -8,6 +8,7 @@ from ..core.memory_node import MemoryNode
 from .text_processor import TextProcessor
 from ..config.memory_config import MEMORY_CONFIG
 from src.utils.logging.framework import SmartLogger
+from src.utils.datetime_utils import utc_now, ensure_utc
 
 logger = SmartLogger("memory.scoring")
 
@@ -24,7 +25,7 @@ class QueryContext:
     
     def __post_init__(self):
         if self.current_time is None:
-            self.current_time = datetime.now()
+            self.current_time = utc_now()
 
 
 @dataclass
@@ -183,7 +184,7 @@ class ScoringEngine:
     
     def _calculate_recency_boost(self, node: MemoryNode, context: QueryContext) -> float:
         """Calculate recency boost based on node age."""
-        hours_since_creation = (context.current_time - node.created_at).total_seconds() / 3600
+        hours_since_creation = (context.current_time - ensure_utc(node.created_at)).total_seconds() / 3600
         
         # Continuous recency boost - more recent is always better
         if hours_since_creation < self.config.VERY_RECENT_THRESHOLD:
@@ -221,7 +222,7 @@ class ScoringEngine:
         # Get recent entity IDs
         recent_entity_ids = set()
         for node_id, access_time in recent_accessed_nodes:
-            time_diff = (context.current_time - access_time).total_seconds()
+            time_diff = (context.current_time - ensure_utc(access_time)).total_seconds()
             if time_diff < self.config.ACCESS_RECENCY_WINDOW:
                 recent_entity_ids.add(node_id)
         
@@ -263,8 +264,8 @@ class ScoringEngine:
         
         # Penalize nodes accessed too recently compared to creation
         # (This is a simplified heuristic since we don't track access count)
-        hours_since_creation = (context.current_time - node.created_at).total_seconds() / 3600
-        hours_since_access = (context.current_time - node.last_accessed).total_seconds() / 3600
+        hours_since_creation = (context.current_time - ensure_utc(node.created_at)).total_seconds() / 3600
+        hours_since_access = (context.current_time - ensure_utc(node.last_accessed)).total_seconds() / 3600
         if hours_since_creation > 0.1 and hours_since_access < 0.01:
             # Accessed very recently after creation - might be spam
             penalty += self.config.SUSPICIOUS_ACCESS_PENALTY

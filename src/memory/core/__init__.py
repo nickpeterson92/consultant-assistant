@@ -2,7 +2,7 @@
 
 from .memory_node import MemoryNode, ContextType, create_memory_node
 from .memory_graph import MemoryGraph, RelationshipType
-from .memory_manager import ConversationalMemoryManager, get_memory_manager, get_thread_memory
+from .memory_manager import ConversationalMemoryManager, get_memory_manager, get_user_memory
 
 __all__ = [
     'MemoryNode',
@@ -12,5 +12,5 @@ __all__ = [
     'RelationshipType',
     'ConversationalMemoryManager',
     'get_memory_manager',
-    'get_thread_memory'
+    'get_user_memory'
 ]

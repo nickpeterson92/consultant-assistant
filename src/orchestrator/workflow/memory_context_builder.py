@@ -2,7 +2,7 @@
 
 from typing import List, Dict, Any, Set, Tuple
 
-from src.memory import get_thread_memory, MemoryNode
+from src.memory import get_user_memory, MemoryNode
 from src.utils.logging.framework import SmartLogger
 
 logger = SmartLogger("orchestrator")
@@ -12,7 +12,7 @@ class MemoryContextBuilder:
     """Builds intelligent memory context using PageRank, clustering, and bridge detection."""
     
     @staticmethod
-    def build_enhanced_context(
+    async def build_enhanced_context(
         thread_id: str,
         query_text: str,
         context_type: str = "execution",
@@ -22,6 +22,8 @@ class MemoryContextBuilder:
     ) -> Tuple[str, Dict[str, Any]]:
         """
         Build enhanced memory context using advanced graph features.
+        
+        Searches both user-specific memories AND global domain entities.
         
         Args:
             thread_id: Thread ID for memory
@@ -34,15 +36,38 @@ class MemoryContextBuilder:
         Returns:
             Tuple of (formatted_context, metadata)
         """
-        memory = get_thread_memory(thread_id)
+        from src.memory import get_memory_manager
+        from src.memory.core.memory_node import ContextType
         
-        # Get basic relevant memories
+        memory = await get_user_memory(thread_id)
+        
+        # Get basic relevant memories from user's memory
         relevant_memories = memory.retrieve_relevant(
             query_text=query_text,
             max_age_hours=max_age_hours,
             min_relevance=min_relevance,
             max_results=max_results
         )
+        
+        # Also search global domain entities
+        memory_manager = get_memory_manager()
+        # Ensure global entities are loaded from PostgreSQL
+        await memory_manager.ensure_user_memories_loaded("global_domain_entities")
+        global_memory = await memory_manager.get_memory("global_domain_entities")
+        global_entities = global_memory.retrieve_relevant(
+            query_text=query_text,
+            context_filter={ContextType.DOMAIN_ENTITY},
+            max_results=max_results // 2  # Take half from global
+        )
+        
+        logger.info("global_entities_retrieved",
+                   query_text=query_text,
+                   global_entities_count=len(global_entities),
+                   global_entity_summaries=[e.summary for e in global_entities[:3]],
+                   context_type=context_type)
+        
+        # Combine user memories with global entities
+        all_relevant = relevant_memories + global_entities
         
         # Get important memories using PageRank
         important_memories = memory.find_important_memories(top_n=5)
@@ -56,15 +81,15 @@ class MemoryContextBuilder:
         # Build context based on type
         if context_type == "planning":
             return MemoryContextBuilder._build_planning_context(
-                relevant_memories, important_memories, clusters, bridge_memories
+                all_relevant, important_memories, clusters, bridge_memories
             )
         elif context_type == "replanning":
             return MemoryContextBuilder._build_replanning_context(
-                relevant_memories, important_memories, clusters, bridge_memories
+                all_relevant, important_memories, clusters, bridge_memories
             )
         else:  # execution
             return MemoryContextBuilder._build_execution_context(
-                relevant_memories, important_memories, clusters, bridge_memories
+                all_relevant, important_memories, clusters, bridge_memories
             )
     
     @staticmethod
@@ -211,7 +236,7 @@ class MemoryContextBuilder:
         return "\n".join(context_parts), metadata
     
     @staticmethod
-    def get_conversation_summary(thread_id: str, max_nodes: int = 20) -> str:
+    async def get_conversation_summary(thread_id: str, max_nodes: int = 20) -> str:
         """
         Generate a conversation summary using important memories and clusters.
         
@@ -222,7 +247,7 @@ class MemoryContextBuilder:
         Returns:
             Formatted conversation summary
         """
-        memory = get_thread_memory(thread_id)
+        memory = await get_user_memory(thread_id)
         
         # Get important memories
         important_memories = memory.find_important_memories(top_n=10)

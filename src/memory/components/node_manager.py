@@ -9,6 +9,7 @@ from .inverted_index import InvertedIndex
 from .text_processor import TextProcessor
 from ..config.memory_config import MEMORY_CONFIG
 from src.utils.logging.framework import SmartLogger
+from src.utils.datetime_utils import utc_now
 
 logger = SmartLogger("memory.nodes")
 
@@ -121,7 +122,7 @@ class NodeManager:
         if node_id in self.nodes:
             node = self.nodes[node_id]
             node.access()
-            self.recent_accessed_nodes.append((node_id, datetime.now()))
+            self.recent_accessed_nodes.append((node_id, utc_now()))
     
     def get_recent_accessed(self) -> List[Tuple[str, datetime]]:
         """Get recently accessed nodes."""
@@ -143,7 +144,7 @@ class NodeManager:
         else:
             candidates = node_ids & set(self.nodes.keys())
         
-        current_time = datetime.now()
+        current_time = utc_now()
         filtered = []
         
         for node_id in candidates:
@@ -176,7 +177,7 @@ class NodeManager:
         max_age_hours = max_age_hours or self.config.DEFAULT_MAX_AGE_HOURS
         
         stale_node_ids = []
-        current_time = datetime.now()
+        current_time = utc_now()
         
         for node_id, node in self.nodes.items():
             # Calculate age

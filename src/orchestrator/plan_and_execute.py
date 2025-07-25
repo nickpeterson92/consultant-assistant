@@ -65,10 +65,10 @@ class Act(BaseModel):
 
 @log_execution("orchestrator", "execute_step", include_args=True, include_result=False)  # Don't log full result due to size
 @emit_coordinated_events(["task_lifecycle", "plan_updated"])
-def execute_step(state: PlanExecute):
+async def execute_step(state: PlanExecute):
     import asyncio
     from src.orchestrator.observers import get_observer_registry, SearchResultsEvent
-    from src.memory import get_thread_memory, ContextType, RelationshipType
+    from src.memory import get_user_memory, get_memory_manager, ContextType, RelationshipType
     from langgraph.errors import GraphInterrupt
     
     # Check for user-initiated interrupt flag (escape key) FIRST
@@ -88,7 +88,9 @@ def execute_step(state: PlanExecute):
     # Use user_id for memory isolation if available
     user_id = state.get("user_id")
     memory_key = user_id if user_id else thread_id
-    memory = get_thread_memory(memory_key)
+    
+    # Get memory asynchronously
+    memory = await get_user_memory(memory_key)
     
     # Get conversation summary from SQLite if available and not already in state
     if "summary" not in state:
@@ -139,7 +141,7 @@ def execute_step(state: PlanExecute):
     # MEMORY ENHANCEMENT: Use advanced memory context builder
     # Use user_id for memory retrieval (user-scoped memory)
     user_id = state.get("user_id", "default_user")
-    memory_context, memory_metadata = MemoryContextBuilder.build_enhanced_context(
+    memory_context, memory_metadata = await MemoryContextBuilder.build_enhanced_context(
         thread_id=user_id,  # Using user_id for user-scoped memory
         query_text=f"{task} {state['input']}",
         context_type="execution",
@@ -160,7 +162,7 @@ def execute_step(state: PlanExecute):
     # Get execution insights using memory analyzer
     try:
         from src.orchestrator.workflow.memory_analyzer import MemoryAnalyzer
-        execution_insights = MemoryAnalyzer.get_execution_insights(user_id, task)  # Use user_id instead of thread_id
+        execution_insights = await MemoryAnalyzer.get_execution_insights(user_id, task)  # Use user_id instead of thread_id
         
         if execution_insights["potential_pitfalls"]:
             memory_context += "\n\nCAUTION:\n"
@@ -489,7 +491,10 @@ You are tasked with executing step {current_step_num}: {task}.
             logger.debug(f"Could not retrieve recent entities: {e}")
         
         # Store in memory (auto-summary will be generated from actual content)
-        memory_node_id = memory.store(
+        # Get memory manager for async operations
+        memory_manager = get_memory_manager()
+        memory_node_id = await memory_manager.store_memory(
+            memory_key,  # Use the same key (user_id or thread_id)
             content={
                 "task": task,
                 "response": final_response,
@@ -513,7 +518,8 @@ You are tasked with executing step {current_step_num}: {task}.
         # Create relationships
         # 1. Led-to relationship with previous step
         if relates_to and len(relates_to) > 0:
-            memory.add_relationship(
+            await memory_manager.add_relationship(
+                memory_key,
                 relates_to[0],  # Previous step
                 memory_node_id,  # Current step
                 RelationshipType.LED_TO
@@ -542,7 +548,7 @@ You are tasked with executing step {current_step_num}: {task}.
             else:
                 # This action modified or worked with the entity
                 rel_type = RelationshipType.REFINES  # Action refines/updates entity
-                memory.add_relationship(memory_node_id, entity_id, rel_type)
+                await memory_manager.add_relationship(memory_key, memory_node_id, entity_id, rel_type)
             
             # No reverse relationship needed - actions lead to entities, not vice versa
             
@@ -584,7 +590,7 @@ You are tasked with executing step {current_step_num}: {task}.
                 from src.orchestrator.observers.memory_observer import notify_memory_update, notify_memory_edge
                 node = memory.node_manager.get_node(tool_node_id)
                 if node:
-                    notify_memory_update(thread_id, tool_node_id, node, state.get("task_id"), state.get("user_id"))
+                    await notify_memory_update(thread_id, tool_node_id, node, state.get("task_id"), state.get("user_id"))
                 notify_memory_edge(thread_id, memory_node_id, tool_node_id, RelationshipType.DEPENDS_ON, state.get("task_id"))
             except Exception as e:
                 logger.debug(f"Memory tool notification failed: {e}")
@@ -604,7 +610,7 @@ You are tasked with executing step {current_step_num}: {task}.
             from src.orchestrator.observers.memory_observer import notify_memory_update
             node = memory.node_manager.get_node(memory_node_id)
             if node:
-                notify_memory_update(thread_id, memory_node_id, node, state.get("task_id"), state.get("user_id"))
+                await notify_memory_update(thread_id, memory_node_id, node, state.get("task_id"), state.get("user_id"))
         except Exception as e:
             logger.warning("memory_observer_notification_failed", error=str(e))
         
@@ -647,10 +653,10 @@ You are tasked with executing step {current_step_num}: {task}.
 
 @log_execution("orchestrator", "plan_step", include_args=True, include_result=True)
 @emit_coordinated_events(["plan_created", "plan_updated"])  
-def plan_step(state: PlanExecute):
+async def plan_step(state: PlanExecute):
     import asyncio
     from langchain_core.messages import HumanMessage
-    from src.memory import get_thread_memory
+    from src.memory import get_user_memory, get_memory_manager
     from langgraph.errors import GraphInterrupt
     
     # Check for user-initiated interrupt flag (escape key)
@@ -668,7 +674,7 @@ def plan_step(state: PlanExecute):
     # Use user_id for memory isolation if available
     user_id = state.get("user_id")
     memory_key = user_id if user_id else thread_id
-    memory = get_thread_memory(memory_key)
+    memory = await get_user_memory(memory_key)
     
     # Get conversation summary from SQLite if available
     conversation_summary = None
@@ -711,7 +717,7 @@ def plan_step(state: PlanExecute):
                current_input=state["input"][:100])
     
     # Use enhanced memory context for planning
-    planning_context, planning_metadata = MemoryContextBuilder.build_enhanced_context(
+    planning_context, planning_metadata = await MemoryContextBuilder.build_enhanced_context(
         thread_id=memory_key,  # Use memory_key (user_id if available)
         query_text=state["input"],
         context_type="planning",
@@ -722,7 +728,7 @@ def plan_step(state: PlanExecute):
     
     # Get conversation summary using important memories
     if memory.node_manager.get_node_count() > 5:
-        conversation_summary = MemoryContextBuilder.get_conversation_summary(thread_id)
+        conversation_summary = await MemoryContextBuilder.get_conversation_summary(memory_key)
     
     # Format memory context for planner
     context_for_planning = ""
@@ -772,11 +778,29 @@ def plan_step(state: PlanExecute):
     
     plan = asyncio.run(planner.ainvoke({"messages": planning_messages}))
     
+    # Emit plan created event for live UI updates
+    try:
+        from src.orchestrator.observers import get_observer_registry, PlanCreatedEvent
+        registry = get_observer_registry()
+        event = PlanCreatedEvent(
+            step_name="plan_creation",
+            task_id=state.get("task_id", thread_id),
+            plan_steps=plan.steps,
+            total_steps=len(plan.steps)
+        )
+        registry.notify_plan_created(event)
+        logger.info("plan_created_event_emitted",
+                   component="orchestrator",
+                   thread_id=thread_id,
+                   total_steps=len(plan.steps))
+    except Exception as e:
+        logger.error("failed_to_emit_plan_created", error=str(e))
+    
     # Emit memory graph snapshot after plan creation
     try:
         from src.orchestrator.observers.memory_observer import get_memory_observer
         observer = get_memory_observer()
-        observer.emit_graph_snapshot(thread_id, state.get("task_id"), state.get("user_id"))
+        await observer.emit_graph_snapshot(thread_id, state.get("task_id"), state.get("user_id"))
     except Exception as e:
         logger.warning("memory_snapshot_emission_failed", error=str(e))
     
@@ -812,7 +836,7 @@ def plan_step(state: PlanExecute):
 
 @log_execution("orchestrator", "replan_step", include_args=True, include_result=True)
 @emit_coordinated_events(["plan_modified", "plan_updated"])
-def replan_step(state: PlanExecute):
+async def replan_step(state: PlanExecute):
     import asyncio
     from src.orchestrator.workflow.interrupt_handler import InterruptHandler
     
@@ -847,7 +871,7 @@ def replan_step(state: PlanExecute):
     recent_steps = " ".join([step['step_description'] for step in current_plan_steps[-3:]])
     query_for_memory = f"{state['input']} {recent_steps}".strip()
     
-    memory_context, replan_metadata = MemoryContextBuilder.build_enhanced_context(
+    memory_context, replan_metadata = await MemoryContextBuilder.build_enhanced_context(
         thread_id=memory_key,  # Use memory_key (user_id if available)
         query_text=query_for_memory,
         context_type="replanning",
@@ -1019,16 +1043,23 @@ def create_graph(agent_executor, planner, replanner):
     globals()['planner'] = planner
     globals()['replanner'] = replanner
     
+    # Import sync wrappers for LangGraph compatibility
+    from src.orchestrator.workflow_sync_wrappers import (
+        plan_step as sync_plan_step,
+        execute_step as sync_execute_step,
+        replan_step as sync_replan_step
+    )
+    
     workflow = StateGraph(PlanExecute)
 
-    # Add the plan node
-    workflow.add_node("planner", plan_step)
+    # Add the plan node - use sync wrapper
+    workflow.add_node("planner", sync_plan_step)
 
-    # Add the execution step
-    workflow.add_node("agent", execute_step)
+    # Add the execution step - use sync wrapper
+    workflow.add_node("agent", sync_execute_step)
 
-    # Add a replan node
-    workflow.add_node("replan", replan_step)
+    # Add a replan node - use sync wrapper
+    workflow.add_node("replan", sync_replan_step)
 
     workflow.add_edge(START, "planner")
 

@@ -6,6 +6,7 @@ from typing import Dict, Any, List, TypedDict, Annotated
 import operator
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_openai import AzureChatOpenAI
 from src.utils.cost_tracking_decorator import create_cost_tracking_azure_openai
 from langgraph.graph import StateGraph, END
@@ -15,6 +16,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from src.agents.servicenow.tools.unified import UNIFIED_SERVICENOW_TOOLS
 from src.a2a import A2AServer, AgentCard
 from src.agents.shared.memory_writer import write_tool_result_to_memory
+from src.agents.shared.entity_extracting_tool_node import create_entity_extracting_tool_node
 from src.utils.thread_utils import create_thread_id
 from src.utils.config import config
 from src.utils.logging.framework import SmartLogger, log_execution
@@ -55,18 +57,16 @@ def create_azure_openai_chat():
     # Use cost-tracking LLM (decorator pattern)
     return create_cost_tracking_azure_openai(component="servicenow", **llm_kwargs)
 
-def build_servicenow_graph():
+# Create LLM with tools at module level (like Salesforce)
+llm = create_azure_openai_chat()
+llm_with_tools = llm.bind_tools(UNIFIED_SERVICENOW_TOOLS)
+
+async def build_servicenow_graph():
     """Build the ServiceNow agent graph using LangGraph."""
     
-    # Initialize LLM
-    llm = create_azure_openai_chat()
-    
-    # Bind tools to LLM
-    llm_with_tools = llm.bind_tools(UNIFIED_SERVICENOW_TOOLS)
-    
-    # Define agent function
+    # Define agent function inside async function (like Salesforce)
     @log_execution("servicenow", "servicenow_agent", include_args=False, include_result=False)
-    def servicenow_agent(state: ServiceNowAgentState):
+    def servicenow_agent(state: ServiceNowAgentState, config: RunnableConfig):
         """Main agent logic for ServiceNow operations using LangChain prompt templates."""
         task_id = state.get("task_context", {}).get("task_id", "unknown")
         
@@ -93,7 +93,7 @@ def build_servicenow_graph():
             # Convert to messages for the LLM
             messages = formatted_prompt.to_messages()
             
-            # Call LLM with tools
+            # Call LLM with tools (uses module-level llm_with_tools)
             logger.info("servicenow_agent_llm_call", task_id=task_id, message_count=len(messages))
             response = llm_with_tools.invoke(messages)
             
@@ -109,15 +109,15 @@ def build_servicenow_graph():
             error_msg = AIMessage(content=f"I encountered an error processing your ServiceNow request: {str(e)}")
             return {"messages": [error_msg], "error": str(e)}
     
-    # Create tool node
-    tool_node = ToolNode(UNIFIED_SERVICENOW_TOOLS)
+    # Create custom tool node using the shared implementation
+    custom_tool_node = await create_entity_extracting_tool_node(UNIFIED_SERVICENOW_TOOLS, "servicenow")
     
     # Build the graph
     graph_builder = StateGraph(ServiceNowAgentState)
     
     # Add nodes
     graph_builder.add_node("agent", servicenow_agent)
-    graph_builder.add_node("tools", tool_node)
+    graph_builder.add_node("tools", custom_tool_node)
     
     # Add edges
     graph_builder.set_entry_point("agent")
@@ -135,6 +135,9 @@ def build_servicenow_graph():
     memory = MemorySaver()
     return graph_builder.compile(checkpointer=memory)
 
+# Global agent instance (will be initialized in main)
+servicenow_agent = None
+
 # A2A Server implementation
 async def handle_a2a_request(params: dict) -> dict:
     """Process a ServiceNow task via A2A protocol."""
@@ -151,9 +154,6 @@ async def handle_a2a_request(params: dict) -> dict:
                    task_id=task_id,
                    instruction=instruction,
                    has_context=bool(context))
-        
-        # Build the graph
-        app = build_servicenow_graph()
         
         # Prepare initial state with orchestrator state
         initial_state = {
@@ -177,8 +177,8 @@ async def handle_a2a_request(params: dict) -> dict:
             }
         }
         
-        # Run the graph
-        final_state = await app.ainvoke(initial_state, config)
+        # Run the graph (use global instance)
+        final_state = await servicenow_agent.ainvoke(initial_state, config)
         
         # Write tool results to memory
         thread_id = create_thread_id("servicenow", task_id)
@@ -204,7 +204,7 @@ async def handle_a2a_request(params: dict) -> dict:
                                     except:
                                         pass
                                 
-                                write_tool_result_to_memory(
+                                await write_tool_result_to_memory(
                                     thread_id=thread_id,
                                     tool_name=tool_call.get("name", "unknown"),
                                     tool_args=tool_call.get("args", {}),
@@ -279,6 +279,7 @@ def create_servicenow_agent_card() -> AgentCard:
     )
 
 async def main(port: int = 8003):
+    global servicenow_agent
     """Main entry point for ServiceNow agent."""
     agent_card = create_servicenow_agent_card()
     
@@ -289,6 +290,9 @@ async def main(port: int = 8003):
         tools_count=len(UNIFIED_SERVICENOW_TOOLS),
         capabilities=agent_card.capabilities
     )
+    
+    # Build the ServiceNow agent graph once at startup
+    servicenow_agent = await build_servicenow_graph()
     
     # Create A2A server
     server = A2AServer(agent_card, "0.0.0.0", port)

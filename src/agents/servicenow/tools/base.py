@@ -260,19 +260,22 @@ class BaseServiceNowTool(BaseTool, ABC):
         defaults = {
             'incident': ['sys_id', 'number', 'short_description', 'description', 'state', 
                         'priority', 'assigned_to', 'assigned_to.name', 'caller_id', 'caller_id.name', 
-                        'category', 'company', 'company.name'],
+                        'category', 'company', 'company.name', 'sys_created_on', 'sys_updated_on'],
             'change_request': ['sys_id', 'number', 'short_description', 'description', 'state',
                               'priority', 'assigned_to', 'assigned_to.name', 'requested_by', 
-                              'requested_by.name', 'type', 'risk', 'company', 'company.name'],
+                              'requested_by.name', 'type', 'risk', 'company', 'company.name', 
+                              'sys_created_on', 'sys_updated_on'],
             'problem': ['sys_id', 'number', 'short_description', 'description', 'state',
                        'priority', 'assigned_to', 'assigned_to.name', 'known_error', 
-                       'root_cause', 'company', 'company.name'],
+                       'root_cause', 'company', 'company.name', 'sys_created_on', 'sys_updated_on'],
             'task': ['sys_id', 'number', 'short_description', 'description', 'state',
-                    'priority', 'assigned_to', 'assigned_to.name', 'work_notes'],
-            'sys_user': ['sys_id', 'user_name', 'name', 'email', 'department', 'title'],
+                    'priority', 'assigned_to', 'assigned_to.name', 'work_notes', 
+                    'sys_created_on', 'sys_updated_on'],
+            'sys_user': ['sys_id', 'user_name', 'name', 'email', 'department', 'title', 
+                        'sys_created_on', 'sys_updated_on'],
             'cmdb_ci': ['sys_id', 'name', 'sys_class_name', 'operational_status', 'install_status']
         }
-        return defaults.get(table_name, ['sys_id', 'number', 'short_description', 'state'])
+        return defaults.get(table_name, ['sys_id', 'number', 'short_description', 'state', 'sys_created_on', 'sys_updated_on'])
 
 
 class ServiceNowReadTool(BaseServiceNowTool):

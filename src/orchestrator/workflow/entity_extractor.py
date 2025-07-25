@@ -143,7 +143,10 @@ class IntelligentEntityExtractor:
                               'value', 'values', 'list', 'rows', 'response', 'payload',
                               'body', 'content', 'result', 'output', 'entries')
             if lower_key in wrapper_patterns or any(pattern in lower_key for pattern in wrapper_patterns):
-                entities.extend(cls.extract_entities(value, context))
+                # Pass context about being in a wrapper
+                wrapper_context = context.copy() if context else {}
+                wrapper_context['wrapper_key'] = lower_key
+                entities.extend(cls.extract_entities(value, wrapper_context))
             
             # Check for relationship fields
             elif any(rel in lower_key for rel in cls.ENTITY_INDICATORS['relationship_fields']):
@@ -172,10 +175,17 @@ class IntelligentEntityExtractor:
     @classmethod
     def _try_extract_entity(cls, data: Dict[str, Any], context: Optional[Dict[str, Any]], 
                            processed_ids: Set[str]) -> Optional[ExtractedEntity]:
-        """Try to extract an entity from a dictionary."""
-        # Find ID field
-        entity_id = None
-        id_confidence = 0.0
+        """Try to extract an entity from a dictionary.
+        
+        An entity must have:
+        1. Identity - A unique identifier
+        2. Persistence - Exists beyond single transaction
+        3. Relationships - Can be referenced
+        4. Business meaning - Represents a domain object
+        """
+        # Calculate entity score based on characteristics
+        entity_score = 0.0
+        entity_characteristics = {}
         
         # Helper to extract value from various formats
         def extract_value(value):
@@ -192,16 +202,44 @@ class IntelligentEntityExtractor:
                     return str(value['Id'])
             return None
         
-        for field in cls.ENTITY_INDICATORS['id_fields']:
-            for case_variant in [field, field.upper(), field.title()]:
-                if case_variant in data:
-                    extracted = extract_value(data[case_variant])
-                    if extracted:
-                        entity_id = extracted
-                        id_confidence = 0.9 if cls._looks_like_id(extracted) else 0.5
-                        break
-            if entity_id:
-                break
+        # 1. Check for identity (ID fields)
+        entity_id = None
+        id_confidence = 0.0
+        
+        # For Jira, prioritize 'key' field if it exists and looks like a project key
+        if context and context.get('system') == 'jira' and 'key' in data:
+            key_value = extract_value(data['key'])
+            if key_value and re.match(r'^[A-Z]{2,10}$', str(key_value)):
+                # This looks like a Jira project key
+                entity_id = key_value
+                id_confidence = 0.9
+                entity_score += id_confidence
+                entity_characteristics['has_id'] = True
+        
+        # For ServiceNow, prioritize 'number' field over sys_id for incidents
+        elif context and context.get('system') == 'servicenow' and 'number' in data:
+            number_value = extract_value(data['number'])
+            if number_value and re.match(r'^(INC|CHG|PRB|REQ)\d+$', str(number_value)):
+                # This looks like a ServiceNow ticket number
+                entity_id = number_value
+                id_confidence = 0.9
+                entity_score += id_confidence
+                entity_characteristics['has_id'] = True
+        
+        # If not found via special handling, use normal ID field detection
+        if not entity_id:
+            for field in cls.ENTITY_INDICATORS['id_fields']:
+                for case_variant in [field, field.upper(), field.title()]:
+                    if case_variant in data:
+                        extracted = extract_value(data[case_variant])
+                        if extracted:
+                            entity_id = extracted
+                            id_confidence = 0.9 if cls._looks_like_id(extracted) else 0.5
+                            entity_score += id_confidence
+                            entity_characteristics['has_id'] = True
+                            break
+                if entity_id:
+                    break
         
         # If no ID but has name-like fields, might still be an entity
         entity_name = None
@@ -257,8 +295,85 @@ class IntelligentEntityExtractor:
                     entity_name = str(data[name_field])
                     break
         
-        # Need at least ID or name
-        if not entity_id and not entity_name:
+        # 2. Check for persistence indicators
+        persistence_fields = {'created', 'created_at', 'createddate', 'created_date', 'createdat',
+                            'modified', 'modified_at', 'updated', 'updated_at', 'lastmodifieddate',
+                            'sys_created_on', 'sys_updated_on', 'created_by', 'modified_by',
+                            'createdbyid', 'lastmodifiedbyid', 'owner', 'ownerid'}
+        
+        persistence_score = 0
+        for field in data.keys():
+            if field.lower() in persistence_fields:
+                persistence_score += 0.2
+                entity_characteristics['has_persistence_fields'] = True
+        
+        entity_score += min(persistence_score, 0.8)  # Cap at 0.8
+        
+        # 3. Check for relationship indicators
+        relationship_score = 0
+        relationship_count = 0
+        for field in data.keys():
+            field_lower = field.lower()
+            # Check if this field references another entity
+            if any(rel in field_lower for rel in cls.ENTITY_INDICATORS['relationship_fields']):
+                value = data[field]
+                if value and cls._looks_like_id(str(value) if not isinstance(value, dict) else extract_value(value) or ''):
+                    relationship_count += 1
+                    relationship_score += 0.3
+                    entity_characteristics['has_relationships'] = True
+        
+        entity_score += min(relationship_score, 0.9)  # Cap at 0.9
+        
+        # 4. Check for business object indicators
+        # Type fields, status fields, etc.
+        business_fields = {'type', 'status', 'state', 'stage', 'priority', 'category', 
+                         'record_type', 'recordtype', 'object_type', 'issuetype'}
+        
+        business_score = 0
+        for field in data.keys():
+            field_lower = field.lower()
+            # Check if field matches business fields or contains key business terms
+            if field_lower in business_fields or any(bf in field_lower for bf in ['type', 'status', 'state', 'category']):
+                business_score += 0.3
+                entity_characteristics['has_business_fields'] = True
+        
+        entity_score += min(business_score, 0.6)  # Cap at 0.6
+        
+        # 5. Negative indicators - things that suggest this is NOT an entity
+        negative_score = 0
+        
+        # If it only has a description and nothing else, it's probably not an entity
+        desc_fields = {'description', 'short_description', 'comments', 'notes', 'message', 'text'}
+        has_only_description = False
+        
+        if len(data) <= 3:  # Very few fields
+            desc_field_count = sum(1 for k in data.keys() if k.lower() in desc_fields)
+            if desc_field_count > 0 and not entity_id:
+                has_only_description = True
+                negative_score += 1.5
+                entity_characteristics['only_description'] = True
+        
+        # If it's in a wrapper like "error", "message", "result" at root level
+        if context and context.get('wrapper_key') in ['error', 'message', 'validation']:
+            negative_score += 0.5
+            
+        entity_score -= negative_score
+        
+        # Minimum score threshold
+        MIN_ENTITY_SCORE = 1.0  # Must have at least some identity + persistence/relationships
+        
+        # Debug logging for all extraction attempts
+        logger.debug("entity_extraction_attempt",
+                    entity_id=entity_id,
+                    entity_name=entity_name,
+                    entity_score=entity_score,
+                    characteristics=entity_characteristics,
+                    field_count=len(data),
+                    min_score=MIN_ENTITY_SCORE,
+                    will_extract=bool((entity_id or entity_name) and entity_score >= MIN_ENTITY_SCORE))
+        
+        # Need at least ID or name AND sufficient score
+        if (not entity_id and not entity_name) or entity_score < MIN_ENTITY_SCORE:
             return None
             
         # Already processed?
@@ -422,6 +537,16 @@ class IntelligentEntityExtractor:
             # Jira patterns
             elif re.match(r'^[A-Z]{2,10}-\d+$', entity_id):
                 return EntityType.ISSUE, 0.9
+            elif re.match(r'^[A-Z]{2,10}$', entity_id):
+                # Project key pattern (just uppercase letters, no numbers)
+                # But need to verify it's actually a project from context
+                if context and context.get('system') == 'jira':
+                    # Check for project-specific fields
+                    if any(field in data for field in ['projectTypeKey', 'projectCategory', 'lead']):
+                        return EntityType.PROJECT, 0.9
+                    # Or if we have a name and key pattern
+                    if 'name' in data and re.match(r'^[A-Z]{2,10}$', entity_id):
+                        return EntityType.PROJECT, 0.85
             
             # ServiceNow patterns
             elif entity_id.startswith('INC'):

@@ -9,6 +9,7 @@ import threading
 
 from src.memory.core.memory_node import MemoryNode, ContextType
 from src.utils.logging.framework import SmartLogger
+from src.utils.datetime_utils import utc_now, datetime_to_iso_utc
 
 logger = SmartLogger("memory.sqlite")
 
@@ -76,7 +77,7 @@ class SQLiteMemoryBackend:
                                 existing_content.update(node.content)
                             
                             # Update metadata
-                            existing_content['last_updated'] = datetime.now().isoformat()
+                            existing_content['last_updated'] = datetime_to_iso_utc(utc_now())
                             existing_content['update_count'] = existing_content.get('update_count', 0) + 1
                             
                             # Update the node
@@ -89,7 +90,7 @@ class SQLiteMemoryBackend:
                                 WHERE node_id = ?
                             """, (
                                 json.dumps(existing_content),
-                                datetime.now().isoformat(),
+                                datetime_to_iso_utc(utc_now()),
                                 json.dumps(list(node.tags)) if node.tags else "[]",
                                 existing['node_id']
                             ))
@@ -100,6 +101,17 @@ class SQLiteMemoryBackend:
                                        entity_system=entity_system)
                             
                             return existing['node_id']
+                
+                # Check if node already exists by node_id
+                existing_by_id = conn.execute(
+                    "SELECT node_id FROM memory_nodes WHERE node_id = ?",
+                    (node.node_id,)
+                ).fetchone()
+                
+                if existing_by_id:
+                    # Node already exists, skip insertion
+                    logger.debug("node_already_exists", node_id=node.node_id, thread_id=thread_id)
+                    return existing_by_id['node_id']
                 
                 # Store new node
                 entity_type = node.content.get("entity_type") if isinstance(node.content, dict) else None
@@ -272,7 +284,7 @@ class SQLiteMemoryBackend:
                         to_node_id,
                         relationship_type.value if hasattr(relationship_type, 'value') else str(relationship_type),
                         strength,
-                        datetime.now().isoformat(),
+                        datetime_to_iso_utc(utc_now()),
                         json.dumps(metadata) if metadata else "{}"
                     ))
                     
@@ -338,7 +350,7 @@ class SQLiteMemoryBackend:
                 UPDATE memory_nodes
                 SET last_accessed = ?, access_count = access_count + 1
                 WHERE node_id = ?
-            """, (datetime.now().isoformat(), node_id))
+            """, (datetime_to_iso_utc(utc_now()), node_id))
     
     def delete_old_nodes(self, max_age_hours: float, 
                         preserve_types: Optional[Set[ContextType]] = None) -> int:

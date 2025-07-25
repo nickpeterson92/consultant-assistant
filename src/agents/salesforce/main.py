@@ -21,6 +21,7 @@ from src.utils.cost_tracking_decorator import create_cost_tracking_azure_openai
 
 from src.a2a import A2AServer, AgentCard
 from src.agents.shared.memory_writer import write_tool_result_to_memory
+from src.agents.shared.entity_extracting_tool_node import create_entity_extracting_tool_node
 from src.utils.thread_utils import create_thread_id
 
 # Import from the centralized tools directory
@@ -99,7 +100,7 @@ def create_azure_openai_chat():
     # Use cost-tracking LLM (decorator pattern)
     return create_cost_tracking_azure_openai(component="salesforce", **llm_kwargs)
 
-def build_salesforce_graph():
+async def build_salesforce_graph():
     """Build modern LangGraph using 2024 best practices"""
     
     load_dotenv()
@@ -154,12 +155,15 @@ def build_salesforce_graph():
         except Exception:
             raise
     
+    # Create custom tool node using the shared implementation
+    custom_tool_node = await create_entity_extracting_tool_node(tools, "salesforce")
+    
     # Build modern graph following 2024 best practices
     graph_builder = StateGraph(SalesforceState)
     
     # Add nodes
     graph_builder.add_node("agent", salesforce_agent)
-    graph_builder.add_node("tools", ToolNode(tools))
+    graph_builder.add_node("tools", custom_tool_node)
     
     # Modern routing using prebuilt tools_condition
     graph_builder.set_entry_point("agent")
@@ -251,7 +255,7 @@ class SalesforceA2AHandler:
                                         except:
                                             pass
                                     
-                                    write_tool_result_to_memory(
+                                    await write_tool_result_to_memory(
                                         thread_id=thread_id,
                                         tool_name=tool_call.get("name", "unknown"),
                                         tool_args=tool_call.get("args", {}),
@@ -415,7 +419,7 @@ async def main():
         agent="salesforce",
         operation="build_graph"
     )
-    local_graph = build_salesforce_graph()
+    local_graph = await build_salesforce_graph()
     logger.info("graph_built",
         component="system",
         agent="salesforce",

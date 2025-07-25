@@ -3,8 +3,9 @@
 from typing import Dict, List, Any
 from datetime import datetime, timedelta
 
-from src.memory import get_thread_memory, ContextType
+from src.memory import get_user_memory, ContextType
 from src.utils.logging.framework import SmartLogger
+from src.utils.datetime_utils import utc_now, ensure_utc
 
 logger = SmartLogger("orchestrator")
 
@@ -13,7 +14,7 @@ class MemoryAnalyzer:
     """Analyzes memory graph to provide insights for planning and execution."""
     
     @staticmethod
-    def analyze_conversation_patterns(thread_id: str) -> Dict[str, Any]:
+    async def analyze_conversation_patterns(thread_id: str) -> Dict[str, Any]:
         """
         Analyze conversation patterns to understand user behavior and preferences.
         
@@ -24,7 +25,7 @@ class MemoryAnalyzer:
             - correction_patterns: Times user corrected or refined requests
             - preferred_detail_level: Brief vs detailed responses preferred
         """
-        memory = get_thread_memory(thread_id)
+        memory = await get_user_memory(thread_id)
         
         analysis = {
             "topic_switches": 0,
@@ -106,14 +107,14 @@ class MemoryAnalyzer:
         return analysis
     
     @staticmethod
-    def suggest_next_actions(thread_id: str, current_task: str) -> List[Dict[str, Any]]:
+    async def suggest_next_actions(thread_id: str, current_task: str) -> List[Dict[str, Any]]:
         """
         Suggest next actions based on memory patterns and graph analysis.
         
         Returns:
             List of suggested actions with confidence scores
         """
-        memory = get_thread_memory(thread_id)
+        memory = await get_user_memory(thread_id)
         suggestions = []
         
         # Get recent context (currently not used but kept for future enhancements)
@@ -124,7 +125,7 @@ class MemoryAnalyzer:
         # )
         
         # Analyze patterns
-        patterns = MemoryAnalyzer.analyze_conversation_patterns(thread_id)
+        patterns = await MemoryAnalyzer.analyze_conversation_patterns(thread_id)
         
         # Find important memories (currently not used but kept for future enhancements)
         # important_memories = memory.find_important_memories(top_n=5)
@@ -161,14 +162,14 @@ class MemoryAnalyzer:
         return suggestions
     
     @staticmethod
-    def get_execution_insights(thread_id: str, task: str) -> Dict[str, Any]:
+    async def get_execution_insights(thread_id: str, task: str) -> Dict[str, Any]:
         """
         Get insights to improve task execution based on memory analysis.
         
         Returns:
             Dict with execution insights
         """
-        memory = get_thread_memory(thread_id)
+        memory = await get_user_memory(thread_id)
         
         insights = {
             "similar_past_tasks": [],
@@ -209,7 +210,7 @@ class MemoryAnalyzer:
                 })
         
         # Check for past failures or corrections
-        patterns = MemoryAnalyzer.analyze_conversation_patterns(thread_id)
+        patterns = await MemoryAnalyzer.analyze_conversation_patterns(thread_id)
         if patterns["correction_patterns"]:
             for correction in patterns["correction_patterns"][:2]:
                 insights["potential_pitfalls"].append({
@@ -248,7 +249,7 @@ class MemoryAnalyzer:
     @staticmethod
     def _format_time_ago(timestamp: datetime) -> str:
         """Format timestamp as human-readable time ago."""
-        delta = datetime.now() - timestamp
+        delta = utc_now() - ensure_utc(timestamp)
         
         if delta.total_seconds() < 60:
             return "just now"

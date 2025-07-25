@@ -6,6 +6,7 @@ from typing import Dict, Any, List, TypedDict, Annotated
 import operator
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_openai import AzureChatOpenAI
 from src.utils.cost_tracking_decorator import create_cost_tracking_azure_openai
 from langgraph.graph import StateGraph, END
@@ -15,6 +16,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from src.agents.jira.tools.unified import UNIFIED_JIRA_TOOLS
 from src.a2a import A2AServer, A2AArtifact, AgentCard
 from src.agents.shared.memory_writer import write_tool_result_to_memory
+from src.agents.shared.entity_extracting_tool_node import create_entity_extracting_tool_node
 from src.utils.thread_utils import create_thread_id
 from src.utils.config import config
 from src.utils.logging.framework import SmartLogger, log_execution
@@ -58,7 +60,11 @@ def create_azure_openai_chat():
     # Use cost-tracking LLM (decorator pattern)
     return create_cost_tracking_azure_openai(component="jira", **llm_kwargs)
 
-def build_jira_agent():
+# Create LLM with tools at module level (like Salesforce)
+llm = create_azure_openai_chat()
+llm_with_tools = llm.bind_tools(jira_tools)
+
+async def build_jira_agent():
     """Build and compile the Jira agent LangGraph workflow.
 
     Returns:
@@ -70,17 +76,9 @@ def build_jira_agent():
         - Binds all 15 Jira tools to the LLM for function calling
     """
     
-    # Initialize LLM with Azure OpenAI configuration
-    llm = create_azure_openai_chat()
-    
-    # Bind tools to LLM
-    llm_with_tools = llm.bind_tools(jira_tools)
-    
-    # Create workflow
-    StateGraph(JiraAgentState)
-    
+    # Define agent node inside async function (like Salesforce pattern)
     @log_execution("jira", "agent_node", include_args=False, include_result=False)
-    def agent_node(state: JiraAgentState):
+    def agent_node(state: JiraAgentState, config: RunnableConfig):
         """Main agent logic node that processes messages and generates responses.
         
         Args:
@@ -113,7 +111,7 @@ def build_jira_agent():
             # Convert to messages for the LLM
             messages = formatted_prompt.to_messages()
             
-            # Get response from LLM with tool bindings
+            # Get response from LLM with tool bindings (uses module-level llm_with_tools)
             response = llm_with_tools.invoke(messages)
             
             return {"messages": [response]}
@@ -121,12 +119,15 @@ def build_jira_agent():
         except Exception:
             raise
     
+    # Create custom tool node using the shared implementation
+    custom_tool_node = await create_entity_extracting_tool_node(jira_tools, "jira")
+    
     # Build graph following 2024 best practices
     graph_builder = StateGraph(JiraAgentState)
     
     # Add nodes
     graph_builder.add_node("agent", agent_node)
-    graph_builder.add_node("tools", ToolNode(jira_tools))
+    graph_builder.add_node("tools", custom_tool_node)
     
     # Modern routing using prebuilt tools_condition
     graph_builder.set_entry_point("agent")
@@ -144,8 +145,8 @@ def build_jira_agent():
     memory = MemorySaver()
     return graph_builder.compile(checkpointer=memory)
 
-# Global agent instance
-jira_agent = build_jira_agent()
+# Global agent instance (will be created in main)
+jira_agent = None
 
 async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
     """Handle incoming A2A protocol requests for Jira operations.
@@ -215,7 +216,7 @@ async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
                                     except:
                                         pass
                                 
-                                write_tool_result_to_memory(
+                                await write_tool_result_to_memory(
                                     thread_id=thread_id,
                                     tool_name=tool_call.get("name", "unknown"),
                                     tool_args=tool_call.get("args", {}),
@@ -330,6 +331,7 @@ def get_agent_card() -> Dict[str, Any]:
     return card.model_dump()
 
 async def main():
+    global jira_agent
     """Main entry point for Jira agent."""
     import argparse
     import asyncio
@@ -370,6 +372,9 @@ async def main():
             "tool_names": [tool.name for tool in jira_tools]
         }
     )
+    
+    # Build the Jira agent
+    jira_agent = await build_jira_agent()
     
     # Create A2A server
     server = A2AServer(agent_card, args.host, args.port)
