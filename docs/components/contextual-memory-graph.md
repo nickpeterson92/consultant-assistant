@@ -2,7 +2,15 @@
 
 ## Overview
 
-The Contextual Memory Graph is a sophisticated graph-based memory system that provides intelligent context management for multi-turn conversations. Built on NetworkX, it implements advanced graph algorithms to track relationships between entities, actions, and conversation elements, enabling smarter context retrieval and reasoning.
+The Contextual Memory Graph is a sophisticated hybrid memory system that combines PostgreSQL for persistent user memories with SQLite for transient processing state. This architecture provides intelligent context management for multi-turn conversations while ensuring data persistence, user isolation, and scalability. Built on NetworkX, it implements advanced graph algorithms to track relationships between entities, actions, and conversation elements, enabling smarter context retrieval and reasoning.
+
+### Key Architectural Changes
+
+- **Hybrid Storage**: PostgreSQL for persistent user memories, SQLite for transient thread state
+- **User Scoping**: All persistent memories are scoped to individual users
+- **Entity Deduplication**: Automatic deduplication of domain entities at the user level
+- **Write-Through Caching**: Immediate local access with background persistence
+- **Connection Pooling**: Efficient PostgreSQL connection management with asyncpg
 
 ## Architecture
 
@@ -16,14 +24,23 @@ flowchart TB
     classDef algoClass fill:#fb8c00,stroke:#e65100,stroke-width:2px,color:#ffffff
     classDef featureClass fill:#43a047,stroke:#1b5e20,stroke-width:2px,color:#ffffff
     classDef observerClass fill:#0288d1,stroke:#01579b,stroke-width:2px,color:#ffffff
+    classDef storageClass fill:#ff6f00,stroke:#e65100,stroke-width:2px,color:#ffffff
+    classDef hybridClass fill:#6a1b9a,stroke:#4a148c,stroke-width:3px,color:#ffffff,font-weight:bold
     
     %% Top-level system
-    SYSTEM[💾 CONTEXTUAL MEMORY GRAPH SYSTEM]:::systemClass
+    SYSTEM[💾 HYBRID MEMORY GRAPH SYSTEM]:::systemClass
+    
+    %% Hybrid Manager
+    SYSTEM --> HYBRID[🔄 Hybrid Memory Manager<br>━━━━━━━━━━━━━━━━━━━<br>• User Memory Loading<br>• Write-Through Cache<br>• Storage Coordination]:::hybridClass
+    
+    %% Storage Layer
+    HYBRID --> POSTGRES[🐘 PostgreSQL Backend<br>━━━━━━━━━━━━━━━━━<br>• Persistent User Memory<br>• Entity Deduplication<br>• Connection Pooling<br>• JSONB Storage]:::storageClass
+    HYBRID --> SQLITE[📊 SQLite Cache<br>━━━━━━━━━━━━<br>• Thread State<br>• Fast Local Access<br>• Transient Memory]:::storageClass
     
     %% Core components
-    SYSTEM --> MANAGER[📋 Memory Manager<br>━━━━━━━━━━━━━━━<br>• Thread Isolation<br>• Lifecycle Mgmt<br>• Cleanup Scheduler]:::managerClass
-    SYSTEM --> GRAPH[🕸️ Memory Graph<br>━━━━━━━━━━━━━<br>• NetworkX Core<br>• Relationship Mgmt<br>• Index Management]:::graphClass
-    SYSTEM --> NODE[📦 Memory Node<br>━━━━━━━━━━━━<br>• Content Store<br>• Relevance<br>• Decay Model]:::nodeClass
+    HYBRID --> MANAGER[📋 Memory Manager<br>━━━━━━━━━━━━━━━<br>• Thread Isolation<br>• Lifecycle Mgmt<br>• Cleanup Scheduler]:::managerClass
+    MANAGER --> GRAPH[🕸️ Memory Graph<br>━━━━━━━━━━━━━<br>• NetworkX Core<br>• Relationship Mgmt<br>• Index Management]:::graphClass
+    GRAPH --> NODE[📦 Memory Node<br>━━━━━━━━━━━━<br>• Content Store<br>• Relevance<br>• Decay Model]:::nodeClass
     
     %% Observer Integration
     SYSTEM --> OBSERVER[📡 Memory Observer<br>━━━━━━━━━━━━━━━<br>• SSE Events<br>• Content Inclusion<br>• UI Updates]:::observerClass
@@ -52,12 +69,64 @@ flowchart TB
     FEATURES --> F9[Thread Safety]:::featureClass
     
     %% Relationships
+    POSTGRES -.->|persists| NODE
+    SQLITE -.->|caches| NODE
+    HYBRID -.->|coordinates| POSTGRES
+    HYBRID -.->|coordinates| SQLITE
     MANAGER -.->|manages| GRAPH
     GRAPH -.->|contains| NODE
     NODE -.->|analyzed by| ALGOS
     OBSERVER -.->|monitors| GRAPH
     OBSERVER -.->|emits events for| NODE
 ```
+
+## Hybrid Storage Architecture
+
+### Data Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Orchestrator
+    participant HybridManager
+    participant SQLite
+    participant PostgreSQL
+    
+    User->>Orchestrator: Start Session
+    Orchestrator->>HybridManager: ensure_user_memories(user_id)
+    HybridManager->>PostgreSQL: Load user memories
+    PostgreSQL-->>HybridManager: Return nodes & relationships
+    HybridManager->>SQLite: Cache in local graph
+    SQLite-->>HybridManager: Ready for fast access
+    
+    User->>Orchestrator: Query memory
+    Orchestrator->>HybridManager: retrieve_relevant()
+    HybridManager->>SQLite: Fast local search
+    SQLite-->>User: Immediate results
+    
+    User->>Orchestrator: Create persistent memory
+    Orchestrator->>HybridManager: store_persistent_memory()
+    HybridManager->>SQLite: Store locally
+    HybridManager->>PostgreSQL: Persist asynchronously
+    PostgreSQL-->>HybridManager: Confirmed
+```
+
+### Storage Split
+
+**PostgreSQL (Persistent Storage)**
+- User-scoped memory graphs that persist across sessions
+- Entity deduplication at user level (unique per user_id + entity_id + entity_system)
+- Long-term conversation context and learned facts
+- Handles concurrent access from multiple instances
+- JSONB storage for flexible content structure
+- Connection pooling with asyncpg for performance
+
+**SQLite (Transient Cache)**
+- Thread-local processing state and workflow checkpoints
+- Fast local access without network overhead
+- Temporary execution memory for active sessions
+- Acts as a cache for PostgreSQL data during processing
+- Automatically cleaned up for inactive threads
 
 ## Core Components
 
@@ -164,9 +233,52 @@ Thread-specific graph structure managing nodes and relationships.
        """
    ```
 
+### Hybrid Memory Manager (`hybrid_memory_manager.py`)
+
+Coordinates between PostgreSQL persistence and SQLite caching for optimal performance.
+
+#### Key Features
+
+1. **Dual Storage Management**
+   ```python
+   # PostgreSQL for persistence
+   _postgres_backend: PostgresMemoryBackend
+   
+   # SQLite for fast local access
+   thread_memories: Dict[str, MemoryGraph]
+   ```
+
+2. **User Memory Loading**
+   ```python
+   async def ensure_user_memories_loaded(user_id: str):
+       """Load user's persistent memories from PostgreSQL on first access."""
+       # Check if already loaded
+       if memory.node_manager.nodes:
+           return
+       
+       # Load from PostgreSQL
+       nodes = await postgres.get_nodes_by_user(user_id, limit=1000)
+       # Cache in SQLite for session
+   ```
+
+3. **Write-Through Persistence**
+   ```python
+   async def store_persistent_memory(user_id, content, context_type):
+       # Store in SQLite immediately
+       node_id = memory.store(content, context_type)
+       
+       # Persist to PostgreSQL asynchronously
+       await persist_to_postgres(user_id, node)
+   ```
+
+4. **Entity Deduplication**
+   - Automatic deduplication based on (user_id, entity_id, entity_system)
+   - Updates existing entities instead of creating duplicates
+   - Maintains update count and last_updated timestamp
+
 ### Memory Manager (`memory_manager.py`)
 
-Thread-safe manager for multiple conversation contexts.
+Thread-safe manager for SQLite memory graphs.
 
 #### Key Responsibilities
 
@@ -181,7 +293,7 @@ Thread-safe manager for multiple conversation contexts.
    - Activity tracking
    - Stale thread cleanup
 
-3. **Convenience Methods**
+3. **Local Memory Operations**
    ```python
    # Store in thread
    manager.store_in_thread(thread_id, content, ContextType.DOMAIN_ENTITY)
@@ -189,6 +301,51 @@ Thread-safe manager for multiple conversation contexts.
    # Retrieve with intelligence
    results = manager.retrieve_with_intelligence(thread_id, query)
    ```
+
+### PostgreSQL Backend (`postgres_backend.py`)
+
+Handles all PostgreSQL operations with best practices and performance optimizations.
+
+#### Key Features
+
+1. **Connection Pooling**
+   ```python
+   # Async connection pool with asyncpg
+   pool = await asyncpg.create_pool(
+       connection_string,
+       min_size=2,
+       max_size=20,  # Configurable via POSTGRES_POOL_SIZE
+       command_timeout=60
+   )
+   ```
+
+2. **Entity Storage with Deduplication**
+   ```python
+   async def store_node(node: MemoryNode, user_id: str):
+       # Check for existing entity
+       if entity_id and entity_system:
+           existing = await check_existing_entity(user_id, entity_id, entity_system)
+           if existing:
+               # Update existing entity
+               merge_content(existing_content, new_content)
+               return existing_node_id
+       
+       # Insert new node
+       return await insert_new_node(node, user_id)
+   ```
+
+3. **Efficient Queries**
+   - Composite indexes for common query patterns
+   - JSONB operators for content search
+   - Trigram indexes for fuzzy text search
+   - Proper use of prepared statements
+
+4. **Schema Features**
+   - UUID primary keys for distributed compatibility
+   - JSONB storage for flexible content
+   - Automatic timestamp updates via triggers
+   - User metadata tracking
+   - Materialized views for statistics
 
 ### Graph Algorithms (`graph_algorithms.py`)
 
@@ -348,25 +505,68 @@ def create_visualization_data(memory_graph):
 
 ## Usage Patterns
 
-### Basic Storage and Retrieval
+### Hybrid Storage Pattern
 
 ```python
-# Get thread memory
-memory = get_thread_memory(thread_id)
+# Initialize session and load user memories
+from src.memory.core.hybrid_memory_manager import ensure_user_memories
 
-# Store information
-node_id = memory.store(
-    content={'account_id': '001234', 'name': 'Acme Corp'},
+# Load user's persistent memories on session start
+memory = await ensure_user_memories(user_id)
+
+# Store persistent memory (user-scoped, survives sessions)
+from src.memory.core.hybrid_memory_manager import get_hybrid_memory_manager
+manager = get_hybrid_memory_manager()
+
+node_id = await manager.store_persistent_memory(
+    user_id=user_id,
+    content={'account_id': '001234', 'name': 'Acme Corp', 'entity_id': '001234', 'entity_system': 'salesforce'},
     context_type=ContextType.DOMAIN_ENTITY,
     tags={'account', 'customer'},
     summary='Acme Corp account'
 )
 
-# Retrieve relevant context
+# Store transient memory (thread-scoped, session only)
+thread_node_id = manager.store_transient_memory(
+    thread_id=thread_id,
+    content={'step': 'processing', 'status': 'in_progress'},
+    context_type=ContextType.TEMPORARY_STATE
+)
+
+# Retrieve relevant context (searches SQLite cache)
 relevant_nodes = memory.retrieve_relevant(
     query_text="Acme account details",
     max_results=5
 )
+```
+
+### Entity Deduplication
+
+```python
+# First store of an entity
+await manager.store_persistent_memory(
+    user_id='user123',
+    content={
+        'entity_id': 'ACC-001',
+        'entity_system': 'salesforce',
+        'entity_type': 'Account',
+        'entity_data': {'name': 'Acme Corp', 'industry': 'Technology'}
+    },
+    context_type=ContextType.DOMAIN_ENTITY
+)
+
+# Later update - automatically merges with existing
+await manager.store_persistent_memory(
+    user_id='user123',
+    content={
+        'entity_id': 'ACC-001',  # Same ID
+        'entity_system': 'salesforce',  # Same system
+        'entity_type': 'Account',
+        'entity_data': {'revenue': 1000000, 'employees': 50}  # New fields
+    },
+    context_type=ContextType.DOMAIN_ENTITY
+)
+# Result: Single entity with merged data
 ```
 
 ### Advanced Graph Operations
@@ -597,12 +797,76 @@ This memory graph enables sophisticated contextual retrieval:
 
 The PageRank algorithm would identify Acme Corp and the P1 case as high-importance nodes due to their many connections, while community detection would recognize the interconnected Acme ecosystem for holistic context retrieval.
 
+## Performance and Scalability
+
+### Hybrid Architecture Benefits
+
+1. **Reduced Latency**
+   - PostgreSQL loads happen once per session
+   - All queries hit local SQLite cache
+   - Sub-millisecond memory retrieval
+
+2. **Scalability**
+   - User data isolated in PostgreSQL
+   - Connection pooling handles concurrent users
+   - Horizontal scaling via read replicas
+
+3. **Reliability**
+   - Persistent storage survives crashes
+   - SQLite continues working if PostgreSQL is down
+   - Automatic retry and fallback logic
+
+### PostgreSQL Optimizations
+
+```sql
+-- Composite indexes for common queries
+CREATE INDEX idx_nodes_user_context ON memory.nodes (user_id, context_type);
+CREATE INDEX idx_nodes_user_created ON memory.nodes (user_id, created_at DESC);
+
+-- Entity lookup optimization
+CREATE INDEX idx_nodes_entity_lookup ON memory.nodes 
+    (user_id, entity_id, entity_system) 
+    WHERE entity_id IS NOT NULL;
+
+-- Full-text search
+CREATE INDEX idx_nodes_summary_trgm ON memory.nodes 
+    USING GIN (summary gin_trgm_ops);
+
+-- JSONB search
+CREATE INDEX idx_nodes_content ON memory.nodes 
+    USING GIN (content);
+```
+
+### Connection Pool Configuration
+
+```python
+# Environment variables
+POSTGRES_POOL_SIZE=20  # Max connections per instance
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=consultant_assistant
+```
+
+### Memory Management
+
+```python
+# Hybrid cleanup strategy
+async def cleanup_user_memories(user_id: str):
+    """Clean up old memories while preserving important ones."""
+    # Remove transient memories from SQLite
+    manager.cleanup_stale_threads(max_idle_hours=24)
+    
+    # Archive old PostgreSQL memories (optional)
+    await postgres.cleanup_old_nodes(user_id, days=90)
+```
+
 ## Performance Optimizations
 
 ### Caching Strategy
 
 ```python
-# Cache expensive computations
+# Local SQLite acts as cache for PostgreSQL
+# Graph metrics cached in memory
 _pagerank_cache = None
 _centrality_cache = None
 _community_cache = None
@@ -616,15 +880,15 @@ def _invalidate_metrics_cache(self):
 
 ### Efficient Indexing
 
-- Type-based index for fast filtering
-- Tag-based index for semantic search
-- Pre-computed embeddings for similarity
+- PostgreSQL: Composite indexes, JSONB GIN, trigram search
+- SQLite: Type-based and tag-based indexes
+- Memory: Pre-computed embeddings for similarity
 
 ### Memory Cleanup
 
 ```python
 def cleanup_stale_memories(self, aggressive=False):
-    """Remove low-relevance nodes."""
+    """Remove low-relevance nodes from SQLite cache."""
     threshold = 0.1 if not aggressive else 0.3
     
     stale_nodes = [
@@ -638,33 +902,77 @@ def cleanup_stale_memories(self, aggressive=False):
 
 ## Best Practices
 
-### 1. Context Type Selection
+### 1. Storage Type Selection
 
-Choose appropriate context types for different data:
-- `DOMAIN_ENTITY`: Long-lived business objects
+Choose the right storage for your data:
+
+**Persistent Memory (PostgreSQL)**
+- `DOMAIN_ENTITY`: Business objects that persist across sessions
+- `CONVERSATION_FACT`: User preferences and learned information
+- `COMPLETED_ACTION`: Important task outcomes
+- Any data that should survive session restarts
+
+**Transient Memory (SQLite only)**
+- `TEMPORARY_STATE`: Workflow state and progress
 - `SEARCH_RESULT`: Temporary search data
-- `COMPLETED_ACTION`: Task outcomes
-- `CONVERSATION_FACT`: Persistent user preferences
+- Processing artifacts that don't need persistence
 
-### 2. Relationship Management
+### 2. Entity Structure for Deduplication
 
-Create meaningful relationships:
 ```python
-# Causal chain
-memory.add_relationship(search_id, selection_id, RelationshipType.LED_TO)
-
-# Semantic grouping
-memory.add_relationship(account_id, contact_id, RelationshipType.RELATES_TO)
+# Structure entities properly for deduplication
+content = {
+    'entity_id': 'ACC-001',        # Required for deduplication
+    'entity_system': 'salesforce',  # Required for deduplication
+    'entity_type': 'Account',       # Helpful for categorization
+    'entity_name': 'Acme Corp',     # Human-readable name
+    'entity_data': {                # All other fields
+        'industry': 'Technology',
+        'revenue': 1000000
+    }
+}
 ```
 
-### 3. Tag Strategy
+### 3. User Scoping
+
+```python
+# Always include user_id for persistent storage
+await manager.store_persistent_memory(
+    user_id=user_id,  # Critical for isolation
+    content=content,
+    context_type=ContextType.DOMAIN_ENTITY
+)
+
+# Thread memories don't need user_id
+manager.store_transient_memory(
+    thread_id=thread_id,  # Session-specific
+    content=workflow_state,
+    context_type=ContextType.TEMPORARY_STATE
+)
+```
+
+### 4. Relationship Management
+
+Create meaningful relationships that persist:
+```python
+# Persist important relationships
+await manager.persist_relationship(
+    user_id=user_id,
+    from_node_id=account_id,
+    to_node_id=contact_id,
+    relationship_type=RelationshipType.RELATES_TO,
+    strength=0.8
+)
+```
+
+### 5. Tag Strategy
 
 Use consistent, lowercase tags:
 ```python
 tags = {'account', 'biotechnology', 'high-value', 'active'}
 ```
 
-### 4. Summary Quality
+### 6. Summary Quality
 
 Write clear, searchable summaries:
 ```python
@@ -792,22 +1100,62 @@ results = memory.retrieve_relevant(
 manager.cleanup_stale_threads(max_idle_hours=12)
 ```
 
+## Migration and Deployment
+
+### Environment Setup
+
+```bash
+# Required PostgreSQL environment variables
+export POSTGRES_DB=consultant_assistant
+export POSTGRES_USER=your_user
+export POSTGRES_PASSWORD=your_password
+export POSTGRES_HOST=localhost
+export POSTGRES_PORT=5432
+
+# Optional configuration
+export POSTGRES_POOL_SIZE=20
+export POSTGRES_SSL=false
+```
+
+### Database Initialization
+
+```bash
+# Create database
+createdb consultant_assistant
+
+# Apply schema (automatic on first run)
+psql consultant_assistant < src/memory/storage/postgres_schema.sql
+```
+
+### Rollback Strategy
+
+The hybrid architecture provides a seamless rollback path:
+- If PostgreSQL is unavailable, system falls back to SQLite-only mode
+- No data migration required for new deployments
+- Existing SQLite data remains separate from PostgreSQL
+
 ## Future Enhancements
 
-1. **Persistent Storage**
-   - SQLite backend for memory graphs
-   - Graph serialization/deserialization
+1. **Advanced Algorithms**
+   - Temporal graph analysis with time-series patterns
+   - Predictive relevance scoring using ML models
+   - Adaptive decay rates based on access patterns
+   - Graph neural networks for enhanced retrieval
 
-2. **Advanced Algorithms**
-   - Temporal graph analysis
-   - Predictive relevance scoring
-   - Adaptive decay rates
+2. **Enhanced Semantics**
+   - Multi-modal embeddings (text + structured data)
+   - Cross-lingual support for global teams
+   - Domain-specific embedding models
+   - Contextual embedding updates
 
-3. **Enhanced Semantics**
-   - Multi-modal embeddings
-   - Cross-lingual support
-   - Domain-specific models
+3. **Distributed Features**
+   - Read replicas for geographic distribution
+   - Sharding strategies for massive scale
+   - Event streaming for real-time sync
+   - Cross-region replication
 
-4. **Distributed Memory**
-   - Redis-backed shared memory
-   - Distributed graph processing
+4. **Performance Improvements**
+   - Incremental graph algorithm updates
+   - Parallel relationship processing
+   - Compressed storage formats
+   - Query result caching in Redis
