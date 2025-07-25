@@ -161,6 +161,8 @@ class MemoryObserverIntegration:
             global_node_count = 0
             if user_id:
                 try:
+                    # Ensure global entities are loaded from PostgreSQL
+                    await memory_manager.ensure_user_memories_loaded("global_domain_entities")
                     # Get global entities
                     global_memory = await memory_manager.get_memory("global_domain_entities")
                     
