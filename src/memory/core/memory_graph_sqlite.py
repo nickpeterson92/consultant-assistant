@@ -30,12 +30,12 @@ class MemoryGraphSQLite:
             cls._backend = SQLiteMemoryBackend()
         return cls._backend
     
-    def __init__(self, thread_id: str, config=None):
-        # Validate thread ID format
-        if not ThreadIDManager.is_valid_thread_id(thread_id):
-            raise ValueError(f"Invalid thread ID format: {thread_id}. Expected 'agent-task_id' format.")
+    def __init__(self, user_id: str, config=None):
+        # Accept user IDs (e.g. "alice", "bob") instead of thread IDs
+        # This enables proper user-scoped memory isolation
         
-        self.thread_id = thread_id
+        self.thread_id = user_id  # Keep as thread_id for internal compatibility
+        self.user_id = user_id    # Also store as user_id for clarity
         self.created_at = datetime.now()
         self.last_activity = datetime.now()
         self.config = config or MEMORY_CONFIG
@@ -52,7 +52,7 @@ class MemoryGraphSQLite:
         self._graph_cache_time = None
         self._cache_duration = 60  # seconds
         
-        logger.info("memory_graph_sqlite_initialized", thread_id=thread_id)
+        logger.info("memory_graph_sqlite_initialized", user_id=self.user_id)
     
     @property
     def graph(self) -> nx.MultiDiGraph:
@@ -188,7 +188,9 @@ class MemoryGraphSQLite:
         candidates = []
         
         # Determine if we should search globally or thread-scoped
-        global_types = {ContextType.DOMAIN_ENTITY, ContextType.CONVERSATION_FACT}
+        # Only DOMAIN_ENTITY should be globally searchable (e.g., Salesforce accounts)
+        # CONVERSATION_FACT should be user-scoped (e.g., "Alice likes coffee")
+        global_types = {ContextType.DOMAIN_ENTITY}
         search_globally = (
             context_filter is None or  # No filter means include global types
             any(ct in global_types for ct in context_filter)  # Filter includes global types
@@ -196,16 +198,24 @@ class MemoryGraphSQLite:
         
         # If we have query text, use full-text search
         if query_text:
-            if search_globally:
-                # Search globally (no thread filter)
-                search_results = self.backend.search_nodes(query_text, None, limit=max_results * 3)
-            else:
-                # Search thread-scoped
-                search_results = self.backend.search_nodes(query_text, self.thread_id, limit=max_results * 3)
+            # Always search within user's thread first
+            search_results = self.backend.search_nodes(query_text, self.thread_id, limit=max_results * 3)
             
             for node, score in search_results:
+                # For global types, we'll also search globally later
                 if self._node_matches_filters(node, context_filter, max_age_hours, required_tags):
                     candidates.append(node)
+            
+            # If we're looking for global types and didn't find much, search globally
+            if search_globally and len(candidates) < 3:
+                global_search_results = self.backend.search_nodes(query_text, None, limit=max_results * 2)
+                
+                for node, score in global_search_results:
+                    # Only include global types from other threads
+                    if node.context_type in global_types and self._node_matches_filters(node, context_filter, max_age_hours, required_tags):
+                        # Avoid duplicates
+                        if not any(c.node_id == node.node_id for c in candidates):
+                            candidates.append(node)
         else:
             # Get nodes by filters
             if search_globally:
@@ -277,8 +287,8 @@ class MemoryGraphSQLite:
             return False
         
         # For thread-scoped types, ensure they belong to current thread
-        # Global types (DOMAIN_ENTITY, CONVERSATION_FACT) can be from any thread
-        global_types = {ContextType.DOMAIN_ENTITY, ContextType.CONVERSATION_FACT}
+        # Global types (DOMAIN_ENTITY only) can be from any thread
+        global_types = {ContextType.DOMAIN_ENTITY}
         if node.context_type not in global_types:
             # This is a thread-scoped type, but we got it from global search
             # We need to check if it belongs to our thread (this shouldn't happen with our logic above)
@@ -316,7 +326,7 @@ class MemoryGraphSQLite:
         thread_nodes = self.backend.get_nodes_by_thread(self.thread_id)
         
         # Get global entities from all threads
-        global_types = {ContextType.DOMAIN_ENTITY, ContextType.CONVERSATION_FACT}
+        global_types = {ContextType.DOMAIN_ENTITY}
         global_nodes = self.backend.get_all_nodes(context_filter=global_types)
         
         # Combine and deduplicate by node_id
@@ -380,8 +390,8 @@ class MemoryGraphSQLite:
     def cleanup_stale_nodes(self, max_age_hours: float = 24.0) -> int:
         """Remove old nodes while preserving important ones."""
         preserve_types = {
-            ContextType.CONVERSATION_FACT,  # Global persistent facts
-            ContextType.DOMAIN_ENTITY       # Global entities
+            ContextType.DOMAIN_ENTITY       # Global entities (Salesforce records, etc.)
+            # Note: CONVERSATION_FACT is user-scoped and can be cleaned up
         }
         
         deleted = self.backend.delete_old_nodes(max_age_hours, preserve_types)

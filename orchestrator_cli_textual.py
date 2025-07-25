@@ -496,7 +496,10 @@ class ConversationWidget(ScrollableContainer):
                 pass
         
         # Create separate widgets for label and content (like main branch)
-        label_widget = Static("[bold cyan]USER:[/bold cyan]", classes="message-label")
+        # Get user_id from the app
+        user_id = self.app.user_id if hasattr(self.app, 'user_id') else "default_user"
+        label_text = f"[bold cyan]USER ({user_id}):[/bold cyan]"
+        label_widget = Static(label_text, classes="message-label")
         content_widget = Markdown(message, classes="message-content")
         
         # Mount both widgets
@@ -605,11 +608,12 @@ class OrchestatorApp(App):
         ("escape", "interrupt", "Interrupt"),
     ]
     
-    def __init__(self, orchestrator_url: str = "http://localhost:8000", thread_id: Optional[str] = None):
+    def __init__(self, orchestrator_url: str = "http://localhost:8000", thread_id: Optional[str] = None, user_id: Optional[str] = None):
         super().__init__()
         self.orchestrator_url = orchestrator_url
         # Use standardized thread ID format for orchestrator
         self.thread_id = thread_id or create_thread_id("orchestrator", f"{uuid.uuid4().hex[:8]}")
+        self.user_id = user_id or "default_user"  # Default user ID if not provided
         self.a2a_client = A2AClient()
         self._cleanup_done = False
         self.conversation_history = []
@@ -727,6 +731,7 @@ class OrchestatorApp(App):
                 task_id = self.interrupted_task_id
                 context = {
                     "thread_id": self.thread_id,
+                    "user_id": self.user_id,
                     "resume_from_interrupt": True,
                     "user_response": user_input,
                     "interrupt_context": self.interrupt_context
@@ -746,6 +751,7 @@ class OrchestatorApp(App):
                 task_id = f"task-{uuid.uuid4().hex[:8]}"
                 context = {
                     "thread_id": self.thread_id,
+                    "user_id": self.user_id,
                     "conversation_history": self.conversation_history[-5:] if self.conversation_history else []  # Last 5 exchanges for context
                 }
                 
@@ -1243,6 +1249,7 @@ def main():
     parser.add_argument("--url", default="http://localhost:8000", 
                        help="Orchestrator URL (default: http://localhost:8000)")
     parser.add_argument("--thread-id", help="Specific thread ID to use")
+    parser.add_argument("--user-id", help="User ID for memory namespace (default: default_user)")
     parser.add_argument("--no-animation", action="store_true", 
                        help="Skip startup animation")
     
@@ -1260,7 +1267,7 @@ def main():
         logger.error("startup_animation_failed", error=str(e))
     
     # Now start the Textual app
-    app = OrchestatorApp(orchestrator_url=args.url, thread_id=args.thread_id)
+    app = OrchestatorApp(orchestrator_url=args.url, thread_id=args.thread_id, user_id=args.user_id)
     app.run()
 
 

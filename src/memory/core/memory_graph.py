@@ -29,12 +29,12 @@ class RelationshipType:
 class MemoryGraph:
     """Graph-based conversational memory with clean architecture."""
     
-    def __init__(self, thread_id: str, config=None):
-        # Validate thread ID format
-        if not ThreadIDManager.is_valid_thread_id(thread_id):
-            raise ValueError(f"Invalid thread ID format: {thread_id}. Expected 'agent-task_id' format.")
+    def __init__(self, user_id: str, config=None):
+        # Accept user IDs (e.g. "alice", "bob") instead of thread IDs
+        # This enables proper user-scoped memory isolation
             
-        self.thread_id = thread_id
+        self.thread_id = user_id  # Keep as thread_id for internal compatibility
+        self.user_id = user_id    # Also store as user_id for clarity
         self.created_at = datetime.now()
         self.last_activity = datetime.now()
         self.config = config or MEMORY_CONFIG

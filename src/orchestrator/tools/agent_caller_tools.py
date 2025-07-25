@@ -70,6 +70,10 @@ class BaseAgentTool(BaseTool):
         if "user_context" in state:
             context["user_context"] = state["user_context"]
         
+        # Include user_id from configurable if available
+        if "configurable" in state and "user_id" in state["configurable"]:
+            context["user_id"] = state["configurable"]["user_id"]
+        
         return context
     
     def _create_state_snapshot(self, state: Dict[str, Any], 
@@ -193,6 +197,10 @@ class SalesforceAgentTool(BaseAgentTool):
         # Include conversation summary if available  
         if state and "summary" in state:
             extracted_context["conversation_summary"] = state["summary"]
+        
+        # Include user_id if available in state
+        if state and "user_id" in state:
+            extracted_context["user_id"] = state["user_id"]
         
         # Merge any additional context
         if context:
@@ -535,6 +543,10 @@ class JiraAgentTool(BaseAgentTool):
         if state and "summary" in state:
             extracted_context["conversation_summary"] = state["summary"]
         
+        # Include user_id if available in state
+        if state and "user_id" in state:
+            extracted_context["user_id"] = state["user_id"]
+        
         # Merge any additional context
         if context:
             extracted_context.update(context)
@@ -789,7 +801,6 @@ class JiraAgentTool(BaseAgentTool):
                                 # Handle both serialized (dict) and non-serialized (object) messages
                                 msg_name = None
                                 msg_content = None
-                                msg_tool_call_id = None
                                 msg_type = None
                                 
                                 if isinstance(msg, dict):
@@ -798,19 +809,19 @@ class JiraAgentTool(BaseAgentTool):
                                         kwargs = msg['kwargs']
                                         msg_name = kwargs.get('name')
                                         msg_content = kwargs.get('content', '')
-                                        msg_tool_call_id = kwargs.get('tool_call_id')
+                                        kwargs.get('tool_call_id')
                                         msg_type = kwargs.get('type')
                                     else:
                                         # Direct serialized format
                                         msg_name = msg.get('name')
                                         msg_content = msg.get('content', '')
-                                        msg_tool_call_id = msg.get('tool_call_id')
+                                        msg.get('tool_call_id')
                                         msg_type = msg.get('type')
                                 else:
                                     # Non-serialized message object
                                     msg_name = getattr(msg, 'name', None)
                                     msg_content = getattr(msg, 'content', '')
-                                    msg_tool_call_id = getattr(msg, 'tool_call_id', None)
+                                    getattr(msg, 'tool_call_id', None)
                                     msg_type = getattr(msg, 'type', None)
                                 
                                 # Extract tool response messages (ToolMessage type)
@@ -951,6 +962,10 @@ class ServiceNowAgentTool(BaseAgentTool):
         # Include conversation summary if available  
         if state and "summary" in state:
             extracted_context["conversation_summary"] = state["summary"]
+        
+        # Include user_id if available in state
+        if state and "user_id" in state:
+            extracted_context["user_id"] = state["user_id"]
         
         # Merge any additional context
         if context:
@@ -1207,7 +1222,6 @@ class ServiceNowAgentTool(BaseAgentTool):
                                 # Handle both serialized (dict) and non-serialized (object) messages
                                 msg_name = None
                                 msg_content = None
-                                msg_tool_call_id = None
                                 msg_type = None
                                 
                                 if isinstance(msg, dict):
@@ -1216,19 +1230,19 @@ class ServiceNowAgentTool(BaseAgentTool):
                                         kwargs = msg['kwargs']
                                         msg_name = kwargs.get('name')
                                         msg_content = kwargs.get('content', '')
-                                        msg_tool_call_id = kwargs.get('tool_call_id')
+                                        kwargs.get('tool_call_id')
                                         msg_type = kwargs.get('type')
                                     else:
                                         # Direct serialized format
                                         msg_name = msg.get('name')
                                         msg_content = msg.get('content', '')
-                                        msg_tool_call_id = msg.get('tool_call_id')
+                                        msg.get('tool_call_id')
                                         msg_type = msg.get('type')
                                 else:
                                     # Non-serialized message object
                                     msg_name = getattr(msg, 'name', None)
                                     msg_content = getattr(msg, 'content', '')
-                                    msg_tool_call_id = getattr(msg, 'tool_call_id', None)
+                                    getattr(msg, 'tool_call_id', None)
                                     msg_type = getattr(msg, 'type', None)
                                 
                                 # Extract tool response messages (ToolMessage type)

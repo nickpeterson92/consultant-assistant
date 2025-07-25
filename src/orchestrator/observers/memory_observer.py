@@ -24,7 +24,7 @@ class MemoryObserverIntegration:
         self._snapshot_interval = 5  # Send full snapshot every 5 seconds
         
     @log_execution(component="orchestrator", operation="emit_memory_node_added")
-    def emit_node_added(self, thread_id: str, node_id: str, node: MemoryNode, task_id: Optional[str] = None):
+    def emit_node_added(self, thread_id: str, node_id: str, node: MemoryNode, task_id: Optional[str] = None, user_id: Optional[str] = None):
         """Emit event when a memory node is added."""
         try:
             # Convert node to serializable format
@@ -65,7 +65,7 @@ class MemoryObserverIntegration:
             self.observer_registry.notify_memory_node_added(event)
             
             # Check if we should send a full snapshot
-            self._check_snapshot_needed(thread_id, task_id)
+            self._check_snapshot_needed(thread_id, task_id, user_id)
             
         except Exception as e:
             logger.error("memory_node_emit_error",
@@ -103,10 +103,12 @@ class MemoryObserverIntegration:
                         thread_id=thread_id)
     
     @log_execution(component="orchestrator", operation="emit_memory_snapshot")
-    def emit_graph_snapshot(self, thread_id: str, task_id: Optional[str] = None):
+    def emit_graph_snapshot(self, thread_id: str, task_id: Optional[str] = None, user_id: Optional[str] = None):
         """Emit a full snapshot of the memory graph."""
         try:
-            memory = get_thread_memory(thread_id)
+            # Use user_id for memory lookup (our new namespace), fall back to thread_id for compatibility
+            memory_key = user_id if user_id else thread_id
+            memory = get_thread_memory(memory_key)
             
             # Build graph data
             nodes = {}
@@ -174,15 +176,15 @@ class MemoryObserverIntegration:
                         error=str(e),
                         thread_id=thread_id)
     
-    def _check_snapshot_needed(self, thread_id: str, task_id: Optional[str] = None):
+    def _check_snapshot_needed(self, thread_id: str, task_id: Optional[str] = None, user_id: Optional[str] = None):
         """Check if enough time has passed to send a new snapshot."""
         if self._last_snapshot_time is None:
             # First update, send snapshot
-            self.emit_graph_snapshot(thread_id, task_id)
+            self.emit_graph_snapshot(thread_id, task_id, user_id)
         else:
             elapsed = (datetime.now() - self._last_snapshot_time).total_seconds()
             if elapsed >= self._snapshot_interval:
-                self.emit_graph_snapshot(thread_id, task_id)
+                self.emit_graph_snapshot(thread_id, task_id, user_id)
 
 
 # Global instance
@@ -199,10 +201,10 @@ def get_memory_observer() -> MemoryObserverIntegration:
 
 @log_execution(component="orchestrator", operation="notify_memory_update")
 def notify_memory_update(thread_id: str, node_id: str, node: MemoryNode, 
-                        task_id: Optional[str] = None):
+                        task_id: Optional[str] = None, user_id: Optional[str] = None):
     """Convenience function to notify memory updates."""
     observer = get_memory_observer()
-    observer.emit_node_added(thread_id, node_id, node, task_id)
+    observer.emit_node_added(thread_id, node_id, node, task_id, user_id)
 
 
 @log_execution(component="orchestrator", operation="notify_memory_edge")

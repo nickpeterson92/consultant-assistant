@@ -193,6 +193,8 @@ async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
         
         # Write tool results to memory
         thread_id = create_thread_id("jira", task_id)
+        # Extract user_id from context for memory isolation
+        user_id = context.get("user_id")
         messages = result["messages"]
         for i, msg in enumerate(messages):
             if hasattr(msg, 'tool_calls') and msg.tool_calls:
@@ -219,7 +221,8 @@ async def handle_a2a_request(params: Dict[str, Any]) -> Dict[str, Any]:
                                     tool_args=tool_call.get("args", {}),
                                     tool_result=tool_result,
                                     task_id=task_id,
-                                    agent_name="jira"
+                                    agent_name="jira",
+                                    user_id=user_id
                                 )
                             except Exception as e:
                                 logger.warning("failed_to_write_tool_result",

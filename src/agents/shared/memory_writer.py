@@ -17,19 +17,21 @@ def write_tool_result_to_memory(
     tool_result: Any,
     task_id: str,
     agent_name: str,
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None,
+    user_id: Optional[str] = None
 ) -> str:
     """
     Write tool execution results directly to the shared memory graph.
     
     Args:
-        thread_id: The conversation thread ID
+        thread_id: The conversation thread ID (for backwards compatibility)
         tool_name: Name of the tool that was executed
         tool_args: Arguments passed to the tool
         tool_result: The result returned by the tool
         task_id: The A2A task ID
         agent_name: Name of the agent executing the tool
         metadata: Additional metadata to store
+        user_id: The user ID for proper memory isolation (preferred over thread_id)
         
     Returns:
         The node ID of the stored memory
@@ -37,7 +39,9 @@ def write_tool_result_to_memory(
     try:
         # Get the memory manager
         memory_manager = get_memory_manager()
-        memory = memory_manager.get_memory(thread_id)
+        # Use user_id if provided, otherwise fall back to thread_id for compatibility
+        memory_key = user_id if user_id else thread_id
+        memory = memory_manager.get_memory(memory_key)
         
         # Prepare content
         content = {
@@ -78,6 +82,8 @@ def write_tool_result_to_memory(
         logger.info(
             "tool_result_stored_in_memory",
             thread_id=thread_id,
+            user_id=user_id,
+            memory_key=memory_key,
             node_id=tool_node_id,
             tool_name=tool_name,
             agent_name=agent_name,

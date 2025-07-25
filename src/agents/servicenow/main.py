@@ -182,6 +182,8 @@ async def handle_a2a_request(params: dict) -> dict:
         
         # Write tool results to memory
         thread_id = create_thread_id("servicenow", task_id)
+        # Extract user_id from context for memory isolation
+        user_id = context.get("user_id")
         messages = final_state.get("messages", [])
         for i, msg in enumerate(messages):
             if hasattr(msg, 'tool_calls') and msg.tool_calls:
@@ -208,7 +210,8 @@ async def handle_a2a_request(params: dict) -> dict:
                                     tool_args=tool_call.get("args", {}),
                                     tool_result=tool_result,
                                     task_id=task_id,
-                                    agent_name="servicenow"
+                                    agent_name="servicenow",
+                                    user_id=user_id
                                 )
                             except Exception as e:
                                 logger.warning("failed_to_write_tool_result",

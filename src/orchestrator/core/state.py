@@ -29,6 +29,7 @@ class PlanExecute(TypedDict):
     messages: Annotated[List, add_messages]  # Persistent conversation history across requests
     thread_id: str  # Thread ID for memory context
     task_id: str  # Task ID for SSE event correlation
+    user_id: str  # User ID for memory namespace
     plan_step_offset: int  # Track where current plan starts in past_steps
 
 

@@ -27,9 +27,8 @@ class ConversationalMemoryManager:
     
     def get_memory(self, thread_id: str) -> MemoryGraph:
         """Get or create memory graph for a thread."""
-        # Validate thread ID format
-        if not ThreadIDManager.is_valid_thread_id(thread_id):
-            raise ValueError(f"Invalid thread ID format: {thread_id}. Expected 'agent-task_id' format.")
+        # No longer validate format - accept any string as memory key
+        # This allows both user IDs (e.g. "alice") and thread IDs (e.g. "orchestrator-abc123")
             
         with self._lock:
             if thread_id not in self.thread_memories:

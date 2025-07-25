@@ -62,7 +62,7 @@ class OrchestratorA2AHandler:
             config = {
                 "configurable": {
                     "thread_id": thread_id,
-                    "user_id": context.get("user_id", "a2a_user")
+                    "user_id": context.get("user_id", "default_user")  # Use default_user as fallback
                 }
             }
             
@@ -105,7 +105,8 @@ class OrchestratorA2AHandler:
                     "user_visible_responses": [],
                     "messages": [("user", instruction)],  # Current user message (LangGraph will merge with existing)
                     "thread_id": thread_id,  # Add thread_id to state for memory integration
-                    "task_id": task_id  # Add actual task_id for SSE events
+                    "task_id": task_id,  # Add actual task_id for SSE events
+                    "user_id": context.get("user_id", "default_user")  # Add user_id to state
                 }
                 
                 # Execute the graph

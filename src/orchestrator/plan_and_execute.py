@@ -16,7 +16,6 @@ from src.utils.logging.framework import SmartLogger, log_execution
 from src.orchestrator.workflow.event_decorators import emit_coordinated_events
 from src.orchestrator.workflow.memory_context_builder import MemoryContextBuilder
 from src.orchestrator.core.state import PlanExecute, StepExecution
-from src.utils.thread_utils import parse_thread_id, create_thread_id, ThreadIDManager
 
 # Initialize logger
 logger = SmartLogger("orchestrator")
@@ -86,14 +85,18 @@ def execute_step(state: PlanExecute):
     
     # Get memory for this conversation thread
     thread_id = state.get("thread_id", "default-thread")
-    memory = get_thread_memory(thread_id)
+    # Use user_id for memory isolation if available
+    user_id = state.get("user_id")
+    memory_key = user_id if user_id else thread_id
+    memory = get_thread_memory(memory_key)
     
     # Get conversation summary from SQLite if available and not already in state
     if "summary" not in state:
         from src.utils.storage import get_global_sqlite_store
         global_sqlite_store = get_global_sqlite_store()
         if global_sqlite_store:
-            namespace = ("memory", thread_id)
+            user_id = state.get("user_id", "default_user")
+            namespace = ("memory", user_id)
             key = "conversation_summary"
             summary_data = global_sqlite_store.get(namespace, key)
             if summary_data and isinstance(summary_data, dict):
@@ -134,8 +137,10 @@ def execute_step(state: PlanExecute):
             past_steps_context += f"Step {step['step_seq_no']}: {step['step_description']}\nResult: {step['result']}\n\n"
     
     # MEMORY ENHANCEMENT: Use advanced memory context builder
+    # Use user_id for memory retrieval (user-scoped memory)
+    user_id = state.get("user_id", "default_user")
     memory_context, memory_metadata = MemoryContextBuilder.build_enhanced_context(
-        thread_id=thread_id,
+        thread_id=user_id,  # Using user_id for user-scoped memory
         query_text=f"{task} {state['input']}",
         context_type="execution",
         max_age_hours=2,
@@ -155,7 +160,7 @@ def execute_step(state: PlanExecute):
     # Get execution insights using memory analyzer
     try:
         from src.orchestrator.workflow.memory_analyzer import MemoryAnalyzer
-        execution_insights = MemoryAnalyzer.get_execution_insights(thread_id, task)
+        execution_insights = MemoryAnalyzer.get_execution_insights(user_id, task)  # Use user_id instead of thread_id
         
         if execution_insights["potential_pitfalls"]:
             memory_context += "\n\nCAUTION:\n"
@@ -293,7 +298,8 @@ You are tasked with executing step {current_step_num}: {task}.
         planning_llm = globals().get('planner', {})
         if hasattr(planning_llm, 'llm'):  # Extract LLM from planner chain
             # Run background task in background thread since execute_step is sync
-            asyncio.create_task(trigger_background_summary_if_needed(messages, planning_llm.llm))
+            user_id = state.get("user_id", "default_user")
+            asyncio.create_task(trigger_background_summary_if_needed(messages, planning_llm.llm, user_id))
         else:
             logger.debug("no_llm_for_background_tasks", 
                         component="orchestrator",
@@ -314,7 +320,6 @@ You are tasked with executing step {current_step_num}: {task}.
     else:
         # Extract tool response data if present
         tool_response_data = None
-        tool_response_full = None
         for message in messages:
             # Check for tool response messages (ToolMessage type)
             if hasattr(message, 'name') and hasattr(message, 'content'):
@@ -328,7 +333,6 @@ You are tasked with executing step {current_step_num}: {task}.
                             if isinstance(tool_result, dict):
                                 if tool_result.get('success', False):
                                     tool_response_data = tool_result.get('data')
-                                    tool_response_full = tool_result
                         except (json.JSONDecodeError, ValueError):
                             # If not JSON, it might be plain text response
                             pass
@@ -338,8 +342,8 @@ You are tasked with executing step {current_step_num}: {task}.
                     if 'salesforce_agent' in getattr(message, 'name', '') or \
                        'jira_agent' in getattr(message, 'name', '') or \
                        'servicenow_agent' in getattr(message, 'name', ''):
-                        # This is an agent response, save it for entity extraction
-                        tool_response_full = message.content
+                        # This is an agent response (entity extraction handled elsewhere)
+                        pass
                 except (AttributeError, TypeError):
                     pass
         
@@ -431,7 +435,6 @@ You are tasked with executing step {current_step_num}: {task}.
                 break  # Just link to the most recent one
         
         # Use intelligent entity extraction
-        from src.orchestrator.workflow.entity_extractor import extract_entities_intelligently
         
         # Determine context from the task
         extraction_context = {
@@ -461,39 +464,29 @@ You are tasked with executing step {current_step_num}: {task}.
         # Agents extract entities from tool results and store them directly in memory
         # The orchestrator can simply query for DOMAIN_ENTITY nodes when needed
         
-        # Get recently created domain entities from agent threads
+        # Get recently created domain entities from memory
+        # With user_id based memory, all entities are in the same memory space
         related_entities = []
-        thread_id = state.get("thread_id")
-        if thread_id:
-            try:
-                _, task_id = parse_thread_id(thread_id)
+        try:
+            # Query for recent domain entities created during this task
+            recent_entities = memory.retrieve_relevant(
+                query_text="",
+                context_filter={ContextType.DOMAIN_ENTITY},
+                max_age_hours=0.1,  # Last 6 minutes
+                max_results=20
+            )
+            for entity_node in recent_entities:
+                related_entities.append(entity_node.node_id)
+                # Update access time
+                entity_node.access()
                 
-                # Query for recent domain entities created by agents for this task
-                for agent_name in ["salesforce", "jira", "servicenow"]:
-                    agent_thread_id = create_thread_id(agent_name, task_id)
-                    try:
-                        agent_memory = global_memory_store.get_memory(agent_thread_id)
-                        recent_entities = agent_memory.retrieve_relevant(
-                            query_text="",
-                            context_filter={ContextType.DOMAIN_ENTITY},
-                            max_age_hours=0.1,  # Last 6 minutes
-                            max_results=20
-                        )
-                        for entity_node in recent_entities:
-                            related_entities.append(entity_node.node_id)
-                            # Update access time
-                            entity_node.access()
-                    except Exception:
-                        # Thread might not exist if agent wasn't called
-                        pass
-                        
-                logger.info("found_agent_created_entities",
-                           component="orchestrator",
-                           operation="execute_step",
-                           entity_count=len(related_entities))
-                           
-            except ValueError:
-                pass  # Invalid thread ID format
+            logger.info("found_agent_created_entities",
+                       component="orchestrator",
+                       operation="execute_step",
+                       entity_count=len(related_entities))
+                       
+        except Exception as e:
+            logger.debug(f"Could not retrieve recent entities: {e}")
         
         # Store in memory (auto-summary will be generated from actual content)
         memory_node_id = memory.store(
@@ -591,7 +584,7 @@ You are tasked with executing step {current_step_num}: {task}.
                 from src.orchestrator.observers.memory_observer import notify_memory_update, notify_memory_edge
                 node = memory.node_manager.get_node(tool_node_id)
                 if node:
-                    notify_memory_update(thread_id, tool_node_id, node, state.get("task_id"))
+                    notify_memory_update(thread_id, tool_node_id, node, state.get("task_id"), state.get("user_id"))
                 notify_memory_edge(thread_id, memory_node_id, tool_node_id, RelationshipType.DEPENDS_ON, state.get("task_id"))
             except Exception as e:
                 logger.debug(f"Memory tool notification failed: {e}")
@@ -611,7 +604,7 @@ You are tasked with executing step {current_step_num}: {task}.
             from src.orchestrator.observers.memory_observer import notify_memory_update
             node = memory.node_manager.get_node(memory_node_id)
             if node:
-                notify_memory_update(thread_id, memory_node_id, node, state.get("task_id"))
+                notify_memory_update(thread_id, memory_node_id, node, state.get("task_id"), state.get("user_id"))
         except Exception as e:
             logger.warning("memory_observer_notification_failed", error=str(e))
         
@@ -672,14 +665,18 @@ def plan_step(state: PlanExecute):
     
     # Get memory for context-aware planning
     thread_id = state.get("thread_id", "default-thread")
-    memory = get_thread_memory(thread_id)
+    # Use user_id for memory isolation if available
+    user_id = state.get("user_id")
+    memory_key = user_id if user_id else thread_id
+    memory = get_thread_memory(memory_key)
     
     # Get conversation summary from SQLite if available
     conversation_summary = None
     from src.utils.storage import get_global_sqlite_store
     global_sqlite_store = get_global_sqlite_store()
     if global_sqlite_store:
-        namespace = ("memory", thread_id)
+        user_id = state.get("user_id", "default_user")
+        namespace = ("memory", user_id)
         key = "conversation_summary"
         summary_data = global_sqlite_store.get(namespace, key)
         if summary_data and isinstance(summary_data, dict):
@@ -715,7 +712,7 @@ def plan_step(state: PlanExecute):
     
     # Use enhanced memory context for planning
     planning_context, planning_metadata = MemoryContextBuilder.build_enhanced_context(
-        thread_id=thread_id,
+        thread_id=memory_key,  # Use memory_key (user_id if available)
         query_text=state["input"],
         context_type="planning",
         max_age_hours=4,
@@ -779,7 +776,7 @@ def plan_step(state: PlanExecute):
     try:
         from src.orchestrator.observers.memory_observer import get_memory_observer
         observer = get_memory_observer()
-        observer.emit_graph_snapshot(thread_id, state.get("task_id"))
+        observer.emit_graph_snapshot(thread_id, state.get("task_id"), state.get("user_id"))
     except Exception as e:
         logger.warning("memory_snapshot_emission_failed", error=str(e))
     
@@ -832,6 +829,9 @@ def replan_step(state: PlanExecute):
     
     # Get memory for context-aware replanning
     thread_id = state.get("thread_id", "default-thread")
+    # Use user_id for memory isolation if available
+    user_id = state.get("user_id")
+    memory_key = user_id if user_id else thread_id
     # Memory is accessed through MemoryContextBuilder
     
     # Format past_steps for the template - only include steps from current plan
@@ -848,7 +848,7 @@ def replan_step(state: PlanExecute):
     query_for_memory = f"{state['input']} {recent_steps}".strip()
     
     memory_context, replan_metadata = MemoryContextBuilder.build_enhanced_context(
-        thread_id=thread_id,
+        thread_id=memory_key,  # Use memory_key (user_id if available)
         query_text=query_for_memory,
         context_type="replanning",
         max_age_hours=1,
@@ -1084,7 +1084,7 @@ def update_background_summary_tracking(message_count: int):
     _last_summary_time = time.time()
     _last_summary_message_count = message_count
 
-async def trigger_background_summary_if_needed(messages: list, llm):
+async def trigger_background_summary_if_needed(messages: list, llm, user_id: str = "default_user"):
     """Simple background summarization trigger for ReAct agent."""
     if not should_trigger_background_summary(len(messages)):
         return
@@ -1107,7 +1107,8 @@ async def trigger_background_summary_if_needed(messages: list, llm):
         from src.utils.storage import get_global_sqlite_store
         global_sqlite_store = get_global_sqlite_store()
         if global_sqlite_store:
-            namespace = ("memory", thread_id)
+            # Use user_id passed to the function
+            namespace = ("memory", user_id)
             key = "conversation_summary"
             existing_data = global_sqlite_store.get(namespace, key)
             if existing_data:
@@ -1143,7 +1144,8 @@ async def trigger_background_summary_if_needed(messages: list, llm):
         from src.utils.storage import get_global_sqlite_store
         global_sqlite_store = get_global_sqlite_store()
         if global_sqlite_store:
-            namespace = ("memory", thread_id)
+            # Use user_id passed to the function
+            namespace = ("memory", user_id)
             key = "conversation_summary"
             
             # Get existing summary to potentially merge
@@ -1183,7 +1185,6 @@ async def create_plan_execute_graph():
     from src.orchestrator.tools.web_search import WebSearchTool
     from src.orchestrator.tools.human_input import HumanInputTool
     from langgraph.prebuilt import create_react_agent
-    from langchain_openai import AzureChatOpenAI
     from src.utils.cost_tracking_decorator import create_cost_tracking_azure_openai
     import os
     

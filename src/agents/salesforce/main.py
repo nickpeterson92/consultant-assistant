@@ -223,6 +223,8 @@ class SalesforceA2AHandler:
             
             # Log tool calls and write results to memory
             thread_id = create_thread_id("salesforce", task_id)
+            # Extract user_id from context for memory isolation
+            user_id = context.get("user_id")
             for i, msg in enumerate(messages):
                 if hasattr(msg, 'tool_calls') and msg.tool_calls:
                     for tool_call in msg.tool_calls:
@@ -255,7 +257,8 @@ class SalesforceA2AHandler:
                                         tool_args=tool_call.get("args", {}),
                                         tool_result=tool_result,
                                         task_id=task_id,
-                                        agent_name="salesforce"
+                                        agent_name="salesforce",
+                                        user_id=user_id
                                     )
                                 except Exception as e:
                                     logger.warning("failed_to_write_tool_result",
