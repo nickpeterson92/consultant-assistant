@@ -173,11 +173,22 @@ def execute_step(state: PlanExecute):
     except Exception as e:
         logger.warning("execution_insights_failed", error=str(e))
     
+    # SCHEMA INJECTION: Add relevant schemas based on task
+    from src.utils.schema_knowledge import get_schema_knowledge
+    schema_kb = get_schema_knowledge()
+    
+    # Get schemas relevant to this task
+    schema_context = schema_kb.get_schema_context(
+        query=f"{task} {state.get('input', '')}",
+        max_schemas=2  # Don't overwhelm context
+    )
+    
     task_formatted = f"""For the following plan:
 {plan_str}
 
 You are tasked with executing step {current_step_num}: {task}.
 {memory_context}
+{schema_context}
 {past_steps_context}"""
     
     # Skip emitting execution context to UI - only show planning contexts
@@ -1173,6 +1184,7 @@ async def create_plan_execute_graph():
     from src.orchestrator.tools.human_input import HumanInputTool
     from langgraph.prebuilt import create_react_agent
     from langchain_openai import AzureChatOpenAI
+    from src.utils.cost_tracking_decorator import create_cost_tracking_azure_openai
     import os
     
     # Create agent registry and LLM instances
@@ -1194,8 +1206,9 @@ async def create_plan_execute_graph():
         HumanInputTool()
     ]
     
-    # Create LLM for the ReAct agent
-    llm = AzureChatOpenAI(
+    # Create LLM for the ReAct agent with cost tracking (decorator pattern)
+    llm = create_cost_tracking_azure_openai(
+        component="orchestrator",
         azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
         azure_deployment=os.environ.get("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME", "gpt-4o-mini"),
         openai_api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-06-01"),

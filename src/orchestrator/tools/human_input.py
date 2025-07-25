@@ -29,6 +29,7 @@ class HumanInputTool(BaseTool):
     - Multiple interpretations are possible and you need to confirm the correct one
     - Additional context or details are required to proceed
     - You need to verify assumptions before taking action
+    - You are creating or updating records and need clarification on fields or values
     
     MANDATORY: You MUST include the result from the previous steps in the full_message parameter.
     The parameter should be an EXACT copy of the result from the previous steps.

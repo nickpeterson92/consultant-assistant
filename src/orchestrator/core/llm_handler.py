@@ -10,6 +10,7 @@ from src.utils.config import config, DETERMINISTIC_TEMPERATURE, DETERMINISTIC_TO
 from src.utils.prompt_templates import create_orchestrator_prompt, ContextInjectorOrchestrator
 from src.utils.storage.memory_schemas import SimpleMemory
 from src.orchestrator.core.state import OrchestratorState
+from src.utils.cost_tracking_decorator import create_cost_tracking_azure_openai
 
 
 def create_llm_instances(tools: List[Any]):
@@ -33,11 +34,13 @@ def create_llm_instances(tools: List[Any]):
     if llm_config.get('llm.top_p') is not None:
         llm_kwargs["top_p"] = llm_config.get('llm.top_p')
     
-    llm = AzureChatOpenAI(**llm_kwargs)
+    # Use cost-tracking LLM (decorator pattern)
+    llm = create_cost_tracking_azure_openai(component="orchestrator", **llm_kwargs)
     llm_with_tools = llm.bind_tools(tools)
     
-    # Create deterministic LLM for memory extraction
-    deterministic_llm = AzureChatOpenAI(
+    # Create deterministic LLM for memory extraction (decorator pattern)
+    deterministic_llm = create_cost_tracking_azure_openai(
+        component="orchestrator",
         azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
         azure_deployment=os.environ.get("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME", "gpt-4o-mini"),
         openai_api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-06-01"),
@@ -59,8 +62,9 @@ def create_llm_instances(tools: List[Any]):
     def invoke_llm(messages, use_tools=False, temperature=None, top_p=None):
         """Invoke LLM with optional tool binding and generation parameters."""
         if temperature is not None or top_p is not None:
-            # Create a new LLM with custom parameters
-            temp_llm = AzureChatOpenAI(
+            # Create a new LLM with custom parameters (decorator pattern)
+            temp_llm = create_cost_tracking_azure_openai(
+                component="orchestrator",
                 azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
                 azure_deployment=os.environ.get("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME", "gpt-4o-mini"),
                 openai_api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-06-01"),

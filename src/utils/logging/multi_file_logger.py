@@ -31,6 +31,7 @@ class MultiFileLogger(StructuredLogger):
         'utility': 'orchestrator.log',  # Utility tools go to orchestrator log
         'extraction': 'extraction.log',  # Trustcall extraction and instruction enhancement
         'client': 'client.log',  # CLI client SSE streaming and display
+        'cost_tracking': 'cost_tracking.log',  # LLM usage and cost tracking
     }
     
     def __init__(self, log_dir: str = None, level: int = None):

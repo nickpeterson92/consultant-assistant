@@ -18,7 +18,7 @@ from src.utils.soql_query_builder import (
 class SalesforceGet(SalesforceReadTool):
     """Get any Salesforce record by ID."""
     name: str = "salesforce_get"
-    description: str = "Retrieve a single record when you have its ID (15 or 18 character identifier)"
+    description: str = "Retrieve ONE specific record when you have its exact Salesforce ID (15 or 18 character)."
     produces_user_data: bool = True  # Users may need to see retrieved data for decisions
     
     class Input(BaseModel):
@@ -37,9 +37,15 @@ class SalesforceGet(SalesforceReadTool):
                 '001': 'Account',
                 '003': 'Contact',
                 '00Q': 'Lead',
+                '005': 'User',
                 '006': 'Opportunity',
+                '00T': 'Task',
+                '00U': 'Event',
+                '01t': 'Product2',
                 '500': 'Case',
-                '00T': 'Task'
+                '701': 'Campaign',
+                '800': 'Contract',
+                '801': 'Order'
             }
             prefix = record_id[:3]
             object_type = id_prefixes.get(prefix)
@@ -65,14 +71,14 @@ class SalesforceGet(SalesforceReadTool):
 class SalesforceSearch(SalesforceReadTool):
     """Search any Salesforce object with natural language or structured queries."""
     name: str = "salesforce_search"
-    description: str = "LIST individual records with details - use when you need the actual records, not summaries (e.g., list all opportunities, show contacts)"
+    description: str = "LIST individual records with details - use for 'show me', 'list', 'find all', 'get all' types of requests. Returns up to 50 records with names, IDs, statuses, owners."
     produces_user_data: bool = True  # Search results often need user selection
     
     class Input(BaseModel):
         object_type: str = Field(description="Object to search (Account, Contact, Lead, etc.)")
-        filter: str = Field(description="Natural language or WHERE clause condition")
+        filter: str = Field(description="Search term OR complete WHERE clause. For name searches, just provide the name. For WHERE clauses, provide full condition (e.g., 'Name LIKE \\'%<name>%\\'')")
         fields: Optional[List[str]] = Field(None, description="Fields to return")
-        limit: int = Field(50, description="Maximum records to return")
+        limit: int = Field(50, description="Maximum records to return (default 50). NEVER use limit=1 - show all matches")
         order_by: Optional[str] = Field(None, description="Field to sort by")
     
     args_schema: type = Input
@@ -140,12 +146,12 @@ class SalesforceSearch(SalesforceReadTool):
 class SalesforceCreate(SalesforceWriteTool):
     """Create any type of Salesforce record."""
     name: str = "salesforce_create"
-    description: str = "Add a new record to Salesforce (lead, contact, opportunity, case, etc.)"
+    description: str = "Create new Salesforce records. Use exact API field names."
     produces_user_data: bool = False  # Create operations don't require user selection
     
     class Input(BaseModel):
-        object_type: str = Field(description="Type of object to create")
-        data: Dict[str, Any] = Field(description="Field values for the new record")
+        object_type: str = Field(description="Type of object to create (Account, Contact, Lead, Opportunity, Case, Task, etc.)")
+        data: Dict[str, Any] = Field(description="Field values for the new record. Use exact API field names.")
     
     args_schema: type = Input
     
@@ -179,14 +185,14 @@ class SalesforceCreate(SalesforceWriteTool):
 class SalesforceUpdate(SalesforceWriteTool):
     """Update any Salesforce record."""
     name: str = "salesforce_update"
-    description: str = "Modify existing records - change field values, update status, etc. For opportunities, use StageName field for status changes."
+    description: str = "Modify existing records when user wants to 'update', 'change', 'modify', 'set', 'assign', 'close'. Requires record ID from search results' 'Id' field (NOT OwnerId or other related fields). Use 'data' parameter for fields to update."
     produces_user_data: bool = False  # Update operations don't require user selection
     
     class Input(BaseModel):
         object_type: str = Field(description="Type of object to update (e.g., Opportunity, Account, Contact)")
         record_id: Optional[str] = Field(None, description="ID of specific record to update (if known)")
         where: Optional[str] = Field(None, description="SOQL WHERE condition to FIND records to update (e.g., 'Name LIKE \\'%GenePoint%\\''). Do NOT use this for field values!")
-        data: Dict[str, Any] = Field(description="NEW VALUES to set on the record(s). For status updates, use field names like 'StageName'. Example: {'StageName': '[new_stage_value]'} means SET StageName TO [new_stage_value]. This is REQUIRED!")
+        data: Dict[str, Any] = Field(description="NEW VALUES to set on the record(s).")
     
     args_schema: type = Input
     
@@ -199,7 +205,7 @@ class SalesforceUpdate(SalesforceWriteTool):
         
         if not data:
             # This will be wrapped in standardized format by base class
-            raise ValueError("data parameter is required - specify fields to update. For opportunity status, use: {'StageName': '[stage_value]'}")
+            raise ValueError("data parameter is required - specify fields to update.")
         
         # Prepare update data
         prepared_data = self._prepare_data(data)
@@ -248,7 +254,7 @@ class SalesforceUpdate(SalesforceWriteTool):
 class SalesforceSOSL(SalesforceReadTool):
     """Cross-object search using Salesforce Object Search Language (SOSL)."""
     name: str = "salesforce_sosl"
-    description: str = "Search across MULTIPLE object types simultaneously - use ONLY when you don't know which object contains the data"
+    description: str = "Search across MULTIPLE object types simultaneously - use ONLY when object type is unknown. Don't use if you know the object type!"
     
     class Input(BaseModel):
         search_term: str = Field(description="Text to search for across objects")
@@ -322,12 +328,12 @@ class SalesforceSOSL(SalesforceReadTool):
 class SalesforceAnalytics(SalesforceAnalyticsTool):
     """Perform analytics and aggregations on Salesforce data."""
     name: str = "salesforce_analytics"
-    description: str = "CALCULATE aggregated numbers and statistics - use ONLY for totals, averages, counts, insights (NOT for listing records)"
+    description: str = "CALCULATE aggregated numbers and statistics - use for 'how many', 'total', 'average', 'metrics', 'insights' requests. Returns up to 200 records for aggregations. NOT for listing individual records!"
     
     class Input(BaseModel):
         object_type: str = Field(description="Object to analyze")
         metrics: List[str] = Field(
-            description="Metrics to calculate (COUNT, SUM(Amount), AVG(Amount), etc.)"
+            description="Metrics to calculate: COUNT, COUNT(field), SUM(Amount), AVG(Amount), MAX(field), MIN(field)"
         )
         group_by: Optional[str] = Field(None, description="Field to group results by")
         where: Optional[str] = Field(None, description="Filter conditions")

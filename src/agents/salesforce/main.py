@@ -15,6 +15,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import AzureChatOpenAI
+from src.utils.cost_tracking_decorator import create_cost_tracking_azure_openai
 
 # Imports no longer need path manipulation
 
@@ -95,7 +96,8 @@ def create_azure_openai_chat():
     }
     if llm_config.get('llm.top_p') is not None:
         llm_kwargs["top_p"] = llm_config.get('llm.top_p')
-    return AzureChatOpenAI(**llm_kwargs)
+    # Use cost-tracking LLM (decorator pattern)
+    return create_cost_tracking_azure_openai(component="salesforce", **llm_kwargs)
 
 def build_salesforce_graph():
     """Build modern LangGraph using 2024 best practices"""

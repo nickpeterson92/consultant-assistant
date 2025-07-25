@@ -7,6 +7,7 @@ import operator
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_openai import AzureChatOpenAI
+from src.utils.cost_tracking_decorator import create_cost_tracking_azure_openai
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.memory import MemorySaver
@@ -38,7 +39,7 @@ class ServiceNowAgentState(TypedDict):
 servicenow_prompt = create_servicenow_agent_prompt()
 
 def create_azure_openai_chat():
-    """Create Azure OpenAI chat instance using global config"""
+    """Create Azure OpenAI chat instance with cost tracking"""
     llm_config = config
     llm_kwargs = {
         "azure_endpoint": os.environ["AZURE_OPENAI_ENDPOINT"],
@@ -51,7 +52,8 @@ def create_azure_openai_chat():
     }
     if llm_config.get('llm.top_p') is not None:
         llm_kwargs["top_p"] = llm_config.get('llm.top_p')
-    return AzureChatOpenAI(**llm_kwargs)
+    # Use cost-tracking LLM (decorator pattern)
+    return create_cost_tracking_azure_openai(component="servicenow", **llm_kwargs)
 
 def build_servicenow_graph():
     """Build the ServiceNow agent graph using LangGraph."""

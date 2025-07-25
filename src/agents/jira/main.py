@@ -7,6 +7,7 @@ import operator
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
 from langchain_openai import AzureChatOpenAI
+from src.utils.cost_tracking_decorator import create_cost_tracking_azure_openai
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.memory import MemorySaver
@@ -40,6 +41,23 @@ class JiraAgentState(TypedDict):
 # Create the prompt template once at module level
 jira_prompt = create_jira_agent_prompt()
 
+def create_azure_openai_chat():
+    """Create Azure OpenAI chat instance with cost tracking"""
+    llm_config = config
+    llm_kwargs = {
+        "azure_endpoint": os.environ["AZURE_OPENAI_ENDPOINT"],
+        "azure_deployment": os.environ.get("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME", "gpt-4o-mini"),
+        "openai_api_version": os.environ.get("AZURE_OPENAI_API_VERSION", "2024-06-01"),
+        "openai_api_key": os.environ["AZURE_OPENAI_API_KEY"],
+        "temperature": llm_config.llm_temperature,
+        "max_tokens": llm_config.llm_max_tokens,
+        "timeout": llm_config.llm_timeout,
+    }
+    if llm_config.get('llm.top_p') is not None:
+        llm_kwargs["top_p"] = llm_config.get('llm.top_p')
+    # Use cost-tracking LLM (decorator pattern)
+    return create_cost_tracking_azure_openai(component="jira", **llm_kwargs)
+
 def build_jira_agent():
     """Build and compile the Jira agent LangGraph workflow.
 
@@ -53,16 +71,7 @@ def build_jira_agent():
     """
     
     # Initialize LLM with Azure OpenAI configuration
-    llm_config = config
-    llm = AzureChatOpenAI(
-        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-        azure_deployment=os.environ.get("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME", "gpt-4o-mini"),
-        openai_api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-06-01"),
-        openai_api_key=os.environ["AZURE_OPENAI_API_KEY"],
-        temperature=llm_config.llm_temperature,
-        max_tokens=llm_config.llm_max_tokens,
-        timeout=llm_config.llm_timeout,
-    )
+    llm = create_azure_openai_chat()
     
     # Bind tools to LLM
     llm_with_tools = llm.bind_tools(jira_tools)
