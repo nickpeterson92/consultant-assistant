@@ -190,13 +190,19 @@ async def execute_step(state: PlanExecute):
         max_schemas=2  # Don't overwhelm context
     )
     
-    task_formatted = f"""For the following plan:
+    # Format the clean task instruction for the user message
+    task_instruction = f"""For the following plan:
 {plan_str}
 
-You are tasked with executing step {current_step_num}: {task}.
+You are tasked with executing step {current_step_num}: {task}"""
+    
+    # Format the context as a system message
+    context_system_message = f"""RELEVANT CONTEXT for this task execution:
 {memory_context}
 {schema_context}
-{past_steps_context}"""
+{past_steps_context}
+
+Remember: This context is for reference only. Focus on executing the specific task requested."""
     
     # Skip emitting execution context to UI - only show planning contexts
     # This simplifies the UI by showing only the initial planning context
@@ -205,7 +211,8 @@ You are tasked with executing step {current_step_num}: {task}.
                component="orchestrator", 
                operation="execute_step",
                thread_id=thread_id,
-               task_formatted_length=len(task_formatted),
+               task_instruction_length=len(task_instruction),
+               context_system_length=len(context_system_message),
                has_past_steps_context=bool(past_steps_context),
                has_memory_context=bool(memory_context),
                memory_context_preview=memory_context[:200] if memory_context else "None")
@@ -216,7 +223,10 @@ You are tasked with executing step {current_step_num}: {task}.
     
     # Create agent messages by combining conversation history with current task
     agent_messages = list(persistent_messages)  # Copy conversation history
-    agent_messages.append(("user", task_formatted))  # Add current execution step
+    
+    # Add context as system message first, then the task as user message
+    agent_messages.append(("system", context_system_message))  # Add context as system
+    agent_messages.append(("user", task_instruction))  # Add clean task instruction
     
     # Trim for ReAct agent context to prevent bloat
     from src.utils.agents.message_processing.helpers import trim_messages_for_context
@@ -445,35 +455,11 @@ You are tasked with executing step {current_step_num}: {task}.
                            reason="not_significant")
                 return {"agent_response": final_response}
             
-            context_type = ContextType.COMPLETED_ACTION  # This is a significant completed task
-        
-        # Extract semantic tags from the task and response
-        task_words = set(task.lower().split()) if task else set()
-        input_text = state.get("input", "")
-        input_words = set(input_text.lower().split()) if input_text else set()
-        semantic_tags = task_words.union(input_words)
-        
-        # Clean up tags (remove common words)
-        stop_words = {"the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by"}
-        semantic_tags = {tag for tag in semantic_tags if len(tag) > 2 and tag not in stop_words}
-        
-        # Find previous nodes to relate to (previous steps in execution)
-        relates_to = []
-        related_entities = []
-        
-        # Get all nodes and find recent execution steps
-        recent_nodes = memory.retrieve_relevant(
-            query_text="",
-            max_age_hours=0.5,  # Last 30 minutes
-            min_relevance=0,
-            max_results=20
-        )
-        
-        # Link to the most recent execution step if any
-        for node in recent_nodes:
-            if node.context_type in {ContextType.COMPLETED_ACTION, ContextType.SEARCH_RESULT}:
-                relates_to.append(node.node_id)
-                break  # Just link to the most recent one
+            # Skip storing completed actions - focus on domain entities only
+            logger.info("skipping_completed_action_storage", 
+                       task=task[:50] if task else "none",
+                       reason="focusing_on_domain_entities_only")
+            return {"agent_response": final_response}
         
         # Use intelligent entity extraction
         
@@ -780,8 +766,8 @@ async def plan_step(state: PlanExecute):
     if planning_context:
         context_for_planning += planning_context
     
-    # Enhanced planning prompt with conversation + memory context
-    planning_input = f"{state['input']}{context_for_planning}"
+    # Clean user request without any context
+    planning_input = state['input']
     
     logger.info("planning_with_memory_context",
                component="orchestrator",
@@ -809,7 +795,14 @@ async def plan_step(state: PlanExecute):
     
     # Use conversation messages for planning context instead of just current input
     planning_messages = list(conversation_messages)  # Copy existing conversation
-    planning_messages.append(HumanMessage(content=planning_input))  # Add enhanced planning request
+    
+    # Add context as system message if we have any
+    if context_for_planning:
+        from langchain_core.messages import SystemMessage
+        planning_messages.append(SystemMessage(content=f"PLANNING CONTEXT:\n{context_for_planning}"))
+    
+    # Add clean user request
+    planning_messages.append(HumanMessage(content=planning_input))
     
     planner = globals().get('planner')
     if not planner:
@@ -933,11 +926,19 @@ async def replan_step(state: PlanExecute):
     if user_modification_request:
         additional_context = InterruptHandler.prepare_replan_context(state)
     
-    # Format the template variables with memory context
+    # Build context for replanner
+    full_context = ""
+    if memory_context:
+        full_context = f"REPLANNING CONTEXT:\n{memory_context}"
+    if additional_context:
+        full_context += f"\n\n{additional_context}"
+    
+    # Format the template variables WITHOUT context in input
     template_vars = {
-        "input": state["input"] + memory_context + additional_context,
+        "input": state["input"],  # Clean input only
         "plan": "\n".join(f"{i + 1}. {step}" for i, step in enumerate(state["plan"])),
-        "past_steps": past_steps_str.strip()
+        "past_steps": past_steps_str.strip(),
+        "context": full_context  # Always provide context (may be empty string)
     }
     
     # Skip emitting replanning context to UI - only show planning contexts

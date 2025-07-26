@@ -42,8 +42,10 @@ class MemoryContextBuilder:
         memory = await get_user_memory(thread_id)
         
         # Get basic relevant memories from user's memory
+        # Filter to only include domain entities and conversation facts, not action history
         relevant_memories = memory.retrieve_relevant(
             query_text=query_text,
+            context_filter={ContextType.DOMAIN_ENTITY, ContextType.CONVERSATION_FACT, ContextType.USER_SELECTION},
             max_age_hours=max_age_hours,
             min_relevance=min_relevance,
             max_results=max_results
@@ -100,6 +102,7 @@ class MemoryContextBuilder:
         bridge_memories: List[MemoryNode]
     ) -> Tuple[str, Dict[str, Any]]:
         """Build context for task execution."""
+        from src.memory.core.memory_node import ContextType
         context_parts = []
         metadata = {
             "relevant_count": len(relevant_memories),
@@ -128,7 +131,12 @@ class MemoryContextBuilder:
                         context_parts.append(f"  Details: {content_preview}{'...' if len(str(memory.content)) > 200 else ''}")
             
             # Add important memories that aren't already included
-            important_not_seen = [m for m in important_memories if m.node_id not in seen_ids]
+            # Filter out completed actions - only include entities and facts
+            important_not_seen = [
+                m for m in important_memories 
+                if m.node_id not in seen_ids 
+                and m.context_type in {ContextType.DOMAIN_ENTITY, ContextType.CONVERSATION_FACT, ContextType.USER_SELECTION}
+            ]
             if important_not_seen:
                 context_parts.append("\nIMPORTANT CONTEXT (frequently referenced):")
                 for memory in important_not_seen[:3]:
@@ -136,7 +144,12 @@ class MemoryContextBuilder:
                     context_parts.append(f"- {memory.summary}")
             
             # Add bridge memories if they connect to current context
-            bridge_not_seen = [m for m in bridge_memories if m.node_id not in seen_ids]
+            # Filter out completed actions
+            bridge_not_seen = [
+                m for m in bridge_memories 
+                if m.node_id not in seen_ids
+                and m.context_type in {ContextType.DOMAIN_ENTITY, ContextType.CONVERSATION_FACT, ContextType.USER_SELECTION}
+            ]
             if bridge_not_seen and len(clusters) > 1:
                 context_parts.append("\nCONNECTING CONTEXT (links different topics):")
                 for memory in bridge_not_seen[:2]:
@@ -154,6 +167,7 @@ class MemoryContextBuilder:
         bridge_memories: List[MemoryNode]
     ) -> Tuple[str, Dict[str, Any]]:
         """Build context for planning phase."""
+        from src.memory.core.memory_node import ContextType
         context_parts = []
         metadata = {
             "relevant_count": len(relevant_memories),
@@ -169,7 +183,12 @@ class MemoryContextBuilder:
             seen_ids = set()
             
             # Start with important memories (they represent key topics)
-            for memory in important_memories[:5]:
+            # Filter out completed actions
+            filtered_important = [
+                m for m in important_memories[:5]
+                if m.context_type in {ContextType.DOMAIN_ENTITY, ContextType.CONVERSATION_FACT, ContextType.USER_SELECTION}
+            ]
+            for memory in filtered_important:
                 if memory.node_id not in seen_ids:
                     seen_ids.add(memory.node_id)
                     context_parts.append(f"- {memory.summary}")
@@ -187,7 +206,11 @@ class MemoryContextBuilder:
                 # Use bridge memories to show connections
                 if bridge_memories:
                     context_parts.append("Key connections between topics:")
-                    for memory in bridge_memories[:2]:
+                    filtered_bridges = [
+                        m for m in bridge_memories[:2]
+                        if m.context_type in {ContextType.DOMAIN_ENTITY, ContextType.CONVERSATION_FACT, ContextType.USER_SELECTION}
+                    ]
+                    for memory in filtered_bridges:
                         if memory.node_id not in seen_ids:
                             context_parts.append(f"- {memory.summary}")
         
@@ -201,6 +224,7 @@ class MemoryContextBuilder:
         bridge_memories: List[MemoryNode]
     ) -> Tuple[str, Dict[str, Any]]:
         """Build context for replanning phase."""
+        from src.memory.core.memory_node import ContextType
         context_parts = []
         metadata = {
             "relevant_count": len(relevant_memories),
@@ -215,8 +239,13 @@ class MemoryContextBuilder:
             # For replanning, focus on very recent and high-relevance items
             seen_ids = set()
             
-            # Recent relevant memories first
-            for memory in relevant_memories[:7]:
+            # Recent relevant memories first - FILTER OUT completed actions
+            filtered_memories = [
+                m for m in relevant_memories
+                if m.context_type in {ContextType.DOMAIN_ENTITY, ContextType.CONVERSATION_FACT, ContextType.USER_SELECTION}
+            ]
+            
+            for memory in filtered_memories[:7]:
                 if memory.node_id not in seen_ids:
                     seen_ids.add(memory.node_id)
                     context_parts.append(f"- {memory.summary}")
@@ -226,12 +255,17 @@ class MemoryContextBuilder:
                         content_preview = str(memory.content)[:150]
                         context_parts.append(f"  Details: {content_preview}{'...' if len(str(memory.content)) > 150 else ''}")
             
-            # Add any critical bridge memories
+            # Add any critical bridge memories - FILTER OUT completed actions
             if bridge_memories and len(clusters) > 1:
-                context_parts.append("\nCRITICAL CONNECTIONS:")
-                for memory in bridge_memories[:1]:
-                    if memory.node_id not in seen_ids:
-                        context_parts.append(f"- {memory.summary}")
+                filtered_bridges = [
+                    m for m in bridge_memories
+                    if m.context_type in {ContextType.DOMAIN_ENTITY, ContextType.CONVERSATION_FACT, ContextType.USER_SELECTION}
+                ]
+                if filtered_bridges:
+                    context_parts.append("\nCRITICAL CONNECTIONS:")
+                    for memory in filtered_bridges[:1]:
+                        if memory.node_id not in seen_ids:
+                            context_parts.append(f"- {memory.summary}")
         
         return "\n".join(context_parts), metadata
     

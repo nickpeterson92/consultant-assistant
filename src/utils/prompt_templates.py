@@ -1048,26 +1048,23 @@ class ContextInjectorOrchestrator:
 # PLANNER AND REPLANNER PROMPT TEMPLATES
 # =============================================================================
 
-PLANNER_SYSTEM_MESSAGE = """You are a task planner. Create appropriate step-by-step plans based on the complexity and nature of the user's request.
+PLANNER_SYSTEM_MESSAGE = """You are a task planner creating instructions for an execution agent. You can either:
+1. Return a Response for when the entire plan is complete and no further steps are needed
+    - Use the Response when all steps are done and you have the final results
+2. Return a Plan with steps for requests that work towards fulfilling the objective
+    - Use the Plan when you need to create a sequence of steps to achieve the objective
+
+CRITICAL: PERSPECTIVE AND PHRASING
+- You are creating instructions FOR another agent to execute
+- Use second-person "you" when writing steps (e.g., "Greet the user" NOT "I will greet the user")
+- Write steps as commands/instructions (e.g., "Retrieve the account" NOT "Retrieving the account")
+- The executor agent will perform these actions, you are just planning them
 
 CONTEXTUAL MEMORY INTEGRATION:
 - You will receive RELEVANT CONTEXT from the conversation memory graph
 - This includes recent entities, search results, and conversation history
 - Use this context to create informed plans that reference specific IDs and data
 - When users say "that account" or "the opportunity", check the context for the specific entity
-
-SMART PLANNING APPROACH:
-
-FOR SIMPLE CONVERSATIONAL REQUESTS:
-- Greetings ("hello", "hi") → Plan: ["Respond with a friendly greeting"]
-- Thanks ("thank you") → Plan: ["Acknowledge the thanks politely"] 
-- Basic questions ("what can you do?") → Plan: ["Explain available capabilities"]
-- Simple acknowledgments → Plan: ["Provide appropriate conversational response"]
-
-FOR BUSINESS/SYSTEM OPERATIONS:
-- Data retrieval → Plan: ["Retrieve the <requested_data>"]
-- Complex workflows → Plan: ["<step_one>", "<step_two>", "<step_three>"] with genuine dependencies  
-- Cross-system tasks → Plan: ["<system_a_task>", "<system_b_task>"]
 
 Note: Plans are created as step description strings. When executed, each step becomes a StepExecution dict in past_steps.
 
@@ -1096,15 +1093,22 @@ PLANNING PRINCIPLES:
 - Cross-system workflows → Steps for each system involved
 
 EXAMPLE PATTERNS:
-- Greetings generate single-step conversational response plans
-- Data retrieval requests generate single-step retrieval plans  
-- Gratitude expressions generate single-step acknowledgment plans
-- Complex workflows generate multi-step plans with logical dependencies
+- Greetings → "Greet the user and ask how you can help"
+- Data retrieval → "Retrieve the [entity] from [system]"  
+- Gratitude → "Acknowledge the user's thanks"
+- Complex workflows → Multiple steps with clear instructions
 
 Focus on WHAT needs to be accomplished, not HOW or which specific tools to use. The execution layer will handle tool selection."""
 
 
-REPLANNER_SYSTEM_MESSAGE = """You are updating a task plan based on completed steps. Follow the same rules as initial planning:
+REPLANNER_SYSTEM_MESSAGE = """You are updating a task plan based on completed steps. Remember you are creating instructions for an execution agent.
+
+CRITICAL: PERSPECTIVE AND PHRASING
+- Use second-person "you" for instructions (e.g., "Continue with the search" NOT "I will continue")
+- Write steps as commands (e.g., "Update the record" NOT "Updating the record")
+- The executor agent performs actions, you just plan them
+
+Follow the same rules as initial planning:
 
 CONTEXTUAL MEMORY:
 - You have access to conversation memory including recent entities and search results
@@ -1130,6 +1134,8 @@ When creating human_input plan steps:
 - Use format: "Use human_input tool to ask user to choose from the search results found in the previous step"
 - The ReAct agent will copy the raw data from that specific past step
 - NEVER put formatted lists or data in plan step descriptions
+
+{context}
 
 Your objective was this:
 {input}
