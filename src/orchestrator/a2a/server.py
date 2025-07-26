@@ -247,12 +247,26 @@ async def handle_websocket(request: web.Request) -> web.WebSocketResponse:
                                     resume_command = Command(resume=user_input)
                                 
                                 # Resume the graph execution in the background
-                                asyncio.create_task(
-                                    orchestrator_handler.graph.ainvoke(
-                                        resume_command,
-                                        config
-                                    )
-                                )
+                                # The proper way to resume a ReAct agent is to pass the resume value
+                                # LangGraph will handle creating the ToolMessage internally
+                                async def resume_graph():
+                                    try:
+                                        result = await orchestrator_handler.graph.ainvoke(
+                                            resume_command,
+                                            config
+                                        )
+                                        logger.info("graph_resume_completed",
+                                                   thread_id=thread_id)
+                                    except Exception as e:
+                                        logger.error("graph_resume_error",
+                                                    thread_id=thread_id,
+                                                    error=str(e),
+                                                    error_type=type(e).__name__)
+                                
+                                # Create background task that we can track
+                                task = asyncio.create_task(resume_graph())
+                                background_tasks.add(task)
+                                task.add_done_callback(background_tasks.discard)
                                 
                                 logger.info("graph_resume_triggered",
                                            thread_id=thread_id)

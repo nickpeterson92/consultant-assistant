@@ -1,8 +1,10 @@
 """Human input tool for LangGraph workflows using interrupt functionality."""
 
+from typing import Dict, Any, Annotated, Optional
 from pydantic import BaseModel, Field
 from langchain_core.tools import BaseTool
 from langgraph.types import interrupt
+from langgraph.prebuilt import InjectedState
 from src.utils.logging.framework import SmartLogger
 from src.orchestrator.observers.direct_call_events import (
     emit_agent_call_event,
@@ -47,12 +49,14 @@ class HumanInputTool(BaseTool):
     
     args_schema: type[BaseModel] = HumanInputRequest
     
-    def _run(self, full_message: str, timeout_seconds: int = 300) -> str:
+    def _run(self, full_message: str, timeout_seconds: int = 300, 
+             state: Annotated[Dict[str, Any], InjectedState] = None) -> str:
         """Request human input using LangGraph interrupt functionality.
         
         Args:
             full_message: The complete message to show the user including all context, lists, and questions
             timeout_seconds: How long to wait for input (not enforced by interrupt)
+            state: Injected state from LangGraph containing conversation history
             
         Returns:
             The user's response as a string
@@ -60,7 +64,9 @@ class HumanInputTool(BaseTool):
         logger.info(
             "human_input_request",
             question_preview=full_message[:100],
-            has_context=False,  # No separate context anymore
+            has_state=state is not None,
+            state_keys=list(state.keys()) if state and isinstance(state, dict) else [],
+            messages_count=len(state.get("messages", [])) if state and isinstance(state, dict) else 0,
             component="orchestrator"
         )
         
@@ -114,6 +120,7 @@ class HumanInputTool(BaseTool):
         
         return str(user_response)
     
-    async def _arun(self, full_message: str, timeout_seconds: int = 300) -> str:
+    async def _arun(self, full_message: str, timeout_seconds: int = 300,
+                   state: Annotated[Dict[str, Any], InjectedState] = None) -> str:
         """Async version - just calls the sync version since interrupt is sync."""
-        return self._run(full_message, timeout_seconds)
+        return self._run(full_message, timeout_seconds, state)

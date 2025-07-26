@@ -121,12 +121,15 @@ ORCHESTRATOR TOOLS:
                     ])
                     
                     # Create ReAct agent WITH checkpointer
+                    # Tools will access state via InjectedState annotation
+                    from src.orchestrator.core.state import OrchestratorState
                     self._graph = create_react_agent(
                         llm, 
                         tools, 
                         prompt=formatted_prompt,
                         checkpointer=self._checkpointer,  # Enable interrupt support
-                        debug=True
+                        debug=True,
+                        state_schema=OrchestratorState  # Use our extended state schema
                     )
                     
                     # Store tools reference
@@ -160,11 +163,19 @@ ORCHESTRATOR TOOLS:
             
             logger.info("main_orchestrator_processing",
                        task_id=task_id,
-                       instruction=instruction[:100])
+                       instruction=instruction[:100],
+                       has_context=bool(context),
+                       context_keys=list(context.keys()) if context else [],
+                       thread_id_in_context=context.get("thread_id") if context else None)
             
             # Track this task
             thread_id = context.get("thread_id", create_thread_id("orch", task_id))
             user_id = context.get("user_id", "default_user")
+            
+            logger.info("thread_id_resolution",
+                       task_id=task_id,
+                       resolved_thread_id=thread_id,
+                       from_context=context.get("thread_id") is not None)
             
             self.active_tasks[task_id] = {
                 "thread_id": thread_id,
@@ -176,10 +187,64 @@ ORCHESTRATOR TOOLS:
             # Ensure graph is initialized
             graph = await self._ensure_graph_initialized()
             
-            # TODO: Handle conversation history loading
-            # For now, start with empty messages
-            messages = []
-            messages.append(HumanMessage(content=instruction))
+            # Configuration for checkpointing
+            config = {
+                "configurable": {
+                    "thread_id": thread_id
+                }
+            }
+            
+            # Load existing state if available
+            existing_state = None
+            pending_tool_call_id = None
+            try:
+                existing_state = graph.get_state(config)
+                if existing_state and existing_state.values:
+                    logger.info("loaded_existing_state",
+                               thread_id=thread_id,
+                               message_count=len(existing_state.values.get("messages", [])))
+                    
+                    # Check if the last message has a pending tool call (interrupt case)
+                    messages = existing_state.values.get("messages", [])
+                    if messages:
+                        last_msg = messages[-1]
+                        # Check if last message is an AIMessage with tool_calls
+                        if hasattr(last_msg, 'tool_calls') and last_msg.tool_calls:
+                            # Check if there's a human_input tool call
+                            for tool_call in last_msg.tool_calls:
+                                if tool_call.get("name") == "human_input":
+                                    pending_tool_call_id = tool_call.get("id")
+                                    logger.info("found_pending_human_input_tool_call",
+                                               thread_id=thread_id,
+                                               tool_call_id=pending_tool_call_id)
+                                    break
+            except Exception as e:
+                logger.warning("failed_to_load_state",
+                              thread_id=thread_id,
+                              error=str(e))
+            
+            # Prepare messages based on whether we're resuming from interrupt
+            if pending_tool_call_id and existing_state and existing_state.values:
+                # This is a response to a human_input interrupt
+                # Add the user's response as a ToolMessage
+                messages = existing_state.values["messages"]
+                tool_message = ToolMessage(
+                    content=instruction,
+                    tool_call_id=pending_tool_call_id
+                )
+                messages.append(tool_message)
+                
+                logger.info("added_tool_message_for_human_input",
+                           thread_id=thread_id,
+                           tool_call_id=pending_tool_call_id,
+                           response_preview=instruction[:100])
+            elif existing_state and existing_state.values and "messages" in existing_state.values:
+                # Continue the conversation normally
+                messages = existing_state.values["messages"]
+                messages.append(HumanMessage(content=instruction))
+            else:
+                # Start fresh conversation
+                messages = [HumanMessage(content=instruction)]
             
             # Prepare input for graph
             graph_input = {
@@ -189,16 +254,10 @@ ORCHESTRATOR TOOLS:
                 "task_id": task_id
             }
             
-            # Configuration for checkpointing
-            config = {
-                "configurable": {
-                    "thread_id": thread_id
-                }
-            }
-            
             logger.info("invoking_graph",
                        thread_id=thread_id,
-                       has_checkpointer=self._checkpointer is not None)
+                       has_checkpointer=self._checkpointer is not None,
+                       is_tool_response=pending_tool_call_id is not None)
             
             # Invoke the graph
             result = await graph.ainvoke(graph_input, config)

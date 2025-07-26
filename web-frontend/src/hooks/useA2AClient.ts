@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { useToast } from '@/hooks/use-toast'
 import { useConversation } from '@/contexts/ConversationContext'
 
@@ -6,7 +6,14 @@ export function useA2AClient() {
   const [isLoading, setIsLoading] = useState(false)
   const { toast } = useToast()
   const { addMessage } = useConversation()
-  const threadId = Math.random().toString(36).substr(2, 9)
+  
+  // Use useRef to persist thread_id across renders
+  // Only generate new thread_id on mount (when ref.current is null)
+  const threadIdRef = useRef<string | null>(null)
+  if (!threadIdRef.current) {
+    threadIdRef.current = Math.random().toString(36).substring(2, 11)
+  }
+  const threadId = threadIdRef.current
 
   const sendMessage = useCallback(async (instruction: string) => {
     setIsLoading(true)
@@ -21,14 +28,14 @@ export function useA2AClient() {
           jsonrpc: '2.0',
           method: 'process_task',
           params: {
-            task_id: Math.random().toString(36).substr(2, 9),
+            task_id: Math.random().toString(36).substring(2, 11),
             instruction,
             context: {
               thread_id: threadId,
               user_id: 'web-user'
             }
           },
-          id: Math.random().toString(36).substr(2, 9)
+          id: Math.random().toString(36).substring(2, 11)
         })
       })
 

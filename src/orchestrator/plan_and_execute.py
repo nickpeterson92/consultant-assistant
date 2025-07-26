@@ -265,9 +265,18 @@ Remember: This context is for reference only. Focus on executing the specific ta
         if not agent_executor:
             raise RuntimeError("Agent executor not initialized")
         
-        agent_response = asyncio.run(agent_executor.ainvoke(
-            {"messages": agent_messages}
-        ))
+        # Pass full state to agent so tools can access it via InjectedState
+        agent_input = {
+            "messages": agent_messages,
+            "thread_id": thread_id,
+            "user_id": state.get("user_id"),
+            "task_id": state.get("task_id"),
+            "memory_context": memory_context,
+            "schema_context": schema_context,
+            "past_steps": state.get("past_steps", [])
+        }
+        
+        agent_response = asyncio.run(agent_executor.ainvoke(agent_input))
         
         # Log ReAct agent completion  
         react_duration = time.time() - react_start_time
@@ -1256,6 +1265,7 @@ async def create_plan_execute_graph():
     from src.orchestrator.tools.web_search import WebSearchTool
     from src.orchestrator.tools.human_input import HumanInputTool
     from langgraph.prebuilt import create_react_agent
+    from src.orchestrator.core.state import OrchestratorState
     from src.utils.cost_tracking_decorator import create_cost_tracking_azure_openai
     import os
     
@@ -1294,7 +1304,14 @@ async def create_plan_execute_graph():
     orchestrator_prompt = get_orchestrator_system_message(mock_state, agent_registry)
     
     # Create ReAct agent executor with our orchestrator prompt
-    agent_executor = create_react_agent(llm, tools, prompt=orchestrator_prompt)
+    # Tools will access state via InjectedState annotation
+    # Use OrchestratorState as the state schema to ensure proper state handling
+    agent_executor = create_react_agent(
+        llm, 
+        tools, 
+        prompt=orchestrator_prompt,
+        state_schema=OrchestratorState
+    )
     
     # Use the canonical setup with proper prompts and agent context
     return setup_canonical_plan_execute(agent_executor, llm, agent_registry)
