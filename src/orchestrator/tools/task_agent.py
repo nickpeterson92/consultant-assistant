@@ -1,8 +1,10 @@
 """Task Agent Tool - Executes complex multi-step tasks using plan-and-execute workflow."""
 
 import asyncio
-from typing import Type, Optional
+from typing import Type, Optional, Dict, Any, Annotated
 from langchain_core.tools import BaseTool
+from langgraph.prebuilt import InjectedState
+from langgraph.errors import GraphInterrupt
 from pydantic import BaseModel, Field
 from src.utils.logging.framework import SmartLogger
 
@@ -26,18 +28,21 @@ class TaskAgentTool(BaseTool):
     """
     
     name: str = "task_agent"
-    description: str = """Execute complex multi-step tasks that require planning and coordination.
+    description: str = """⚠️ MANDATORY: Use task_agent for these cases:
     
-    Use this tool for:
-    - Tasks requiring multiple tools, steps or operations
-    - Cross-system workflows
-    - Complex analysis or reporting tasks
-    - Any request that needs planning and execution strategy
+    🔴 CRITICAL - MUST USE task_agent FOR:
+    - UPDATE by NAME: "update the XYZ opportunity" → task_agent
+    - ONBOARD: "onboard XYZ company" → task_agent  
+    - Any update/change/modify using a NAME (not ID) → task_agent
+    - Multi-step operations ("do X and then Y") → task_agent
+    - Process workflows (resolve, setup, configure) → task_agent
     
-    Do NOT use this for:
-    - Simple greetings or conversational responses
-    - Single tool calls (just use the tool directly)
-    - Questions you can answer directly
+    ✅ Direct agent calls ONLY for:
+    - Simple lookups with IDs
+    - Single-step operations
+    - Direct questions with no actions
+    
+    ⚠️ NEVER use a system agent directly for complex workflows!
     """
     args_schema: Type[BaseModel] = TaskAgentInput
     
@@ -60,11 +65,11 @@ class TaskAgentTool(BaseTool):
                     logger.info("task_agent_graph_initialized")
         return self._plan_execute_graph
     
-    def _run(self, task: str, context: Optional[str] = None) -> str:
+    def _run(self, task: str, context: Optional[str] = None, state: Annotated[Dict[str, Any], InjectedState] = None) -> str:
         """Execute the task synchronously."""
-        return asyncio.run(self._arun(task, context))
+        return asyncio.run(self._arun(task, context, state=state))
     
-    async def _arun(self, task: str, context: Optional[str] = None) -> str:
+    async def _arun(self, task: str, context: Optional[str] = None, state: Annotated[Dict[str, Any], InjectedState] = None) -> str:
         """Execute the task using plan-and-execute workflow."""
         try:
             logger.info("task_agent_invoked",
@@ -74,8 +79,8 @@ class TaskAgentTool(BaseTool):
             # Ensure graph is initialized
             graph = await self._ensure_graph_initialized()
             
-            # Get current state from the parent orchestrator if available
-            parent_state = getattr(self, '_parent_state', {})
+            # Get current state from the injected state
+            parent_state = state if state else {}
             
             # Prepare input for plan-execute graph
             plan_execute_input = {
@@ -90,8 +95,15 @@ class TaskAgentTool(BaseTool):
             if context:
                 plan_execute_input["context"] = context
             
-            # Execute the plan-execute workflow
-            result = await graph.ainvoke(plan_execute_input)
+            # Create config for checkpointer to maintain state
+            config = {
+                "configurable": {
+                    "thread_id": parent_state.get("thread_id", "default-thread")
+                }
+            }
+            
+            # Execute the plan-execute workflow with config
+            result = await graph.ainvoke(plan_execute_input, config)
             
             # Extract the response
             if "response" in result:
@@ -104,6 +116,13 @@ class TaskAgentTool(BaseTool):
                               result_keys=list(result.keys()))
                 return "Task completed but no response was generated."
                 
+        except GraphInterrupt as e:
+            # Re-raise GraphInterrupt so orchestrator can handle it properly
+            logger.info("task_agent_interrupt_propagating",
+                       task=task[:100],
+                       interrupt_type=type(e).__name__,
+                       interrupt_value=str(e)[:200])
+            raise e  # Let the orchestrator handle the interrupt
         except Exception as e:
             logger.error("task_agent_error",
                         error=str(e),

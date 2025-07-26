@@ -27,6 +27,7 @@ from src.utils.thread_utils import create_thread_id
 from src.utils.config.constants import ENTERPRISE_ASSISTANT_BANNER, ENTERPRISE_ASSISTANT_COMPACT_LOGO
 from src.utils.config.unified_config import config as app_config
 from src.utils.ui.animations import animated_banner_display, format_compact_logo_for_textual
+from src.utils.ui.tool_events_widget import ToolEventsWidget
 from src.utils.logging.framework import SmartLogger
 
 # Initialize SmartLogger
@@ -628,6 +629,7 @@ class OrchestatorApp(App):
         self.conversation_widget = None
         self.status_widget = None
         self.plan_widget = None
+        self.tool_events_widget = None
         
         # SSE connection for live plan updates
         self.sse_session = None
@@ -676,11 +678,17 @@ class OrchestatorApp(App):
                     classes="input-field"
                 )
             
-            # Right panel - split between plan status and memory graph
+            # Right panel - split between plan/tools and memory graph
             with Vertical(classes="right-panel"):
-                # Top half - plan status
-                self.plan_widget = PlanStatusWidget(classes="plan-status half-height")
-                yield self.plan_widget
+                # Top half - combined plan status and tool events
+                with Vertical(classes="plan-tools-panel"):
+                    # Plan status (smaller section)
+                    self.plan_widget = PlanStatusWidget(classes="plan-status plan-section")
+                    yield self.plan_widget
+                    
+                    # Tool events log (larger section)
+                    self.tool_events_widget = ToolEventsWidget(classes="tool-events")
+                    yield self.tool_events_widget
                 
                 # Bottom half - memory graph
                 from src.utils.ui.memory_graph_widget import MemoryGraphWidget
@@ -1038,6 +1046,22 @@ class OrchestatorApp(App):
                     "event_type": event_type.replace("memory_", ""),
                     **data
                 })
+        
+        # Route tool events to tool events widget
+        tool_event_types = [
+            "agent_call_started",
+            "agent_call_completed", 
+            "agent_call_failed",
+            "tool_selected",
+            "direct_response",
+            "web_search_started",
+            "web_search_completed",
+            "human_input_requested",
+            "human_input_received"
+        ]
+        
+        if event_type in tool_event_types and self.tool_events_widget:
+            self.tool_events_widget.handle_sse_event(event_type, data)
         
         # Handle LLM context events
         if event_type == "llm_context":

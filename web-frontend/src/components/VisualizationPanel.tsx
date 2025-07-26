@@ -178,8 +178,8 @@ export function VisualizationPanel({ events, onPlanUpdate }: VisualizationPanelP
           </TabsTrigger>
         </TabsList>
 
-        <div className="flex-1 overflow-hidden p-4 min-h-0">
-          <TabsContent value="plan" className="h-full">
+        <div className="flex-1 relative">
+          <TabsContent value="plan" className="absolute inset-0 p-4" data-state={activeTab === 'plan' ? 'active' : 'inactive'}>
             <PlanDisplay 
               plan={planData.plan}
               currentStep={planData.currentStep}
@@ -187,15 +187,15 @@ export function VisualizationPanel({ events, onPlanUpdate }: VisualizationPanelP
             />
           </TabsContent>
 
-          <TabsContent value="tools" className="h-full min-h-0 flex flex-col">
+          <TabsContent value="tools" className="absolute inset-0 p-4" data-state={activeTab === 'tools' ? 'active' : 'inactive'}>
             <ToolEventsDisplay events={toolEvents} />
           </TabsContent>
 
-          <TabsContent value="memory" className="h-full">
+          <TabsContent value="memory" className="absolute inset-0 p-4" data-state={activeTab === 'memory' ? 'active' : 'inactive'}>
             <MemoryGraph data={memoryData} />
           </TabsContent>
 
-          <TabsContent value="context" className="h-full">
+          <TabsContent value="context" className="absolute inset-0 p-4" data-state={activeTab === 'context' ? 'active' : 'inactive'}>
             <LLMContextDisplay context={llmContext} />
           </TabsContent>
         </div>

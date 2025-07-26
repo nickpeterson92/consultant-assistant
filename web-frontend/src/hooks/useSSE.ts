@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useToast } from '@/hooks/use-toast'
+import { useThread } from '@/contexts/ThreadContext'
 
 export function useSSE(url: string) {
   const [events, setEvents] = useState<any[]>([])
@@ -7,6 +8,7 @@ export function useSSE(url: string) {
   const eventSourceRef = useRef<EventSource | null>(null)
   const reconnectTimeoutRef = useRef<number | null>(null)
   const { toast } = useToast()
+  const { thread } = useThread()
 
   const connect = useCallback(() => {
     if (eventSourceRef.current?.readyState === EventSource.OPEN) {
@@ -14,7 +16,9 @@ export function useSSE(url: string) {
     }
 
     try {
-      const eventSource = new EventSource(url)
+      // Include thread_id in URL for server-side filtering
+      const urlWithThread = `${url}?thread_id=${thread.threadId}`
+      const eventSource = new EventSource(urlWithThread)
       eventSourceRef.current = eventSource
 
       eventSource.onopen = () => {
@@ -33,6 +37,18 @@ export function useSSE(url: string) {
           
           // Handle heartbeat
           if (data.event === 'heartbeat') {
+            return
+          }
+
+          // Filter events by thread_id if present
+          if (data.thread_id && data.thread_id !== thread.threadId) {
+            console.log(`SSE Event ignored (wrong thread). Expected: ${thread.threadId}, Got: ${data.thread_id}`)
+            return
+          }
+
+          // Also check context.thread_id for nested thread info
+          if (data.context?.thread_id && data.context.thread_id !== thread.threadId) {
+            console.log(`SSE Event ignored (wrong context thread). Expected: ${thread.threadId}, Got: ${data.context.thread_id}`)
             return
           }
 
@@ -68,7 +84,7 @@ export function useSSE(url: string) {
       console.error('Failed to create EventSource:', error)
       setIsConnected(false)
     }
-  }, [url, toast])
+  }, [url, toast, thread.threadId])
 
   useEffect(() => {
     connect()

@@ -1,24 +1,25 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback } from 'react'
 import { useToast } from '@/hooks/use-toast'
 import { useConversation } from '@/contexts/ConversationContext'
+import { useThread } from '@/contexts/ThreadContext'
 
 export function useA2AClient() {
   const [isLoading, setIsLoading] = useState(false)
   const { toast } = useToast()
   const { addMessage } = useConversation()
+  const { thread, updateLastActivity, updateThreadStatus } = useThread()
   
-  // Use useRef to persist thread_id across renders
-  // Only generate new thread_id on mount (when ref.current is null)
-  const threadIdRef = useRef<string | null>(null)
-  if (!threadIdRef.current) {
-    threadIdRef.current = Math.random().toString(36).substring(2, 11)
+  // Generate unique request ID
+  const generateRequestId = () => {
+    return `req-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 9)}`
   }
-  const threadId = threadIdRef.current
 
   const sendMessage = useCallback(async (instruction: string) => {
     setIsLoading(true)
+    updateLastActivity()
 
     try {
+      const requestId = generateRequestId()
       const response = await fetch('/a2a', {
         method: 'POST',
         headers: {
@@ -31,11 +32,14 @@ export function useA2AClient() {
             task_id: Math.random().toString(36).substring(2, 11),
             instruction,
             context: {
-              thread_id: threadId,
-              user_id: 'web-user'
+              thread_id: thread.threadId,
+              user_id: thread.metadata.userId,
+              session_id: thread.metadata.sessionId,
+              request_id: requestId,
+              timestamp: new Date().toISOString()
             }
           },
-          id: Math.random().toString(36).substring(2, 11)
+          id: requestId
         })
       })
 
@@ -53,6 +57,7 @@ export function useA2AClient() {
       if (data.result) {
         // Check for interrupted status first
         if (data.result.status === 'interrupted') {
+          updateThreadStatus('interrupted')
           const interrupt_reason = data.result.metadata?.interrupt_reason || 'Agent requested clarification'
           const interrupt_type = data.result.metadata?.interrupt_type || 'unknown'
           
@@ -97,11 +102,11 @@ export function useA2AClient() {
     } finally {
       setIsLoading(false)
     }
-  }, [addMessage, toast])
+  }, [addMessage, toast, thread, updateLastActivity, updateThreadStatus])
 
   return {
     sendMessage,
     isLoading,
-    threadId
+    threadId: thread.threadId
   }
 }

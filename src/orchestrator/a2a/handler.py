@@ -6,7 +6,8 @@ from datetime import datetime
 import asyncio
 
 from src.utils.logging.framework import SmartLogger, log_execution
-from src.utils.thread_utils import create_thread_id
+from src.utils.thread_validation import ThreadValidator
+from src.orchestrator.core.thread_context import set_thread_context, clear_thread_context
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langgraph.checkpoint.memory import MemorySaver
 from src.orchestrator.observers.direct_call_events import (
@@ -120,6 +121,12 @@ ORCHESTRATOR TOOLS:
                         MessagesPlaceholder(variable_name="messages")
                     ])
                     
+                    # Log the system prompt to verify task_agent is included
+                    logger.info("orchestrator_system_prompt",
+                               prompt_length=len(system_message_content),
+                               has_task_agent="task_agent" in system_message_content,
+                               task_agent_mentions=system_message_content.count("task_agent"))
+                    
                     # Create ReAct agent WITH checkpointer
                     # Tools will access state via InjectedState annotation
                     from src.orchestrator.core.state import OrchestratorState
@@ -168,8 +175,16 @@ ORCHESTRATOR TOOLS:
                        context_keys=list(context.keys()) if context else [],
                        thread_id_in_context=context.get("thread_id") if context else None)
             
-            # Track this task
-            thread_id = context.get("thread_id", create_thread_id("orch", task_id))
+            # Validate thread context
+            is_valid, error_msg = ThreadValidator.validate_thread_context(context) if context else (False, "No context provided")
+            if not is_valid:
+                logger.warning("invalid_thread_context", 
+                             task_id=task_id,
+                             error=error_msg,
+                             context=context)
+            
+            # Track this task - use validated thread_id or generate fallback
+            thread_id = ThreadValidator.ensure_thread_id(context.get("thread_id") if context else None, source='api')
             user_id = context.get("user_id", "default_user")
             
             logger.info("thread_id_resolution",
@@ -259,8 +274,34 @@ ORCHESTRATOR TOOLS:
                        has_checkpointer=self._checkpointer is not None,
                        is_tool_response=pending_tool_call_id is not None)
             
-            # Invoke the graph
-            result = await graph.ainvoke(graph_input, config)
+            # Log instruction analysis for debugging tool selection
+            if instruction:
+                logger.info("instruction_analysis_for_tool_selection",
+                           task_id=task_id,
+                           instruction_preview=instruction[:100],
+                           has_onboard="onboard" in instruction.lower(),
+                           has_then="then" in instruction.lower(),
+                           has_and_then="and then" in instruction.lower(),
+                           has_create_case="create a case" in instruction.lower() or "need a case" in instruction.lower(),
+                           has_create_company="create a company" in instruction.lower(),
+                           has_create_project="create a project" in instruction.lower() or "project in jira" in instruction.lower(),
+                           systems_mentioned=[sys for sys in ["salesforce", "servicenow", "jira"] if sys in instruction.lower()],
+                           multi_step_indicators=sum([
+                               "then" in instruction.lower(),
+                               "and then" in instruction.lower(),
+                               instruction.lower().count("create") > 1,
+                               len([sys for sys in ["salesforce", "servicenow", "jira"] if sys in instruction.lower()]) > 1
+                           ]))
+            
+            # Set thread context for tools to access
+            set_thread_context(thread_id=thread_id, user_id=user_id, task_id=task_id)
+            
+            try:
+                # Invoke the graph
+                result = await graph.ainvoke(graph_input, config)
+            finally:
+                # Clear thread context after execution
+                clear_thread_context()
             
             # Extract response from messages
             response_messages = result.get("messages", [])

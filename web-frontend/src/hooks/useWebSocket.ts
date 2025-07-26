@@ -1,12 +1,13 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useToast } from '@/hooks/use-toast'
+import { useThread } from '@/contexts/ThreadContext'
 
 export function useWebSocket(url: string) {
   const [isConnected, setIsConnected] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<number | null>(null)
-  const threadIdRef = useRef<string>(Math.random().toString(36).substr(2, 9))
   const { toast } = useToast()
+  const { thread } = useThread()
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -14,17 +15,35 @@ export function useWebSocket(url: string) {
     }
 
     try {
-      const ws = new WebSocket(url)
+      // Include thread_id in URL
+      const urlWithThread = `${url}?thread_id=${thread.threadId}`
+      const ws = new WebSocket(urlWithThread)
       wsRef.current = ws
 
       ws.onopen = () => {
         setIsConnected(true)
-        console.log('WebSocket connected')
+        console.log('WebSocket connected for thread:', thread.threadId)
+        
+        // Send thread context on connection
+        ws.send(JSON.stringify({
+          type: 'thread_context',
+          payload: {
+            thread_id: thread.threadId,
+            user_id: thread.metadata.userId,
+            session_id: thread.metadata.sessionId
+          }
+        }))
       }
 
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data)
+          
+          // Filter messages by thread_id if present
+          if (data.thread_id && data.thread_id !== thread.threadId) {
+            console.log(`WebSocket message ignored (wrong thread). Expected: ${thread.threadId}, Got: ${data.thread_id}`)
+            return
+          }
           
           if (data.type === 'interrupt_ack') {
             if (data.payload?.success) {
@@ -60,7 +79,7 @@ export function useWebSocket(url: string) {
       console.error('Failed to create WebSocket:', error)
       setIsConnected(false)
     }
-  }, [url, toast])
+  }, [url, toast, thread.threadId, thread.metadata])
 
   const sendInterrupt = useCallback(async (reason: string = 'user_escape', modifiedPlan?: string) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
@@ -75,7 +94,9 @@ export function useWebSocket(url: string) {
     const message = {
       type: "interrupt",
       payload: {
-        thread_id: threadIdRef.current,
+        thread_id: thread.threadId,
+        user_id: thread.metadata.userId,
+        session_id: thread.metadata.sessionId,
         reason,
         modified_plan: modifiedPlan
       },
@@ -94,7 +115,7 @@ export function useWebSocket(url: string) {
       })
       return false
     }
-  }, [toast])
+  }, [toast, thread.threadId, thread.metadata])
 
   useEffect(() => {
     connect()
@@ -113,6 +134,6 @@ export function useWebSocket(url: string) {
     isConnected,
     sendInterrupt,
     reconnect: connect,
-    threadId: threadIdRef.current
+    threadId: thread.threadId
   }
 }

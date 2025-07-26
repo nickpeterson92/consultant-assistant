@@ -9,9 +9,10 @@ import { useSSE } from '@/hooks/useSSE'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useA2AClient } from '@/hooks/useA2AClient'
 import { Toaster } from '@/components/ui/toaster'
+import { ThreadProvider } from '@/contexts/ThreadContext'
 import { cn } from '@/lib/utils'
 
-function App() {
+function AppContent() {
   const [isDarkMode, setIsDarkMode] = useState(true)
   const [isInterruptModalOpen, setIsInterruptModalOpen] = useState(false)
   const [currentPlan, setCurrentPlan] = useState<any[]>([])
@@ -99,6 +100,14 @@ function App() {
       {/* Toast Notifications */}
       <Toaster />
     </div>
+  )
+}
+
+function App() {
+  return (
+    <ThreadProvider>
+      <AppContent />
+    </ThreadProvider>
   )
 }
 

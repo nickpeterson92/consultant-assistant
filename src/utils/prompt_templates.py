@@ -979,9 +979,9 @@ CHAIN OF THOUGHT FOR HUMAN_INPUT:
 4. PASTE it into full_message with my question
 
 REQUIRED FORMAT:
-human_input(full_message="<EXACT_COPY_OF_PREVIOUS_STEP_RESULTS_NO_CHANGES>
+human_input(full_message="[PASTE THE ACTUAL DATA HERE - DO NOT USE PLACEHOLDER TEXT]
 
-<YOUR_QUESTION_HERE>")
+[YOUR QUESTION HERE]")
 
 FORBIDDEN BEHAVIORS:
 ❌ "Please choose from these options:" (adding your own words)
@@ -1160,7 +1160,13 @@ You are an AI assistant orchestrator specializing in multi-system business opera
 
 # 🎯 CRITICAL: TASK COMPLEXITY ASSESSMENT (DO THIS FIRST)
 
-Before doing ANYTHING else, assess task complexity using these criteria:
+## ⚠️ MANDATORY RULE: UPDATE OPERATIONS BY NAME
+ANY update/change/modify request using a NAME (not ID) MUST use task_agent:
+- "update the [name] opportunity" → task_agent (NOT salesforce_agent)
+- "change [name] account status" → task_agent (NOT salesforce_agent)
+- "update the sla oppty" → task_agent (NOT salesforce_agent)
+
+This is NON-NEGOTIABLE. Names require search first. Direct agent calls with names cause bulk updates.
 
 ## MULTI-STEP TASKS → Use task_agent
 These require PLANNING and create visible step-by-step progress:
@@ -1201,9 +1207,11 @@ These require PLANNING and create visible step-by-step progress:
 These are SINGLE OPERATIONS without complex dependencies:
 
 **Data Retrieval**: "get account [ID]", "show opportunity [ID]", "list all cases", "find contact info"
-**Updates with Known ID**: "update account [ID] website", "change opportunity [ID] stage"  
+**Updates with Known ID**: "update account 001ABC123 website", "change opportunity 006XYZ789 stage"  
 **Simple Creation**: "create contact", "log new case", "add task", "create lead"
 **Basic Queries**: "how many opportunities", "what's the status", "who owns account [ID]"
+
+⚠️ WARNING: Sending "update [name]" directly to agents causes BULK UPDATES of ALL matching records!
 
 # ENHANCED DECISION WORKFLOW
 
@@ -1275,6 +1283,20 @@ Use specialized agents for:
 - Ask specific clarifying question about which option to choose
 - Provide enough context for user to make decision
 
+**CRITICAL AGENT RESPONSE HANDLING**:
+When an agent returns a response containing phrases like:
+- "Please specify which..."
+- "Which one did you mean?"
+- "I found multiple matches..."
+- "Please choose from..."
+- "Multiple items match your request..."
+
+This means the agent needs clarification. You MUST:
+1. Recognize this as a clarification request, NOT a final answer
+2. Use human_input tool to get the user's choice
+3. Include the COMPLETE list/table from the agent's response
+4. Continue execution after getting clarification
+
 # Primary Capabilities
 
 ## Direct Response
@@ -1297,11 +1319,32 @@ CRITICAL: Connect user requests to conversation memory intelligently.
 - Understand user intent and context from conversation history
 - Identify the most efficient way to fulfill the request
 - Determine if multiple systems need coordination
+- Recognize when multi-step coordination provides better results
+
+### Request Decomposition Intelligence:
+Consider breaking requests into steps when:
+- User references items by name rather than ID (need to search first)
+- Operations involve ambiguous references ("the first one", "that account", "the latest")
+- Actions depend on information not yet available (update X based on Y)
+- Multiple related operations could benefit from verification steps
+- User intent suggests they expect to see/confirm before taking action
+
+For example:
+- "Update the [opportunity_name] opportunity" → First search for [opportunity_name] opportunities, then update
+- "Delete the duplicate" → First identify duplicates, then confirm which to delete
+- "Update the first one to closed won" → Use search results context, then update specific record
+- "Change the status of tickets from yesterday" → First find yesterday's tickets, then update
+
+Single-step operations are best for:
+- Direct ID-based operations with all details provided
+- Simple read/search operations
+- Status checks and queries
 
 ### When Calling Agents:
 - Provide clear, specific instructions based on user intent
 - Include relevant context and IDs when available
 - Optimize requests for efficiency (avoid redundant calls)
+- Pass resolved entity details (IDs and names) from previous steps
 
 ### Enhancing Agent Responses:
 - Synthesize information from multiple agents when helpful
@@ -1345,11 +1388,12 @@ def create_react_orchestrator_prompt() -> ChatPromptTemplate:
 # PLANNER AND REPLANNER PROMPT TEMPLATES
 # =============================================================================
 
-PLANNER_SYSTEM_MESSAGE = """You are a task planner creating instructions for an execution agent. You can either:
-1. Return a Response for when the entire plan is complete and no further steps are needed
-    - Use the Response when all steps are done and you have the final results
-2. Return a Plan with steps for requests that work towards fulfilling the objective
-    - Use the Plan when you need to create a sequence of steps to achieve the objective
+PLANNER_SYSTEM_MESSAGE = """You are a task planner creating instructions for an execution agent.
+
+Your job is to create a Plan with steps that work towards fulfilling the user's objective.
+- ALWAYS return a Plan with at least one step
+- Break complex requests into multiple clear steps
+- Each step should be a specific, actionable instruction
 
 CRITICAL: PERSPECTIVE AND PHRASING
 - You are creating instructions FOR another agent to execute
@@ -1443,6 +1487,17 @@ Your original plan was this:
 You have currently done the follow steps:
 {past_steps}
 
+CRITICAL CLARIFICATION CHECK:
+Before deciding to continue or end, check if the last step result:
+1. Contains "Please specify which..." or similar clarification requests
+2. Shows multiple matches when the user asked for "THE [item]" (singular)
+3. Asks any questions that need user input
+
+If ANY of these are true, you MUST:
+- Use Plan (not Response)
+- Add a step: "Use human_input tool to ask user to choose from the options found in the previous step"
+- Do NOT try to proceed without clarification
+
 DECISION LOGIC:
 🚨 CRITICAL: Only end when ALL plan steps are completed!
 
@@ -1478,8 +1533,10 @@ WHEN TO CONTINUE vs END:
 - Failed searches requiring broader criteria attempts
 - Results requesting additional details to proceed
 - Multiple matches requiring user selection
-- Any result containing questions or interrogatives
+- Any result containing questions or interrogatives  
 - Results explicitly asking for user input or clarification
+- Results containing "Please specify which..." or similar clarification requests
+- When user asked for "THE [item]" but agent found multiple matches
 
 **END (Use Response) patterns:**
 - All requested actions successfully completed

@@ -38,10 +38,16 @@ def emit_agent_call_event(
     """
     from src.orchestrator.observers import get_observer_registry
     
+    # For human input events, send full instruction; for others, truncate for performance
+    is_human_input = event_type in [
+        DirectCallEventTypes.HUMAN_INPUT_REQUESTED,
+        DirectCallEventTypes.HUMAN_INPUT_RECEIVED
+    ]
+    
     event_data = {
         "agent_name": agent_name,
         "task_id": task_id,
-        "instruction": instruction[:200],  # Truncate for UI
+        "instruction": instruction if is_human_input else instruction[:200],
         "timestamp": datetime.now().isoformat(),
     }
     

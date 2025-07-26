@@ -76,11 +76,11 @@
   }
   
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    @apply bg-muted rounded-full;
+    @apply bg-muted-foreground/40 rounded-full;
   }
   
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-    @apply bg-muted-foreground/30;
+    @apply bg-muted-foreground/60;
   }
 }
 

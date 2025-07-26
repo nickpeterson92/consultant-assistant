@@ -8,6 +8,7 @@ from src.a2a import A2AServer, AgentCard
 from src.utils.logging import get_smart_logger, log_execution
 from src.orchestrator.a2a.handler import OrchestratorA2AHandler
 from src.orchestrator.observers import get_observer_registry, SSEObserver
+from src.utils.thread_validation import ThreadValidator
 import json
 from aiohttp import web
 from aiohttp.web_response import StreamResponse
@@ -54,6 +55,9 @@ async def handle_sse_stream(request: web.Request) -> StreamResponse:
     """SSE endpoint for streaming plan updates to clients."""
     global sse_observer
     
+    # Extract thread_id from query parameters
+    thread_id = request.query.get('thread_id')
+    
     # Set up SSE response
     response = StreamResponse()
     response.headers['Content-Type'] = 'text/event-stream'
@@ -64,12 +68,18 @@ async def handle_sse_stream(request: web.Request) -> StreamResponse:
     await response.prepare(request)
     
     logger.info("sse_client_connected",
-               client_ip=request.remote)
+               client_ip=request.remote,
+               thread_id=thread_id)
     
-    # Send any queued messages first
+    # Send any queued messages first (filtered by thread_id if provided)
     if sse_observer and sse_observer.sse_queue:
         try:
             for message in sse_observer.sse_queue:
+                # Filter by thread_id if provided
+                msg_thread_id = message.get('data', {}).get('thread_id')
+                if thread_id and msg_thread_id and msg_thread_id != thread_id:
+                    continue  # Skip messages from other threads
+                    
                 # Use the formatted payload that matches main branch format
                 sse_payload = message.get('sse_payload', {"event": message['event'], "data": message['data']})
                 sse_data = f"data: {json.dumps(sse_payload)}\n\n"
@@ -81,9 +91,16 @@ async def handle_sse_stream(request: web.Request) -> StreamResponse:
     
     # Set up client callback for new messages
     async def send_message(message: Dict):
+        # Filter by thread_id if provided
+        msg_thread_id = message.get('data', {}).get('thread_id')
+        if thread_id and msg_thread_id and msg_thread_id != thread_id:
+            return  # Skip messages from other threads
+            
         logger.info("SSE_CALLBACK_ENTRY",
                    event_type=message.get('event'),
-                   message_keys=list(message.keys()))
+                   message_keys=list(message.keys()),
+                   thread_id=msg_thread_id,
+                   client_thread_id=thread_id)
         try:
             logger.info("sse_callback_triggered",
                        event_type=message.get('event'),
@@ -133,11 +150,15 @@ async def handle_sse_stream(request: web.Request) -> StreamResponse:
 
 async def handle_websocket(request: web.Request) -> web.WebSocketResponse:
     """WebSocket endpoint for interrupt handling."""
+    # Extract thread_id from query parameters
+    thread_id = request.query.get('thread_id')
+    
     ws = web.WebSocketResponse()
     await ws.prepare(request)
     
     logger.info("websocket_client_connected",
-               client_ip=request.remote)
+               client_ip=request.remote,
+               thread_id=thread_id)
     
     # Track background tasks for this connection
     background_tasks = set()
@@ -156,10 +177,51 @@ async def handle_websocket(request: web.Request) -> web.WebSocketResponse:
                                msg_id=msg_id,
                                thread_id=payload.get("thread_id"))
                     
-                    if msg_type == "interrupt":
+                    if msg_type == "thread_context":
+                        # Store thread context for this connection
+                        thread_id = payload.get("thread_id")
+                        user_id = payload.get("user_id")
+                        session_id = payload.get("session_id")
+                        
+                        # Validate thread context
+                        is_valid, error_msg = ThreadValidator.validate_thread_context(payload)
+                        
+                        logger.info("websocket_thread_context_received",
+                                   thread_id=thread_id,
+                                   user_id=user_id,
+                                   session_id=session_id,
+                                   is_valid=is_valid,
+                                   error=error_msg)
+                        
+                        # Send acknowledgment
+                        await ws.send_json({
+                            "type": "thread_context_ack",
+                            "payload": {
+                                "success": is_valid,
+                                "thread_id": thread_id,
+                                "error": error_msg
+                            },
+                            "id": msg_id
+                        })
+                        
+                    elif msg_type == "interrupt":
                         # Handle interrupt request
                         thread_id = payload.get("thread_id")
                         reason = payload.get("reason", "user_interrupt")
+                        
+                        # Validate thread ID
+                        if not ThreadValidator.is_valid_thread_id(thread_id):
+                            logger.warning("interrupt_invalid_thread_id", thread_id=thread_id)
+                            await ws.send_json({
+                                "type": "interrupt_ack",
+                                "payload": {
+                                    "success": False,
+                                    "thread_id": thread_id,
+                                    "message": f"Invalid thread ID format: {thread_id}"
+                                },
+                                "id": msg_id
+                            })
+                            continue
                         
                         logger.info("interrupt_request_received",
                                    thread_id=thread_id,
@@ -183,6 +245,20 @@ async def handle_websocket(request: web.Request) -> web.WebSocketResponse:
                         # Handle resume request
                         thread_id = payload.get("thread_id")
                         user_input = payload.get("user_input")
+                        
+                        # Validate thread ID
+                        if not ThreadValidator.is_valid_thread_id(thread_id):
+                            logger.warning("resume_invalid_thread_id", thread_id=thread_id)
+                            await ws.send_json({
+                                "type": "resume_ack",
+                                "payload": {
+                                    "success": False,
+                                    "thread_id": thread_id,
+                                    "message": f"Invalid thread ID format: {thread_id}"
+                                },
+                                "id": msg_id
+                            })
+                            continue
                         
                         logger.info("resume_request_received",
                                    thread_id=thread_id,

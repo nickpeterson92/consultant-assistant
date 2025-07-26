@@ -26,6 +26,7 @@ from src.orchestrator.observers.direct_call_events import (
     emit_agent_call_event, 
     DirectCallEventTypes
 )
+from src.orchestrator.core.thread_context import get_thread_context
 
 # Initialize structured logger
 logger = get_smart_logger("orchestrator")
@@ -262,6 +263,14 @@ class SalesforceAgentTool(BaseAgentTool):
         Returns:
             Dictionary of serialized context ready for A2A transmission
         """
+        # If state is None (InjectedState not working), get thread context
+        if state is None:
+            thread_ctx = get_thread_context()
+            logger.info("using_thread_context_fallback",
+                       thread_id=thread_ctx.get('thread_id'),
+                       user_id=thread_ctx.get('user_id'),
+                       task_id=thread_ctx.get('task_id'))
+        
         messages = state.get("messages", []) if state else []
         memory = state.get("memory", {}) if state else {}
         
@@ -293,6 +302,28 @@ class SalesforceAgentTool(BaseAgentTool):
                 logger.warning("no_user_id_found", 
                     has_configurable="configurable" in state,
                     configurable_keys=list(state.get("configurable", {}).keys()) if "configurable" in state else [])
+            
+            # Include thread_id if available in state
+            if "thread_id" in state:
+                extracted_context["thread_id"] = state["thread_id"]
+                logger.debug("found_thread_id_in_state", thread_id=state["thread_id"])
+            elif "configurable" in state and "thread_id" in state["configurable"]:
+                extracted_context["thread_id"] = state["configurable"]["thread_id"]
+                logger.debug("found_thread_id_in_configurable", thread_id=state["configurable"]["thread_id"])
+            else:
+                logger.warning("no_thread_id_found",
+                    has_configurable="configurable" in state,
+                    configurable_keys=list(state.get("configurable", {}).keys()) if "configurable" in state else [],
+                    state_keys=list(state.keys()) if state else [])
+        else:
+            # State is None, use thread context
+            thread_ctx = get_thread_context()
+            if thread_ctx.get('user_id'):
+                extracted_context["user_id"] = thread_ctx['user_id']
+                logger.debug("found_user_id_in_thread_context", user_id=thread_ctx['user_id'])
+            if thread_ctx.get('thread_id'):
+                extracted_context["thread_id"] = thread_ctx['thread_id']
+                logger.debug("found_thread_id_in_thread_context", thread_id=thread_ctx['thread_id'])
         
         # Merge any additional context
         if context:
@@ -438,6 +469,7 @@ class SalesforceAgentTool(BaseAgentTool):
         """
         # Tool results are now stored in persistent memory, not in state_updates
         return response_content
+    
     
     def _run(self, instruction: str, context: Optional[Dict[str, Any]] = None, 
             state: Annotated[Dict[str, Any], InjectedState] = None, **kwargs) -> Union[str, Command]:
@@ -711,6 +743,14 @@ class JiraAgentTool(BaseAgentTool):
         Returns:
             Dictionary of serialized context ready for A2A transmission
         """
+        # If state is None (InjectedState not working), get thread context
+        if state is None:
+            thread_ctx = get_thread_context()
+            logger.info("using_thread_context_fallback",
+                       thread_id=thread_ctx.get('thread_id'),
+                       user_id=thread_ctx.get('user_id'),
+                       task_id=thread_ctx.get('task_id'))
+        
         messages = state.get("messages", []) if state else []
         memory = state.get("memory", {}) if state else {}
         
@@ -742,6 +782,28 @@ class JiraAgentTool(BaseAgentTool):
                 logger.warning("no_user_id_found", 
                     has_configurable="configurable" in state,
                     configurable_keys=list(state.get("configurable", {}).keys()) if "configurable" in state else [])
+            
+            # Include thread_id if available in state
+            if "thread_id" in state:
+                extracted_context["thread_id"] = state["thread_id"]
+                logger.debug("found_thread_id_in_state", thread_id=state["thread_id"])
+            elif "configurable" in state and "thread_id" in state["configurable"]:
+                extracted_context["thread_id"] = state["configurable"]["thread_id"]
+                logger.debug("found_thread_id_in_configurable", thread_id=state["configurable"]["thread_id"])
+            else:
+                logger.warning("no_thread_id_found",
+                    has_configurable="configurable" in state,
+                    configurable_keys=list(state.get("configurable", {}).keys()) if "configurable" in state else [],
+                    state_keys=list(state.keys()) if state else [])
+        else:
+            # State is None, use thread context
+            thread_ctx = get_thread_context()
+            if thread_ctx.get('user_id'):
+                extracted_context["user_id"] = thread_ctx['user_id']
+                logger.debug("found_user_id_in_thread_context", user_id=thread_ctx['user_id'])
+            if thread_ctx.get('thread_id'):
+                extracted_context["thread_id"] = thread_ctx['thread_id']
+                logger.debug("found_thread_id_in_thread_context", thread_id=thread_ctx['thread_id'])
         
         # Merge any additional context
         if context:
@@ -1235,6 +1297,14 @@ class ServiceNowAgentTool(BaseAgentTool):
         Returns:
             Dictionary of serialized context ready for A2A transmission
         """
+        # If state is None (InjectedState not working), get thread context
+        if state is None:
+            thread_ctx = get_thread_context()
+            logger.info("using_thread_context_fallback",
+                       thread_id=thread_ctx.get('thread_id'),
+                       user_id=thread_ctx.get('user_id'),
+                       task_id=thread_ctx.get('task_id'))
+        
         messages = state.get("messages", []) if state else []
         memory = state.get("memory", {}) if state else {}
         
@@ -1266,6 +1336,28 @@ class ServiceNowAgentTool(BaseAgentTool):
                 logger.warning("no_user_id_found", 
                     has_configurable="configurable" in state,
                     configurable_keys=list(state.get("configurable", {}).keys()) if "configurable" in state else [])
+            
+            # Include thread_id if available in state
+            if "thread_id" in state:
+                extracted_context["thread_id"] = state["thread_id"]
+                logger.debug("found_thread_id_in_state", thread_id=state["thread_id"])
+            elif "configurable" in state and "thread_id" in state["configurable"]:
+                extracted_context["thread_id"] = state["configurable"]["thread_id"]
+                logger.debug("found_thread_id_in_configurable", thread_id=state["configurable"]["thread_id"])
+            else:
+                logger.warning("no_thread_id_found",
+                    has_configurable="configurable" in state,
+                    configurable_keys=list(state.get("configurable", {}).keys()) if "configurable" in state else [],
+                    state_keys=list(state.keys()) if state else [])
+        else:
+            # State is None, use thread context
+            thread_ctx = get_thread_context()
+            if thread_ctx.get('user_id'):
+                extracted_context["user_id"] = thread_ctx['user_id']
+                logger.debug("found_user_id_in_thread_context", user_id=thread_ctx['user_id'])
+            if thread_ctx.get('thread_id'):
+                extracted_context["thread_id"] = thread_ctx['thread_id']
+                logger.debug("found_thread_id_in_thread_context", thread_id=thread_ctx['thread_id'])
         
         # Merge any additional context
         if context:

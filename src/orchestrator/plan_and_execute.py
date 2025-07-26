@@ -817,7 +817,18 @@ async def plan_step(state: PlanExecute):
     if not planner:
         raise RuntimeError("Planner not initialized")
     
-    plan = asyncio.run(planner.ainvoke({"messages": planning_messages}))
+    plan = await planner.ainvoke({"messages": planning_messages})
+    
+    # DEBUG: Log what the planner returned
+    logger.info("PLANNER_OUTPUT_DEBUG",
+                component="orchestrator",
+                operation="plan_step",
+                plan_type=type(plan).__name__,
+                is_plan=hasattr(plan, 'steps'),
+                is_response=hasattr(plan, 'response'),
+                plan_steps=plan.steps if hasattr(plan, 'steps') else None,
+                response_text=plan.response if hasattr(plan, 'response') else None,
+                input_preview=state["input"][:200])
     
     # Emit plan created event for live UI updates
     try:

@@ -210,7 +210,7 @@ export function ResizablePanels({
       {/* Right Panel */}
       <div
         className={cn(
-          "h-full overflow-hidden transition-all duration-300",
+          "h-full flex flex-col transition-all duration-300",
           isRightCollapsed && "w-0"
         )}
         style={{ width: isRightCollapsed ? '0%' : `${100 - leftWidthPercent}%` }}
