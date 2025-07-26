@@ -482,6 +482,63 @@ class SemanticSchemaKnowledge:
         results.sort(key=lambda x: x[1], reverse=True)
         return results
     
+    def lookup_schema(self, system: str, object_type: str) -> Optional[SchemaEntry]:
+        """
+        Lookup a specific schema by system and object type.
+        Backward compatibility method for agent_caller_tools.
+        
+        Args:
+            system: System name (e.g., 'salesforce', 'jira', 'servicenow')
+            object_type: Object type (e.g., 'account', 'issue', 'incident')
+            
+        Returns:
+            SchemaEntry if found, None otherwise
+        """
+        system_lower = system.lower()
+        object_lower = object_type.lower()
+        
+        for entry in self.schema_entries:
+            if entry.system.lower() == system_lower and entry.object_type.lower() == object_lower:
+                return entry
+        
+        # Try alternative names for some objects
+        alt_names = {
+            "salesforce": {
+                "accounts": "account",
+                "contacts": "contact",
+                "opportunities": "opportunity",
+                "leads": "lead",
+                "cases": "case",
+                "tasks": "task"
+            },
+            "jira": {
+                "issues": "issue",
+                "projects": "project",
+                "sprints": "sprint",
+                "epics": "epic",
+                "boards": "board",
+                "users": "user"
+            },
+            "servicenow": {
+                "incidents": "incident",
+                "changes": "change_request",
+                "problems": "problem",
+                "requests": "sc_request",
+                "users": "sys_user",
+                "companies": "core_company",
+                "company": "core_company",
+                "user": "sys_user"
+            }
+        }
+        
+        if system_lower in alt_names and object_lower in alt_names[system_lower]:
+            alt_object = alt_names[system_lower][object_lower]
+            for entry in self.schema_entries:
+                if entry.system.lower() == system_lower and entry.object_type.lower() == alt_object:
+                    return entry
+        
+        return None
+    
     def get_schema_context(self, query: str, max_schemas: int = 3) -> str:
         """Get formatted schema context for a query."""
         

@@ -178,7 +178,7 @@ export function VisualizationPanel({ events, onPlanUpdate }: VisualizationPanelP
           </TabsTrigger>
         </TabsList>
 
-        <div className="flex-1 overflow-hidden p-4">
+        <div className="flex-1 overflow-hidden p-4 min-h-0">
           <TabsContent value="plan" className="h-full">
             <PlanDisplay 
               plan={planData.plan}
@@ -187,10 +187,8 @@ export function VisualizationPanel({ events, onPlanUpdate }: VisualizationPanelP
             />
           </TabsContent>
 
-          <TabsContent value="tools" className="h-full overflow-hidden">
-            <div className="h-full">
-              <ToolEventsDisplay events={toolEvents} />
-            </div>
+          <TabsContent value="tools" className="h-full min-h-0 flex flex-col">
+            <ToolEventsDisplay events={toolEvents} />
           </TabsContent>
 
           <TabsContent value="memory" className="h-full">

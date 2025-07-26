@@ -44,8 +44,19 @@ export function useA2AClient() {
 
       // Add assistant response
       if (data.result) {
-        // Check for artifacts (interrupt responses)
-        if (data.result.artifacts && data.result.artifacts.length > 0) {
+        // Check for interrupted status first
+        if (data.result.status === 'interrupted') {
+          const interrupt_reason = data.result.metadata?.interrupt_reason || 'Agent requested clarification'
+          const interrupt_type = data.result.metadata?.interrupt_type || 'unknown'
+          
+          addMessage({
+            role: 'assistant',
+            content: `🔄 **Execution Paused** (${interrupt_type})\n\n${interrupt_reason}`,
+            status: 'sent'
+          })
+        }
+        // Check for artifacts (normal responses)
+        else if (data.result.artifacts && data.result.artifacts.length > 0) {
           const artifact = data.result.artifacts[0]
           addMessage({
             role: 'assistant',

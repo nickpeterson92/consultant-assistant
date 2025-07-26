@@ -219,6 +219,65 @@ ORCHESTRATOR TOOLS:
                         was_direct_response = False
                         break
             
+            # Check if the last message is a human input tool call (interrupt case)
+            human_input_interrupt = False
+            interrupt_message = ""
+            
+            if response_messages:
+                last_msg = response_messages[-1]
+                # Check if the last message has tool calls for human_input
+                if hasattr(last_msg, 'tool_calls') and last_msg.tool_calls:
+                    for tool_call in last_msg.tool_calls:
+                        if tool_call.get("name") == "human_input":
+                            human_input_interrupt = True
+                            # Extract the message from the tool call arguments
+                            if "args" in tool_call and "full_message" in tool_call["args"]:
+                                interrupt_message = tool_call["args"]["full_message"]
+                            break
+            
+            if human_input_interrupt and interrupt_message:
+                # This is a human input interrupt - return it properly
+                logger.info("human_input_interrupt_detected",
+                           thread_id=thread_id,
+                           message_preview=interrupt_message[:100])
+                
+                # Record the interrupt
+                from src.orchestrator.observers.interrupt_observer import get_interrupt_observer
+                interrupt_observer = get_interrupt_observer()
+                interrupt_observer.record_interrupt(
+                    thread_id=thread_id,
+                    interrupt_type="human_input",
+                    reason=interrupt_message,
+                    current_plan=[],  # ReAct doesn't have explicit plans
+                    state=graph_input
+                )
+                
+                # Mark task as interrupted
+                if task_id in self.active_tasks:
+                    self.active_tasks[task_id]["status"] = "interrupted"
+                    self.active_tasks[task_id]["interrupt_reason"] = interrupt_message
+                    self.active_tasks[task_id]["interrupted_at"] = datetime.now().isoformat()
+                
+                # Return interrupt response
+                return {
+                    "artifacts": [{
+                        "id": f"orchestrator-interrupt-{task_id}",
+                        "task_id": task_id,
+                        "content": interrupt_message,
+                        "content_type": "text/plain"
+                    }],
+                    "status": "interrupted",
+                    "metadata": {
+                        "task_id": task_id,
+                        "thread_id": thread_id,
+                        "user_id": user_id,
+                        "interrupt_type": "human_input",
+                        "interrupt_reason": interrupt_message
+                    },
+                    "error": None
+                }
+            
+            # Normal response processing
             if response_messages and hasattr(response_messages[-1], 'content'):
                 response = response_messages[-1].content
             else:
@@ -260,15 +319,86 @@ ORCHESTRATOR TOOLS:
             }
             
         except Exception as e:
-            logger.error("orchestrator_error",
-                        task_id=task_id,
-                        error=str(e),
-                        error_type=type(e).__name__)
-            
-            # Mark task as failed
-            if task_id in self.active_tasks:
-                self.active_tasks[task_id]["status"] = "failed"
-                self.active_tasks[task_id]["error"] = str(e)
+            # Check if this is a GraphInterrupt (expected behavior for human input)
+            from langgraph.errors import GraphInterrupt
+            if isinstance(e, GraphInterrupt):
+                # This is expected - an agent is requesting human input
+                logger.info("orchestrator_interrupted",
+                           task_id=task_id,
+                           thread_id=thread_id,
+                           interrupt_value=str(e.args[0]) if e.args else "",
+                           error_type=type(e).__name__)
+                
+                # Record the interrupt
+                from src.orchestrator.observers.interrupt_observer import get_interrupt_observer
+                interrupt_observer = get_interrupt_observer()
+                
+                # Determine interrupt type
+                interrupt_type = "human_input"
+                interrupt_reason = "Agent requested clarification"
+                
+                # Extract the actual interrupt value from the tuple/Interrupt object
+                if hasattr(e, 'args') and e.args:
+                    arg = e.args[0]
+                    
+                    # Check if it's a tuple containing an Interrupt object
+                    if isinstance(arg, tuple) and len(arg) > 0:
+                        interrupt_obj = arg[0]
+                        # Extract the value from the Interrupt object
+                        if hasattr(interrupt_obj, 'value'):
+                            interrupt_reason = interrupt_obj.value
+                    # Check if it's a dict (legacy format)
+                    elif isinstance(arg, dict):
+                        interrupt_type = arg.get("type", "human_input")
+                        interrupt_reason = arg.get("reason", interrupt_reason)
+                    # Otherwise just convert to string
+                    else:
+                        interrupt_reason = str(arg)
+                
+                # Record interrupt with observer
+                interrupt_observer.record_interrupt(
+                    thread_id=thread_id,
+                    interrupt_type=interrupt_type,
+                    reason=interrupt_reason,
+                    current_plan=[],  # ReAct doesn't have explicit plans
+                    state=graph_input
+                )
+                
+                # Mark task as interrupted (not failed)
+                if task_id in self.active_tasks:
+                    self.active_tasks[task_id]["status"] = "interrupted"
+                    self.active_tasks[task_id]["interrupt_reason"] = interrupt_reason
+                    self.active_tasks[task_id]["interrupted_at"] = datetime.now().isoformat()
+                
+                # Return success with interrupt information
+                return {
+                    "artifacts": [{
+                        "id": f"orchestrator-interrupt-{task_id}",
+                        "task_id": task_id,
+                        "content": interrupt_reason,
+                        "content_type": "text/plain"
+                    }],
+                    "status": "interrupted",
+                    "metadata": {
+                        "task_id": task_id,
+                        "thread_id": thread_id,
+                        "user_id": user_id,
+                        "interrupt_type": interrupt_type,
+                        "interrupt_reason": interrupt_reason
+                    },
+                    "error": None
+                }
+            else:
+                # This is an actual error
+                logger.error("orchestrator_error",
+                            task_id=task_id,
+                            error=str(e),
+                            error_type=type(e).__name__)
+                
+                # Mark task as failed
+                if task_id in self.active_tasks:
+                    self.active_tasks[task_id]["status"] = "failed"
+                    self.active_tasks[task_id]["error"] = str(e)
             
             return {
                 "artifacts": [{

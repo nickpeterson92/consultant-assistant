@@ -98,7 +98,7 @@ async def build_jira_agent():
             external_context = state.get("external_context", {})
             
             # Prepare context using the new ContextInjector
-            context_dict = ContextInjector.prepare_salesforce_context(task_context, external_context)
+            context_dict = ContextInjector.prepare_jira_context(task_context, external_context)
             
             # Use the prompt template to format messages
             # This leverages LangChain's prompt template features

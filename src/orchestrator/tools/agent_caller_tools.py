@@ -99,13 +99,97 @@ class BaseAgentTool(BaseTool):
             for key in keys_to_include 
             if key in state
         }
+    
+    def _extract_memory_insights(self, memory_context: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract relevant memory insights for agent consumption.
+        
+        Args:
+            memory_context: Memory context from MemoryContextBuilder
+            
+        Returns:
+            Formatted memory insights for agents
+        """
+        insights = {}
+        
+        # Extract relevant entities with importance scores
+        if "entities" in memory_context:
+            insights["relevant_entities"] = [
+                {
+                    "type": entity.get("type", "unknown"),
+                    "name": entity.get("name", ""),
+                    "id": entity.get("id", ""),
+                    "importance_score": entity.get("importance", 0.0),
+                    "last_accessed": entity.get("timestamp", ""),
+                    "related_items": entity.get("related", [])
+                }
+                for entity in memory_context["entities"][:10]  # Limit to top 10
+            ]
+        
+        # Extract execution patterns
+        if "patterns" in memory_context:
+            insights["execution_patterns"] = memory_context["patterns"]
+        
+        # Extract memory clusters
+        if "clusters" in memory_context:
+            insights["memory_clusters"] = [
+                {
+                    "cluster_id": f"cluster_{i}",
+                    "members": cluster.get("nodes", [])[:5],  # Limit members
+                    "theme": cluster.get("theme", "related entities")
+                }
+                for i, cluster in enumerate(memory_context["clusters"][:5])  # Limit clusters
+            ]
+        
+        # Extract bridge nodes
+        if "bridges" in memory_context:
+            insights["bridge_nodes"] = [
+                {
+                    "node": bridge.get("node", ""),
+                    "connects": bridge.get("connects", []),
+                    "importance": bridge.get("importance", 0.0)
+                }
+                for bridge in memory_context["bridges"][:5]  # Limit bridges
+            ]
+        
+        return insights
+    
+    def _get_agent_schema_context(self) -> Dict[str, Any]:
+        """Get schema context relevant to this specific agent.
+        
+        Override in subclasses for agent-specific schema.
+        
+        Returns:
+            Schema knowledge relevant to the agent
+        """
+        # Base implementation returns empty
+        # Subclasses should override with their specific schema
+        return {}
+    
+    def _extract_execution_insights(self, execution_history: Any) -> Dict[str, Any]:
+        """Extract execution insights from history.
+        
+        Args:
+            execution_history: Execution history from state
+            
+        Returns:
+            Formatted execution insights
+        """
+        insights = {
+            "recent_successes": [],
+            "recent_failures": [],
+            "user_preferences": {}
+        }
+        
+        # This is a placeholder - actual implementation would extract
+        # real execution patterns from the history
+        return insights
 
 
 class AgentCallInput(BaseModel):
     """Input schema for delegating tasks to agents."""
     instruction: str = Field(
-        description="The user's EXACT request in their own words. "
-        "DO NOT translate or modify. Pass through exactly as the user stated it."
+        description="Clear, optimized instruction for the target agent based on user intent. "
+        "Analyze the user's request and enhance it with relevant context, specific parameters, and actionable details."
     )
     context: Optional[Dict[str, Any]] = Field(
         default=None, 
@@ -153,16 +237,11 @@ class SalesforceAgentTool(BaseAgentTool):
     - Task Management: Activity coordination, follow-ups (create/get/update tasks)
     - ANALYTICS & INSIGHTS: Business metrics, KPIs, revenue analysis, pipeline analytics
     
-    CRITICAL - NATURAL LANGUAGE PASSTHROUGH:
-    Pass the user's EXACT words to the Salesforce agent without translation or modification.
-    The Salesforce agent understands natural language in CRM context.
+    INTELLIGENT COORDINATION:
+    Analyze the user's request and provide clear, optimized instructions to the Salesforce agent.
+    Transform vague requests into specific, actionable instructions while respecting operation boundaries.
     
-    EXAMPLES OF CORRECT PASSTHROUGH:
-    - User: "whats the lowdown on this account" → Pass: "whats the lowdown on this account"
-    - User: "gimme the scoop on our pipeline" → Pass: "gimme the scoop on our pipeline"
-    - User: "get the genepoint account" → Pass: "get the genepoint account"
-    
-    The Salesforce agent handles ALL CRM operations and will interpret the user's intent.
+    The Salesforce agent benefits from specific, well-structured instructions that leverage conversation context.
     
     Returns structured CRM data with Salesforce IDs for downstream processing."""
     
@@ -219,7 +298,46 @@ class SalesforceAgentTool(BaseAgentTool):
         if context:
             extracted_context.update(context)
         
+        # NEW: Add enhanced memory context if available
+        if state and "memory_context" in state:
+            extracted_context["memory_insights"] = self._extract_memory_insights(state["memory_context"])
+            logger.debug("added_memory_insights", 
+                        entities_count=len(extracted_context["memory_insights"].get("relevant_entities", [])))
+        
+        # NEW: Add schema knowledge relevant to this agent
+        schema_context = self._get_agent_schema_context()
+        if schema_context:
+            extracted_context["schema_knowledge"] = schema_context
+            logger.debug("added_schema_knowledge", agent=getattr(self, 'agent_name', 'unknown'))
+        
+        # NEW: Add execution insights if available
+        if state and "execution_history" in state:
+            extracted_context["execution_insights"] = self._extract_execution_insights(state["execution_history"])
+            logger.debug("added_execution_insights")
+        
         return extracted_context
+    
+    def _get_agent_schema_context(self) -> Dict[str, Any]:
+        """Get Salesforce-specific schema context using existing schema knowledge.
+        
+        Returns:
+            Schema knowledge for Salesforce objects and relationships
+        """
+        try:
+            from src.utils.schema_knowledge import get_schema_knowledge
+            schema_knowledge = get_schema_knowledge()
+            
+            # Get Salesforce-specific schemas
+            salesforce_schemas = {}
+            for obj_type in ["Account", "Contact", "Opportunity", "Lead", "Case", "Task"]:
+                schema_entry = schema_knowledge.lookup_schema("salesforce", obj_type.lower())
+                if schema_entry:
+                    salesforce_schemas[obj_type] = schema_entry.schema
+            
+            return salesforce_schemas
+        except Exception as e:
+            logger.warning("failed_to_get_schema_context", error=str(e))
+            return {}
     
     def _serialize_state_snapshot(self, state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """Serialize LangGraph state for A2A transmission.
@@ -568,16 +686,11 @@ class JiraAgentTool(BaseAgentTool):
     - Agile Workflows: Kanban/Scrum boards, transitions (manage workflow states)
     - Bug Tracking: Find bugs, track resolution, monitor SLAs
     
-    CRITICAL - NATURAL LANGUAGE PASSTHROUGH:
-    Pass the user's EXACT words to the Jira agent without translation or modification.
-    The Jira agent understands natural language in issue tracking context.
+    INTELLIGENT COORDINATION:
+    Analyze the user's request and provide clear, optimized instructions to the Jira agent.
+    Transform vague requests into specific, actionable instructions while respecting operation boundaries.
     
-    EXAMPLES OF CORRECT PASSTHROUGH:
-    - User: "find bugs in the IM project" → Pass: "find bugs in the IM project"
-    - User: "show me critical issues" → Pass: "show me critical issues"
-    - User: "what's in the current sprint" → Pass: "what's in the current sprint"
-    
-    The Jira agent handles ALL issue tracking operations and will interpret the user's intent.
+    The Jira agent benefits from specific, well-structured instructions that leverage conversation context.
     
     Returns structured issue data with Jira IDs for downstream processing."""
     
@@ -634,7 +747,46 @@ class JiraAgentTool(BaseAgentTool):
         if context:
             extracted_context.update(context)
         
+        # NEW: Add enhanced memory context if available
+        if state and "memory_context" in state:
+            extracted_context["memory_insights"] = self._extract_memory_insights(state["memory_context"])
+            logger.debug("added_memory_insights", 
+                        entities_count=len(extracted_context["memory_insights"].get("relevant_entities", [])))
+        
+        # NEW: Add schema knowledge relevant to this agent
+        schema_context = self._get_agent_schema_context()
+        if schema_context:
+            extracted_context["schema_knowledge"] = schema_context
+            logger.debug("added_schema_knowledge", agent=getattr(self, 'agent_name', 'unknown'))
+        
+        # NEW: Add execution insights if available
+        if state and "execution_history" in state:
+            extracted_context["execution_insights"] = self._extract_execution_insights(state["execution_history"])
+            logger.debug("added_execution_insights")
+        
         return extracted_context
+    
+    def _get_agent_schema_context(self) -> Dict[str, Any]:
+        """Get Jira-specific schema context using existing schema knowledge.
+        
+        Returns:
+            Schema knowledge for Jira objects and relationships
+        """
+        try:
+            from src.utils.schema_knowledge import get_schema_knowledge
+            schema_knowledge = get_schema_knowledge()
+            
+            # Get Jira-specific schemas
+            jira_schemas = {}
+            for obj_type in ["issue", "project", "sprint", "epic"]:
+                schema_entry = schema_knowledge.lookup_schema("jira", obj_type)
+                if schema_entry:
+                    jira_schemas[obj_type] = schema_entry.schema
+            
+            return jira_schemas
+        except Exception as e:
+            logger.warning("failed_to_get_schema_context", error=str(e))
+            return {}
     
     def _serialize_state_snapshot(self, state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """Serialize LangGraph state for A2A transmission.
@@ -1059,16 +1211,11 @@ class ServiceNowAgentTool(BaseAgentTool):
     - User & CMDB: User lookups and CI management (get users, get CIs)
     - Global Search: Flexible queries across any table with encoded queries
     
-    CRITICAL - NATURAL LANGUAGE PASSTHROUGH:
-    Pass the user's EXACT words to the ServiceNow agent without translation or modification.
-    The ServiceNow agent understands natural language in ITSM context.
+    INTELLIGENT COORDINATION:
+    Analyze the user's request and provide clear, optimized instructions to the ServiceNow agent.
+    Transform vague requests into specific, actionable instructions while respecting operation boundaries.
     
-    EXAMPLES OF CORRECT PASSTHROUGH:
-    - User: "show me all P1 incidents" → Pass: "show me all P1 incidents"
-    - User: "create emergency change for server restart" → Pass: "create emergency change for server restart"
-    - User: "find problems related to email" → Pass: "find problems related to email"
-    
-    The ServiceNow agent handles ALL ITSM operations and will interpret the user's intent.
+    The ServiceNow agent benefits from specific, well-structured instructions that leverage conversation context.
     
     Returns structured ITSM data with record numbers for downstream processing."""
     
@@ -1124,7 +1271,46 @@ class ServiceNowAgentTool(BaseAgentTool):
         if context:
             extracted_context.update(context)
         
+        # NEW: Add enhanced memory context if available
+        if state and "memory_context" in state:
+            extracted_context["memory_insights"] = self._extract_memory_insights(state["memory_context"])
+            logger.debug("added_memory_insights", 
+                        entities_count=len(extracted_context["memory_insights"].get("relevant_entities", [])))
+        
+        # NEW: Add schema knowledge relevant to this agent
+        schema_context = self._get_agent_schema_context()
+        if schema_context:
+            extracted_context["schema_knowledge"] = schema_context
+            logger.debug("added_schema_knowledge", agent=getattr(self, 'agent_name', 'unknown'))
+        
+        # NEW: Add execution insights if available
+        if state and "execution_history" in state:
+            extracted_context["execution_insights"] = self._extract_execution_insights(state["execution_history"])
+            logger.debug("added_execution_insights")
+        
         return extracted_context
+    
+    def _get_agent_schema_context(self) -> Dict[str, Any]:
+        """Get ServiceNow-specific schema context using existing schema knowledge.
+        
+        Returns:
+            Schema knowledge for ServiceNow objects and relationships
+        """
+        try:
+            from src.utils.schema_knowledge import get_schema_knowledge
+            schema_knowledge = get_schema_knowledge()
+            
+            # Get ServiceNow-specific schemas
+            servicenow_schemas = {}
+            for obj_type in ["incident", "change_request", "problem", "sys_user", "core_company"]:
+                schema_entry = schema_knowledge.lookup_schema("servicenow", obj_type)
+                if schema_entry:
+                    servicenow_schemas[obj_type] = schema_entry.schema
+            
+            return servicenow_schemas
+        except Exception as e:
+            logger.warning("failed_to_get_schema_context", error=str(e))
+            return {}
     
     def _serialize_state_snapshot(self, state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """Serialize LangGraph state for A2A transmission.

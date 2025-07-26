@@ -109,7 +109,7 @@ export function ToolEventsDisplay({ events, maxEvents = 100 }: ToolEventsDisplay
   return (
     <div className="h-full flex flex-col min-h-0">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 flex-shrink-0">
         <h3 className="text-lg font-medium">Tool Execution Log</h3>
         <Button
           variant="ghost"
@@ -130,7 +130,8 @@ export function ToolEventsDisplay({ events, maxEvents = 100 }: ToolEventsDisplay
         className="flex-1 overflow-y-auto space-y-2 min-h-0 scrollbar-thin"
         style={{ 
           scrollbarWidth: 'thin',
-          scrollbarColor: 'rgba(155, 155, 155, 0.5) transparent'
+          scrollbarColor: 'rgba(155, 155, 155, 0.5) transparent',
+          maxHeight: 'calc(100% - 5rem)' // Ensure it doesn't overflow the parent
         }}
         onScroll={(e) => {
           const { scrollTop, scrollHeight, clientHeight } = e.currentTarget
