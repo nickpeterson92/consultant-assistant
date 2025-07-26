@@ -1,6 +1,6 @@
 """Configuration for memory framework."""
 
-from typing import Set, Dict, Any
+from typing import Set, Dict
 from dataclasses import dataclass, field
 
 

@@ -1,11 +1,11 @@
 """Widget for displaying LLM context in the UI."""
 
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 from textual.app import ComposeResult
 from textual.containers import Vertical, ScrollableContainer
-from textual.widgets import Static, Label, Collapsible
+from textual.widgets import Static, Label
 from textual.reactive import reactive
 
 from src.utils.logging.framework import SmartLogger

@@ -1,6 +1,6 @@
 """Inverted index for efficient text search in memory framework."""
 
-from typing import Set, Dict, List, Optional
+from typing import Set, Dict, Optional
 from collections import defaultdict
 
 from .text_processor import TextProcessor

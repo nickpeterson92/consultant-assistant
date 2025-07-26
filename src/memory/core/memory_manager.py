@@ -1,13 +1,10 @@
 """Async memory management using hybrid PostgreSQL/SQLite storage."""
 
-import asyncio
-from datetime import datetime
 from typing import Dict, Optional, List
-import threading
 
 from .memory_graph import MemoryGraph
 from .memory_node import MemoryNode, ContextType
-from .hybrid_memory_manager import HybridMemoryManager, get_hybrid_memory_manager
+from .hybrid_memory_manager import get_hybrid_memory_manager
 from src.utils.logging.framework import SmartLogger
 
 logger = SmartLogger("memory")

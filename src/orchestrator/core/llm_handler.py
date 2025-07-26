@@ -3,7 +3,6 @@
 import os
 from typing import Any, List
 
-from langchain_openai import AzureChatOpenAI
 from trustcall import create_extractor
 
 from src.utils.config import config, DETERMINISTIC_TEMPERATURE, DETERMINISTIC_TOP_P

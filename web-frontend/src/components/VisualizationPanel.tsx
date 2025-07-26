@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { MemoryGraph } from '@/components/MemoryGraph'
 import { LLMContextDisplay } from '@/components/LLMContextDisplay'
 import { PlanDisplay } from '@/components/PlanDisplay'
-import { Brain, FileText, ListChecks } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { ToolEventsDisplay } from '@/components/ToolEventsDisplay'
+import { Brain, FileText, ListChecks, Wrench } from 'lucide-react'
 
 interface VisualizationPanelProps {
   events: any[]
@@ -20,12 +20,18 @@ export function VisualizationPanel({ events, onPlanUpdate }: VisualizationPanelP
     currentStep: -1,
     status: 'idle'
   })
+  const [toolEvents, setToolEvents] = useState<any[]>([])
+  const [processedEventCount, setProcessedEventCount] = useState(0)
 
   // Process SSE events
   useEffect(() => {
-    console.log('Processing events:', events)
+    // Only process new events that haven't been processed yet
+    const newEvents = events.slice(processedEventCount)
+    if (newEvents.length === 0) return
     
-    events.forEach(event => {
+    console.log(`Processing ${newEvents.length} new events (previously processed: ${processedEventCount})`)
+    
+    newEvents.forEach(event => {
       console.log('Processing event:', event.type, event.data)
       
       switch (event.type) {
@@ -39,7 +45,7 @@ export function VisualizationPanel({ events, onPlanUpdate }: VisualizationPanelP
           // For now, just store the latest node data
           // In a real app, we'd update the graph incrementally
           if (event.data.node_data) {
-            setMemoryData(prev => ({
+            setMemoryData((prev: any) => ({
               nodes: { ...prev?.nodes, [event.data.node_id]: event.data.node_data },
               edges: prev?.edges || []
             }))
@@ -48,7 +54,7 @@ export function VisualizationPanel({ events, onPlanUpdate }: VisualizationPanelP
         case 'memory_edge_added':
           console.log('Memory edge added:', event.data)
           if (event.data.edge_data) {
-            setMemoryData(prev => ({
+            setMemoryData((prev: any) => ({
               nodes: prev?.nodes || {},
               edges: [...(prev?.edges || []), event.data.edge_data]
             }))
@@ -114,19 +120,52 @@ export function VisualizationPanel({ events, onPlanUpdate }: VisualizationPanelP
             status: prev.status
           }))
           break
+        
+        // Tool events
+        case 'agent_call_started':
+        case 'agent_call_completed':
+        case 'agent_call_failed':
+        case 'tool_selected':
+        case 'direct_response':
+        case 'web_search_started':
+        case 'web_search_completed':
+        case 'human_input_requested':
+        case 'human_input_received':
+          setToolEvents(prev => [...prev, {
+            id: `${event.type}_${Date.now()}_${Math.random()}`,
+            timestamp: new Date(),
+            type: event.type,
+            agent_name: event.data?.agent_name || 'unknown',
+            task_id: event.data?.task_id || '',
+            instruction: event.data?.instruction || '',
+            additional_data: event.data?.additional_data || {}
+          }].slice(-200)) // Keep last 200 events
+          break
       }
     })
-  }, [events, onPlanUpdate])
+    
+    // Update the count of processed events
+    setProcessedEventCount(events.length)
+  }, [events, onPlanUpdate, processedEventCount])
 
   return (
     <div className="h-full flex flex-col">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-        <TabsList className="grid w-full grid-cols-3 m-4">
+        <TabsList className="grid w-full grid-cols-4 m-4">
           <TabsTrigger value="plan" className="flex items-center gap-2">
             <ListChecks className="w-4 h-4" />
             <span>Plan</span>
             {planData.status === 'executing' && (
               <span className="ml-1 w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="tools" className="flex items-center gap-2">
+            <Wrench className="w-4 h-4" />
+            <span>Tools</span>
+            {toolEvents.length > 0 && (
+              <span className="ml-1 text-xs bg-primary/20 px-1.5 py-0.5 rounded-full">
+                {toolEvents.length}
+              </span>
             )}
           </TabsTrigger>
           <TabsTrigger value="memory" className="flex items-center gap-2">
@@ -146,6 +185,12 @@ export function VisualizationPanel({ events, onPlanUpdate }: VisualizationPanelP
               currentStep={planData.currentStep}
               status={planData.status}
             />
+          </TabsContent>
+
+          <TabsContent value="tools" className="h-full overflow-hidden">
+            <div className="h-full">
+              <ToolEventsDisplay events={toolEvents} />
+            </div>
           </TabsContent>
 
           <TabsContent value="memory" className="h-full">

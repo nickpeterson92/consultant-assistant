@@ -3,7 +3,7 @@
 from typing import Optional
 from datetime import datetime
 
-from src.memory import get_user_memory, MemoryNode
+from src.memory import MemoryNode
 from src.orchestrator.observers import (
     get_observer_registry, 
     MemoryNodeAddedEvent,

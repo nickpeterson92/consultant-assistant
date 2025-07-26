@@ -15,6 +15,10 @@ from requests.auth import HTTPBasicAuth
 
 from langchain.tools import BaseTool
 from src.utils.logging.framework import SmartLogger, log_execution
+from src.orchestrator.observers.direct_call_events import (
+    emit_agent_call_event,
+    DirectCallEventTypes
+)
 
 logger = SmartLogger("servicenow")
 
@@ -206,18 +210,68 @@ class BaseServiceNowTool(BaseTool, ABC):
         """Execute tool with automatic logging and error handling."""
         self._log_call(**kwargs)
         
+        # Generate a task ID for this tool execution
+        import uuid
+        task_id = str(uuid.uuid4())
+        
+        # Format the instruction for display
+        args_str = ', '.join(f'{k}={v}' for k, v in kwargs.items())
+        instruction = f"{self.name}({args_str})"
+        
+        # Emit tool started event
+        emit_agent_call_event(
+            DirectCallEventTypes.AGENT_CALL_STARTED,
+            agent_name=f"servicenow_{self.name}",
+            task_id=task_id,
+            instruction=instruction,
+            additional_data={
+                "tool_type": "servicenow_tool",
+                "tool_args": kwargs
+            }
+        )
+        
         try:
             result = self._execute(**kwargs)
             self._log_result(result)
             
             # Wrap successful result in standardized format
-            return {
+            wrapped_response = {
                 "success": True,
                 "data": result,
                 "operation": self.name
             }
+            
+            # Emit tool completed event
+            emit_agent_call_event(
+                DirectCallEventTypes.AGENT_CALL_COMPLETED,
+                agent_name=f"servicenow_{self.name}",
+                task_id=task_id,
+                instruction=instruction,
+                additional_data={
+                    "tool_type": "servicenow_tool",
+                    "success": True,
+                    "result_preview": str(result)[:200] if result else ""
+                }
+            )
+            
+            return wrapped_response
         except Exception as e:
-            return self._handle_error(e)
+            error_response = self._handle_error(e)
+            
+            # Emit tool failed event
+            emit_agent_call_event(
+                DirectCallEventTypes.AGENT_CALL_FAILED,
+                agent_name=f"servicenow_{self.name}",
+                task_id=task_id,
+                instruction=instruction,
+                additional_data={
+                    "tool_type": "servicenow_tool",
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                }
+            )
+            
+            return error_response
     
     @abstractmethod
     def _execute(self, **kwargs) -> Any:

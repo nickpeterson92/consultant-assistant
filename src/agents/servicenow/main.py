@@ -7,10 +7,9 @@ import operator
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import AzureChatOpenAI
 from src.utils.cost_tracking_decorator import create_cost_tracking_azure_openai
 from langgraph.graph import StateGraph, END
-from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.prebuilt import tools_condition
 from langgraph.checkpoint.memory import MemorySaver
 
 from src.agents.servicenow.tools.unified import UNIFIED_SERVICENOW_TOOLS

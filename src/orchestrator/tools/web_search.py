@@ -16,6 +16,10 @@ from typing import Annotated
 
 from src.orchestrator.tools.base import BaseUtilityTool
 from src.utils.logging.framework import SmartLogger, log_execution
+from src.orchestrator.observers.direct_call_events import (
+    emit_agent_call_event,
+    DirectCallEventTypes
+)
 
 # Import Tavily after checking for package
 try:
@@ -250,6 +254,19 @@ class WebSearchTool(BaseUtilityTool):
             time_range=time_range
         )
         
+        # Emit web search started event
+        emit_agent_call_event(
+            DirectCallEventTypes.WEB_SEARCH_STARTED,
+            agent_name="web_search",
+            task_id=f"search_{hash(query)}",
+            instruction=search_query,
+            additional_data={
+                "original_query": query,
+                "enhanced": query != search_query,
+                "max_results": max_results,
+                "search_depth": search_depth
+            }
+        )
         
         try:
             # Create a new search instance with updated parameters
@@ -276,8 +293,30 @@ class WebSearchTool(BaseUtilityTool):
             formatted_results = self._format_search_results(raw_results)
             formatted_results["enhanced_query"] = search_query if query != search_query else None
             
+            # Emit web search completed event
+            emit_agent_call_event(
+                DirectCallEventTypes.WEB_SEARCH_COMPLETED,
+                agent_name="web_search",
+                task_id=f"search_{hash(query)}",
+                instruction=search_query,
+                additional_data={
+                    "result_count": len(formatted_results.get("results", [])),
+                    "has_summary": "summary" in formatted_results
+                }
+            )
             
             return formatted_results
             
-        except Exception:
+        except Exception as e:
+            # Emit failure event before raising
+            emit_agent_call_event(
+                DirectCallEventTypes.AGENT_CALL_FAILED,
+                agent_name="web_search",
+                task_id=f"search_{hash(query)}",
+                instruction=search_query,
+                additional_data={
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                }
+            )
             raise  # Let base class handle error formatting

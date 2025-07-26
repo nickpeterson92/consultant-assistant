@@ -681,7 +681,7 @@ Remember: This context is for reference only. Focus on executing the specific ta
 async def plan_step(state: PlanExecute):
     import asyncio
     from langchain_core.messages import HumanMessage
-    from src.memory import get_user_memory, get_memory_manager
+    from src.memory import get_user_memory
     from langgraph.errors import GraphInterrupt
     
     # Check for user-initiated interrupt flag (escape key)
@@ -1341,3 +1341,14 @@ def setup_canonical_plan_execute(llm_with_tools, llm_for_planning, agent_registr
     
     # Create and return the graph
     return create_graph(agent_executor, planner, replanner)
+
+
+# Global instance for reuse
+_plan_execute_graph = None
+
+def get_plan_execute_graph():
+    """Get the singleton plan-execute graph instance."""
+    global _plan_execute_graph
+    if _plan_execute_graph is None:
+        _plan_execute_graph = asyncio.run(create_plan_execute_graph())
+    return _plan_execute_graph

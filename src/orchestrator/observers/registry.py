@@ -38,6 +38,20 @@ class ObserverRegistry:
         if observer in self.observers:
             self.observers.remove(observer)
     
+    def get_observer(self, observer_name: str) -> Optional[PlanExecuteObserver]:
+        """Get an observer by name (class name).
+        
+        Args:
+            observer_name: The class name of the observer to find
+            
+        Returns:
+            The observer instance if found, None otherwise
+        """
+        for observer in self.observers:
+            if observer.__class__.__name__ == observer_name:
+                return observer
+        return None
+    
     def notify_search_results(self, event: SearchResultsEvent):
         """Notify all observers of search results."""
         for observer in self.observers:

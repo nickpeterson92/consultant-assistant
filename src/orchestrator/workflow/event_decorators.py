@@ -275,7 +275,6 @@ def emit_coordinated_events(event_types: List[str]) -> Callable:
     def decorator(func: Callable) -> Callable:
         # Check if the function is async
         import asyncio
-        import inspect
         
         if asyncio.iscoroutinefunction(func):
             # Async version of the wrapper

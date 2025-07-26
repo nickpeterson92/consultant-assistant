@@ -258,3 +258,17 @@ class SSEObserver(PlanExecuteObserver):
             "thread_id": event.thread_id,
             "timestamp": event.timestamp or datetime.now().isoformat()
         })
+    
+    def notify(self, event: Dict) -> None:
+        """Generic notify method for direct SSE events.
+        
+        This is used by direct_call_events to emit tool execution events.
+        
+        Args:
+            event: Dict with 'event' and 'data' keys
+        """
+        event_type = event.get("event", "unknown")
+        event_data = event.get("data", {})
+        
+        # Emit the event directly using our thread-safe method
+        self._emit_sse_threadsafe(event_type, event_data)

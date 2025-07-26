@@ -1,7 +1,7 @@
 """Text processing utilities for memory framework."""
 
 import re
-from typing import Set, List, Dict, Optional, Tuple
+from typing import Set, List, Dict, Tuple
 from difflib import SequenceMatcher
 
 from ..config.memory_config import MEMORY_CONFIG

@@ -4,7 +4,6 @@ This module uses embeddings to match user intent with relevant schemas,
 providing only the schemas needed for the current task.
 """
 
-import json
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 import numpy as np

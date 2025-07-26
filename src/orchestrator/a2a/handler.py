@@ -1,31 +1,154 @@
-"""Simple A2A handler for the orchestrator."""
+"""A2A handler for the orchestrator using main orchestrator architecture."""
 
 import uuid
 from typing import Dict, Any
 from datetime import datetime
+import asyncio
 
-from langgraph.errors import GraphInterrupt
 from src.utils.logging.framework import SmartLogger, log_execution
 from src.utils.thread_utils import create_thread_id
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from langgraph.checkpoint.memory import MemorySaver
+from src.orchestrator.observers.direct_call_events import (
+    emit_direct_response_event
+)
 
 logger = SmartLogger("orchestrator")
 
 
 class OrchestratorA2AHandler:
-    """Simple A2A handler for the orchestrator."""
+    """A2A handler that uses the main orchestrator (ReAct agent with direct response capability)."""
     
     def __init__(self):
         """Initialize the A2A handler."""
-        self.graph = None
         self.active_tasks = {}
-        
-    def set_graph(self, graph):
-        """Set the plan-execute graph instance."""
-        self.graph = graph
+        self._graph = None
+        self._graph_lock = asyncio.Lock()
+        self._checkpointer = None
+        self._initialize_checkpointer()
     
-    @log_execution("orchestrator", "process_task", include_args=False, include_result=False)  # Sensitive data
+    def _initialize_checkpointer(self):
+        """Initialize the checkpointer for interrupt support."""
+        # For now, use MemorySaver as it's simpler and works well
+        # TODO: Consider SQLite-based checkpointer for persistence across restarts
+        self._checkpointer = MemorySaver()
+        logger.info("checkpointer_initialized",
+                   type="MemorySaver")
+    
+    async def _ensure_graph_initialized(self) -> Any:
+        """Ensure the orchestrator graph is initialized (thread-safe)."""
+        if self._graph is None:
+            async with self._graph_lock:
+                # Double-check pattern
+                if self._graph is None:
+                    logger.info("orchestrator_graph_initializing")
+                    
+                    # Get the checkpointer
+                    from langgraph.prebuilt import create_react_agent
+                    from src.utils.prompt_templates import create_react_orchestrator_prompt, ContextInjectorOrchestrator
+                    from src.orchestrator.core.agent_registry import AgentRegistry
+                    from src.orchestrator.tools.agent_caller_tools import (
+                        SalesforceAgentTool, 
+                        JiraAgentTool, 
+                        ServiceNowAgentTool, 
+                        AgentRegistryTool
+                    )
+                    from src.orchestrator.tools.web_search import WebSearchTool
+                    from src.orchestrator.tools.human_input import HumanInputTool
+                    from src.orchestrator.tools.task_agent import TaskAgentTool
+                    from src.utils.cost_tracking_decorator import create_cost_tracking_azure_openai
+                    import os
+                    
+                    # Create agent registry
+                    agent_registry = AgentRegistry()
+                    
+                    # Create tools list
+                    tools = [
+                        SalesforceAgentTool(agent_registry),
+                        JiraAgentTool(agent_registry),
+                        ServiceNowAgentTool(agent_registry),
+                        AgentRegistryTool(agent_registry),
+                        WebSearchTool(),
+                        HumanInputTool(),
+                        TaskAgentTool()
+                    ]
+                    
+                    # Create LLM
+                    llm = create_cost_tracking_azure_openai(
+                        component="main_orchestrator",
+                        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+                        azure_deployment=os.environ.get("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME", "gpt-4o-mini"),
+                        openai_api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-06-01"),
+                        openai_api_key=os.environ["AZURE_OPENAI_API_KEY"],
+                        temperature=0.1,
+                        max_tokens=4000,
+                    )
+                    
+                    # Get prompt
+                    prompt = create_react_orchestrator_prompt()
+                    
+                    # Prepare context
+                    registry_stats = agent_registry.get_registry_stats()
+                    agent_context = f"""AVAILABLE SPECIALIZED AGENTS:
+{', '.join(registry_stats['available_capabilities']) if registry_stats['available_capabilities'] else 'None currently available'}
+
+ORCHESTRATOR TOOLS:
+1. salesforce_agent: For Salesforce CRM operations
+2. jira_agent: For project management
+3. servicenow_agent: For incident management
+4. agent_registry: To check agent status
+5. web_search: Search the web
+6. task_agent: Execute complex multi-step tasks
+7. human_input: Request human clarification"""
+                    
+                    context_dict = ContextInjectorOrchestrator.prepare_context(
+                        summary=None,
+                        memory=None,
+                        agent_context=agent_context
+                    )
+                    
+                    # Format prompt
+                    from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+                    formatted_messages = prompt.format_messages(
+                        messages=[],
+                        **context_dict
+                    )
+                    system_message_content = formatted_messages[0].content
+                    
+                    formatted_prompt = ChatPromptTemplate.from_messages([
+                        ("system", system_message_content),
+                        MessagesPlaceholder(variable_name="messages")
+                    ])
+                    
+                    # Create ReAct agent WITH checkpointer
+                    self._graph = create_react_agent(
+                        llm, 
+                        tools, 
+                        prompt=formatted_prompt,
+                        checkpointer=self._checkpointer,  # Enable interrupt support
+                        debug=True
+                    )
+                    
+                    # Store tools reference
+                    self._graph._tools = tools
+                    
+                    logger.info("orchestrator_graph_initialized",
+                               has_checkpointer=self._checkpointer is not None)
+                    
+        return self._graph
+    
+    @property
+    def graph(self):
+        """Property to access the graph synchronously for WebSocket handler."""
+        if self._graph is None:
+            # This is not ideal but needed for backward compatibility
+            # The WebSocket handler expects synchronous access
+            logger.warning("graph_accessed_before_initialization")
+        return self._graph
+    
+    @log_execution("orchestrator", "process_task", include_args=False, include_result=False)
     async def process_task(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Process A2A task using plan-execute graph."""
+        """Process A2A task using main orchestrator."""
         task_id = "unknown"
         
         try:
@@ -35,256 +158,112 @@ class OrchestratorA2AHandler:
             instruction = task_data.get("instruction", "")
             context = task_data.get("context", {})
             
-            # Check if this is resuming from an interrupt
-            is_resume = context.get("resume_from_interrupt", False)
-            user_response = context.get("user_response", "")
-            
-            logger.info("a2a_task_start", 
-                       component="orchestrator",
+            logger.info("main_orchestrator_processing",
                        task_id=task_id,
-                       instruction=instruction[:100],
-                       is_resume=is_resume,
-                       has_user_response=bool(user_response),
-                       context_thread_id=context.get("thread_id"))
-            
-            # Create thread ID for the graph
-            # CRITICAL: For resume operations, preserve the original thread_id
-            # For new operations, use a unique thread_id to avoid stale interrupt state
-            if is_resume:
-                thread_id = context.get("thread_id")
-                if not thread_id:
-                    logger.error("resume_missing_thread_id", component="orchestrator", task_id=task_id)
-                    raise ValueError("Resume operation requires thread_id in context")
-            else:
-                thread_id = context.get("thread_id", create_thread_id("orchestrator", task_id))
-            
-            # Configuration for the graph
-            config = {
-                "configurable": {
-                    "thread_id": thread_id,
-                    "user_id": context.get("user_id", "default_user")  # Use default_user as fallback
-                }
-            }
-            
-            logger.info("using_thread_id",
-                       component="orchestrator", 
-                       task_id=task_id,
-                       final_thread_id=thread_id,
-                       context_provided_thread_id=context.get("thread_id"))
+                       instruction=instruction[:100])
             
             # Track this task
+            thread_id = context.get("thread_id", create_thread_id("orch", task_id))
+            user_id = context.get("user_id", "default_user")
+            
             self.active_tasks[task_id] = {
                 "thread_id": thread_id,
                 "instruction": instruction,
                 "status": "processing",
-                "started_at": datetime.now().isoformat(),
-                "is_resume": is_resume
+                "started_at": datetime.now().isoformat()
             }
             
-            if is_resume and user_response:
-                # Resume interrupted graph with user response
-                logger.info("resuming_graph_execution",
-                           component="orchestrator",
-                           task_id=task_id,
-                           user_response=user_response[:100])
-                
-                # Resume the graph with the user's input using LangGraph Command
-                from langgraph.types import Command
-                result = await self.graph.ainvoke(Command(resume=user_response), config)
-                
+            # Ensure graph is initialized
+            graph = await self._ensure_graph_initialized()
+            
+            # TODO: Handle conversation history loading
+            # For now, start with empty messages
+            messages = []
+            messages.append(HumanMessage(content=instruction))
+            
+            # Prepare input for graph
+            graph_input = {
+                "messages": messages,
+                "thread_id": thread_id,
+                "user_id": user_id,
+                "task_id": task_id
+            }
+            
+            # Configuration for checkpointing
+            config = {
+                "configurable": {
+                    "thread_id": thread_id
+                }
+            }
+            
+            logger.info("invoking_graph",
+                       thread_id=thread_id,
+                       has_checkpointer=self._checkpointer is not None)
+            
+            # Invoke the graph
+            result = await graph.ainvoke(graph_input, config)
+            
+            # Extract response from messages
+            response_messages = result.get("messages", [])
+            
+            # Check if this was a direct response or tool-mediated response
+            was_direct_response = True
+            if len(response_messages) >= 2:
+                # Check if there are any tool messages in the conversation
+                for msg in response_messages:
+                    if isinstance(msg, ToolMessage) or (hasattr(msg, 'type') and msg.type == 'tool'):
+                        was_direct_response = False
+                        break
+                    # Also check for tool calls in AI messages
+                    if isinstance(msg, AIMessage) and hasattr(msg, 'tool_calls') and msg.tool_calls:
+                        was_direct_response = False
+                        break
+            
+            if response_messages and hasattr(response_messages[-1], 'content'):
+                response = response_messages[-1].content
             else:
-                # For new requests, we want to:
-                # 1. Preserve conversation messages (persistent across requests)
-                # 2. Reset plan state (fresh planning for each request)
-                # 3. Add current user message to conversation
-                initial_state = {
-                    "input": instruction,
-                    "plan": [],  # Fresh plan state
-                    "past_steps": [],  # Fresh execution state
-                    "response": "",
-                    "user_visible_responses": [],
-                    "messages": [("user", instruction)],  # Current user message (LangGraph will merge with existing)
-                    "thread_id": thread_id,  # Add thread_id to state for memory integration
-                    "task_id": task_id,  # Add actual task_id for SSE events
-                    "user_id": context.get("user_id", "default_user")  # Add user_id to state
-                }
-                
-                # Execute the graph
-                result = await self.graph.ainvoke(initial_state, config)
+                response = "I completed the task but couldn't generate a response."
             
-            # Check if the graph was interrupted (LangGraph with checkpointing)
-            if isinstance(result, dict) and "__interrupt__" in result:
-                interrupt_value = result["__interrupt__"]
-                
-                # Convert Interrupt object to JSON-serializable format
-                if hasattr(interrupt_value, 'value'):
-                    # Extract the actual value from the Interrupt object
-                    interrupt_content = str(interrupt_value.value)
-                elif isinstance(interrupt_value, list) and interrupt_value:
-                    # Handle list of Interrupt objects
-                    interrupt_content = str(interrupt_value[0].value if hasattr(interrupt_value[0], 'value') else interrupt_value[0])
-                else:
-                    # Fallback: convert to string
-                    interrupt_content = str(interrupt_value)
-                
-                logger.info("graph_interrupted",
-                           component="orchestrator", 
-                           task_id=task_id,
-                           interrupt_value=interrupt_content[:200])
-                
-                # Mark task as interrupted
-                if task_id in self.active_tasks:
-                    self.active_tasks[task_id]["status"] = "interrupted"
-                    self.active_tasks[task_id]["interrupt_value"] = interrupt_content
-                
-                # Check if there are user_visible_responses that should be shown before the interrupt
-                artifacts = []
-                
-                # Add any user-visible responses first (like search results)
-                if isinstance(result, dict) and "user_visible_responses" in result:
-                    for i, visible_response in enumerate(result["user_visible_responses"]):
-                        artifacts.append({
-                            "id": f"orchestrator-visible-{task_id}-{i}",
-                            "task_id": task_id,
-                            "content": visible_response,
-                            "content_type": "text/plain"
-                        })
-                
-                # Then add the interrupt/clarification request
-                artifacts.append({
-                    "id": f"orchestrator-interrupt-{task_id}",
-                    "task_id": task_id,
-                    "content": interrupt_content,
-                    "content_type": "text/plain"
-                })
-                
-                return {
-                    "artifacts": artifacts,
-                    "status": "interrupted",
-                    "metadata": {
-                        "task_id": task_id,
-                        "thread_id": thread_id,
-                        "interrupt_value": interrupt_content,
-                        "resumable": True
-                    },
-                    "error": None
-                }
+            # Emit appropriate event based on response type
+            if was_direct_response:
+                # This was a direct response without tool usage
+                emit_direct_response_event(
+                    response_type="conversational",
+                    response_content=response,
+                    confidence=1.0  # ReAct agent is confident enough to respond directly
+                )
             
-            # Extract response and plan data
-            response_content = self._extract_response_content(result)
-            plan_data = result.get("plan", []) if isinstance(result, dict) else []
-            
-            # Mark task as complete and clear any interrupt state
+            # Mark task as complete
             self.active_tasks[task_id]["status"] = "completed"
             self.active_tasks[task_id]["completed_at"] = datetime.now().isoformat()
             
-            # Clear interrupt state if this was a resumed task
-            if "interrupt_value" in self.active_tasks[task_id]:
-                del self.active_tasks[task_id]["interrupt_value"]
-                logger.info("interrupt_state_cleared",
-                           component="orchestrator",
-                           task_id=task_id,
-                           was_resume=is_resume)
+            logger.info("graph_invocation_complete",
+                       thread_id=thread_id,
+                       response_length=len(response),
+                       was_direct_response=was_direct_response)
             
-            
+            # Return response
             return {
                 "artifacts": [{
-                    "id": f"orchestrator-{task_id}",
+                    "id": f"orchestrator-response-{task_id}",
                     "task_id": task_id,
-                    "content": response_content,
+                    "content": response,
                     "content_type": "text/plain"
                 }],
-                "status": "completed",
+                "status": "success",
                 "metadata": {
                     "task_id": task_id,
                     "thread_id": thread_id,
-                    "execution_time": self.active_tasks[task_id].get("completed_at"),
-                    "plan": plan_data
-                },
-                "error": None
-            }
-            
-        except GraphInterrupt as gi:
-            # This is an expected interrupt - not an error
-            from src.orchestrator.workflow.interrupt_handler import InterruptHandler
-            
-            # Get current state to check for interrupt clashes
-            current_state = self.graph.get_state(config)
-            
-            # Check if this is a clash between user and agent interrupts
-            if InterruptHandler.detect_interrupt_clash(current_state.values, gi):
-                # User interrupt takes precedence
-                interrupt_type = "user_escape"
-                interrupt_content = current_state.values.get("interrupt_reason", "User requested plan modification")
-                is_user_interrupt = True
-                logger.info("interrupt_clash_resolved_user_wins",
-                           component="orchestrator",
-                           task_id=task_id,
-                           note="User interrupt takes precedence over agent interrupt")
-            else:
-                # Normal interrupt handling
-                interrupt_value = gi.value
-                is_user_interrupt = False
-                interrupt_type = "model"
-                
-                if isinstance(interrupt_value, dict) and interrupt_value.get("type") == "user_escape":
-                    is_user_interrupt = True
-                    interrupt_type = "user_escape"
-                    interrupt_content = interrupt_value.get("reason", "User requested plan modification")
-                else:
-                    # This is a HumanInputTool interrupt
-                    interrupt_content = str(interrupt_value)
-            
-            logger.info("graph_interrupted",
-                       component="orchestrator",
-                       task_id=task_id,
-                       interrupt_type=interrupt_type,
-                       interrupt_value=interrupt_content[:200])
-            
-            # Mark task as interrupted
-            if task_id in self.active_tasks:
-                self.active_tasks[task_id]["status"] = "interrupted"
-                self.active_tasks[task_id]["interrupt_value"] = interrupt_content
-                self.active_tasks[task_id]["interrupt_type"] = interrupt_type
-            
-            # Record interrupt in observer
-            from src.orchestrator.observers.interrupt_observer import get_interrupt_observer
-            interrupt_observer = get_interrupt_observer()
-            
-            # Get current state for context
-            config = {"configurable": {"thread_id": thread_id}}
-            current_state = self.graph.get_state(config)
-            
-            # Determine the actual interrupt type for the observer
-            observer_interrupt_type = "user_escape" if is_user_interrupt else "human_input"
-            
-            interrupt_observer.record_interrupt(
-                thread_id=thread_id,
-                interrupt_type=observer_interrupt_type,
-                reason=interrupt_content,
-                current_plan=current_state.values.get("plan", []),
-                state=current_state.values
-            )
-            
-            return {
-                "artifacts": [{
-                    "id": f"orchestrator-interrupt-{task_id}",
-                    "task_id": task_id,
-                    "content": interrupt_content,
-                    "content_type": "text/plain"
-                }],
-                "status": "interrupted",
-                "metadata": {
-                    "task_id": task_id,
-                    "thread_id": thread_id,
-                    "interrupt_value": interrupt_content,
-                    "interrupt_type": interrupt_type,
-                    "resumable": True
+                    "user_id": user_id
                 },
                 "error": None
             }
             
         except Exception as e:
+            logger.error("orchestrator_error",
+                        task_id=task_id,
+                        error=str(e),
+                        error_type=type(e).__name__)
             
             # Mark task as failed
             if task_id in self.active_tasks:
@@ -306,32 +285,16 @@ class OrchestratorA2AHandler:
                 "error": str(e)
             }
     
-    def _extract_response_content(self, result: Dict[str, Any]) -> str:
-        """Extract meaningful response content from graph result."""
-        if not isinstance(result, dict):
-            return "Task completed"
-        
-        # Try to get response from the result
-        response = result.get("response", "")
-        if response:
-            return response
-        
-        # Fallback: get input if no response
-        input_text = result.get("input", "")
-        if input_text:
-            return f"Processed: {input_text}"
-        
-        return "Task completed"
-    
     @log_execution("orchestrator", "get_agent_card", include_args=True, include_result=True)
     async def get_agent_card(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Return orchestrator agent card."""
         return {
             "name": "orchestrator",
-            "version": "1.0.0",
-            "description": "Multi-agent orchestrator with plan-and-execute workflow",
+            "version": "2.0.0",
+            "description": "AI orchestrator with direct response capability and task delegation",
             "capabilities": [
-                "orchestration",
+                "conversational_ai",
+                "direct_response",
                 "task_planning",
                 "task_execution",
                 "multi_agent_coordination"
@@ -342,8 +305,9 @@ class OrchestratorA2AHandler:
             },
             "communication_modes": ["sync"],
             "metadata": {
-                "framework": "langgraph-plan-execute",
-                "active_tasks": len(self.active_tasks)
+                "framework": "langgraph-react-with-task-delegation",
+                "active_tasks": len(self.active_tasks),
+                "architecture": "main_orchestrator"
             }
         }
     
@@ -361,71 +325,120 @@ class OrchestratorA2AHandler:
         return {
             "success": True,
             "data": self.active_tasks[task_id],
-            "message": "Task status retrieved"
+            "message": "Task found"
         }
     
-    async def interrupt_task(self, thread_id: str, reason: str = "user_escape") -> Dict[str, Any]:
-        """Interrupt a running task thread using LangGraph's state update."""
+    async def interrupt_task(self, thread_id: str, reason: str = "user_interrupt") -> Dict[str, Any]:
+        """Handle interrupt request for a task.
+        
+        Note: With the ReAct agent architecture, interrupts are handled differently.
+        The actual interruption happens when HumanInputTool is called.
+        """
         try:
-            if not thread_id:
-                return {
-                    "success": False,
-                    "message": "thread_id is required"
-                }
-            
-            logger.info("interrupt_task_request",
+            logger.info("interrupt_task_requested",
                        thread_id=thread_id,
                        reason=reason)
             
-            # Use LangGraph's interrupt mechanism
-            config = {"configurable": {"thread_id": thread_id}}
+            # Find task by thread_id
+            task_id = None
+            for tid, task_info in self.active_tasks.items():
+                if task_info.get("thread_id") == thread_id:
+                    task_id = tid
+                    break
             
-            # Check current state to see if there's already an interrupt
-            current_state = self.graph.get_state(config)
-            if current_state.values.get("user_interrupted", False):
-                logger.info("interrupt_already_pending",
-                           thread_id=thread_id,
-                           existing_reason=current_state.values.get("interrupt_reason"))
+            if not task_id:
+                logger.warning("interrupt_task_not_found",
+                              thread_id=thread_id)
                 return {
-                    "success": True,
-                    "message": "Interrupt already pending"
+                    "success": False,
+                    "message": f"No active task found for thread {thread_id}"
                 }
             
-            # Update the thread state to set user interrupt flag
-            # This distinguishes user interrupts from HumanInputTool interrupts
-            self.graph.update_state(
-                config,
-                {
-                    "user_interrupted": True,
-                    "interrupt_reason": reason,
-                    "interrupt_timestamp": datetime.now().isoformat()
-                }
-            )
+            # Update task status
+            self.active_tasks[task_id]["status"] = "interrupted"
+            self.active_tasks[task_id]["interrupt_reason"] = reason
             
-            # Record interrupt in observer for persistent tracking
-            from src.orchestrator.observers.interrupt_observer import get_interrupt_observer
-            interrupt_observer = get_interrupt_observer()
-            interrupt_observer.record_interrupt(
-                thread_id=thread_id,
-                interrupt_type="user_escape",
-                reason=reason,
-                current_plan=current_state.values.get("plan", []),
-                state=current_state.values
-            )
-            
-            logger.info("interrupt_task_success",
+            # With ReAct agent, we can't directly interrupt
+            # The interrupt will happen when HumanInputTool is called
+            logger.info("interrupt_task_marked",
+                       task_id=task_id,
                        thread_id=thread_id)
             
             return {
                 "success": True,
-                "message": "Task interrupted successfully"
+                "message": "Task marked for interrupt",
+                "task_id": task_id,
+                "thread_id": thread_id
             }
             
         except Exception as e:
             logger.error("interrupt_task_error",
-                        error=str(e),
-                        thread_id=thread_id)
+                        thread_id=thread_id,
+                        error=str(e))
             return {
                 "success": False,
-                "message": f"Error interrupting task: {str(e)}"
+                "message": f"Failed to interrupt task: {str(e)}"
+            }
+    
+    async def forward_events(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle forwarded events from agents.
+        
+        Agents send batches of SSE events to be forwarded to web clients.
+        This enables cross-process event visibility.
+        
+        Args:
+            params: Contains 'events' list and 'agent_name'
+            
+        Returns:
+            Status response with event count
+        """
+        try:
+            events = params.get("events", [])
+            agent_name = params.get("agent_name", "unknown")
+            batch_id = params.get("batch_id", "unknown")
+            
+            logger.info("forwarded_events_received",
+                       agent_name=agent_name,
+                       event_count=len(events),
+                       batch_id=batch_id)
+            
+            # Get SSE observer
+            from src.orchestrator.observers import get_observer_registry
+            registry = get_observer_registry()
+            sse_observer = registry.get_observer("SSEObserver")
+            
+            if sse_observer:
+                # Forward each event to SSE clients
+                for event in events:
+                    # Ensure event has proper structure
+                    if "event" in event and "data" in event:
+                        # Add agent context if not present
+                        if "agent_name" not in event["data"]:
+                            event["data"]["agent_name"] = agent_name
+                        
+                        sse_observer.notify(event)
+                    else:
+                        logger.warning("malformed_forwarded_event",
+                                     agent_name=agent_name,
+                                     event=event)
+            else:
+                logger.warning("sse_observer_not_found",
+                             agent_name=agent_name)
+            
+            return {
+                "success": True,
+                "status": "accepted",
+                "count": len(events),
+                "batch_id": batch_id
+            }
+            
+        except Exception as e:
+            logger.error("forward_events_failed",
+                        error=str(e),
+                        agent_name=params.get("agent_name", "unknown"))
+            
+            return {
+                "success": False,
+                "status": "error",
+                "message": f"Failed to forward events: {str(e)}"
             }

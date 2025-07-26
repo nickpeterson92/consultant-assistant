@@ -56,6 +56,63 @@ Screen {
     min-height: 10;
 }
 
+/* Combined plan and tools panel */
+.plan-tools-panel {
+    layout: vertical;
+    height: 50%;
+    border: round #30363d;
+    background: #0d1117;
+}
+
+.plan-section {
+    height: 40%;
+    overflow-y: auto;
+    padding: 1;
+    border-bottom: solid #30363d;
+}
+
+.tool-events {
+    height: 60%;
+    overflow-y: auto;
+    padding: 1;
+    background: #0d1117;
+}
+
+.tool-events-header {
+    padding: 0 0 1 0;
+    color: #f0f6fc;
+    text-align: center;
+    border-bottom: dashed #30363d;
+}
+
+.tool-event-entry {
+    margin: 0 0 1 0;
+    padding: 0;
+}
+
+.tool-event-header {
+    color: #58a6ff;
+    text-style: bold;
+}
+
+.tool-event-detail {
+    padding: 0 0 0 2;
+    color: #8b949e;
+}
+
+.tool-event-separator {
+    height: 0;
+    margin: 0;
+}
+
+.separator {
+    height: 1;
+    color: #30363d;
+    text-align: center;
+    margin: 0;
+    padding: 0;
+}
+
 .memory-graph {
     overflow: auto;  /* Enable both horizontal and vertical scrolling */
     overflow-x: auto;

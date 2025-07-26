@@ -27,25 +27,25 @@
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 48%;
+    --background: 220 15% 7%;
+    --foreground: 210 10% 90%;
+    --card: 220 15% 10%;
+    --card-foreground: 210 10% 90%;
+    --popover: 220 15% 10%;
+    --popover-foreground: 210 10% 90%;
+    --primary: 48 96% 53%;
+    --primary-foreground: 220 15% 7%;
+    --secondary: 220 15% 15%;
+    --secondary-foreground: 210 10% 90%;
+    --muted: 220 15% 20%;
+    --muted-foreground: 210 10% 60%;
+    --accent: 48 96% 53%;
+    --accent-foreground: 220 15% 7%;
+    --destructive: 0 50% 40%;
+    --destructive-foreground: 210 10% 90%;
+    --border: 220 15% 18%;
+    --input: 220 15% 18%;
+    --ring: 48 96% 53%;
   }
 }
 
@@ -86,10 +86,10 @@
 
 /* Glass morphism effect */
 .glass {
-  @apply backdrop-blur-md bg-background/80 border border-border/50;
+  @apply backdrop-blur-sm bg-background/60 border border-border/30;
 }
 
 /* Gradient text */
 .gradient-text {
-  @apply bg-gradient-to-r from-primary to-blue-600 bg-clip-text text-transparent;
+  @apply bg-gradient-to-r from-primary to-yellow-400 bg-clip-text text-transparent;
 }

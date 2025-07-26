@@ -1,7 +1,6 @@
 """Shared utility for agents to write tool results and extract entities directly to memory graph."""
 
-from typing import Any, Dict, Optional, Set
-from datetime import datetime
+from typing import Any, Dict, Optional
 from src.memory.core.memory_node import ContextType
 from src.memory.core.memory_manager import get_memory_manager
 from src.orchestrator.workflow.entity_extractor import extract_entities_intelligently

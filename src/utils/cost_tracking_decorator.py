@@ -4,8 +4,7 @@ This module provides decorators that can wrap any LLM instance to add
 cost tracking without inheritance issues.
 """
 
-import functools
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, List, Optional
 from langchain_core.messages import BaseMessage
 from langchain_core.outputs import ChatResult
 

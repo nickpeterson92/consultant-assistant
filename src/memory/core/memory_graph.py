@@ -1,7 +1,7 @@
 """Graph-based conversational memory using component-based architecture."""
 
 import networkx as nx
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Dict, List, Set, Optional, Any, Tuple
 
 from .memory_node import MemoryNode, ContextType, create_memory_node
@@ -12,7 +12,6 @@ from ..components.scoring_engine import ScoringEngine, QueryContext
 from ..algorithms.graph_algorithms import GraphAlgorithms
 from ..config.memory_config import MEMORY_CONFIG
 from src.utils.logging.framework import SmartLogger
-from src.utils.thread_utils import ThreadIDManager
 
 logger = SmartLogger("memory")
 

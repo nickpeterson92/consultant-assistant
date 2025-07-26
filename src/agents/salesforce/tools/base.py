@@ -21,6 +21,12 @@ from simple_salesforce import Salesforce
 
 from src.utils.logging.framework import SmartLogger, log_execution
 from src.utils.soql_query_builder import SOQLQueryBuilder, SOQLOperator
+# Import for event forwarding to orchestrator
+try:
+    from src.agents.shared.event_forwarder import get_event_forwarder
+    _has_event_forwarder = True
+except ImportError:
+    _has_event_forwarder = False
 
 # Initialize logger
 logger = SmartLogger("salesforce")
@@ -190,6 +196,34 @@ class BaseSalesforceTool(BaseTool, ABC):
     @log_execution("salesforce", "tool_execute", include_args=True, include_result=True)
     def _run(self, **kwargs) -> Any:
         """Execute tool with automatic logging and error handling."""
+        # Generate a task ID for this tool execution
+        import uuid
+        task_id = str(uuid.uuid4())
+        
+        # Format the instruction for display
+        args_str = ', '.join(f'{k}={v}' for k, v in kwargs.items())
+        instruction = f"{self.name}({args_str})"
+        
+        # Forward tool started event to orchestrator
+        if _has_event_forwarder:
+            forwarder = get_event_forwarder()
+            if forwarder:
+                import asyncio
+                asyncio.create_task(forwarder.queue_event(
+                    "agent_call_started",
+                    {
+                        "agent_name": f"salesforce_{self.name}",
+                        "task_id": task_id,
+                        "instruction": instruction,
+                        "additional_data": {
+                            "tool_type": "salesforce_tool",
+                            "tool_args": kwargs
+                        }
+                    }
+                ))
+            else:
+                logger.debug("event_forwarder_not_initialized", tool_name=self.name)
+        
         try:
             result = self._execute(**kwargs)
             
@@ -200,10 +234,47 @@ class BaseSalesforceTool(BaseTool, ABC):
                 "operation": self.name
             }
             
+            # Forward tool completed event to orchestrator
+            if _has_event_forwarder:
+                forwarder = get_event_forwarder()
+                if forwarder:
+                    asyncio.create_task(forwarder.queue_event(
+                        "agent_call_completed",
+                        {
+                            "agent_name": f"salesforce_{self.name}",
+                            "task_id": task_id,
+                            "instruction": instruction,
+                            "additional_data": {
+                                "tool_type": "salesforce_tool",
+                                "success": True,
+                                "result_preview": str(result)[:200] if result else ""
+                            }
+                        }
+                    ))
+            
             return wrapped_response
             
         except Exception as e:
             error_response = self._handle_error(e)
+            
+            # Forward tool failed event to orchestrator
+            if _has_event_forwarder:
+                forwarder = get_event_forwarder()
+                if forwarder:
+                    asyncio.create_task(forwarder.queue_event(
+                        "agent_call_failed",
+                        {
+                            "agent_name": f"salesforce_{self.name}",
+                            "task_id": task_id,
+                            "instruction": instruction,
+                            "additional_data": {
+                                "tool_type": "salesforce_tool",
+                                "error": str(e),
+                                "error_type": type(e).__name__
+                            }
+                        }
+                    ))
+            
             return error_response
     
     @abstractmethod

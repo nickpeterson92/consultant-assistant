@@ -1,8 +1,6 @@
 """Hybrid memory manager using PostgreSQL for persistence and SQLite for processing."""
 
-import asyncio
-from datetime import datetime
-from typing import Dict, Optional, List, Set
+from typing import Dict, Optional
 import threading
 
 from .memory_graph import MemoryGraph

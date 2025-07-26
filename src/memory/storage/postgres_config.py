@@ -1,7 +1,6 @@
 """Configuration for PostgreSQL memory storage."""
 
 import os
-from typing import Optional
 
 # PostgreSQL connection configuration
 POSTGRES_CONFIG = {

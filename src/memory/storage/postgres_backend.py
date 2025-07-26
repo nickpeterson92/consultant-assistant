@@ -1,16 +1,14 @@
 """PostgreSQL backend for persistent user memory storage."""
 
 import json
-import asyncio
-from datetime import datetime
-from typing import List, Dict, Any, Optional, Set, Tuple
+from typing import List, Dict, Any, Optional, Set
 from contextlib import asynccontextmanager
 from uuid import UUID
 
 import asyncpg
 from asyncpg.pool import Pool
 
-from src.memory.core.memory_node import MemoryNode, ContextType, create_memory_node
+from src.memory.core.memory_node import MemoryNode, ContextType
 from src.memory.core.memory_graph import RelationshipType
 from src.utils.logging.framework import SmartLogger
 from src.utils.datetime_utils import utc_now, datetime_to_iso_utc
@@ -199,7 +197,7 @@ class PostgresMemoryBackend:
             
             if context_filter:
                 context_values = [ct.value for ct in context_filter]
-                query += f" AND context_type = ANY($2)"
+                query += " AND context_type = ANY($2)"
                 params.append(context_values)
             
             query += " ORDER BY created_at DESC"

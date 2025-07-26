@@ -79,9 +79,9 @@ function App() {
               onPlanUpdate={setCurrentPlan}
             />
           }
-          defaultLeftWidth={50}
-          minLeftWidth={320}
-          minRightWidth={320}
+          defaultLeftWidth={70}
+          minLeftWidth={400}
+          minRightWidth={300}
         />
       </main>
       

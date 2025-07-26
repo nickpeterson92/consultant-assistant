@@ -4,6 +4,10 @@ from pydantic import BaseModel, Field
 from langchain_core.tools import BaseTool
 from langgraph.types import interrupt
 from src.utils.logging.framework import SmartLogger
+from src.orchestrator.observers.direct_call_events import (
+    emit_agent_call_event,
+    DirectCallEventTypes
+)
 
 logger = SmartLogger("orchestrator")
 
@@ -60,6 +64,17 @@ class HumanInputTool(BaseTool):
             component="orchestrator"
         )
         
+        # Emit human input requested event
+        emit_agent_call_event(
+            DirectCallEventTypes.HUMAN_INPUT_REQUESTED,
+            agent_name="human_input",
+            task_id=f"input_{hash(full_message)}",
+            instruction=full_message,
+            additional_data={
+                "timeout_seconds": timeout_seconds
+            }
+        )
+        
         # Check with observers for enhanced message with accumulated user-visible data
         try:
             from src.orchestrator.observers import get_observer_registry, HumanInputRequestedEvent
@@ -83,6 +98,18 @@ class HumanInputTool(BaseTool):
             response_preview=str(user_response)[:100],
             response_length=len(str(user_response)),
             component="orchestrator"
+        )
+        
+        # Emit human input received event
+        emit_agent_call_event(
+            DirectCallEventTypes.HUMAN_INPUT_RECEIVED,
+            agent_name="human_input",
+            task_id=f"input_{hash(full_message)}",
+            instruction=full_message,
+            additional_data={
+                "response_preview": str(user_response)[:100],
+                "response_length": len(str(user_response))
+            }
         )
         
         return str(user_response)

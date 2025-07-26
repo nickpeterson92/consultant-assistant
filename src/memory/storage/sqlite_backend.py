@@ -38,7 +38,7 @@ class SQLiteMemoryBackend:
         
         try:
             yield self._local.conn
-        except Exception as e:
+        except Exception:
             self._local.conn.rollback()
             raise
         else:

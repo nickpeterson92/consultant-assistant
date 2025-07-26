@@ -10,17 +10,15 @@ from dotenv import load_dotenv
 
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
-from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.prebuilt import tools_condition
 
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import AzureChatOpenAI
 from src.utils.cost_tracking_decorator import create_cost_tracking_azure_openai
 
 # Imports no longer need path manipulation
 
 from src.a2a import A2AServer, AgentCard
-from src.agents.shared.memory_writer import write_tool_result_to_memory
 from src.agents.shared.entity_extracting_tool_node import create_entity_extracting_tool_node
 from src.utils.thread_utils import create_thread_id
 
@@ -435,6 +433,21 @@ async def main():
     server.register_handler("process_task", handler.process_task)
     server.register_handler("get_agent_card", handler.get_agent_card)
     
+    # Initialize event forwarder for cross-process SSE events
+    from src.agents.shared.event_forwarder import init_event_forwarder
+    
+    # Determine orchestrator URL (assuming it runs on port 8000)
+    orchestrator_host = os.environ.get("ORCHESTRATOR_HOST", "localhost")
+    orchestrator_port = os.environ.get("ORCHESTRATOR_PORT", "8000")
+    orchestrator_url = f"http://{orchestrator_host}:{orchestrator_port}/a2a"
+    
+    event_forwarder = init_event_forwarder(orchestrator_url, "salesforce")
+    await event_forwarder.start()
+    
+    logger.info("event_forwarder_initialized",
+               orchestrator_url=orchestrator_url,
+               agent_name="salesforce")
+    
     # Start the server
     runner = await server.start()
     
@@ -478,6 +491,11 @@ async def main():
             await cleanup_task
         except asyncio.CancelledError:
             pass
+        
+        # Stop event forwarder
+        if event_forwarder:
+            await event_forwarder.stop()
+            logger.info("event_forwarder_stopped")
             
         await server.stop(runner)
         

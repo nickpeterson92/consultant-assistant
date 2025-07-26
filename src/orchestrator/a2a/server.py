@@ -7,7 +7,6 @@ from typing import Dict
 from src.a2a import A2AServer, AgentCard
 from src.utils.logging import get_smart_logger, log_execution
 from src.orchestrator.a2a.handler import OrchestratorA2AHandler
-from src.orchestrator.plan_and_execute import create_plan_execute_graph
 from src.orchestrator.observers import get_observer_registry, SSEObserver
 import json
 from aiohttp import web
@@ -349,22 +348,10 @@ async def create_orchestrator_a2a_server(host: str = "0.0.0.0", port: int = 8000
     
     logger.info("sse_observer_registered")
     
-    # Create the plan-execute graph (with observer already registered)
-    logger.info("creating_plan_execute_graph")
-    
-    try:
-        graph = await create_plan_execute_graph()
-        logger.info("plan_execute_graph_created",
-                    success=True)
-    except Exception as e:
-        logger.error("plan_execute_graph_creation_failed",
-                     error=str(e))
-        raise
-    
-    # Create A2A handler and store globally for interrupt access
+    # Create A2A handler and store globally
+    logger.info("creating_orchestrator_handler")
     global orchestrator_handler
     handler = OrchestratorA2AHandler()
-    handler.set_graph(graph)
     orchestrator_handler = handler
     
     # Create agent card
@@ -395,6 +382,7 @@ async def create_orchestrator_a2a_server(host: str = "0.0.0.0", port: int = 8000
     server.register_handler("process_task", handler.process_task)
     server.register_handler("get_agent_card", handler.get_agent_card)
     server.register_handler("get_task_status", handler.get_task_status)
+    server.register_handler("forward_events", handler.forward_events)
     
     # Add SSE route directly to the server app
     server.app.router.add_get("/a2a/stream", handle_sse_stream)

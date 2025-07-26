@@ -22,6 +22,10 @@ from src.utils.config import (
     MESSAGES_KEY, MEMORY_KEY, RECENT_MESSAGES_COUNT
 )
 from src.utils.agents.message_processing.unified_serialization import serialize_messages_for_json
+from src.orchestrator.observers.direct_call_events import (
+    emit_agent_call_event, 
+    DirectCallEventTypes
+)
 
 # Initialize structured logger
 logger = get_smart_logger("orchestrator")
@@ -348,6 +352,8 @@ class SalesforceAgentTool(BaseAgentTool):
         
         # Log tool invocation start
         tool_call_id = kwargs.get("tool_call_id", None)
+        task_id = str(uuid.uuid4())
+        
         logger.info("tool_invocation_start",
             operation="salesforce_agent_tool",
             tool_name="salesforce_agent",
@@ -355,6 +361,18 @@ class SalesforceAgentTool(BaseAgentTool):
             instruction_preview=instruction[:100] if instruction else "",
             has_context=bool(context),
             has_state=bool(state)
+        )
+        
+        # Emit agent call started event
+        emit_agent_call_event(
+            DirectCallEventTypes.AGENT_CALL_STARTED,
+            agent_name="salesforce_agent",
+            task_id=task_id,
+            instruction=instruction,
+            additional_data={
+                "tool_call_id": tool_call_id,
+                "has_context": bool(context)
+            }
         )
         
         try:
@@ -370,13 +388,23 @@ class SalesforceAgentTool(BaseAgentTool):
                     tool_call_id=tool_call_id,
                     error="Salesforce agent not available"
                 )
+                # Emit failure event
+                emit_agent_call_event(
+                    DirectCallEventTypes.AGENT_CALL_FAILED,
+                    agent_name="salesforce_agent",
+                    task_id=task_id,
+                    instruction=instruction,
+                    additional_data={
+                        "error": "Salesforce agent not available",
+                        "tool_call_id": tool_call_id
+                    }
+                )
                 return self._create_error_command(
                     "Error: Salesforce agent not available. Please ensure the Salesforce agent is running and registered.",
                     tool_call_id
                 )
             
-            # Create A2A task with serialized state
-            task_id = str(uuid.uuid4())
+            # Create A2A task with serialized state (reuse task_id from above)
             serialized_state = self._serialize_state_snapshot(state)
             
             task = A2ATask(
@@ -431,6 +459,19 @@ class SalesforceAgentTool(BaseAgentTool):
                     success=True
                 )
                 
+                # Emit agent call completed event
+                emit_agent_call_event(
+                    DirectCallEventTypes.AGENT_CALL_COMPLETED,
+                    agent_name="salesforce_agent",
+                    task_id=task_id,
+                    instruction=instruction,
+                    additional_data={
+                        "tool_call_id": tool_call_id,
+                        "response_length": len(final_response),
+                        "response_preview": final_response[:200] if final_response else ""
+                    }
+                )
+                
                 # No state merging needed - tool results are in persistent memory
                 state_update = {}
                 
@@ -455,6 +496,18 @@ class SalesforceAgentTool(BaseAgentTool):
                 error_type="A2AException",
                 error=str(e)
             )
+            # Emit failure event
+            emit_agent_call_event(
+                DirectCallEventTypes.AGENT_CALL_FAILED,
+                agent_name="salesforce_agent",
+                task_id=task_id,
+                instruction=instruction,
+                additional_data={
+                    "error": str(e),
+                    "error_type": "A2AException",
+                    "tool_call_id": tool_call_id
+                }
+            )
             return self._create_error_command(
                 f"Error: Failed to communicate with Salesforce agent - {str(e)}",
                 tool_call_id
@@ -466,6 +519,18 @@ class SalesforceAgentTool(BaseAgentTool):
                 tool_call_id=tool_call_id,
                 error_type=type(e).__name__,
                 error=str(e)
+            )
+            # Emit failure event
+            emit_agent_call_event(
+                DirectCallEventTypes.AGENT_CALL_FAILED,
+                agent_name="salesforce_agent",
+                task_id=task_id,
+                instruction=instruction,
+                additional_data={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "tool_call_id": tool_call_id
+                }
             )
             return self._create_error_command(
                 f"Error: Unexpected error - {str(e)}",
@@ -720,6 +785,8 @@ class JiraAgentTool(BaseAgentTool):
         
         # Log tool invocation start
         tool_call_id = kwargs.get("tool_call_id", None)
+        task_id = str(uuid.uuid4())
+        
         logger.info("tool_invocation_start",
             operation="jira_agent_tool",
             tool_name="jira_agent",
@@ -727,6 +794,18 @@ class JiraAgentTool(BaseAgentTool):
             instruction_preview=instruction[:100] if instruction else "",
             has_context=bool(context),
             has_state=bool(state)
+        )
+        
+        # Emit agent call started event
+        emit_agent_call_event(
+            DirectCallEventTypes.AGENT_CALL_STARTED,
+            agent_name="jira_agent",
+            task_id=task_id,
+            instruction=instruction,
+            additional_data={
+                "tool_call_id": tool_call_id,
+                "has_context": bool(context)
+            }
         )
         
         try:
@@ -742,13 +821,23 @@ class JiraAgentTool(BaseAgentTool):
                     tool_call_id=tool_call_id,
                     error="Jira agent not available"
                 )
+                # Emit failure event
+                emit_agent_call_event(
+                    DirectCallEventTypes.AGENT_CALL_FAILED,
+                    agent_name="jira_agent",
+                    task_id=task_id,
+                    instruction=instruction,
+                    additional_data={
+                        "error": "Jira agent not available",
+                        "tool_call_id": tool_call_id
+                    }
+                )
                 return self._create_error_command(
                     "Error: Jira agent not available. Please ensure the Jira agent is running and registered.",
                     tool_call_id
                 )
             
-            # Create A2A task with serialized state
-            task_id = str(uuid.uuid4())
+            # Create A2A task with serialized state (reuse task_id from above)
             serialized_state = self._serialize_state_snapshot(state)
             
             task = A2ATask(
@@ -801,6 +890,19 @@ class JiraAgentTool(BaseAgentTool):
                     tool_call_id=tool_call_id,
                     response_length=len(final_response),
                     success=True
+                )
+                
+                # Emit agent call completed event
+                emit_agent_call_event(
+                    DirectCallEventTypes.AGENT_CALL_COMPLETED,
+                    agent_name="jira_agent",
+                    task_id=task_id,
+                    instruction=instruction,
+                    additional_data={
+                        "tool_call_id": tool_call_id,
+                        "response_length": len(final_response),
+                        "response_preview": final_response[:200] if final_response else ""
+                    }
                 )
                 
                 # Handle state merging from agent
@@ -885,6 +987,18 @@ class JiraAgentTool(BaseAgentTool):
                 error_type="A2AException",
                 error=str(e)
             )
+            # Emit failure event
+            emit_agent_call_event(
+                DirectCallEventTypes.AGENT_CALL_FAILED,
+                agent_name="jira_agent",
+                task_id=task_id,
+                instruction=instruction,
+                additional_data={
+                    "error": str(e),
+                    "error_type": "A2AException",
+                    "tool_call_id": tool_call_id
+                }
+            )
             return self._create_error_command(
                 f"Error: Failed to communicate with Jira agent - {str(e)}",
                 tool_call_id
@@ -896,6 +1010,18 @@ class JiraAgentTool(BaseAgentTool):
                 tool_call_id=tool_call_id,
                 error_type=type(e).__name__,
                 error=str(e)
+            )
+            # Emit failure event
+            emit_agent_call_event(
+                DirectCallEventTypes.AGENT_CALL_FAILED,
+                agent_name="jira_agent",
+                task_id=task_id,
+                instruction=instruction,
+                additional_data={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "tool_call_id": tool_call_id
+                }
             )
             return self._create_error_command(
                 f"Error: Unexpected error - {str(e)}",
@@ -1150,6 +1276,8 @@ class ServiceNowAgentTool(BaseAgentTool):
         
         # Log tool invocation start
         tool_call_id = kwargs.get("tool_call_id", None)
+        task_id = str(uuid.uuid4())
+        
         logger.info("tool_invocation_start",
             operation="servicenow_agent_tool",
             tool_name="servicenow_agent",
@@ -1157,6 +1285,18 @@ class ServiceNowAgentTool(BaseAgentTool):
             instruction_preview=instruction[:100] if instruction else "",
             has_context=bool(context),
             has_state=bool(state)
+        )
+        
+        # Emit agent call started event
+        emit_agent_call_event(
+            DirectCallEventTypes.AGENT_CALL_STARTED,
+            agent_name="servicenow_agent",
+            task_id=task_id,
+            instruction=instruction,
+            additional_data={
+                "tool_call_id": tool_call_id,
+                "has_context": bool(context)
+            }
         )
         
         try:
@@ -1172,13 +1312,23 @@ class ServiceNowAgentTool(BaseAgentTool):
                     tool_call_id=tool_call_id,
                     error="ServiceNow agent not available"
                 )
+                # Emit failure event
+                emit_agent_call_event(
+                    DirectCallEventTypes.AGENT_CALL_FAILED,
+                    agent_name="servicenow_agent",
+                    task_id=task_id,
+                    instruction=instruction,
+                    additional_data={
+                        "error": "ServiceNow agent not available",
+                        "tool_call_id": tool_call_id
+                    }
+                )
                 return self._create_error_command(
                     "Error: ServiceNow agent not available. Please ensure the ServiceNow agent is running and registered.",
                     tool_call_id
                 )
             
-            # Create A2A task with serialized state
-            task_id = str(uuid.uuid4())
+            # Create A2A task with serialized state (reuse task_id from above)
             serialized_state = self._serialize_state_snapshot(state)
             
             task = A2ATask(
@@ -1231,6 +1381,19 @@ class ServiceNowAgentTool(BaseAgentTool):
                     tool_call_id=tool_call_id,
                     response_length=len(final_response),
                     success=True
+                )
+                
+                # Emit agent call completed event
+                emit_agent_call_event(
+                    DirectCallEventTypes.AGENT_CALL_COMPLETED,
+                    agent_name="servicenow_agent",
+                    task_id=task_id,
+                    instruction=instruction,
+                    additional_data={
+                        "tool_call_id": tool_call_id,
+                        "response_length": len(final_response),
+                        "response_preview": final_response[:200] if final_response else ""
+                    }
                 )
                 
                 # Handle state merging from agent
@@ -1315,6 +1478,18 @@ class ServiceNowAgentTool(BaseAgentTool):
                 error_type="A2AException",
                 error=str(e)
             )
+            # Emit failure event
+            emit_agent_call_event(
+                DirectCallEventTypes.AGENT_CALL_FAILED,
+                agent_name="servicenow_agent",
+                task_id=task_id,
+                instruction=instruction,
+                additional_data={
+                    "error": str(e),
+                    "error_type": "A2AException",
+                    "tool_call_id": tool_call_id
+                }
+            )
             return self._create_error_command(
                 f"Error: Failed to communicate with ServiceNow agent - {str(e)}",
                 tool_call_id
@@ -1326,6 +1501,18 @@ class ServiceNowAgentTool(BaseAgentTool):
                 tool_call_id=tool_call_id,
                 error_type=type(e).__name__,
                 error=str(e)
+            )
+            # Emit failure event
+            emit_agent_call_event(
+                DirectCallEventTypes.AGENT_CALL_FAILED,
+                agent_name="servicenow_agent",
+                task_id=task_id,
+                instruction=instruction,
+                additional_data={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "tool_call_id": tool_call_id
+                }
             )
             return self._create_error_command(
                 f"Error: Unexpected error - {str(e)}",

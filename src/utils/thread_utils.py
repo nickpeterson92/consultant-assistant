@@ -1,6 +1,5 @@
 """Utilities for consistent thread ID management across the system."""
 
-from typing import Optional
 
 
 class ThreadIDManager:
