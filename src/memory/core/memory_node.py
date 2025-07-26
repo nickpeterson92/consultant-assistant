@@ -59,7 +59,7 @@ class MemoryNode:
             ContextType.TEMPORARY_STATE: 3,    # Very fast decay
             ContextType.DOMAIN_ENTITY: 48,     # Slow decay (2 day half-life)
             ContextType.CONVERSATION_FACT: 24, # Medium decay (1 day half-life)
-            ContextType.COMPLETED_ACTION: 12,  # Medium-fast decay
+            ContextType.COMPLETED_ACTION: 24,  # Medium decay (only significant actions stored now)
             ContextType.TOOL_OUTPUT: 8,        # Fast decay
             ContextType.USER_SELECTION: 36    # Slower decay for user choices
         }.get(self.context_type, 12)  # Default 12 hour half-life

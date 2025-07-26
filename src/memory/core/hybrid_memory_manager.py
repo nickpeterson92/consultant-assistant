@@ -59,15 +59,20 @@ class HybridMemoryManager:
         """
         memory = self.get_memory(user_id)
         
-        # Check if we've already loaded memories (has any nodes)
-        if memory.node_manager.nodes:
-            logger.debug("user_memories_already_loaded",
+        # Check if we've already loaded memories from PostgreSQL
+        # Use a marker to track if we've loaded from PostgreSQL
+        postgres_loaded_marker = f"_postgres_loaded_{user_id}"
+        if hasattr(memory, postgres_loaded_marker):
+            logger.debug("user_memories_already_loaded_from_postgres",
                         user_id=user_id,
                         node_count=len(memory.node_manager.nodes))
             return
         
         # Load memories from PostgreSQL
         await self.load_user_memories(user_id)
+        
+        # Mark as loaded
+        setattr(memory, postgres_loaded_marker, True)
     
     async def load_user_memories(self, user_id: str) -> None:
         """Load user's persistent memories from PostgreSQL into SQLite."""

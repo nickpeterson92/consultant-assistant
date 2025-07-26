@@ -400,13 +400,52 @@ You are tasked with executing step {current_step_num}: {task}.
         )
         registry.notify_search_results(event)
     
-    # MEMORY INTEGRATION: Store execution results in memory
+    # MEMORY INTEGRATION: Store execution results in memory (with noise reduction)
     try:
         # Determine context type based on what the agent did
         if produced_user_data:
             context_type = ContextType.SEARCH_RESULT  # User will need to interact with this data
         else:
-            context_type = ContextType.COMPLETED_ACTION  # This task is done
+            # Filter out routine actions to reduce memory noise
+            # Only store significant completed actions that modify state or contain entity references
+            import re
+            significant_patterns = [
+                r'created.*(account|contact|opportunity|case|ticket|issue|project)',
+                r'updated.*(status|stage|priority|assignment)',
+                r'resolved|closed|completed|fixed',
+                r'assigned.*to',
+                r'deployed|migrated|configured',
+                r'deleted|removed|archived',
+                r'approved|rejected|escalated',
+                r'merged|integrated|synchronized'
+            ]
+            
+            # Combine task and response for pattern matching
+            task_and_response = f"{task} {final_response}".lower()
+            is_significant = any(
+                re.search(pattern, task_and_response) 
+                for pattern in significant_patterns
+            )
+            
+            # Also check for entity IDs which indicate significant operations
+            entity_patterns = [
+                r'\b[a-zA-Z0-9]{15,18}\b',  # Salesforce IDs
+                r'\b[A-Z]+-\d+\b',           # Jira keys
+                r'\b(INC|CHG|PRB)\d{7}\b',   # ServiceNow numbers
+            ]
+            has_entity_refs = any(
+                re.search(pattern, final_response) 
+                for pattern in entity_patterns
+            )
+            
+            if not is_significant and not has_entity_refs:
+                # Don't store routine actions
+                logger.debug("skipping_routine_action", 
+                           task=task[:50] if task else "none",
+                           reason="not_significant")
+                return {"agent_response": final_response}
+            
+            context_type = ContextType.COMPLETED_ACTION  # This is a significant completed task
         
         # Extract semantic tags from the task and response
         task_words = set(task.lower().split()) if task else set()
