@@ -16,6 +16,7 @@ from src.utils.logging.framework import SmartLogger, log_execution
 from src.orchestrator.workflow.event_decorators import emit_coordinated_events
 from src.orchestrator.workflow.memory_context_builder import MemoryContextBuilder
 from src.orchestrator.core.state import PlanExecute, StepExecution
+from src.orchestrator.tools.human_input import InterruptType
 
 # Initialize logger
 logger = SmartLogger("orchestrator")
@@ -296,12 +297,22 @@ Remember: This context is for reference only. Focus on executing the specific ta
         from langgraph.errors import GraphInterrupt
         if isinstance(e, GraphInterrupt):
             # This is expected behavior - log as INFO, not ERROR
+            # Extract actual interrupt type from the interrupt data
+            interrupt_type_value = "unknown"
+            try:
+                if e.args and len(e.args) > 0:
+                    interrupt_data = e.args[0]
+                    if hasattr(interrupt_data, 'value') and isinstance(interrupt_data.value, dict):
+                        interrupt_type_value = interrupt_data.value.get('interrupt_type', 'unknown')
+            except Exception:
+                pass
+            
             logger.info("react_agent_interrupt",
                        operation="execute_step",
                        thread_id=thread_id,
                        duration_seconds=round(react_duration, 3),
                        interrupt_value=str(e.args[0]) if e.args else "",
-                       interrupt_type="clarification_needed")
+                       interrupt_type=interrupt_type_value)
         else:
             # This is an actual error
             logger.error("react_agent_error",
@@ -1062,11 +1073,9 @@ async def replan_step(state: PlanExecute):
         
         user_visible_responses = []
         
-        # If any plan step mentions human_input, show the most recent past step result to user
+        # Don't automatically show past results when adding human_input steps
+        # The human_input tool itself will handle showing the appropriate data
         past_steps = state.get("past_steps", [])
-        if any("human_input" in step.lower() for step in new_plan if step is not None) and past_steps:
-            last_step = past_steps[-1]
-            user_visible_responses.append(last_step['result'])
         
         state_updates = {
             "plan": new_plan,

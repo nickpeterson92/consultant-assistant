@@ -6,7 +6,7 @@ from .agent_caller_tools import (
     ServiceNowAgentTool,
     AgentRegistryTool
 )
-from .human_input import HumanInputTool
+from .human_input import HumanInputTool, InterruptType, HumanInputRequest
 from .web_search import WebSearchTool
 
 __all__ = [
@@ -15,5 +15,7 @@ __all__ = [
     'ServiceNowAgentTool',
     'AgentRegistryTool',
     'HumanInputTool',
+    'InterruptType',
+    'HumanInputRequest',
     'WebSearchTool'
 ]

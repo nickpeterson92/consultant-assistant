@@ -25,6 +25,9 @@ from .sse_observer import SSEObserver
 # Import registry and helper
 from .registry import ObserverRegistry, get_observer_registry
 
+# Import interrupt observer
+from .interrupt_observer import InterruptObserver, get_interrupt_observer, InterruptEvent, InterruptResumeEvent
+
 __all__ = [
     # Events
     'WorkflowEvent',
@@ -40,11 +43,16 @@ __all__ = [
     'MemoryEdgeAddedEvent',
     'MemoryGraphSnapshotEvent',
     'LLMContextEvent',
+    'InterruptEvent',
+    'InterruptResumeEvent',
     # Observers
     'PlanExecuteObserver',
     'UXObserver',
     'SSEObserver',
+    'InterruptObserver',
     # Registry
     'ObserverRegistry',
-    'get_observer_registry'
+    'get_observer_registry',
+    # Interrupt helper
+    'get_interrupt_observer'
 ]

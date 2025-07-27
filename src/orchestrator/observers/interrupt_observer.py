@@ -13,7 +13,7 @@ logger = SmartLogger("orchestrator")
 @dataclass
 class InterruptEvent(WorkflowEvent):
     """Event fired when workflow is interrupted."""
-    interrupt_type: str = ""  # "user_escape" or "human_input"
+    interrupt_type: str = ""  # "user_escape" or InterruptType values (clarification, confirmation, etc.)
     interrupt_reason: str = ""
     thread_id: str = ""
     completed_steps: int = 0
