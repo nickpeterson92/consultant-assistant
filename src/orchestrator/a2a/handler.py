@@ -306,6 +306,115 @@ ORCHESTRATOR TOOLS:
                 # Clear thread context after execution
                 clear_thread_context()
             
+            # Check if there are pending interrupts after invocation
+            # With create_react_agent and checkpointer, interrupts don't raise exceptions
+            # Instead, they're stored in the state and indicated by __interrupt__ key
+            interrupt_detected = False
+            interrupt_payload = None
+            
+            # Check for __interrupt__ in result
+            if "__interrupt__" in result:
+                interrupt_list = result["__interrupt__"]
+                if interrupt_list and len(interrupt_list) > 0:
+                    interrupt_obj = interrupt_list[0]  # Get first interrupt
+                    interrupt_detected = True
+                    # Extract the value from the Interrupt object
+                    if hasattr(interrupt_obj, 'value'):
+                        interrupt_payload = interrupt_obj.value
+                    else:
+                        interrupt_payload = str(interrupt_obj)
+                    
+                    logger.info("interrupt_found_in_result",
+                               thread_id=thread_id,
+                               interrupt_count=len(interrupt_list),
+                               interrupt_type=type(interrupt_obj).__name__,
+                               has_value=hasattr(interrupt_obj, 'value'),
+                               payload_preview=str(interrupt_payload)[:200] if interrupt_payload else None)
+            
+            # Alternative: check graph state for pending interrupts
+            if not interrupt_detected:
+                try:
+                    final_state = graph.get_state(config)
+                    if final_state and hasattr(final_state, 'next') and final_state.next:
+                        logger.info("pending_interrupt_in_state",
+                                   thread_id=thread_id,
+                                   next_nodes=final_state.next)
+                        # This indicates an interrupt is pending, but we need the payload
+                        # Check if state has interrupt information
+                        if hasattr(final_state, 'values') and final_state.values:
+                            state_values = final_state.values
+                            if "__interrupt__" in state_values:
+                                interrupt_list = state_values["__interrupt__"]
+                                if interrupt_list and len(interrupt_list) > 0:
+                                    interrupt_obj = interrupt_list[0]
+                                    interrupt_detected = True
+                                    if hasattr(interrupt_obj, 'value'):
+                                        interrupt_payload = interrupt_obj.value
+                                    else:
+                                        interrupt_payload = str(interrupt_obj)
+                                    
+                                    logger.info("interrupt_found_in_state",
+                                               thread_id=thread_id,
+                                               payload_preview=str(interrupt_payload)[:200] if interrupt_payload else None)
+                except Exception as e:
+                    logger.warning("failed_to_check_graph_state",
+                                  thread_id=thread_id,
+                                  error=str(e))
+            
+            # Handle interrupt if detected
+            if interrupt_detected and interrupt_payload:
+                # Extract the message from the interrupt payload
+                interrupt_reason = ""
+                if isinstance(interrupt_payload, str):
+                    interrupt_reason = interrupt_payload
+                elif isinstance(interrupt_payload, dict):
+                    # Look for common message keys
+                    interrupt_reason = (interrupt_payload.get("message") or 
+                                      interrupt_payload.get("question") or 
+                                      interrupt_payload.get("text") or 
+                                      str(interrupt_payload))
+                else:
+                    interrupt_reason = str(interrupt_payload)
+                
+                logger.info("processing_react_agent_interrupt",
+                           thread_id=thread_id,
+                           payload_type=type(interrupt_payload).__name__,
+                           reason_length=len(interrupt_reason),
+                           reason_preview=interrupt_reason[:100])
+                
+                # Record the interrupt
+                from src.orchestrator.observers.interrupt_observer import get_interrupt_observer
+                interrupt_observer = get_interrupt_observer()
+                interrupt_observer.record_interrupt(
+                    thread_id=thread_id,
+                    interrupt_type="human_input",
+                    reason=interrupt_reason,
+                    current_plan=[],  # ReAct doesn't have explicit plans
+                    state=graph_input,
+                    interrupt_payload=None  # Keep simple for now
+                )
+                
+                # Mark task as interrupted
+                if task_id in self.active_tasks:
+                    self.active_tasks[task_id]["status"] = "interrupted"
+                    self.active_tasks[task_id]["interrupt_reason"] = interrupt_reason
+                    self.active_tasks[task_id]["interrupted_at"] = datetime.now().isoformat()
+                
+                # Return interrupt response
+                return {
+                    "artifacts": [{"id": f"orchestrator-interrupt-{task_id}",
+                                 "task_id": task_id,
+                                 "content": interrupt_reason,
+                                 "content_type": "text/plain"}],
+                    "status": "interrupted",
+                    "metadata": {"task_id": task_id,
+                               "thread_id": thread_id,
+                               "user_id": user_id,
+                               "interrupt_type": "human_input",
+                               "interrupt_reason": interrupt_reason},
+                    "error": None
+                }
+            
             # Extract response from messages
             response_messages = result.get("messages", [])
             
