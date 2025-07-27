@@ -128,8 +128,7 @@ export function ConversationPanel({ onSendMessage }: ConversationPanelProps) {
                             {children}
                           </pre>
                         ),
-                        code: ({ inline, children }) => 
-                          inline ? (
+                        code: ({ inline, children }) => inline ? (
                             <code className="px-1.5 py-0.5 rounded bg-muted text-xs font-mono">
                               {children}
                             </code>

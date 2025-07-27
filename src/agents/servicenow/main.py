@@ -130,9 +130,8 @@ async def build_servicenow_graph():
     )
     graph_builder.add_edge("tools", "agent")
     
-    # Compile with memory
-    memory = MemorySaver()
-    return graph_builder.compile(checkpointer=memory)
+    # Compile with MemorySaver for in-memory checkpointing
+    return graph_builder.compile(checkpointer=MemorySaver())
 
 # Global agent instance (will be initialized in main)
 servicenow_agent = None

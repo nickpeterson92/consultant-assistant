@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import tools_condition
+from langgraph.checkpoint.memory import MemorySaver
 
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
@@ -175,7 +176,8 @@ async def build_salesforce_graph():
     )
     graph_builder.add_edge("tools", "agent")
     
-    return graph_builder.compile()
+    # Compile with MemorySaver for in-memory checkpointing
+    return graph_builder.compile(checkpointer=MemorySaver())
 
 # Build the graph at module level
 salesforce_graph = None  # Will be created when needed

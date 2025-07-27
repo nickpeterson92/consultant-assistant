@@ -6,7 +6,7 @@ These tools enable the orchestrator to communicate with specialized agents via A
 import uuid
 import json
 import asyncio
-from typing import Dict, Any, Optional, List, Annotated, Union
+from typing import Dict, Any, Optional, List, Annotated, Union, Type
 from langchain_core.tools import BaseTool
 from langchain_core.messages import ToolMessage
 from langgraph.prebuilt import InjectedState
@@ -26,7 +26,6 @@ from src.orchestrator.observers.direct_call_events import (
     emit_agent_call_event, 
     DirectCallEventTypes
 )
-from src.orchestrator.core.thread_context import get_thread_context
 
 # Initialize structured logger
 logger = get_smart_logger("orchestrator")
@@ -210,6 +209,9 @@ class AgentCallInput(BaseModel):
         "Used when multiple agents might handle a task. Examples: "
         "['salesforce_operations'], ['travel_booking', 'expense_reporting']"
     )
+    state: Annotated[dict, InjectedState] = Field(
+        description="Injected state from LangGraph for accessing conversation context"
+    )
 
 class SalesforceAgentTool(BaseAgentTool):
     """Orchestrator Tool for Salesforce CRM Agent Communication.
@@ -246,8 +248,9 @@ class SalesforceAgentTool(BaseAgentTool):
     
     Returns structured CRM data with Salesforce IDs for downstream processing."""
     
-    # Note: Removed args_schema to fix InjectedState detection bug in LangGraph
-    # See: https://github.com/langchain-ai/langgraph/issues/2220
+    # Re-enabled args_schema with proper InjectedState field
+    # Fixed according to: https://github.com/langchain-ai/langgraph/issues/2220
+    args_schema: Type[BaseModel] = AgentCallInput
     
     def __init__(self, registry: AgentRegistry):
         super().__init__(metadata={"registry": registry})
@@ -263,16 +266,15 @@ class SalesforceAgentTool(BaseAgentTool):
         Returns:
             Dictionary of serialized context ready for A2A transmission
         """
-        # If state is None (InjectedState not working), get thread context
+        # State should always be provided now with proper InjectedState
         if state is None:
-            thread_ctx = get_thread_context()
-            logger.info("using_thread_context_fallback",
-                       thread_id=thread_ctx.get('thread_id'),
-                       user_id=thread_ctx.get('user_id'),
-                       task_id=thread_ctx.get('task_id'))
+            logger.error("state_is_none",
+                        component="orchestrator",
+                        note="InjectedState not working properly")
+            state = {}
         
-        messages = state.get("messages", []) if state else []
-        memory = state.get("memory", {}) if state else {}
+        messages = state.get("messages", [])
+        memory = state.get("memory", {})
         
         extracted_context = {}
         
@@ -316,14 +318,10 @@ class SalesforceAgentTool(BaseAgentTool):
                     configurable_keys=list(state.get("configurable", {}).keys()) if "configurable" in state else [],
                     state_keys=list(state.keys()) if state else [])
         else:
-            # State is None, use thread context
-            thread_ctx = get_thread_context()
-            if thread_ctx.get('user_id'):
-                extracted_context["user_id"] = thread_ctx['user_id']
-                logger.debug("found_user_id_in_thread_context", user_id=thread_ctx['user_id'])
-            if thread_ctx.get('thread_id'):
-                extracted_context["thread_id"] = thread_ctx['thread_id']
-                logger.debug("found_thread_id_in_thread_context", thread_id=thread_ctx['thread_id'])
+            # State should not be None with proper InjectedState
+            logger.error("state_is_none_in_extract",
+                        component="orchestrator",
+                        method="_extract_conversation_context")
         
         # Merge any additional context
         if context:
@@ -726,8 +724,9 @@ class JiraAgentTool(BaseAgentTool):
     
     Returns structured issue data with Jira IDs for downstream processing."""
     
-    # Note: Removed args_schema to fix InjectedState detection bug in LangGraph
-    # See: https://github.com/langchain-ai/langgraph/issues/2220
+    # Re-enabled args_schema with proper InjectedState field
+    # Fixed according to: https://github.com/langchain-ai/langgraph/issues/2220
+    args_schema: Type[BaseModel] = AgentCallInput
     
     def __init__(self, registry: AgentRegistry):
         super().__init__(metadata={"registry": registry})
@@ -743,16 +742,15 @@ class JiraAgentTool(BaseAgentTool):
         Returns:
             Dictionary of serialized context ready for A2A transmission
         """
-        # If state is None (InjectedState not working), get thread context
+        # State should always be provided now with proper InjectedState
         if state is None:
-            thread_ctx = get_thread_context()
-            logger.info("using_thread_context_fallback",
-                       thread_id=thread_ctx.get('thread_id'),
-                       user_id=thread_ctx.get('user_id'),
-                       task_id=thread_ctx.get('task_id'))
+            logger.error("state_is_none",
+                        component="orchestrator",
+                        note="InjectedState not working properly")
+            state = {}
         
-        messages = state.get("messages", []) if state else []
-        memory = state.get("memory", {}) if state else {}
+        messages = state.get("messages", [])
+        memory = state.get("memory", {})
         
         extracted_context = {}
         
@@ -796,14 +794,10 @@ class JiraAgentTool(BaseAgentTool):
                     configurable_keys=list(state.get("configurable", {}).keys()) if "configurable" in state else [],
                     state_keys=list(state.keys()) if state else [])
         else:
-            # State is None, use thread context
-            thread_ctx = get_thread_context()
-            if thread_ctx.get('user_id'):
-                extracted_context["user_id"] = thread_ctx['user_id']
-                logger.debug("found_user_id_in_thread_context", user_id=thread_ctx['user_id'])
-            if thread_ctx.get('thread_id'):
-                extracted_context["thread_id"] = thread_ctx['thread_id']
-                logger.debug("found_thread_id_in_thread_context", thread_id=thread_ctx['thread_id'])
+            # State should not be None with proper InjectedState
+            logger.error("state_is_none_in_extract",
+                        component="orchestrator",
+                        method="_extract_conversation_context")
         
         # Merge any additional context
         if context:
@@ -1281,8 +1275,9 @@ class ServiceNowAgentTool(BaseAgentTool):
     
     Returns structured ITSM data with record numbers for downstream processing."""
     
-    # Note: Removed args_schema to fix InjectedState detection bug in LangGraph
-    # See: https://github.com/langchain-ai/langgraph/issues/2220
+    # Re-enabled args_schema with proper InjectedState field
+    # Fixed according to: https://github.com/langchain-ai/langgraph/issues/2220
+    args_schema: Type[BaseModel] = AgentCallInput
     
     def __init__(self, registry: AgentRegistry):
         super().__init__(metadata={"registry": registry})
@@ -1297,16 +1292,15 @@ class ServiceNowAgentTool(BaseAgentTool):
         Returns:
             Dictionary of serialized context ready for A2A transmission
         """
-        # If state is None (InjectedState not working), get thread context
+        # State should always be provided now with proper InjectedState
         if state is None:
-            thread_ctx = get_thread_context()
-            logger.info("using_thread_context_fallback",
-                       thread_id=thread_ctx.get('thread_id'),
-                       user_id=thread_ctx.get('user_id'),
-                       task_id=thread_ctx.get('task_id'))
+            logger.error("state_is_none",
+                        component="orchestrator",
+                        note="InjectedState not working properly")
+            state = {}
         
-        messages = state.get("messages", []) if state else []
-        memory = state.get("memory", {}) if state else {}
+        messages = state.get("messages", [])
+        memory = state.get("memory", {})
         
         extracted_context = {}
         
@@ -1350,14 +1344,10 @@ class ServiceNowAgentTool(BaseAgentTool):
                     configurable_keys=list(state.get("configurable", {}).keys()) if "configurable" in state else [],
                     state_keys=list(state.keys()) if state else [])
         else:
-            # State is None, use thread context
-            thread_ctx = get_thread_context()
-            if thread_ctx.get('user_id'):
-                extracted_context["user_id"] = thread_ctx['user_id']
-                logger.debug("found_user_id_in_thread_context", user_id=thread_ctx['user_id'])
-            if thread_ctx.get('thread_id'):
-                extracted_context["thread_id"] = thread_ctx['thread_id']
-                logger.debug("found_thread_id_in_thread_context", thread_id=thread_ctx['thread_id'])
+            # State should not be None with proper InjectedState
+            logger.error("state_is_none_in_extract",
+                        component="orchestrator",
+                        method="_extract_conversation_context")
         
         # Merge any additional context
         if context:
@@ -1831,6 +1821,9 @@ class AgentRegistryTool(BaseTool):
     class AgentRegistryInput(BaseModel):
         action: str = Field(description="Action to perform: 'list', 'health_check', 'stats'")
         agent_name: Optional[str] = Field(default=None, description="Specific agent name for health check")
+        state: Annotated[dict, InjectedState] = Field(
+            description="Injected state from LangGraph for accessing conversation context"
+        )
     
     args_schema: type = AgentRegistryInput
     
@@ -1838,7 +1831,7 @@ class AgentRegistryTool(BaseTool):
         super().__init__(metadata={"registry": registry})
     
     @log_execution(component="orchestrator", operation="agent_registry_action")
-    async def _arun(self, action: str, agent_name: Optional[str] = None) -> str:
+    async def _arun(self, action: str, agent_name: Optional[str] = None, state: Annotated[Dict[str, Any], InjectedState] = None) -> str:
         """Execute registry management action"""
         registry = self.metadata["registry"]
         if action == "list":
@@ -1877,6 +1870,6 @@ class AgentRegistryTool(BaseTool):
         else:
             return f"Unknown action: {action}. Available actions: list, health_check, stats"
     
-    def _run(self, action: str, agent_name: Optional[str] = None) -> str:
+    def _run(self, action: str, agent_name: Optional[str] = None, state: Annotated[Dict[str, Any], InjectedState] = None) -> str:
         """Synchronous wrapper for async execution"""
-        return asyncio.run(self._arun(action, agent_name))
+        return asyncio.run(self._arun(action, agent_name, state))

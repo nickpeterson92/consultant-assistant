@@ -227,7 +227,7 @@ class SSEObserver(PlanExecuteObserver):
     
     def on_interrupt(self, event) -> None:
         """Emit interrupt SSE event."""
-        self._emit_sse_threadsafe("interrupt", {
+        sse_data = {
             "task_id": event.task_id,
             "interrupt_type": event.interrupt_type,
             "interrupt_reason": event.interrupt_reason,
@@ -235,7 +235,20 @@ class SSEObserver(PlanExecuteObserver):
             "current_plan": event.current_plan,
             "completed_steps": event.completed_steps,
             "total_steps": event.total_steps
-        })
+        }
+        
+        # Include interrupt payload if available (for human_input interrupts)
+        if hasattr(event, 'interrupt_payload') and event.interrupt_payload:
+            sse_data["interrupt_payload"] = event.interrupt_payload
+            # Also include key fields at top level for backwards compatibility
+            if "question" in event.interrupt_payload:
+                sse_data["question"] = event.interrupt_payload["question"]
+            if "options" in event.interrupt_payload:
+                sse_data["options"] = event.interrupt_payload["options"]
+            if "interrupt_type" in event.interrupt_payload:
+                sse_data["interrupt_subtype"] = event.interrupt_payload["interrupt_type"]
+        
+        self._emit_sse_threadsafe("interrupt", sse_data)
     
     def on_interrupt_resume(self, event) -> None:
         """Emit interrupt_resume SSE event."""

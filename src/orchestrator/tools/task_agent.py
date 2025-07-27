@@ -15,6 +15,9 @@ class TaskAgentInput(BaseModel):
     """Input schema for TaskAgentTool."""
     task: str = Field(description="The complex task to plan and execute")
     context: Optional[str] = Field(default=None, description="Additional context for the task")
+    state: Annotated[dict, InjectedState] = Field(
+        description="Injected state from LangGraph for accessing conversation context"
+    )
 
 
 class TaskAgentTool(BaseTool):
@@ -83,12 +86,19 @@ class TaskAgentTool(BaseTool):
             parent_state = state if state else {}
             
             # Prepare input for plan-execute graph
+            # Create a fresh message list with just the task to avoid tool_call_id conflicts
+            from langchain_core.messages import HumanMessage
+            fresh_messages = [HumanMessage(content=task)]
+            
             plan_execute_input = {
                 "input": task,
-                "messages": parent_state.get("messages", []),
+                "messages": fresh_messages,  # Fresh messages with just the task
                 "thread_id": parent_state.get("thread_id", "default-thread"),
                 "user_id": parent_state.get("user_id", "default_user"),
                 "task_id": parent_state.get("task_id", f"task_{hash(task)}"),
+                "past_steps": [],  # Initialize empty past_steps
+                "plan": [],  # Initialize empty plan
+                "response": "",  # Initialize empty response
             }
             
             # Add context if provided
@@ -103,7 +113,17 @@ class TaskAgentTool(BaseTool):
             }
             
             # Execute the plan-execute workflow with config
+            logger.info("task_agent_invoking_graph",
+                       input=task[:100],
+                       has_messages=bool(fresh_messages),
+                       thread_id=plan_execute_input.get("thread_id"))
+            
             result = await graph.ainvoke(plan_execute_input, config)
+            
+            logger.info("task_agent_graph_complete",
+                       result_keys=list(result.keys()),
+                       has_response="response" in result,
+                       response_preview=result.get("response", "")[:100] if "response" in result else None)
             
             # Extract the response
             if "response" in result:
@@ -121,7 +141,11 @@ class TaskAgentTool(BaseTool):
             logger.info("task_agent_interrupt_propagating",
                        task=task[:100],
                        interrupt_type=type(e).__name__,
-                       interrupt_value=str(e)[:200])
+                       interrupt_value=str(e)[:200],
+                       has_args=hasattr(e, 'args'),
+                       args_count=len(e.args) if hasattr(e, 'args') else 0,
+                       first_arg_type=type(e.args[0]).__name__ if hasattr(e, 'args') and e.args else None,
+                       is_dict=isinstance(e.args[0], dict) if hasattr(e, 'args') and e.args else False)
             raise e  # Let the orchestrator handle the interrupt
         except Exception as e:
             logger.error("task_agent_error",

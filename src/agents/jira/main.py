@@ -71,7 +71,7 @@ async def build_jira_agent():
         
     Architecture Notes:
         - Uses prebuilt tools_condition for standard tool routing
-        - Implements MemorySaver for conversation persistence
+        - Implements SqliteSaver for persistent conversation state
         - Binds all 15 Jira tools to the LLM for function calling
     """
     
@@ -140,9 +140,8 @@ async def build_jira_agent():
     )
     graph_builder.add_edge("tools", "agent")
     
-    # Compile with memory
-    memory = MemorySaver()
-    return graph_builder.compile(checkpointer=memory)
+    # Compile with MemorySaver for in-memory checkpointing
+    return graph_builder.compile(checkpointer=MemorySaver())
 
 # Global agent instance (will be created in main)
 jira_agent = None

@@ -9,13 +9,15 @@ import { useSSE } from '@/hooks/useSSE'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useA2AClient } from '@/hooks/useA2AClient'
 import { Toaster } from '@/components/ui/toaster'
-import { ThreadProvider } from '@/contexts/ThreadContext'
+import { ThreadProvider, useThread } from '@/contexts/ThreadContext'
+import { ConversationProvider, useConversation } from '@/contexts/ConversationContext'
 import { cn } from '@/lib/utils'
 
 function AppContent() {
   const [isDarkMode, setIsDarkMode] = useState(true)
   const [isInterruptModalOpen, setIsInterruptModalOpen] = useState(false)
   const [currentPlan, setCurrentPlan] = useState<any[]>([])
+  const [processedInterrupts, setProcessedInterrupts] = useState<Set<string>>(new Set())
   
   console.log('App component mounted')
   
@@ -39,6 +41,42 @@ function AppContent() {
   
   // A2A client for API calls
   const { sendMessage } = useA2AClient()
+  const { addMessage } = useConversation()
+  const { updateThreadStatus } = useThread()
+
+  // Handle interrupt SSE events
+  useEffect(() => {
+    // Process all interrupt events that haven't been processed yet
+    const interruptEvents = events.filter(e => e.type === 'interrupt')
+    
+    interruptEvents.forEach(event => {
+      // Create unique ID for this interrupt event
+      const eventId = `${event.timestamp}_${event.data?.task_id || 'unknown'}`
+      
+      // Skip if already processed
+      if (processedInterrupts.has(eventId)) {
+        return
+      }
+      
+      const data = event.data
+      
+      // Simple approach - just display the interrupt reason/message
+      if (data && data.interrupt_reason) {
+        // Add the message to conversation
+        addMessage({
+          role: 'assistant',
+          content: data.interrupt_reason,
+          status: 'sent'
+        })
+        
+        // Update thread status
+        updateThreadStatus('interrupted')
+        
+        // Mark as processed
+        setProcessedInterrupts(prev => new Set([...prev, eventId]))
+      }
+    })
+  }, [events, addMessage, processedInterrupts, updateThreadStatus])
 
   // Handle ESC key for interrupts
   useEffect(() => {
@@ -106,7 +144,9 @@ function AppContent() {
 function App() {
   return (
     <ThreadProvider>
-      <AppContent />
+      <ConversationProvider>
+        <AppContent />
+      </ConversationProvider>
     </ThreadProvider>
   )
 }

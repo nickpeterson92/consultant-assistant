@@ -9,7 +9,6 @@ from src.utils.logging.framework import SmartLogger, log_execution
 from src.utils.thread_validation import ThreadValidator
 from src.orchestrator.core.thread_context import set_thread_context, clear_thread_context
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-from langgraph.checkpoint.memory import MemorySaver
 from src.orchestrator.observers.direct_call_events import (
     emit_direct_response_event
 )
@@ -24,22 +23,26 @@ class OrchestratorA2AHandler:
         """Initialize the A2A handler."""
         self.active_tasks = {}
         self._graph = None
-        self._graph_lock = asyncio.Lock()
         self._checkpointer = None
         self._initialize_checkpointer()
     
     def _initialize_checkpointer(self):
         """Initialize the checkpointer for interrupt support."""
-        # For now, use MemorySaver as it's simpler and works well
-        # TODO: Consider SQLite-based checkpointer for persistence across restarts
+        # Use MemorySaver for in-memory checkpointing
+        from langgraph.checkpoint.memory import MemorySaver
         self._checkpointer = MemorySaver()
         logger.info("checkpointer_initialized",
                    type="MemorySaver")
     
-    async def _ensure_graph_initialized(self) -> Any:
+    def _ensure_graph_initialized(self) -> Any:
         """Ensure the orchestrator graph is initialized (thread-safe)."""
         if self._graph is None:
-            async with self._graph_lock:
+            # Use threading lock instead of async lock
+            import threading
+            if not hasattr(self, '_sync_lock'):
+                self._sync_lock = threading.Lock()
+            
+            with self._sync_lock:
                 # Double-check pattern
                 if self._graph is None:
                     logger.info("orchestrator_graph_initializing")
@@ -130,12 +133,12 @@ ORCHESTRATOR TOOLS:
                     # Create ReAct agent WITH checkpointer
                     # Tools will access state via InjectedState annotation
                     from src.orchestrator.core.state import OrchestratorState
+                    # create_react_agent returns a compiled graph directly
                     self._graph = create_react_agent(
                         llm, 
                         tools, 
                         prompt=formatted_prompt,
                         checkpointer=self._checkpointer,  # Enable interrupt support
-                        debug=True,
                         state_schema=OrchestratorState  # Use our extended state schema
                     )
                     
@@ -200,7 +203,7 @@ ORCHESTRATOR TOOLS:
             }
             
             # Ensure graph is initialized
-            graph = await self._ensure_graph_initialized()
+            graph = self._ensure_graph_initialized()
             
             # Configuration for checkpointing
             config = {
@@ -349,7 +352,8 @@ ORCHESTRATOR TOOLS:
                     interrupt_type="human_input",
                     reason=interrupt_message,
                     current_plan=[],  # ReAct doesn't have explicit plans
-                    state=graph_input
+                    state=graph_input,
+                    interrupt_payload=None  # This path doesn't have structured payload
                 )
                 
                 # Mark task as interrupted
@@ -436,24 +440,19 @@ ORCHESTRATOR TOOLS:
                 # Determine interrupt type
                 interrupt_type = "human_input"
                 interrupt_reason = "Agent requested clarification"
+                interrupt_payload = None
                 
-                # Extract the actual interrupt value from the tuple/Interrupt object
+                # Extract the actual interrupt value from the GraphInterrupt
                 if hasattr(e, 'args') and e.args:
-                    arg = e.args[0]
+                    # GraphInterrupt wraps the payload, we need to extract it
+                    arg = e.args[0] if e.args else None
                     
-                    # Check if it's a tuple containing an Interrupt object
-                    if isinstance(arg, tuple) and len(arg) > 0:
-                        interrupt_obj = arg[0]
-                        # Extract the value from the Interrupt object
-                        if hasattr(interrupt_obj, 'value'):
-                            interrupt_reason = interrupt_obj.value
-                    # Check if it's a dict (legacy format)
-                    elif isinstance(arg, dict):
-                        interrupt_type = arg.get("type", "human_input")
-                        interrupt_reason = arg.get("reason", interrupt_reason)
-                    # Otherwise just convert to string
-                    else:
-                        interrupt_reason = str(arg)
+                    # Simple approach - just convert to string
+                    interrupt_reason = str(arg) if arg else interrupt_reason
+                    
+                    logger.info("extracted_interrupt_message",
+                               message_length=len(interrupt_reason),
+                               message_preview=interrupt_reason[:100])
                 
                 # Record interrupt with observer
                 interrupt_observer.record_interrupt(
@@ -461,7 +460,8 @@ ORCHESTRATOR TOOLS:
                     interrupt_type=interrupt_type,
                     reason=interrupt_reason,
                     current_plan=[],  # ReAct doesn't have explicit plans
-                    state=graph_input
+                    state=graph_input,
+                    interrupt_payload=interrupt_payload
                 )
                 
                 # Mark task as interrupted (not failed)
@@ -471,6 +471,25 @@ ORCHESTRATOR TOOLS:
                     self.active_tasks[task_id]["interrupted_at"] = datetime.now().isoformat()
                 
                 # Return success with interrupt information
+                metadata = {
+                    "task_id": task_id,
+                    "thread_id": thread_id,
+                    "user_id": user_id,
+                    "interrupt_type": interrupt_type,
+                    "interrupt_reason": interrupt_reason
+                }
+                
+                # Include the full interrupt payload if available
+                if interrupt_payload:
+                    metadata["interrupt_payload"] = interrupt_payload
+                    # Also include key fields at top level for easy access
+                    if "question" in interrupt_payload:
+                        metadata["question"] = interrupt_payload["question"]
+                    if "options" in interrupt_payload:
+                        metadata["options"] = interrupt_payload["options"]
+                    if "context" in interrupt_payload:
+                        metadata["context"] = interrupt_payload["context"]
+                
                 return {
                     "artifacts": [{
                         "id": f"orchestrator-interrupt-{task_id}",
@@ -479,13 +498,7 @@ ORCHESTRATOR TOOLS:
                         "content_type": "text/plain"
                     }],
                     "status": "interrupted",
-                    "metadata": {
-                        "task_id": task_id,
-                        "thread_id": thread_id,
-                        "user_id": user_id,
-                        "interrupt_type": interrupt_type,
-                        "interrupt_reason": interrupt_reason
-                    },
+                    "metadata": metadata,
                     "error": None
                 }
             else:

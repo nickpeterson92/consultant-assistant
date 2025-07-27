@@ -73,6 +73,10 @@ class HumanInputRequest(BaseModel):
         default_factory=dict,
         description="Additional metadata for UI/logging"
     )
+    
+    state: Annotated[dict, InjectedState] = Field(
+        description="Injected state from LangGraph for accessing conversation context"
+    )
 
 
 class ContextBuilder:
@@ -341,8 +345,8 @@ class HumanInputTool(BaseTool):
         
         for attempt in range(max_retries):
             try:
-                # Execute interrupt - this will raise GraphInterrupt
-                response = interrupt(interrupt_payload)
+                # Execute interrupt with just the formatted message string
+                response = interrupt(formatted_message)
                 
                 # Validate response
                 validated_response = self._response_validator.validate(
@@ -452,7 +456,8 @@ class HumanInputTool(BaseTool):
                 interrupt_type=payload['interrupt_type'],  # Use actual interrupt type
                 reason=f"{payload['interrupt_type']}: {payload['question']}",
                 current_plan=state.get("plan", []) if state else [],
-                state=state
+                state=state,
+                interrupt_payload=payload  # Pass the full payload for SSE emission
             )
         except Exception as e:
             logger.error("failed_to_record_interrupt", error=str(e), component="orchestrator")

@@ -61,6 +61,9 @@ class WebSearchInput(BaseModel):
         default=None,
         description="Time filter for results: 'day', 'week', 'month', or 'year'"
     )
+    state: Annotated[dict, InjectedState] = Field(
+        description="Injected state from LangGraph for accessing conversation context"
+    )
 
 
 class WebSearchTool(BaseUtilityTool):

@@ -19,6 +19,7 @@ class InterruptEvent(WorkflowEvent):
     completed_steps: int = 0
     total_steps: int = 0
     current_plan: list = field(default_factory=list)
+    interrupt_payload: Optional[Dict[str, Any]] = None  # Full interrupt payload for structured interrupts
 
 
 @dataclass
@@ -72,7 +73,8 @@ class InterruptObserver(PlanExecuteObserver):
         pass
         
     def record_interrupt(self, thread_id: str, interrupt_type: str, reason: str, 
-                        current_plan: list = None, state: Dict[str, Any] = None) -> None:
+                        current_plan: list = None, state: Dict[str, Any] = None,
+                        interrupt_payload: Optional[Dict[str, Any]] = None) -> None:
         """Record an interrupt event with full context."""
         
         # Calculate plan progress if state provided
@@ -114,7 +116,8 @@ class InterruptObserver(PlanExecuteObserver):
             thread_id=thread_id,
             current_plan=current_plan or [],
             completed_steps=completed_steps,
-            total_steps=total_steps
+            total_steps=total_steps,
+            interrupt_payload=interrupt_payload
         )
         
         # Notify registry
