@@ -861,8 +861,12 @@ Remember: This context is for reference only. Focus on executing the specific ta
         "result": final_response,
     }
 
+    # Append the current step execution to existing past_steps
+    existing_past_steps = state.get("past_steps", [])
+    updated_past_steps = existing_past_steps + [step_execution]
+    
     return {
-        "past_steps": [step_execution],
+        "past_steps": updated_past_steps,
         "messages": new_messages,  # Merge ReAct agent's new messages into conversation
     }
 

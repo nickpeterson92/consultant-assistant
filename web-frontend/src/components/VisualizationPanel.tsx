@@ -71,12 +71,21 @@ export function VisualizationPanel({ events, onPlanUpdate }: VisualizationPanelP
         case 'plan_created':
           console.log('Plan created:', event.data)
           const plan = event.data.plan_steps || []
+          // Convert plan steps to objects with status from the start
+          const planWithStatus = plan.map((step: any) => {
+            const stepText = typeof step === 'string' ? step : (step.task || step.description || step)
+            return {
+              task: stepText,
+              status: 'pending',
+              result: undefined
+            }
+          })
           setPlanData({
-            plan: plan,
+            plan: planWithStatus,
             currentStep: -1,
             status: 'created'
           })
-          onPlanUpdate(plan)
+          onPlanUpdate(plan) // Send original plan format to parent
           break
         case 'task_started':
           console.log('Task started:', event.data)
@@ -88,37 +97,83 @@ export function VisualizationPanel({ events, onPlanUpdate }: VisualizationPanelP
           break
         case 'task_completed':
           console.log('Task completed:', event.data)
-          const stepIndex = (event.data.step_number || 1) - 1
-          setPlanData((prev: any) => {
-            const isLastStep = stepIndex === prev.plan.length - 1
-            return {
-              ...prev,
-              plan: prev.plan.map((step: any, idx: number) => 
-                idx === stepIndex
-                  ? { ...step, status: event.data.success ? 'completed' : 'failed', result: event.data.result }
-                  : step
-              ),
-              status: isLastStep ? 'completed' : prev.status
-            }
-          })
+          // Don't manually update plan here - wait for plan_updated event
+          // This prevents inconsistencies between string and object formats
           break
         case 'plan_modified':
           console.log('Plan modified:', event.data)
           const newPlan = event.data.plan_steps || []
+          // Convert modified plan steps to objects with status
+          const modifiedPlanWithStatus = newPlan.map((step: any) => {
+            const stepText = typeof step === 'string' ? step : (step.task || step.description || step)
+            return {
+              task: stepText,
+              status: 'pending',
+              result: undefined
+            }
+          })
           setPlanData({
-            plan: newPlan,
+            plan: modifiedPlanWithStatus,
             currentStep: 0,
             status: 'modified'
           })
-          onPlanUpdate(newPlan)
+          onPlanUpdate(newPlan) // Send original plan format to parent
           break
         case 'plan_updated':
           console.log('Plan updated:', event.data)
-          setPlanData((prev: any) => ({
-            plan: event.data.plan_steps || prev.plan,
-            currentStep: (event.data.current_step || 1) - 1,
-            status: prev.status
-          }))
+          // Reconstruct plan with proper status tracking
+          const planSteps = event.data.plan_steps || []
+          const completedSteps = event.data.completed_steps || []
+          const failedSteps = event.data.failed_steps || []
+          const completedCount = event.data.completed_count || 0
+          const failedCount = event.data.failed_count || 0
+          const totalSteps = event.data.total_steps || planSteps.length
+          
+          // Convert plan steps to objects with status
+          const updatedPlanWithStatus = planSteps.map((step: any, index: number) => {
+            const stepText = typeof step === 'string' ? step : (step.task || step.description || step)
+            
+            // Determine status based on completed/failed arrays
+            let status = 'pending'
+            let result = undefined
+            
+            if (completedSteps.includes(stepText)) {
+              status = 'completed'
+              result = 'Completed successfully'
+            } else if (failedSteps.includes(stepText)) {
+              status = 'failed'
+              result = 'Failed'
+            } else if (index < completedCount + failedCount) {
+              status = 'completed'
+              result = 'Completed successfully' 
+            }
+            
+            return {
+              task: stepText,
+              status: status,
+              result: result
+            }
+          })
+          
+          // Determine current step and overall status
+          const currentStepIndex = completedCount + failedCount
+          let overallStatus = 'executing'
+          
+          if (currentStepIndex >= totalSteps) {
+            // All steps completed
+            overallStatus = failedCount > 0 ? 'completed' : 'completed'
+          } else {
+            // If we're in the middle of execution (even at step 0), we're executing
+            // The only time status should be 'created' is when no execution has started yet
+            // which would be handled by plan_created event, not plan_updated
+            overallStatus = 'executing'
+          }
+          
+          setPlanData({
+            plan: updatedPlanWithStatus,
+            currentStep: Math.min(currentStepIndex, totalSteps - 1),
+            status: overallStatus
+          })
           break
         
         // Tool events

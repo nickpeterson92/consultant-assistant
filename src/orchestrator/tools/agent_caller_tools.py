@@ -448,7 +448,18 @@ class SalesforceAgentTool(BaseAgentTool):
                 response = response[0]
                 
             if isinstance(response, dict) and "content" in response:
-                response_content = response["content"]
+                content = response["content"]
+                
+                # Handle structured response formats from different agents
+                if isinstance(content, dict):
+                    # Jira agent returns {"response": "text", "tool_results": data, "issue_keys": []}
+                    if "response" in content:
+                        response_content = content["response"]
+                    else:
+                        # Fallback to JSON string representation
+                        response_content = str(content)
+                else:
+                    response_content = content
             else:
                 response_content = str(response)
         
@@ -924,7 +935,18 @@ class JiraAgentTool(BaseAgentTool):
                 response = response[0]
                 
             if isinstance(response, dict) and "content" in response:
-                response_content = response["content"]
+                content = response["content"]
+                
+                # Handle structured response formats from different agents
+                if isinstance(content, dict):
+                    # Jira agent returns {"response": "text", "tool_results": data, "issue_keys": []}
+                    if "response" in content:
+                        response_content = content["response"]
+                    else:
+                        # Fallback to JSON string representation
+                        response_content = str(content)
+                else:
+                    response_content = content
             else:
                 response_content = str(response)
         
@@ -1474,7 +1496,18 @@ class ServiceNowAgentTool(BaseAgentTool):
                 response = response[0]
                 
             if isinstance(response, dict) and "content" in response:
-                response_content = response["content"]
+                content = response["content"]
+                
+                # Handle structured response formats from different agents
+                if isinstance(content, dict):
+                    # Jira agent returns {"response": "text", "tool_results": data, "issue_keys": []}
+                    if "response" in content:
+                        response_content = content["response"]
+                    else:
+                        # Fallback to JSON string representation
+                        response_content = str(content)
+                else:
+                    response_content = content
             else:
                 response_content = str(response)
         

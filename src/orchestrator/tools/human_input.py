@@ -6,6 +6,10 @@ from langchain_core.tools import BaseTool
 from langgraph.types import interrupt
 from langgraph.prebuilt import InjectedState
 from src.utils.logging.framework import SmartLogger
+from src.orchestrator.observers.direct_call_events import (
+    emit_agent_call_event, 
+    DirectCallEventTypes
+)
 
 logger = SmartLogger("orchestrator")
 
@@ -59,15 +63,31 @@ class HumanInputTool(BaseTool):
         Returns:
             User's response as string
         """
+        # Get task_id for event tracking
+        task_id = state.get("task_id") if state else "unknown"
+        
         # Log the request
         logger.info(
             "human_input_request",
             message_preview=question[:200],
             message_length=len(question),
             has_state=state is not None,
-            thread_id=state.get("task_id") if state else None,
+            thread_id=task_id,
             component="orchestrator"
         )
+        
+        # Emit human input requested event for the tool execution log
+        emit_agent_call_event(
+            DirectCallEventTypes.HUMAN_INPUT_REQUESTED,
+            agent_name="orchestrator",
+            task_id=task_id,
+            instruction=question,  # Send full message for human input events
+            additional_data={
+                "tool_name": "human_input",
+                "message_length": len(question)
+            }
+        )
+        
         
         # Execute interrupt with the message - this will raise GraphInterrupt
         # The interrupt function doesn't return - it raises GraphInterrupt

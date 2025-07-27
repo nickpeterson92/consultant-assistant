@@ -6,6 +6,10 @@ from dataclasses import dataclass, field
 
 from .base import PlanExecuteObserver, WorkflowEvent
 from src.utils.logging.framework import SmartLogger
+from src.orchestrator.observers.direct_call_events import (
+    emit_agent_call_event, 
+    DirectCallEventTypes
+)
 
 logger = SmartLogger("orchestrator")
 
@@ -152,6 +156,22 @@ class InterruptObserver(PlanExecuteObserver):
                    interrupt_type=interrupt_type,
                    user_input_length=len(user_input) if user_input else 0,
                    was_modified=was_modified)
+        
+        # Emit human input received event for the tool execution log
+        # Only emit for actual human input interrupts, not escape key interrupts
+        if user_input and interrupt_type != "user_escape":
+            task_id = self.interrupt_states.get(thread_id, {}).get("state_snapshot", {}).get("task_id", "unknown")
+            emit_agent_call_event(
+                DirectCallEventTypes.HUMAN_INPUT_RECEIVED,
+                agent_name="orchestrator",
+                task_id=task_id,
+                instruction=user_input,  # Send the user's response
+                additional_data={
+                    "tool_name": "human_input",
+                    "response_length": len(user_input),
+                    "interrupt_type": interrupt_type
+                }
+            )
         
         # Emit resume event
         event = InterruptResumeEvent(

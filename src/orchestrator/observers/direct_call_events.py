@@ -12,7 +12,6 @@ class DirectCallEventTypes:
     AGENT_CALL_STARTED = "agent_call_started"
     AGENT_CALL_COMPLETED = "agent_call_completed" 
     AGENT_CALL_FAILED = "agent_call_failed"
-    TOOL_SELECTED = "tool_selected"
     DIRECT_RESPONSE = "direct_response"
     WEB_SEARCH_STARTED = "web_search_started"
     WEB_SEARCH_COMPLETED = "web_search_completed"
@@ -75,41 +74,6 @@ def emit_agent_call_event(
                    agent_name=agent_name,
                    task_id=task_id)
 
-
-def emit_tool_selected_event(
-    tool_name: str,
-    tool_args: Dict[str, Any],
-    task_context: Optional[str] = None
-) -> None:
-    """Emit event when a tool is selected for execution.
-    
-    Args:
-        tool_name: Name of the tool being used
-        tool_args: Arguments passed to the tool
-        task_context: Optional context about why tool was selected
-    """
-    from src.orchestrator.observers import get_observer_registry
-    
-    event_data = {
-        "tool_name": tool_name,
-        "tool_args": tool_args,
-        "task_context": task_context,
-        "timestamp": datetime.now().isoformat(),
-    }
-    
-    registry = get_observer_registry()
-    sse_observer = registry.get_observer("SSEObserver")
-    
-    if sse_observer:
-        sse_event = {
-            "event": DirectCallEventTypes.TOOL_SELECTED,
-            "data": event_data,
-            "sse_payload": {
-                "event": DirectCallEventTypes.TOOL_SELECTED,
-                "data": event_data
-            }
-        }
-        sse_observer.notify(sse_event)
 
 
 def emit_direct_response_event(
