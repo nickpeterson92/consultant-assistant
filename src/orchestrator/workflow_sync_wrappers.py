@@ -30,11 +30,31 @@ def run_async(coro):
 
 def execute_step(state: PlanExecute) -> Dict[str, Any]:
     """Synchronous wrapper for async execute_step."""
-    return run_async(async_execute_step(state))
+    # DEBUG logging
+    from src.utils.logging.framework import SmartLogger
+    logger = SmartLogger("orchestrator")
+    logger.info("DEBUG_sync_execute_step_called",
+               has_plan=bool(state.get("plan")),
+               plan_length=len(state.get("plan", [])),
+               has_response="response" in state)
+    result = run_async(async_execute_step(state))
+    logger.info("DEBUG_sync_execute_step_returning",
+               result_keys=list(result.keys()) if isinstance(result, dict) else "not_dict")
+    return result
 
 def plan_step(state: PlanExecute) -> Dict[str, Any]:
     """Synchronous wrapper for async plan_step."""
-    return run_async(async_plan_step(state))
+    # DEBUG logging
+    from src.utils.logging.framework import SmartLogger
+    logger = SmartLogger("orchestrator")
+    logger.info("DEBUG_sync_plan_step_called",
+               has_plan=bool(state.get("plan")),
+               has_response="response" in state)
+    result = run_async(async_plan_step(state))
+    logger.info("DEBUG_sync_plan_step_returning",
+               result_keys=list(result.keys()) if isinstance(result, dict) else "not_dict",
+               has_plan="plan" in result if isinstance(result, dict) else False)
+    return result
 
 def replan_step(state: PlanExecute) -> Dict[str, Any]:
     """Synchronous wrapper for async replan_step."""

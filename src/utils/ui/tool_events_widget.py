@@ -57,6 +57,27 @@ class ToolEventEntry:
             action = self.instruction[:60] + "..." if len(self.instruction) > 60 else self.instruction
             lines.append(f"  [dim]├─[/dim] Action: {action}")
         
+        # Add tool arguments if available (for detailed view)
+        tool_args = self.additional_data.get("tool_args", {})
+        if tool_args and self.event_type == "agent_call_started":
+            lines.append(f"  [dim]├─[/dim] Arguments:")
+            for key, value in tool_args.items():
+                # Format value based on type
+                if isinstance(value, (dict, list)):
+                    import json
+                    value_str = json.dumps(value, indent=2)
+                    # Split multiline values
+                    for i, line in enumerate(value_str.split('\n')):
+                        if i == 0:
+                            lines.append(f"  [dim]│   ├─[/dim] {key}: {line}")
+                        else:
+                            lines.append(f"  [dim]│   │[/dim]     {line}")
+                else:
+                    value_str = str(value)
+                    if len(value_str) > 100:
+                        value_str = value_str[:100] + "..."
+                    lines.append(f"  [dim]│   ├─[/dim] {key}: {value_str}")
+        
         # Add relevant details based on event type
         detail = self._format_details()
         if detail:
@@ -97,13 +118,16 @@ class ToolEventEntry:
     def _format_details(self) -> str:
         """Format additional details based on event type."""
         if self.event_type == "agent_call_completed":
+            # For completed events, show full response preview
             preview = self.additional_data.get("response_preview", "")
             if preview:
-                return f"Result: [green]{preview[:50]}...[/green]" if len(preview) > 50 else f"Result: [green]{preview}[/green]"
+                # Show more of the preview for completed events
+                return f"Result: [green]{preview}[/green]"
                 
         elif self.event_type == "agent_call_failed":
             error = self.additional_data.get("error", "Unknown error")
-            return f"Error: [red]{error[:50]}...[/red]" if len(error) > 50 else f"Error: [red]{error}[/red]"
+            # Show full error for failed events
+            return f"Error: [red]{error}[/red]"
             
         elif self.event_type == "web_search_started":
             return f"Query: {self.additional_data.get('original_query', '')[:40]}..."

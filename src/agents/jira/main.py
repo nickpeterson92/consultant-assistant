@@ -384,6 +384,23 @@ async def main():
     
     server.register_handler("get_agent_card", get_agent_card_handler)
     
+    # Initialize event forwarder for cross-process SSE events
+    from src.agents.shared.event_forwarder import init_event_forwarder
+    
+    # Determine orchestrator URL (assuming it runs on port 8000)
+    orchestrator_host = os.environ.get("ORCHESTRATOR_HOST", "localhost")
+    orchestrator_port = os.environ.get("ORCHESTRATOR_PORT", "8000")
+    orchestrator_url = f"http://{orchestrator_host}:{orchestrator_port}/a2a"
+    
+    event_forwarder = init_event_forwarder(orchestrator_url, "jira")
+    await event_forwarder.start()
+    
+    logger.info("event_forwarder_initialized",
+        component="jira",
+        orchestrator_url=orchestrator_url,
+        operation="startup"
+    )
+    
     # Start the server
     logger.info("agent_starting",
         component="system",

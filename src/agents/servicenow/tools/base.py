@@ -10,6 +10,7 @@ This module provides the foundation for all ServiceNow tools with:
 import os
 from abc import ABC, abstractmethod
 from typing import Any, Optional, Dict, List
+from datetime import datetime
 import requests
 from requests.auth import HTTPBasicAuth
 
@@ -19,6 +20,12 @@ from src.orchestrator.observers.direct_call_events import (
     emit_agent_call_event,
     DirectCallEventTypes
 )
+# Import for event forwarding to orchestrator
+try:
+    from src.agents.shared.event_forwarder import get_event_forwarder
+    _has_event_forwarder = True
+except ImportError:
+    _has_event_forwarder = False
 
 logger = SmartLogger("servicenow")
 
@@ -218,17 +225,38 @@ class BaseServiceNowTool(BaseTool, ABC):
         args_str = ', '.join(f'{k}={v}' for k, v in kwargs.items())
         instruction = f"{self.name}({args_str})"
         
-        # Emit tool started event
-        emit_agent_call_event(
-            DirectCallEventTypes.AGENT_CALL_STARTED,
-            agent_name=f"servicenow_{self.name}",
-            task_id=task_id,
-            instruction=instruction,
-            additional_data={
-                "tool_type": "servicenow_tool",
-                "tool_args": kwargs
-            }
-        )
+        # Forward tool started event to orchestrator
+        if _has_event_forwarder:
+            forwarder = get_event_forwarder()
+            if forwarder:
+                import asyncio
+                asyncio.create_task(forwarder.queue_event(
+                    "agent_call_started",
+                    {
+                        "agent_name": f"servicenow_{self.name}",
+                        "task_id": task_id,
+                        "instruction": instruction,
+                        "timestamp": datetime.now().isoformat(),
+                        "additional_data": {
+                            "tool_type": "servicenow_tool",
+                            "tool_args": kwargs
+                        }
+                    }
+                ))
+            else:
+                logger.debug("event_forwarder_not_initialized", tool_name=self.name)
+        else:
+            # Fallback to direct event emission when running in orchestrator process
+            emit_agent_call_event(
+                DirectCallEventTypes.AGENT_CALL_STARTED,
+                agent_name=f"servicenow_{self.name}",
+                task_id=task_id,
+                instruction=instruction,
+                additional_data={
+                    "tool_type": "servicenow_tool",
+                    "tool_args": kwargs
+                }
+            )
         
         try:
             result = self._execute(**kwargs)
@@ -241,35 +269,73 @@ class BaseServiceNowTool(BaseTool, ABC):
                 "operation": self.name
             }
             
-            # Emit tool completed event
-            emit_agent_call_event(
-                DirectCallEventTypes.AGENT_CALL_COMPLETED,
-                agent_name=f"servicenow_{self.name}",
-                task_id=task_id,
-                instruction=instruction,
-                additional_data={
-                    "tool_type": "servicenow_tool",
-                    "success": True,
-                    "result_preview": str(result)[:200] if result else ""
-                }
-            )
+            # Forward tool completed event to orchestrator
+            if _has_event_forwarder:
+                forwarder = get_event_forwarder()
+                if forwarder:
+                    asyncio.create_task(forwarder.queue_event(
+                        "agent_call_completed",
+                        {
+                            "agent_name": f"servicenow_{self.name}",
+                            "task_id": task_id,
+                            "instruction": instruction,
+                            "timestamp": datetime.now().isoformat(),
+                            "additional_data": {
+                                "tool_type": "servicenow_tool",
+                                "success": True,
+                                "result_preview": str(result)[:200] if result else ""
+                            }
+                        }
+                    ))
+            else:
+                # Fallback to direct event emission
+                emit_agent_call_event(
+                    DirectCallEventTypes.AGENT_CALL_COMPLETED,
+                    agent_name=f"servicenow_{self.name}",
+                    task_id=task_id,
+                    instruction=instruction,
+                    additional_data={
+                        "tool_type": "servicenow_tool",
+                        "success": True,
+                        "result_preview": str(result)[:200] if result else ""
+                    }
+                )
             
             return wrapped_response
         except Exception as e:
             error_response = self._handle_error(e)
             
-            # Emit tool failed event
-            emit_agent_call_event(
-                DirectCallEventTypes.AGENT_CALL_FAILED,
-                agent_name=f"servicenow_{self.name}",
-                task_id=task_id,
-                instruction=instruction,
-                additional_data={
-                    "tool_type": "servicenow_tool",
-                    "error": str(e),
-                    "error_type": type(e).__name__
-                }
-            )
+            # Forward tool failed event to orchestrator
+            if _has_event_forwarder:
+                forwarder = get_event_forwarder()
+                if forwarder:
+                    asyncio.create_task(forwarder.queue_event(
+                        "agent_call_failed",
+                        {
+                            "agent_name": f"servicenow_{self.name}",
+                            "task_id": task_id,
+                            "instruction": instruction,
+                            "timestamp": datetime.now().isoformat(),
+                            "additional_data": {
+                                "tool_type": "servicenow_tool",
+                                "error": str(e),
+                                "error_type": type(e).__name__
+                            }
+                        }
+                    ))
+            else:
+                # Fallback to direct event emission
+                emit_agent_call_event(
+                    DirectCallEventTypes.AGENT_CALL_FAILED,
+                    agent_name=f"servicenow_{self.name}",
+                    task_id=task_id,
+                    instruction=instruction,
+                    additional_data={
+                        "tool_type": "servicenow_tool",
+                        "error": str(e),
+                        "error_type": type(e).__name__
+                    }
+                )
             
             return error_response
     

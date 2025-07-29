@@ -1457,11 +1457,21 @@ CONTEXTUAL MEMORY:
 - Use this context to refine plans based on what has been discovered
 - Past steps may have revealed specific IDs or data - use them in your updated plan
 
+🚨 STEP COMPLETION TRACKING 🚨
+Progress Status: {completed_steps_count} of {total_steps_count} steps completed
+Remaining Steps: {remaining_steps_count}
+
+CRITICAL DECISION RULE:
+- If remaining_steps_count > 0: You MUST return Plan with remaining steps
+- If remaining_steps_count = 0: You MAY return Response with final answer
+- NEVER return Response when there are unfinished steps!
+
 CRITICAL RULES:
 1. NO META-OPERATIONS: Never add verification, review, or confirmation steps
-2. DIRECT EXECUTION: If the objective is achieved, return Response - don't add compilation steps
+2. COMPLETE ALL STEPS: Return Response ONLY when ALL {total_steps_count} planned steps are executed
 3. ELIMINATE REDUNDANCY: Don't repeat completed operations
 4. ASSUME SUCCESS: Completed tool calls worked correctly
+5. OBJECTIVE CHECK: The objective is achieved ONLY when {completed_steps_count} equals {total_steps_count}
 
 AMBIGUITY HANDLING:
 - Unclear or multi-interpretation requests require Plan with human_input tool

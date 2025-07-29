@@ -74,6 +74,13 @@ class Act(BaseModel):
 )  # Don't log full result due to size
 @emit_coordinated_events(["task_lifecycle", "plan_updated"])
 async def execute_step(state: PlanExecute):
+    # DEBUG: Log state at execute_step entry
+    logger.info("DEBUG_execute_step_entry",
+               has_response="response" in state,
+               response_value=state.get("response", "NO_RESPONSE"),
+               response_length=len(state.get("response", "")) if "response" in state else 0,
+               plan_length=len(state.get("plan", [])),
+               past_steps_length=len(state.get("past_steps", [])))
     import asyncio
     from src.orchestrator.observers import get_observer_registry, SearchResultsEvent
     from src.memory import (
@@ -326,7 +333,13 @@ Remember: This context is for reference only. Focus on executing the specific ta
             "past_steps": state.get("past_steps", []),
         }
 
-        agent_response = asyncio.run(agent_executor.ainvoke(agent_input))
+        # Create config for the ReAct agent's checkpointer
+        config = {
+            "configurable": {
+                "thread_id": thread_id
+            }
+        }
+        agent_response = asyncio.run(agent_executor.ainvoke(agent_input, config))
 
         # Log ReAct agent completion
         react_duration = time.time() - react_start_time
@@ -874,6 +887,13 @@ Remember: This context is for reference only. Focus on executing the specific ta
 @log_execution("orchestrator", "plan_step", include_args=True, include_result=True)
 @emit_coordinated_events(["plan_created", "plan_updated"])
 async def plan_step(state: PlanExecute):
+    # DEBUG: Log state at plan_step entry
+    logger.info("DEBUG_plan_step_entry",
+               has_response="response" in state,
+               response_value=state.get("response", "NO_RESPONSE"),
+               response_length=len(state.get("response", "")) if "response" in state else 0,
+               plan_length=len(state.get("plan", [])),
+               past_steps_length=len(state.get("past_steps", [])))
     from langchain_core.messages import HumanMessage
     from src.memory import get_user_memory
     from langgraph.errors import GraphInterrupt
@@ -1096,12 +1116,23 @@ async def plan_step(state: PlanExecute):
         }
 
     # No culling needed
+    logger.info("DEBUG_plan_step_returning",
+               plan_steps=plan.steps,
+               plan_step_offset=current_past_steps_length,
+               returning_response=False)
     return {"plan": plan.steps, "plan_step_offset": current_past_steps_length}
 
 
 @log_execution("orchestrator", "replan_step", include_args=True, include_result=True)
 @emit_coordinated_events(["plan_modified", "plan_updated"])
 async def replan_step(state: PlanExecute):
+    # DEBUG: Log state at replan_step entry
+    logger.info("DEBUG_replan_step_entry",
+               has_response="response" in state,
+               response_value=state.get("response", "NO_RESPONSE"),
+               response_length=len(state.get("response", "")) if "response" in state else 0,
+               plan_length=len(state.get("plan", [])),
+               past_steps_length=len(state.get("past_steps", [])))
     import asyncio
     from src.orchestrator.workflow.interrupt_handler import InterruptHandler
 
@@ -1178,13 +1209,34 @@ async def replan_step(state: PlanExecute):
     if additional_context:
         full_context += f"\n\n{additional_context}"
 
+    # Calculate step counts for explicit tracking
+    original_plan_length = len(state["plan"]) + len(current_plan_steps)
+    completed_steps_count = len(current_plan_steps)
+    remaining_steps_count = len(state["plan"])
+    
     # Format the template variables WITHOUT context in input
     template_vars = {
         "input": state["input"],  # Clean input only
         "plan": "\n".join(f"{i + 1}. {step}" for i, step in enumerate(state["plan"])),
         "past_steps": past_steps_str.strip(),
         "context": full_context,  # Always provide context (may be empty string)
+        "completed_steps_count": completed_steps_count,
+        "total_steps_count": original_plan_length,
+        "remaining_steps_count": remaining_steps_count,
     }
+    
+    # Log what the replanner will see for debugging
+    logger.info(
+        "replanner_input_debug",
+        operation="replan_step",
+        thread_id=thread_id,
+        completed_steps=completed_steps_count,
+        total_steps=original_plan_length,
+        remaining_steps=remaining_steps_count,
+        current_plan=state["plan"],
+        progress=f"{completed_steps_count}/{original_plan_length}",
+        should_continue=remaining_steps_count > 0,
+    )
 
     # Skip emitting replanning context to UI - only show planning contexts
     # This reduces noise since replanning contexts are often empty or not meaningful
@@ -1196,6 +1248,19 @@ async def replan_step(state: PlanExecute):
 
     output = asyncio.run(replanner.ainvoke(template_vars))
 
+    # Validation check for premature completion
+    if isinstance(output.action, Response) and remaining_steps_count > 0:
+        logger.warning(
+            "premature_completion_detected",
+            operation="replan_step",
+            thread_id=thread_id,
+            completed_steps=completed_steps_count,
+            total_steps=original_plan_length,
+            remaining_steps=remaining_steps_count,
+            response_text=output.action.response[:200],
+            note="Replanner returned Response despite unfinished steps"
+        )
+
     # Log critical decision point
     logger.info(
         "replan_decision",
@@ -1203,7 +1268,9 @@ async def replan_step(state: PlanExecute):
         thread_id=thread_id,
         decision_type="Response" if isinstance(output.action, Response) else "Plan",
         will_end_workflow=isinstance(output.action, Response),
-        completed_vs_total=f"{len(current_plan_steps)}/{len(state.get('plan', []))}",
+        completed_vs_total=f"{completed_steps_count}/{original_plan_length}",
+        remaining_steps=remaining_steps_count,
+        validation_passed=not (isinstance(output.action, Response) and remaining_steps_count > 0),
     )
 
     if isinstance(output.action, Response):
@@ -1338,6 +1405,13 @@ async def replan_step(state: PlanExecute):
 
 @log_execution("orchestrator", "should_end", include_args=True, include_result=True)
 def should_end(state: PlanExecute):
+    # DEBUG: Log decision making
+    logger.info("DEBUG_should_end",
+               has_response="response" in state,
+               response_value=state.get("response", "NO_RESPONSE")[:100] if "response" in state else "NO_RESPONSE",
+               response_truthy=bool(state.get("response", "")),
+               decision="END" if ("response" in state and state["response"]) else "agent")
+    
     # End if replanner decided to provide final response
     if "response" in state and state["response"]:
         return END
@@ -1352,6 +1426,8 @@ def should_end(state: PlanExecute):
 
 def create_graph(agent_executor, planner, replanner):
     """Create the canonical plan-and-execute graph."""
+    
+    logger.info("DEBUG_create_graph_called")
 
     # Store globally for node functions to access
     globals()["agent_executor"] = agent_executor
@@ -1369,20 +1445,26 @@ def create_graph(agent_executor, planner, replanner):
 
     # Add the plan node - use sync wrapper
     workflow.add_node("planner", sync_plan_step)
+    logger.info("DEBUG_added_planner_node")
 
     # Add the execution step - use sync wrapper
     workflow.add_node("agent", sync_execute_step)
+    logger.info("DEBUG_added_agent_node")
 
     # Add a replan node - use sync wrapper
     workflow.add_node("replan", sync_replan_step)
+    logger.info("DEBUG_added_replan_node")
 
     workflow.add_edge(START, "planner")
+    logger.info("DEBUG_added_edge_start_to_planner")
 
     # From plan we go to agent
     workflow.add_edge("planner", "agent")
+    logger.info("DEBUG_added_edge_planner_to_agent")
 
     # From agent, we replan
     workflow.add_edge("agent", "replan")
+    logger.info("DEBUG_added_edge_agent_to_replan")
 
     workflow.add_conditional_edges(
         "replan",
@@ -1390,16 +1472,15 @@ def create_graph(agent_executor, planner, replanner):
         should_end,
         ["agent", END],
     )
+    logger.info("DEBUG_added_conditional_edge_replan")
 
     # Finally, we compile it!
     # This compiles it into a LangChain Runnable,
     # meaning you can use it as you would any other runnable
     # Use MemorySaver for in-memory checkpointing
-    # Configure to allow interrupts to bubble up from nested tool calls
+    # We don't need interrupt_before since HumanInputTool handles interrupts internally
     app = workflow.compile(
-        checkpointer=MemorySaver(),
-        interrupt_before=["agent"],  # Allow interrupts before agent execution
-        interrupt_after=[]  # Don't interrupt after nodes
+        checkpointer=MemorySaver()
     )
     return app
 
@@ -1611,8 +1692,14 @@ async def create_plan_execute_graph():
     # Create ReAct agent executor with our orchestrator prompt
     # Tools will access state via InjectedState annotation
     # Use OrchestratorState as the state schema to ensure proper state handling
+    # IMPORTANT: Include checkpointer so agent state is preserved across interrupts
+    from langgraph.checkpoint.memory import MemorySaver
     agent_executor = create_react_agent(
-        llm, tools, prompt=orchestrator_prompt, state_schema=OrchestratorState
+        llm, 
+        tools, 
+        prompt=orchestrator_prompt, 
+        state_schema=OrchestratorState,
+        checkpointer=MemorySaver()  # Enable proper interrupt handling
     )
 
     # Use the canonical setup with proper prompts and agent context
