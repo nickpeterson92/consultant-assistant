@@ -47,3 +47,7 @@ class OrchestratorState(AgentState):
     thread_id: NotRequired[str]
     task_id: NotRequired[str]
     user_id: NotRequired[str]
+    # Routing fields for plan-execute subgraph
+    needs_plan_execute: bool = False
+    plan_execute_task: str = ""
+    plan_execute_context: NotRequired[str]

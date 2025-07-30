@@ -827,7 +827,7 @@ class OrchestatorApp(App):
             elif response.get("status") == "interrupted":
                 # Handle GraphInterrupt properly using status-based detection
                 metadata = response.get("metadata", {})
-                interrupt_value = metadata.get("interrupt_value", "")
+                interrupt_value = metadata.get("interrupt_reason", "")
                 interrupt_type = metadata.get("interrupt_type", "model")
                 
                 if interrupt_type == "user_escape":

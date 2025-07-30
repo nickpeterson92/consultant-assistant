@@ -159,3 +159,32 @@ podman exec -it consultant_postgres psql -U postgres -d consultant_assistant -c 
 podman exec -it consultant_postgres psql -U postgres -d consultant_assistant -c "SELECT summary, jsonb_pretty(content) FROM memory.nodes WHERE context_type = 'tool_output' LIMIT 1;"
 
 podman exec -it consultant_postgres psql -U postgres -d consultant_assistant -c "SELECT context_type, summary FROM memory.nodes WHERE summary LIKE '%salesforce%' ORDER BY created_at DESC;"
+
+
+
+
+
+  ┌─────────────────────────────────────────────────────────────┐
+  │                    Orchestrator Graph                       │
+  │                                                             │
+  │  ┌─────────────┐    ┌──────────────────┐   ┌─────────────┐  │
+  │  │   START     │───►│  orchestrator    │──►│ plan_execute│  │
+  │  └─────────────┘    │  (ReAct Agent)   │   │  (subgraph) │  │
+  │                     └──────────────────┘   └─────────────┘  │
+  │                              │                     ▲        │
+  │                              ▼                     │        │
+  │                     ┌──────────────────┐           │        │
+  │                     │ TaskAgentTool    │───────────┘        │
+  │                     │ (delegates to    │                    │
+  │                     │  subgraph)       │                    │
+  │                     └──────────────────┘                    │
+  └─────────────────────────────────────────────────────────────┘
+
+  Plan-Execute Subgraph Detail:
+  ┌─────────────────────────────────────────────────────────────┐
+  │                  Plan-Execute Subgraph                      │
+  │                                                             │
+  │  ┌─────────┐    ┌─────────┐    ┌─────────┐   ┌──────────┐   │
+  │  │ planner │───►│  agent  │───►│ replan  │──►│ END/agent│   │
+  │  └─────────┘    └─────────┘    └─────────┘   └──────────┘   │
+  └─────────────────────────────────────────────────────────────┘

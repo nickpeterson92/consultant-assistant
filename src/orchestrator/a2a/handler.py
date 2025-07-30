@@ -34,21 +34,21 @@ class OrchestratorA2AHandler:
         logger.info("checkpointer_initialized",
                    type="MemorySaver")
     
-    def _ensure_graph_initialized(self) -> Any:
+    async def _ensure_graph_initialized(self) -> Any:
         """Ensure the orchestrator graph is initialized (thread-safe)."""
         if self._graph is None:
-            # Use threading lock instead of async lock
-            import threading
-            if not hasattr(self, '_sync_lock'):
-                self._sync_lock = threading.Lock()
+            # Use asyncio lock for async safety
+            import asyncio
+            if not hasattr(self, '_async_lock'):
+                self._async_lock = asyncio.Lock()
             
-            with self._sync_lock:
+            async with self._async_lock:
                 # Double-check pattern
                 if self._graph is None:
                     logger.info("orchestrator_graph_initializing")
                     
                     # Get the checkpointer
-                    from langgraph.prebuilt import create_react_agent
+                    from src.orchestrator.a2a.orchestrator_graph import build_orchestrator_graph, OrchestratorGraphState
                     from src.utils.prompt_templates import create_react_orchestrator_prompt, ContextInjectorOrchestrator
                     from src.orchestrator.core.agent_registry import AgentRegistry
                     from src.orchestrator.tools.agent_caller_tools import (
@@ -130,16 +130,12 @@ ORCHESTRATOR TOOLS:
                                has_task_agent="task_agent" in system_message_content,
                                task_agent_mentions=system_message_content.count("task_agent"))
                     
-                    # Create ReAct agent WITH checkpointer
-                    # Tools will access state via InjectedState annotation
-                    from src.orchestrator.core.state import OrchestratorState
-                    # create_react_agent returns a compiled graph directly
-                    self._graph = create_react_agent(
-                        llm, 
-                        tools, 
-                        prompt=formatted_prompt,
-                        checkpointer=self._checkpointer,  # Enable interrupt support
-                        state_schema=OrchestratorState  # Use our extended state schema
+                    # Create custom orchestrator graph with plan-execute subgraph
+                    # This follows the Salesforce agent pattern
+                    self._graph = await build_orchestrator_graph(
+                        tools=tools,
+                        llm=llm,
+                        system_prompt=system_message_content
                     )
                     
                     # Store tools reference
@@ -203,7 +199,7 @@ ORCHESTRATOR TOOLS:
             }
             
             # Ensure graph is initialized
-            graph = self._ensure_graph_initialized()
+            graph = await self._ensure_graph_initialized()
             
             # Configuration for checkpointing
             config = {
@@ -264,12 +260,15 @@ ORCHESTRATOR TOOLS:
                 # Start fresh conversation
                 messages = [HumanMessage(content=instruction)]
             
-            # Prepare input for graph
+            # Prepare input for graph - using new state schema
             graph_input = {
                 "messages": messages,
                 "thread_id": thread_id,
                 "user_id": user_id,
-                "task_id": task_id
+                "task_id": task_id,
+                "needs_plan_execute": False,
+                "plan_execute_task": "",
+                "plan_execute_context": ""
             }
             
             logger.info("invoking_graph",
@@ -302,9 +301,13 @@ ORCHESTRATOR TOOLS:
             try:
                 # Invoke the graph
                 result = await graph.ainvoke(graph_input, config)
-            finally:
-                # Clear thread context after execution
+            except Exception:
+                # Clear thread context on any exception and re-raise
                 clear_thread_context()
+                raise
+            
+            # Clear thread context after successful execution
+            clear_thread_context()
             
             # Check if there are pending interrupts after invocation
             # With create_react_agent and checkpointer, interrupts don't raise exceptions
@@ -322,7 +325,18 @@ ORCHESTRATOR TOOLS:
                     if hasattr(interrupt_obj, 'value'):
                         interrupt_payload = interrupt_obj.value
                     else:
-                        interrupt_payload = str(interrupt_obj)
+                        # Handle case where interrupt_obj is a string representation
+                        interrupt_str = str(interrupt_obj)
+                        # Try to extract value from string like "Interrupt(value='...')"
+                        if interrupt_str.startswith("Interrupt(") and "value='" in interrupt_str:
+                            import re
+                            match = re.search(r"value='([^']*)'", interrupt_str)
+                            if match:
+                                interrupt_payload = match.group(1)
+                            else:
+                                interrupt_payload = interrupt_str
+                        else:
+                            interrupt_payload = interrupt_str
                     
                     logger.info("interrupt_found_in_result",
                                thread_id=thread_id,
@@ -351,7 +365,18 @@ ORCHESTRATOR TOOLS:
                                     if hasattr(interrupt_obj, 'value'):
                                         interrupt_payload = interrupt_obj.value
                                     else:
-                                        interrupt_payload = str(interrupt_obj)
+                                        # Handle case where interrupt_obj is a string representation
+                                        interrupt_str = str(interrupt_obj)
+                                        # Try to extract value from string like "Interrupt(value='...')"
+                                        if interrupt_str.startswith("Interrupt(") and "value='" in interrupt_str:
+                                            import re
+                                            match = re.search(r"value='([^']*)'", interrupt_str)
+                                            if match:
+                                                interrupt_payload = match.group(1)
+                                            else:
+                                                interrupt_payload = interrupt_str
+                                        else:
+                                            interrupt_payload = interrupt_str
                                     
                                     logger.info("interrupt_found_in_state",
                                                thread_id=thread_id,

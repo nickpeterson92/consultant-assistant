@@ -339,7 +339,25 @@ Remember: This context is for reference only. Focus on executing the specific ta
                 "thread_id": thread_id
             }
         }
-        agent_response = asyncio.run(agent_executor.ainvoke(agent_input, config))
+        agent_response = await agent_executor.ainvoke(agent_input, config)
+        
+        # Check if the agent response contains an interrupt
+        # When a subgraph has an interrupt, it returns with __interrupt__ in the response
+        if "__interrupt__" in agent_response:
+            # The React agent was interrupted (e.g., by human_input tool)
+            # We need to re-raise this as a GraphInterrupt
+            from langgraph.errors import GraphInterrupt
+            
+            interrupt_data = agent_response["__interrupt__"]
+            if interrupt_data and len(interrupt_data) > 0:
+                # Re-raise the interrupt to propagate to parent
+                logger.info(
+                    "react_agent_returned_interrupt",
+                    operation="execute_step",
+                    thread_id=thread_id,
+                    interrupt_count=len(interrupt_data),
+                )
+                raise GraphInterrupt(interrupt_data[0])
 
         # Log ReAct agent completion
         react_duration = time.time() - react_start_time
@@ -387,6 +405,10 @@ Remember: This context is for reference only. Focus on executing the specific ta
                 interrupt_value=str(e.args[0]) if e.args else "",
                 interrupt_type=interrupt_type_value,
             )
+            
+            # IMPORTANT: Re-raise the interrupt to propagate to parent graph
+            # This is critical when plan-execute is used as a subgraph
+            raise
         else:
             # This is an actual error
             logger.error(
@@ -543,308 +565,6 @@ Remember: This context is for reference only. Focus on executing the specific ta
         )
         registry.notify_search_results(event)
 
-    # MEMORY INTEGRATION: Store execution results in memory (with noise reduction)
-    try:
-        # Determine context type based on what the agent did
-        if produced_user_data:
-            context_type = (
-                ContextType.SEARCH_RESULT
-            )  # User will need to interact with this data
-        else:
-            # Filter out routine actions to reduce memory noise
-            # Only store significant completed actions that modify state or contain entity references
-            import re
-
-            significant_patterns = [
-                r"created.*(account|contact|opportunity|case|ticket|issue|project)",
-                r"updated.*(status|stage|priority|assignment)",
-                r"resolved|closed|completed|fixed",
-                r"assigned.*to",
-                r"deployed|migrated|configured",
-                r"deleted|removed|archived",
-                r"approved|rejected|escalated",
-                r"merged|integrated|synchronized",
-            ]
-
-            # Combine task and response for pattern matching
-            task_and_response = f"{task} {final_response}".lower()
-            is_significant = any(
-                re.search(pattern, task_and_response)
-                for pattern in significant_patterns
-            )
-
-            # Also check for entity IDs which indicate significant operations
-            entity_patterns = [
-                r"\b[a-zA-Z0-9]{15,18}\b",  # Salesforce IDs
-                r"\b[A-Z]+-\d+\b",  # Jira keys
-                r"\b(INC|CHG|PRB)\d{7}\b",  # ServiceNow numbers
-            ]
-            has_entity_refs = any(
-                re.search(pattern, final_response) for pattern in entity_patterns
-            )
-
-            if not is_significant and not has_entity_refs:
-                # Don't store routine actions
-                logger.debug(
-                    "skipping_routine_action",
-                    task=task[:50] if task else "none",
-                    reason="not_significant",
-                )
-                return {"agent_response": final_response}
-
-            # Skip storing completed actions - focus on domain entities only
-            logger.info(
-                "skipping_completed_action_storage",
-                task=task[:50] if task else "none",
-                reason="focusing_on_domain_entities_only",
-            )
-            return {"agent_response": final_response}
-
-        # Use intelligent entity extraction
-
-        # Initialize variables for memory storage
-        semantic_tags = set()
-        relates_to = []
-
-        # Add semantic tags based on the operation type
-        if produced_user_data:
-            semantic_tags.add("search_result")
-            semantic_tags.add("user_data")
-
-        # Add tags based on agent used
-        extraction_context = {"task": task, "agent": "unknown"}
-
-        # Identify which agent was used
-        for message in agent_response.get("messages", []):
-            if hasattr(message, "tool_calls") and message.tool_calls:
-                for tool_call in message.tool_calls:
-                    tool_name = tool_call.get("name", "").lower()
-                    if "salesforce" in tool_name:
-                        extraction_context["agent"] = "salesforce"
-                        extraction_context["system"] = "salesforce"
-                        break
-                    elif "jira" in tool_name:
-                        extraction_context["agent"] = "jira"
-                        extraction_context["system"] = "jira"
-                        break
-                    elif "servicenow" in tool_name:
-                        extraction_context["agent"] = "servicenow"
-                        extraction_context["system"] = "servicenow"
-                        break
-
-        # Add agent-specific tags
-        if extraction_context["agent"] != "unknown":
-            semantic_tags.add(extraction_context["agent"])
-            semantic_tags.add(f"{extraction_context['agent']}_operation")
-
-        # Entity extraction now happens at the agent level
-        # Agents extract entities from tool results and store them directly in memory
-        # The orchestrator can simply query for DOMAIN_ENTITY nodes when needed
-
-        # Get recently created domain entities from memory
-        # With user_id based memory, all entities are in the same memory space
-        related_entities = []
-
-        # Get previous step node IDs for creating relationships
-        past_steps = state.get("past_steps", [])
-        if past_steps and len(past_steps) > 0:
-            # Find the memory node ID from the most recent step
-            # This assumes past steps contain memory_node_ids
-            # For now, we'll leave relates_to empty since we'd need to query memory
-            # to find the actual node IDs from previous steps
-            pass
-        try:
-            # Query for recent domain entities created during this task
-            recent_entities = memory.retrieve_relevant(
-                query_text="",
-                context_filter={ContextType.DOMAIN_ENTITY},
-                max_age_hours=0.1,  # Last 6 minutes
-                max_results=20,
-            )
-            for entity_node in recent_entities:
-                related_entities.append(entity_node.node_id)
-                # Update access time
-                entity_node.access()
-
-            logger.info(
-                "found_agent_created_entities",
-                component="orchestrator",
-                operation="execute_step",
-                entity_count=len(related_entities),
-            )
-
-        except Exception as e:
-            logger.debug(f"Could not retrieve recent entities: {e}")
-
-        # Store in memory (auto-summary will be generated from actual content)
-        # Get memory manager for async operations
-        memory_manager = get_memory_manager()
-        memory_node_id = await memory_manager.store_memory(
-            memory_key,  # Use the same key (user_id or thread_id)
-            content={
-                "task": task,
-                "response": final_response,
-                "plan_context": plan,
-                "step_number": current_step_num,
-                "produced_user_data": produced_user_data,
-                "tool_calls": [
-                    {"tool": tc.get("name"), "args": tc.get("args", {})}
-                    for msg in agent_response["messages"]
-                    if hasattr(msg, "tool_calls") and msg.tool_calls
-                    for tc in msg.tool_calls
-                ],
-            },
-            context_type=context_type,
-            summary=f"Step {current_step_num}: {task[:50]}{'...' if len(task) > 50 else ''} - {context_type.value}",
-            tags=semantic_tags,
-            confidence=0.9 if produced_user_data else 0.7,
-            relates_to=relates_to,  # Create relationship to previous step
-        )
-
-        # Create relationships
-        # 1. Led-to relationship with previous step
-        if relates_to and len(relates_to) > 0:
-            await memory_manager.add_relationship(
-                memory_key,
-                relates_to[0],  # Previous step
-                memory_node_id,  # Current step
-                RelationshipType.LED_TO,
-            )
-
-            # Notify observer about the edge
-            try:
-                from src.orchestrator.observers.memory_observer import (
-                    notify_memory_edge,
-                )
-
-                notify_memory_edge(
-                    thread_id,
-                    relates_to[0],
-                    memory_node_id,
-                    RelationshipType.LED_TO,
-                    state.get("task_id"),
-                )
-            except Exception as e:
-                logger.warning("memory_edge_notification_failed", error=str(e))
-
-        # 2. Relationships with entities this action interacted with
-        for entity_id in related_entities:
-            # Determine relationship type based on action
-            if produced_user_data:
-                # This action retrieved/searched for the entity
-                rel_type = RelationshipType.ANSWERS  # Action answers query about entity
-                memory.add_relationship(memory_node_id, entity_id, rel_type)
-            else:
-                # This action modified or worked with the entity
-                rel_type = RelationshipType.REFINES  # Action refines/updates entity
-                await memory_manager.add_relationship(
-                    memory_key, memory_node_id, entity_id, rel_type
-                )
-
-            # No reverse relationship needed - actions lead to entities, not vice versa
-
-            # Notify about relationships
-            try:
-                from src.orchestrator.observers.memory_observer import (
-                    notify_memory_edge,
-                )
-
-                notify_memory_edge(
-                    thread_id, memory_node_id, entity_id, rel_type, state.get("task_id")
-                )
-                # Removed backwards edge - entity shouldn't point back to action
-            except Exception as e:
-                logger.debug(f"Memory edge notification failed: {e}")
-                pass
-
-        # 3. If we detected tool calls, create tool_output nodes
-        tool_calls = [
-            {"tool": tc.get("name"), "args": tc.get("args", {})}
-            for msg in agent_response["messages"]
-            if hasattr(msg, "tool_calls") and msg.tool_calls
-            for tc in msg.tool_calls
-        ]
-
-        for tool_call in tool_calls:
-            tool_node_id = memory.store(
-                content={
-                    "tool": tool_call["tool"],
-                    "args": tool_call["args"],
-                    "timestamp": datetime.now().isoformat(),
-                },
-                context_type=ContextType.TOOL_OUTPUT,
-                tags={tool_call["tool"].lower()} if tool_call["tool"] else set(),
-                confidence=0.6,
-                summary=f"Tool call: {tool_call['tool']}",
-            )
-
-            # Action depends on the tool/agent to execute it
-            memory.add_relationship(
-                memory_node_id, tool_node_id, RelationshipType.DEPENDS_ON
-            )
-
-            # Notify
-            try:
-                from src.orchestrator.observers.memory_observer import (
-                    notify_memory_update,
-                    notify_memory_edge,
-                )
-
-                node = memory.node_manager.get_node(tool_node_id)
-                if node:
-                    await notify_memory_update(
-                        thread_id,
-                        tool_node_id,
-                        node,
-                        state.get("task_id"),
-                        state.get("user_id"),
-                    )
-                notify_memory_edge(
-                    thread_id,
-                    memory_node_id,
-                    tool_node_id,
-                    RelationshipType.DEPENDS_ON,
-                    state.get("task_id"),
-                )
-            except Exception as e:
-                logger.debug(f"Memory tool notification failed: {e}")
-                pass
-
-        logger.info(
-            "stored_execution_result_in_memory",
-            component="orchestrator",
-            operation="execute_step",
-            memory_node_id=memory_node_id,
-            context_type=context_type.value,
-            tags=list(semantic_tags),
-            produced_user_data=produced_user_data,
-            linked_to_previous=bool(relates_to),
-        )
-
-        # Notify observers about memory update
-        try:
-            from src.orchestrator.observers.memory_observer import notify_memory_update
-
-            node = memory.node_manager.get_node(memory_node_id)
-            if node:
-                await notify_memory_update(
-                    thread_id,
-                    memory_node_id,
-                    node,
-                    state.get("task_id"),
-                    state.get("user_id"),
-                )
-        except Exception as e:
-            logger.warning("memory_observer_notification_failed", error=str(e))
-
-    except Exception as e:
-        logger.error(
-            "failed_to_store_execution_result",
-            component="orchestrator",
-            operation="execute_step",
-            error=str(e),
-        )
-        # Don't fail the whole execution if memory storage fails
 
     # Extract new messages from ReAct agent response to merge with conversation
     agent_messages = agent_response.get("messages", [])
@@ -1246,7 +966,7 @@ async def replan_step(state: PlanExecute):
     if not replanner:
         raise RuntimeError("Replanner not initialized")
 
-    output = asyncio.run(replanner.ainvoke(template_vars))
+    output = await replanner.ainvoke(template_vars)
 
     # Validation check for premature completion
     if isinstance(output.action, Response) and remaining_steps_count > 0:
@@ -1424,10 +1144,14 @@ def should_end(state: PlanExecute):
 # ================================
 
 
-def create_graph(agent_executor, planner, replanner):
-    """Create the canonical plan-and-execute graph."""
+def create_graph(agent_executor, planner, replanner, use_checkpointer=True):
+    """Create the canonical plan-and-execute graph.
     
-    logger.info("DEBUG_create_graph_called")
+    Args:
+        use_checkpointer: Whether to compile with checkpointer (default True for backward compat)
+    """
+    
+    logger.info("DEBUG_create_graph_called", use_checkpointer=use_checkpointer)
 
     # Store globally for node functions to access
     globals()["agent_executor"] = agent_executor
@@ -1477,11 +1201,15 @@ def create_graph(agent_executor, planner, replanner):
     # Finally, we compile it!
     # This compiles it into a LangChain Runnable,
     # meaning you can use it as you would any other runnable
-    # Use MemorySaver for in-memory checkpointing
-    # We don't need interrupt_before since HumanInputTool handles interrupts internally
-    app = workflow.compile(
-        checkpointer=MemorySaver()
-    )
+    if use_checkpointer:
+        # Use MemorySaver for in-memory checkpointing (default for backward compat)
+        # We don't need interrupt_before since HumanInputTool handles interrupts internally
+        app = workflow.compile(
+            checkpointer=MemorySaver()
+        )
+    else:
+        # Compile without checkpointer for subgraph usage
+        app = workflow.compile()
     return app
 
 
@@ -1635,8 +1363,12 @@ async def trigger_background_summary_if_needed(
         )
 
 
-async def create_plan_execute_graph():
-    """Create a simple plan-execute graph for A2A usage."""
+async def create_plan_execute_graph(use_checkpointer=True):
+    """Create a simple plan-execute graph for A2A usage.
+    
+    Args:
+        use_checkpointer: Whether to compile with checkpointer (default True for backward compat)
+    """
     from src.orchestrator.core.llm_handler import get_orchestrator_system_message
     from src.orchestrator.core.agent_registry import AgentRegistry
     from src.orchestrator.tools.agent_caller_tools import (
@@ -1691,23 +1423,37 @@ async def create_plan_execute_graph():
 
     # Create ReAct agent executor with our orchestrator prompt
     # Tools will access state via InjectedState annotation
-    # Use OrchestratorState as the state schema to ensure proper state handling
-    # IMPORTANT: Include checkpointer so agent state is preserved across interrupts
-    from langgraph.checkpoint.memory import MemorySaver
-    agent_executor = create_react_agent(
-        llm, 
-        tools, 
-        prompt=orchestrator_prompt, 
-        state_schema=OrchestratorState,
-        checkpointer=MemorySaver()  # Enable proper interrupt handling
-    )
+    # Use custom ReAct agent when in subgraph mode (no checkpointer)
+    if use_checkpointer:
+        # Standalone mode - use LangGraph's create_react_agent with checkpointer
+        from langgraph.checkpoint.memory import MemorySaver
+        from langgraph.prebuilt import create_react_agent
+        agent_executor = create_react_agent(
+            llm, 
+            tools, 
+            prompt=orchestrator_prompt, 
+            state_schema=OrchestratorState,
+            checkpointer=MemorySaver()
+        )
+    else:
+        # Subgraph mode - use our custom ReAct agent without checkpointer
+        from src.orchestrator.custom_react_agent import create_custom_react_agent
+        agent_executor = create_custom_react_agent(
+            llm, 
+            tools, 
+            prompt=orchestrator_prompt
+        )
 
     # Use the canonical setup with proper prompts and agent context
-    return setup_canonical_plan_execute(agent_executor, llm, agent_registry)
+    return setup_canonical_plan_execute(agent_executor, llm, agent_registry, use_checkpointer)
 
 
-def setup_canonical_plan_execute(llm_with_tools, llm_for_planning, agent_registry=None):
-    """Set up the canonical plan-and-execute graph with LLMs and tool context."""
+def setup_canonical_plan_execute(llm_with_tools, llm_for_planning, agent_registry=None, use_checkpointer=True):
+    """Set up the canonical plan-and-execute graph with LLMs and tool context.
+    
+    Args:
+        use_checkpointer: Whether to compile with checkpointer (default True for backward compat)
+    """
 
     # Get agent context from orchestrator system message generation (reuse existing logic)
     agent_context = ""
@@ -1756,7 +1502,7 @@ def setup_canonical_plan_execute(llm_with_tools, llm_for_planning, agent_registr
     agent_executor = llm_with_tools
 
     # Create and return the graph
-    return create_graph(agent_executor, planner, replanner)
+    return create_graph(agent_executor, planner, replanner, use_checkpointer)
 
 
 # Global instance for reuse
